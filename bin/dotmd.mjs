@@ -12,6 +12,8 @@ import { runStatus, runArchive, runTouch } from '../src/lifecycle.mjs';
 import { runInit } from '../src/init.mjs';
 import { runNew } from '../src/new.mjs';
 import { runCompletions } from '../src/completions.mjs';
+import { runWatch } from '../src/watch.mjs';
+import { runDiff } from '../src/diff.mjs';
 import { die, warn } from '../src/util.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -33,6 +35,8 @@ Commands:
   status <file> <status> Transition document status
   archive <file>         Archive (status + move + index regen)
   touch <file>           Bump updated date
+  watch [command]       Re-run a command on file changes
+  diff [file]           Show changes since last updated date
   new <name>             Create a new document with frontmatter
   init                   Create starter config + docs directory
   completions <shell>    Output shell completion script (bash, zsh)
@@ -96,6 +100,27 @@ Options:
 
 The filename is derived from <name> by slugifying it.
 Use --dry-run (-n) to preview without creating the file.`,
+
+  watch: `dotmd watch [command] — re-run a command on file changes
+
+Watches the docs root for .md file changes and re-runs the specified
+command. Defaults to 'list' if no command given.
+
+Examples:
+  dotmd watch              # re-run list on changes
+  dotmd watch check        # re-run check on changes
+  dotmd watch context      # live briefing`,
+
+  diff: `dotmd diff [file] — show changes since last updated date
+
+Shows git diffs for docs that changed after their frontmatter updated date.
+Without a file argument, shows all drifted docs.
+
+Options:
+  --stat                 Summary only (files changed, insertions/deletions)
+  --since <date>         Override: diff since this date instead of frontmatter
+  --summarize            Generate AI summary using local MLX model
+  --model <name>         MLX model to use (default: mlx-community/Llama-3.2-3B-Instruct-4bit)`,
 
   init: `dotmd init — create starter config and docs directory
 
@@ -166,6 +191,10 @@ async function main() {
     runQuery(index, [...config.presets[command], ...restArgs], config);
     return;
   }
+
+  // Watch and diff (handle their own index building)
+  if (command === 'watch') { runWatch(restArgs, config); return; }
+  if (command === 'diff') { runDiff(restArgs, config); return; }
 
   // Lifecycle commands
   if (command === 'status') { runStatus(restArgs, config, { dryRun }); return; }

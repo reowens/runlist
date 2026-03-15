@@ -83,6 +83,8 @@ dotmd index [--write]        Generate/update docs.md index block
 dotmd status <file> <status> Transition document status
 dotmd archive <file>         Archive (status + move + index regen)
 dotmd touch <file>           Bump updated date
+dotmd watch [command]        Re-run a command on file changes
+dotmd diff [file]            Show changes since last updated date
 dotmd new <name>             Create a new document with frontmatter
 dotmd init                   Create starter config + docs directory
 dotmd completions <shell>    Output shell completion script (bash, zsh)
@@ -130,6 +132,29 @@ export const presets = {
 ```
 
 Then run `dotmd stale` or `dotmd mine` as shorthand.
+
+### Watch Mode
+
+```bash
+dotmd watch              # re-run list on every .md change
+dotmd watch check        # live validation
+dotmd watch context      # live briefing
+```
+
+### Diff & Summarize
+
+Show git changes since each document's `updated` frontmatter date:
+
+```bash
+dotmd diff                           # all drifted docs
+dotmd diff docs/plans/auth.md        # single file
+dotmd diff --stat                    # summary stats only
+dotmd diff --since 2026-01-01        # override date
+dotmd diff --summarize               # AI summary via local MLX model
+dotmd diff --summarize --model mlx-community/Mistral-7B-Instruct-v0.3-4bit
+```
+
+The `--summarize` flag requires `uv` and a local MLX-compatible model. No JS dependencies are added.
 
 ## Configuration
 

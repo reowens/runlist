@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { dim } from './color.mjs';
 
@@ -57,4 +58,17 @@ export function warn(message) {
 export function die(message) {
   process.stderr.write(`${message}\n`);
   process.exitCode = 1;
+}
+
+export function resolveDocPath(input, config) {
+  if (!input) return null;
+  if (path.isAbsolute(input)) return existsSync(input) ? input : null;
+
+  let candidate = path.resolve(config.repoRoot, input);
+  if (existsSync(candidate)) return candidate;
+
+  candidate = path.resolve(config.docsRoot, input);
+  if (existsSync(candidate)) return candidate;
+
+  return null;
 }

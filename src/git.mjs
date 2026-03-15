@@ -16,3 +16,20 @@ export function gitMv(source, target, repoRoot) {
   });
   return { status: result.status, stderr: result.stderr };
 }
+
+export function gitDiffSince(relPath, sinceDate, repoRoot, opts = {}) {
+  // Find the last commit at or before sinceDate
+  const baseline = spawnSync('git', [
+    'log', '-1', '--before=' + sinceDate + 'T23:59:59', '--format=%H', '--', relPath
+  ], { cwd: repoRoot, encoding: 'utf8' });
+
+  const baseRef = baseline.stdout.trim();
+  if (!baseRef) return null;
+
+  const diffArgs = ['diff', baseRef, 'HEAD'];
+  if (opts.stat) diffArgs.push('--stat');
+  diffArgs.push('--', relPath);
+
+  const result = spawnSync('git', diffArgs, { cwd: repoRoot, encoding: 'utf8' });
+  return result.stdout || null;
+}

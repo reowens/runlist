@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
-import { asString, toRepoPath, die } from './util.mjs';
+import { asString, toRepoPath, die, resolveDocPath } from './util.mjs';
 import { gitMv } from './git.mjs';
 import { buildIndex, collectDocFiles } from './index.mjs';
 import { renderIndexFile, writeIndex } from './index-file.mjs';
@@ -186,19 +186,6 @@ export function runTouch(argv, config, opts = {}) {
   process.stdout.write(`${green('Touched')}: ${toRepoPath(filePath, config.repoRoot)} (updated → ${today})\n`);
 
   config.hooks.onTouch?.({ path: toRepoPath(filePath, config.repoRoot) }, { path: toRepoPath(filePath, config.repoRoot), date: today });
-}
-
-function resolveDocPath(input, config) {
-  if (!input) return null;
-  if (path.isAbsolute(input)) return existsSync(input) ? input : null;
-
-  let candidate = path.resolve(config.repoRoot, input);
-  if (existsSync(candidate)) return candidate;
-
-  candidate = path.resolve(config.docsRoot, input);
-  if (existsSync(candidate)) return candidate;
-
-  return null;
 }
 
 export function updateFrontmatter(filePath, updates) {
