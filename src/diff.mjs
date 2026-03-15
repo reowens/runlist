@@ -80,7 +80,9 @@ function printFileDiff(relPath, since, diffOutput, opts) {
   process.stdout.write(bold(relPath) + dim(` (updated: ${since})`) + '\n');
 
   if (opts.summarize) {
-    const summary = summarizeWithMLX(diffOutput, relPath, opts.model);
+    const summary = opts.config?.hooks?.summarizeDiff
+      ? opts.config.hooks.summarizeDiff(diffOutput, relPath)
+      : summarizeWithMLX(diffOutput, relPath, opts.model);
     if (summary) {
       process.stdout.write(dim(`  Summary: ${summary}`) + '\n');
     } else {

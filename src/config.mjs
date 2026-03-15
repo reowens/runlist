@@ -76,6 +76,50 @@ function findConfigFile(startDir) {
   return null;
 }
 
+const VALID_CONFIG_KEYS = new Set(Object.keys(DEFAULTS));
+
+function validateConfig(userConfig, config, validStatuses, indexPath) {
+  const warnings = [];
+
+  // statuses.order must be array
+  if (config.statuses && config.statuses.order !== undefined && !Array.isArray(config.statuses.order)) {
+    warnings.push('Config: statuses.order must be an array.');
+  }
+
+  // archiveDir must be string
+  if (config.archiveDir !== undefined && typeof config.archiveDir !== 'string') {
+    warnings.push('Config: archiveDir must be a string.');
+  }
+
+  // lifecycle.archiveStatuses values must exist in validStatuses
+  if (config.lifecycle?.archiveStatuses) {
+    for (const s of config.lifecycle.archiveStatuses) {
+      if (!validStatuses.has(s)) {
+        warnings.push(`Config: lifecycle.archiveStatuses contains unknown status '${s}'.`);
+      }
+    }
+  }
+
+  // taxonomy.surfaces must be null or array
+  if (config.taxonomy?.surfaces !== undefined && config.taxonomy.surfaces !== null && !Array.isArray(config.taxonomy.surfaces)) {
+    warnings.push('Config: taxonomy.surfaces must be null or an array.');
+  }
+
+  // index path file exists (if configured)
+  if (indexPath && !existsSync(indexPath)) {
+    warnings.push(`Config: index path does not exist: ${indexPath}`);
+  }
+
+  // Unknown top-level user config keys
+  for (const key of Object.keys(userConfig)) {
+    if (!VALID_CONFIG_KEYS.has(key)) {
+      warnings.push(`Config: unknown key '${key}'.`);
+    }
+  }
+
+  return warnings;
+}
+
 function deepMerge(defaults, overrides) {
   const result = { ...defaults };
   for (const [key, value] of Object.entries(overrides)) {
@@ -119,6 +163,7 @@ export async function resolveConfig(cwd, explicitConfigPath) {
         indexPath: null, indexStartMarker: '<!-- GENERATED:dotmd:start -->', indexEndMarker: '<!-- GENERATED:dotmd:end -->', archivedHighlightLimit: 8,
         context: defaults.context, display: defaults.display,
         referenceFields: defaults.referenceFields, presets: defaults.presets, hooks: {},
+        configWarnings: [],
       };
     }
 
@@ -188,6 +233,8 @@ export async function resolveConfig(cwd, explicitConfigPath) {
   const skipStaleFor = new Set(lifecycle.skipStaleFor);
   const skipWarningsFor = new Set(lifecycle.skipWarningsFor);
 
+  const configWarnings = validateConfig(userConfig, config, validStatuses, indexPath);
+
   return {
     raw: config,
 
@@ -219,5 +266,6 @@ export async function resolveConfig(cwd, explicitConfigPath) {
     referenceFields: config.referenceFields,
     presets: config.presets,
     hooks,
+    configWarnings,
   };
 }

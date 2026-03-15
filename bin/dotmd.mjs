@@ -14,6 +14,9 @@ import { runNew } from '../src/new.mjs';
 import { runCompletions } from '../src/completions.mjs';
 import { runWatch } from '../src/watch.mjs';
 import { runDiff } from '../src/diff.mjs';
+import { runLint } from '../src/lint.mjs';
+import { runRename } from '../src/rename.mjs';
+import { runMigrate } from '../src/migrate.mjs';
 import { die, warn } from '../src/util.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -35,6 +38,9 @@ Commands:
   status <file> <status> Transition document status
   archive <file>         Archive (status + move + index regen)
   touch <file>           Bump updated date
+  lint [--fix]           Check and auto-fix frontmatter issues
+  rename <old> <new>     Rename doc and update references
+  migrate <f> <old> <new>  Batch update a frontmatter field
   watch [command]       Re-run a command on file changes
   diff [file]           Show changes since last updated date
   new <name>             Create a new document with frontmatter
@@ -122,6 +128,33 @@ Options:
   --summarize            Generate AI summary using local MLX model
   --model <name>         MLX model to use (default: mlx-community/Llama-3.2-3B-Instruct-4bit)`,
 
+  lint: `dotmd lint [--fix] — check and auto-fix frontmatter issues
+
+Scans all docs for fixable problems: missing updated dates, status casing,
+camelCase key names, trailing whitespace in values, missing EOF newline.
+
+Without --fix, reports all issues. With --fix, applies fixes in place.
+Use --dry-run (-n) with --fix to preview without writing anything.`,
+
+  rename: `dotmd rename <old> <new> — rename doc and update references
+
+Renames a document using git mv and updates all frontmatter references
+in other docs that point to the old filename.
+
+Body markdown links are warned about but not auto-fixed.
+Use --dry-run (-n) to preview changes without writing anything.`,
+
+  migrate: `dotmd migrate <field> <old-value> <new-value> — batch update a frontmatter field
+
+Finds all docs where the given field equals old-value and updates it
+to new-value.
+
+Examples:
+  dotmd migrate status research exploration
+  dotmd migrate module auth identity
+
+Use --dry-run (-n) to preview changes without writing anything.`,
+
   init: `dotmd init — create starter config and docs directory
 
 Creates dotmd.config.mjs, docs/, and docs/docs.md in the current
@@ -179,6 +212,12 @@ async function main() {
     warn('No dotmd config found — using defaults. Run `dotmd init` to create one.');
   }
 
+  if (config.configWarnings && config.configWarnings.length > 0) {
+    for (const w of config.configWarnings) {
+      warn(w);
+    }
+  }
+
   if (verbose) {
     process.stderr.write(`Config: ${config.configPath ?? 'none'}\n`);
     process.stderr.write(`Docs root: ${config.docsRoot}\n`);
@@ -201,6 +240,9 @@ async function main() {
   if (command === 'archive') { runArchive(restArgs, config, { dryRun }); return; }
   if (command === 'touch') { runTouch(restArgs, config, { dryRun }); return; }
   if (command === 'new') { runNew(restArgs, config, { dryRun }); return; }
+  if (command === 'lint') { runLint(restArgs, config, { dryRun }); return; }
+  if (command === 'rename') { runRename(restArgs, config, { dryRun }); return; }
+  if (command === 'migrate') { runMigrate(restArgs, config, { dryRun }); return; }
 
   const index = buildIndex(config);
 

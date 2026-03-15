@@ -120,4 +120,39 @@ describe('resolveConfig', () => {
     ok(config.validSurfaces.has('ios'));
     ok(!config.validSurfaces.has('android'));
   });
+
+  it('warns on unknown top-level config key', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const root = '.';
+      export const banana = 'yellow';
+    `);
+    const config = await resolveConfig(tmpDir);
+    ok(config.configWarnings.length > 0, 'has config warnings');
+    ok(config.configWarnings.some(w => w.includes("unknown key 'banana'")), 'warns about banana');
+  });
+
+  it('warns when taxonomy.surfaces is not null or array', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const taxonomy = { surfaces: 'web' };
+    `);
+    const config = await resolveConfig(tmpDir);
+    ok(config.configWarnings.some(w => w.includes('taxonomy.surfaces')), 'warns about surfaces type');
+  });
+
+  it('warns when lifecycle.archiveStatuses has unknown status', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const lifecycle = { archiveStatuses: ['archived', 'nonexistent'] };
+    `);
+    const config = await resolveConfig(tmpDir);
+    ok(config.configWarnings.some(w => w.includes("'nonexistent'")), 'warns about unknown status');
+  });
+
+  it('returns empty configWarnings for valid config', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const root = '.';
+      export const archiveDir = 'archived';
+    `);
+    const config = await resolveConfig(tmpDir);
+    strictEqual(config.configWarnings.length, 0, 'no warnings');
+  });
 });

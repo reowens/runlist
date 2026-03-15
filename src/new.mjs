@@ -51,4 +51,6 @@ export function runNew(argv, config, opts = {}) {
 
   writeFileSync(filePath, content, 'utf8');
   process.stdout.write(`${green('Created')}: ${repoPath}\n`);
+
+  config.hooks.onNew?.({ path: repoPath, status, title: docTitle });
 }

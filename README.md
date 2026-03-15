@@ -83,6 +83,9 @@ dotmd index [--write]        Generate/update docs.md index block
 dotmd status <file> <status> Transition document status
 dotmd archive <file>         Archive (status + move + index regen)
 dotmd touch <file>           Bump updated date
+dotmd lint [--fix]           Check and auto-fix frontmatter issues
+dotmd rename <old> <new>     Rename doc and update references
+dotmd migrate <f> <old> <new>  Batch update a frontmatter field
 dotmd watch [command]        Re-run a command on file changes
 dotmd diff [file]            Show changes since last updated date
 dotmd new <name>             Create a new document with frontmatter
@@ -132,6 +135,44 @@ export const presets = {
 ```
 
 Then run `dotmd stale` or `dotmd mine` as shorthand.
+
+### Lint
+
+Check docs for fixable frontmatter issues and optionally auto-fix them:
+
+```bash
+dotmd lint                   # report issues
+dotmd lint --fix             # fix all issues
+dotmd lint --fix --dry-run   # preview fixes without writing
+```
+
+Detected issues:
+- Missing `updated` date on non-archived docs
+- Status casing mismatch (e.g., `Active` → `active`)
+- camelCase frontmatter keys (e.g., `nextStep` → `next_step`)
+- Trailing whitespace in frontmatter values
+- Missing newline at end of file
+
+### Rename
+
+Rename a document and update all frontmatter references across your docs:
+
+```bash
+dotmd rename old-name.md new-name        # renames + updates refs
+dotmd rename old-name.md new-name -n     # preview without writing
+```
+
+Uses `git mv` for the rename and scans all reference fields for the old filename. Body markdown links are warned about but not auto-fixed.
+
+### Migrate
+
+Batch update a frontmatter field value across all docs:
+
+```bash
+dotmd migrate status research exploration   # rename a status
+dotmd migrate module auth identity          # rename a module
+dotmd migrate module auth identity -n       # preview
+```
 
 ### Watch Mode
 
@@ -231,7 +272,18 @@ export function onStatusChange(doc, { oldStatus, newStatus }) {
 }
 ```
 
-Available: `onArchive`, `onStatusChange`, `onTouch`.
+Available: `onArchive`, `onStatusChange`, `onTouch`, `onNew`, `onRename`, `onLint`.
+
+### Summarize Hook
+
+Override the diff summarizer (replaces the default MLX model call):
+
+```js
+export function summarizeDiff(diffOutput, filePath) {
+  // call your preferred LLM, return a string summary
+  return `Changes in ${filePath}: ...`;
+}
+```
 
 ## Features
 
