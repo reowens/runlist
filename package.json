@@ -30,6 +30,9 @@
     "type": "git",
     "url": "git+https://github.com/reowens/runlist.git"
   },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
   "engines": {
     "node": ">=18"
   }
