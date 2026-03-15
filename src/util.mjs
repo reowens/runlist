@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { dim } from './color.mjs';
 
 export function escapeTable(value) {
   return String(value).replace(/\|/g, '\\|');
@@ -47,6 +48,10 @@ export function mergeUniqueStrings(...lists) {
 
 export function toRepoPath(absolutePath, repoRoot) {
   return path.relative(repoRoot, absolutePath).split(path.sep).join('/');
+}
+
+export function warn(message) {
+  process.stderr.write(`${dim(message)}\n`);
 }
 
 export function die(message) {

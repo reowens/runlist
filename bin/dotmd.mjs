@@ -10,7 +10,9 @@ import { renderIndexFile, writeIndex } from '../src/index-file.mjs';
 import { runFocus, runQuery } from '../src/query.mjs';
 import { runStatus, runArchive, runTouch } from '../src/lifecycle.mjs';
 import { runInit } from '../src/init.mjs';
-import { die } from '../src/util.mjs';
+import { runNew } from '../src/new.mjs';
+import { runCompletions } from '../src/completions.mjs';
+import { die, warn } from '../src/util.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -31,11 +33,14 @@ Commands:
   status <file> <status> Transition document status
   archive <file>         Archive (status + move + index regen)
   touch <file>           Bump updated date
+  new <name>             Create a new document with frontmatter
   init                   Create starter config + docs directory
+  completions <shell>    Output shell completion script (bash, zsh)
 
 Options:
   --config <path>        Explicit config file path
   --dry-run, -n          Preview changes without writing anything
+  --verbose              Show config details and doc count
   --help, -h             Show help
   --version, -v          Show version`,
 
@@ -81,6 +86,17 @@ With --write, updates the configured index file in place.
 
 Use --dry-run (-n) with --write to preview without writing.`,
 
+  new: `dotmd new <name> — create a new document
+
+Creates a new markdown document with frontmatter in the docs root.
+
+Options:
+  --status <s>         Set initial status (default: active)
+  --title <t>          Override the document title
+
+The filename is derived from <name> by slugifying it.
+Use --dry-run (-n) to preview without creating the file.`,
+
   init: `dotmd init — create starter config and docs directory
 
 Creates dotmd.config.mjs, docs/, and docs/docs.md in the current
@@ -108,9 +124,14 @@ async function main() {
     return;
   }
 
-  // Init doesn't need config
+  // Init and completions don't need config
   if (command === 'init') {
     runInit(process.cwd());
+    return;
+  }
+
+  if (command === 'completions') {
+    runCompletions(args.slice(1));
     return;
   }
 
@@ -124,9 +145,20 @@ async function main() {
   }
 
   const dryRun = args.includes('--dry-run') || args.includes('-n');
+  const verbose = args.includes('--verbose');
 
   const config = await resolveConfig(process.cwd(), explicitConfig);
   const restArgs = args.slice(1);
+
+  if (!config.configFound && command !== 'init') {
+    warn('No dotmd config found — using defaults. Run `dotmd init` to create one.');
+  }
+
+  if (verbose) {
+    process.stderr.write(`Config: ${config.configPath ?? 'none'}\n`);
+    process.stderr.write(`Docs root: ${config.docsRoot}\n`);
+    process.stderr.write(`Repo root: ${config.repoRoot}\n`);
+  }
 
   // Preset aliases
   if (config.presets[command]) {
@@ -139,8 +171,13 @@ async function main() {
   if (command === 'status') { runStatus(restArgs, config, { dryRun }); return; }
   if (command === 'archive') { runArchive(restArgs, config, { dryRun }); return; }
   if (command === 'touch') { runTouch(restArgs, config, { dryRun }); return; }
+  if (command === 'new') { runNew(restArgs, config, { dryRun }); return; }
 
   const index = buildIndex(config);
+
+  if (verbose) {
+    process.stderr.write(`Docs found: ${index.docs.length}\n`);
+  }
 
   if (command === 'json') {
     process.stdout.write(`${JSON.stringify(index, null, 2)}\n`);

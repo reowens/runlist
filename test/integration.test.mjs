@@ -120,6 +120,27 @@ describe('CLI integration', () => {
     ok(result.stdout.includes('BRIEFING'), 'outputs briefing header');
   });
 
+  it('--verbose prints config details and doc count', () => {
+    const docsDir = setupProject();
+    const today = new Date().toISOString().slice(0, 10);
+    writeDoc(docsDir, 'v.md', `status: active\nupdated: ${today}`, '# Verbose Doc\n');
+
+    const result = run(['list', '--verbose']);
+    // --verbose is also the list verbose flag; test the dedicated --verbose flag with json
+    const result2 = run(['json', '--verbose']);
+    ok(result2.stderr.includes('Config:'), 'shows config path');
+    ok(result2.stderr.includes('Docs root:'), 'shows docs root');
+    ok(result2.stderr.includes('Repo root:'), 'shows repo root');
+    ok(result2.stderr.includes('Docs found:'), 'shows doc count');
+  });
+
+  it('warns when no config found', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-noconf-'));
+    // No config file, no .git — just an empty dir
+    const result = run(['json']);
+    ok(result.stderr.includes('No dotmd config found'), 'shows no-config warning');
+  });
+
   it('focus shows docs for a specific status', () => {
     const docsDir = setupProject();
     const today = new Date().toISOString().slice(0, 10);

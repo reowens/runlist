@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { die, warn } from './util.mjs';
 
 const CONFIG_FILENAMES = ['dotmd.config.mjs', '.dotmd.config.mjs', 'dotmd.config.js'];
 
@@ -99,7 +100,27 @@ export async function resolveConfig(cwd, explicitConfigPath) {
 
   if (configPath && existsSync(configPath)) {
     const configUrl = pathToFileURL(configPath).href;
-    const mod = await import(configUrl);
+    let mod;
+    try {
+      mod = await import(configUrl);
+    } catch (err) {
+      die('Failed to load config: ' + configPath + '\n' + err.message + '\nRun `dotmd init` to create a starter config.');
+      // Return defaults so caller can still function
+      const defaults = deepMerge(DEFAULTS, {});
+      const defaultStatusOrder = defaults.statuses.order;
+      return {
+        raw: defaults, docsRoot: cwd, repoRoot: cwd, configDir: cwd,
+        configPath: configPath ?? null, configFound: Boolean(configPath),
+        archiveDir: defaults.archiveDir, excludeDirs: new Set(defaults.excludeDirs),
+        docsRootPrefix: '', statusOrder: defaultStatusOrder,
+        validStatuses: new Set(defaultStatusOrder), staleDaysByStatus: {},
+        lifecycle: { archiveStatuses: new Set(defaults.lifecycle.archiveStatuses), skipStaleFor: new Set(defaults.lifecycle.skipStaleFor), skipWarningsFor: new Set(defaults.lifecycle.skipWarningsFor) },
+        validSurfaces: null, moduleRequiredStatuses: new Set(),
+        indexPath: null, indexStartMarker: '<!-- GENERATED:dotmd:start -->', indexEndMarker: '<!-- GENERATED:dotmd:end -->', archivedHighlightLimit: 8,
+        context: defaults.context, display: defaults.display,
+        referenceFields: defaults.referenceFields, presets: defaults.presets, hooks: {},
+      };
+    }
 
     configDir = path.dirname(configPath);
 
@@ -122,6 +143,10 @@ export async function resolveConfig(cwd, explicitConfigPath) {
   const config = deepMerge(DEFAULTS, userConfig);
 
   const docsRoot = path.resolve(configDir, config.root);
+
+  if (!existsSync(docsRoot)) {
+    warn('Docs root does not exist: ' + docsRoot);
+  }
 
   // Find repo root by walking up looking for .git
   let repoRoot = configDir;
@@ -170,6 +195,7 @@ export async function resolveConfig(cwd, explicitConfigPath) {
     repoRoot,
     configDir,
     configPath: configPath ?? null,
+    configFound: Boolean(configPath),
     archiveDir: config.archiveDir,
     excludeDirs: new Set(config.excludeDirs),
     docsRootPrefix,

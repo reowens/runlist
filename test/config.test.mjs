@@ -80,6 +80,37 @@ describe('resolveConfig', () => {
     strictEqual(typeof config.hooks.onStatusChange, 'function');
   });
 
+  it('returns configFound true when config exists', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = '.';`);
+    const config = await resolveConfig(tmpDir);
+    strictEqual(config.configFound, true);
+  });
+
+  it('returns configFound false when no config exists', async () => {
+    const config = await resolveConfig(tmpDir);
+    strictEqual(config.configFound, false);
+  });
+
+  it('handles malformed config gracefully', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = (;`);
+    // Capture stderr to verify error message
+    const origWrite = process.stderr.write;
+    let stderrOutput = '';
+    process.stderr.write = (chunk) => { stderrOutput += chunk; return true; };
+    const origExitCode = process.exitCode;
+
+    const config = await resolveConfig(tmpDir);
+
+    process.stderr.write = origWrite;
+    process.exitCode = origExitCode;
+
+    ok(stderrOutput.includes('Failed to load config'), 'shows error message');
+    ok(stderrOutput.includes('dotmd init'), 'suggests dotmd init');
+    // Should still return a usable config with defaults
+    ok(config.validStatuses.has('active'), 'has default statuses');
+    strictEqual(config.configFound, true, 'configFound is true since file was found');
+  });
+
   it('resolves surfaces taxonomy', async () => {
     writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
       export const taxonomy = { surfaces: ['web', 'ios', 'api'] };

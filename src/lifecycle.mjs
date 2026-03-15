@@ -16,7 +16,7 @@ export function runStatus(argv, config, opts = {}) {
   if (!config.validStatuses.has(newStatus)) { die(`Invalid status: ${newStatus}\nValid: ${[...config.validStatuses].join(', ')}`); return; }
 
   const filePath = resolveDocPath(input, config);
-  if (!filePath) { die(`File not found: ${input}`); return; }
+  if (!filePath) { die(`File not found: ${input}\nSearched: ${toRepoPath(config.repoRoot, config.repoRoot) || '.'}, ${toRepoPath(config.docsRoot, config.repoRoot)}`); return; }
 
   const raw = readFileSync(filePath, 'utf8');
   const { frontmatter } = extractFrontmatter(raw);
@@ -92,7 +92,7 @@ export function runArchive(argv, config, opts = {}) {
   if (!input) { die('Usage: dotmd archive <file>'); return; }
 
   const filePath = resolveDocPath(input, config);
-  if (!filePath) { die(`File not found: ${input}`); return; }
+  if (!filePath) { die(`File not found: ${input}\nSearched: ${toRepoPath(config.repoRoot, config.repoRoot) || '.'}, ${toRepoPath(config.docsRoot, config.repoRoot)}`); return; }
   if (filePath.includes(`/${config.archiveDir}/`)) { die(`Already archived: ${toRepoPath(filePath, config.repoRoot)}`); return; }
 
   const raw = readFileSync(filePath, 'utf8');
@@ -173,7 +173,7 @@ export function runTouch(argv, config, opts = {}) {
   if (!input) { die('Usage: dotmd touch <file>'); return; }
 
   const filePath = resolveDocPath(input, config);
-  if (!filePath) { die(`File not found: ${input}`); return; }
+  if (!filePath) { die(`File not found: ${input}\nSearched: ${toRepoPath(config.repoRoot, config.repoRoot) || '.'}, ${toRepoPath(config.docsRoot, config.repoRoot)}`); return; }
 
   const today = new Date().toISOString().slice(0, 10);
 
