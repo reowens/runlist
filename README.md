@@ -7,16 +7,28 @@ Index, query, validate, and lifecycle-manage any collection of `.md` files — p
 ## Install
 
 ```bash
-npm install -g dotmd-cli
+npm install -g dotmd-cli    # global — use `dotmd` anywhere
+npm install -D dotmd-cli    # project devDep — use via npm scripts
 ```
 
 ## Quick Start
 
 ```bash
-dotmd init              # creates dotmd.config.mjs + docs/ + docs/README.md
-dotmd list              # index all docs grouped by status
-dotmd check             # validate frontmatter and references
-dotmd context           # compact briefing (great for LLM context)
+dotmd init                  # creates dotmd.config.mjs, docs/, docs/docs.md
+dotmd new my-feature        # scaffold a new doc with frontmatter
+dotmd list                  # index all docs grouped by status
+dotmd check                 # validate frontmatter and references
+dotmd context               # compact briefing (great for LLM context)
+```
+
+### Shell Completion
+
+```bash
+# bash
+eval "$(dotmd completions bash)"    # add to ~/.bashrc
+
+# zsh
+eval "$(dotmd completions zsh)"     # add to ~/.zshrc
 ```
 
 ## What It Does
@@ -27,8 +39,10 @@ dotmd scans a directory of markdown files, parses their YAML frontmatter, and gi
 - **Query** — filter by status, keyword, module, surface, owner, staleness
 - **Validate** — check for missing fields, broken references, stale dates
 - **Lifecycle** — transition statuses, auto-archive with `git mv`, bump dates
-- **README generation** — auto-generate an index block in your README
+- **Scaffold** — create new docs with frontmatter from the command line
+- **Index generation** — auto-generate a `docs.md` index block
 - **Context briefing** — compact summary designed for AI/LLM consumption
+- **Dry-run** — preview any mutation with `--dry-run` before committing
 
 ## Document Format
 
@@ -58,7 +72,7 @@ The only required field is `status`. Everything else is optional but unlocks mor
 ## Commands
 
 ```
-dotmd list [--verbose]       List docs grouped by status
+dotmd list [--verbose]       List docs grouped by status (default)
 dotmd json                   Full index as JSON
 dotmd check                  Validate frontmatter and references
 dotmd coverage [--json]      Metadata coverage report
@@ -69,7 +83,19 @@ dotmd index [--write]        Generate/update docs.md index block
 dotmd status <file> <status> Transition document status
 dotmd archive <file>         Archive (status + move + index regen)
 dotmd touch <file>           Bump updated date
+dotmd new <name>             Create a new document with frontmatter
 dotmd init                   Create starter config + docs directory
+dotmd completions <shell>    Output shell completion script (bash, zsh)
+```
+
+### Global Flags
+
+```
+--config <path>        Explicit config file path
+--dry-run, -n          Preview changes without writing anything
+--verbose              Show resolved config details
+--help, -h             Show help (per-command with: dotmd <cmd> --help)
+--version, -v          Show version
 ```
 
 ### Query Filters
@@ -82,6 +108,15 @@ dotmd query --surface backend --checklist-open
 ```
 
 Flags: `--status`, `--keyword`, `--module`, `--surface`, `--domain`, `--owner`, `--updated-since`, `--stale`, `--has-next-step`, `--has-blockers`, `--checklist-open`, `--sort`, `--limit`, `--all`, `--git`, `--json`.
+
+### Scaffold a Document
+
+```bash
+dotmd new my-feature                          # creates docs/my-feature.md (status: active)
+dotmd new "API Redesign" --status planned     # custom status
+dotmd new auth-refresh --title "Auth Refresh" # custom title
+dotmd new something --dry-run                 # preview without creating
+```
 
 ### Preset Aliases
 
@@ -115,8 +150,8 @@ export const lifecycle = {
   skipWarningsFor: ['archived'],
 };
 
-export const readme = {
-  path: 'docs/plans/README.md',
+export const index = {
+  path: 'docs/docs.md',
   startMarker: '<!-- GENERATED:dotmd:start -->',
   endMarker: '<!-- GENERATED:dotmd:end -->',
 };
@@ -178,9 +213,11 @@ Available: `onArchive`, `onStatusChange`, `onTouch`.
 - **Zero dependencies** — pure Node.js builtins (`fs`, `path`, `child_process`)
 - **No build step** — ships as plain ESM, runs directly
 - **Git-aware** — detects frontmatter date drift vs git history, uses `git mv` for archives
+- **Dry-run everything** — preview any mutation with `--dry-run` / `-n`
 - **Configurable everything** — statuses, taxonomy, lifecycle, validation rules, display
 - **Hook system** — extend with JS functions, no plugin framework to learn
 - **LLM-friendly** — `dotmd context` generates compact briefings for AI assistants
+- **Shell completion** — bash and zsh via `dotmd completions`
 
 ## License
 
