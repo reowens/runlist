@@ -1,5 +1,9 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { capitalize, toSlug, truncate, warn } from './util.mjs';
-import { bold, red, yellow, green } from './color.mjs';
+import { extractFrontmatter } from './frontmatter.mjs';
+import { summarizeDocBody } from './ai.mjs';
+import { bold, red, yellow, green, dim } from './color.mjs';
 
 export function renderCompactList(index, config) {
   const defaultRenderer = (idx) => _renderCompactList(idx, config);
@@ -61,8 +65,8 @@ export function renderVerboseList(index, config) {
   return `${lines.join('\n').trimEnd()}\n`;
 }
 
-export function renderContext(index, config) {
-  const defaultRenderer = (idx) => _renderContext(idx, config);
+export function renderContext(index, config, opts = {}) {
+  const defaultRenderer = (idx) => _renderContext(idx, config, opts);
   if (config.hooks.renderContext) {
     try { return config.hooks.renderContext(index, defaultRenderer); }
     catch (err) { warn(`Hook 'renderContext' threw: ${err.message}`); }
@@ -70,7 +74,7 @@ export function renderContext(index, config) {
   return defaultRenderer(index);
 }
 
-function _renderContext(index, config) {
+function _renderContext(index, config, opts = {}) {
   const today = new Date().toISOString().slice(0, 10);
   const lines = [`BRIEFING (${today})`, ''];
   const ctx = config.context;
@@ -91,6 +95,20 @@ function _renderContext(index, config) {
         ? truncate(doc.nextStep, ctx.truncateNextStep || 80)
         : '(no next step)';
       lines.push(`  ${slug}  next: ${next}`);
+      if (opts.summarize) {
+        try {
+          const absPath = path.resolve(config.repoRoot, doc.path);
+          const raw = readFileSync(absPath, 'utf8');
+          const { body } = extractFrontmatter(raw);
+          const meta = { title: doc.title, status: doc.status, path: doc.path };
+          const summary = config.hooks.summarizeDoc
+            ? config.hooks.summarizeDoc(body, meta)
+            : summarizeDocBody(body, meta, { model: opts.model });
+          if (summary) {
+            lines.push(`  ${''.padEnd(maxSlug)}  ${dim('ai: ' + truncate(summary, 120))}`);
+          }
+        } catch { /* skip on failure */ }
+      }
     }
     lines.push('');
   }

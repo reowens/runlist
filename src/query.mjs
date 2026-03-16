@@ -1,7 +1,12 @@
-import { capitalize, toSlug } from './util.mjs';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { capitalize, toSlug, warn } from './util.mjs';
 import { renderProgressBar } from './render.mjs';
 import { computeDaysSinceUpdate, computeIsStale } from './validate.mjs';
 import { getGitLastModified } from './git.mjs';
+import { extractFrontmatter } from './frontmatter.mjs';
+import { summarizeDocBody } from './ai.mjs';
+import { dim } from './color.mjs';
 
 export function runFocus(index, argv, config) {
   const statusFilter = argv[0] ?? 'active';
@@ -36,11 +41,16 @@ export function runQuery(index, argv, config) {
   const docs = filterDocs(index.docs, filters, config);
 
   if (filters.json) {
+    if (filters.summarize) {
+      for (let i = 0; i < docs.length && i < filters.summarizeLimit; i++) {
+        docs[i].aiSummary = getDocSummary(docs[i], config);
+      }
+    }
     process.stdout.write(`${JSON.stringify({ filters, count: docs.length, docs }, null, 2)}\n`);
     return;
   }
 
-  renderQueryResults(docs, filters);
+  renderQueryResults(docs, filters, config);
 }
 
 export function parseQueryArgs(argv) {
@@ -50,6 +60,7 @@ export function parseQueryArgs(argv) {
     updatedSince: null, limit: 20, all: false, sort: 'updated',
     stale: false, hasNextStep: false, hasBlockers: false,
     checklistOpen: false, json: false, git: false,
+    summarize: false, summarizeLimit: 5, model: undefined,
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -74,6 +85,9 @@ export function parseQueryArgs(argv) {
     if (arg === '--checklist-open') { filters.checklistOpen = true; continue; }
     if (arg === '--json') { filters.json = true; continue; }
     if (arg === '--git') { filters.git = true; continue; }
+    if (arg === '--summarize') { filters.summarize = true; continue; }
+    if (arg === '--summarize-limit' && next) { filters.summarizeLimit = Number.parseInt(next, 10) || 5; i += 1; continue; }
+    if (arg === '--model' && next) { filters.model = next; i += 1; continue; }
   }
 
   return filters;
@@ -116,7 +130,20 @@ export function filterDocs(docs, filters, config) {
   return filters.all ? result : result.slice(0, filters.limit);
 }
 
-function renderQueryResults(docs, filters) {
+function getDocSummary(doc, config) {
+  try {
+    const absPath = path.resolve(config.repoRoot, doc.path);
+    const raw = readFileSync(absPath, 'utf8');
+    const { body } = extractFrontmatter(raw);
+    if (!body?.trim()) return null;
+    const meta = { title: doc.title, status: doc.status, path: doc.path };
+    return config.hooks.summarizeDoc
+      ? config.hooks.summarizeDoc(body, meta)
+      : summarizeDocBody(body, meta, { model: undefined });
+  } catch { return null; }
+}
+
+function renderQueryResults(docs, filters, config) {
   process.stdout.write('Query\n\n');
   process.stdout.write(`- results: ${docs.length}\n`);
   if (filters.statuses?.length) process.stdout.write(`- status: ${filters.statuses.join(', ')}\n`);
@@ -138,7 +165,8 @@ function renderQueryResults(docs, filters) {
 
   if (docs.length === 0) { process.stdout.write('No matching docs.\n'); return; }
 
-  for (const doc of docs) {
+  for (let idx = 0; idx < docs.length; idx++) {
+    const doc = docs[idx];
     process.stdout.write(`- ${doc.title}\n`);
     process.stdout.write(`  status: ${doc.status}\n`);
     process.stdout.write(`  updated: ${doc.updated ?? 'n/a'}\n`);
@@ -155,6 +183,10 @@ function renderQueryResults(docs, filters) {
     if (doc.executionMode) process.stdout.write(`  execution-mode: ${doc.executionMode}\n`);
     if (doc.blockers?.length) process.stdout.write(`  blockers: ${doc.blockers.join('; ')}\n`);
     if (doc.checklist?.total) process.stdout.write(`  checklist: ${doc.checklist.completed}/${doc.checklist.total} complete\n`);
+    if (filters.summarize && idx < filters.summarizeLimit) {
+      const summary = getDocSummary(doc, config);
+      if (summary) process.stdout.write(`  ${dim('ai-summary:')} ${summary}\n`);
+    }
     process.stdout.write('\n');
   }
 }

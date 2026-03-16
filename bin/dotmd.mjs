@@ -21,6 +21,8 @@ import { runFixRefs, fixBrokenRefs } from '../src/fix-refs.mjs';
 import { buildGraph, renderGraphText, renderGraphDot, renderGraphJson } from '../src/graph.mjs';
 import { runDoctor } from '../src/doctor.mjs';
 import { buildStats, renderStats, renderStatsJson } from '../src/stats.mjs';
+import { runSummary } from '../src/summary.mjs';
+import { runDeps } from '../src/deps.mjs';
 import { die, warn } from '../src/util.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -37,6 +39,7 @@ Commands:
   coverage [--json]      Metadata coverage report
   stats [--json]         Doc health dashboard
   graph [--dot|--json]   Visualize document relationships
+  deps [file]            Dependency tree or overview
   context                Compact briefing (LLM-oriented)
   focus [status]         Detailed view for one status group
   query [filters]        Filtered search
@@ -50,8 +53,9 @@ Commands:
   rename <old> <new>     Rename doc and update references
   migrate <f> <old> <new>  Batch update a frontmatter field
   watch [command]       Re-run a command on file changes
+  summary <file>        AI summary of a document
   diff [file]           Show changes since last updated date
-  new <name>             Create a new document with frontmatter
+  new <name>             Create a new document from template
   init                   Create starter config + docs directory
   completions <shell>    Output shell completion script (bash, zsh)
 
@@ -123,6 +127,18 @@ Filters:
   --module <name>        Show only docs with this module
   --surface <name>       Show only docs with this surface`,
 
+  deps: `dotmd deps [file] — dependency tree or overview
+
+Without a file, shows a flat overview: most blocking docs, most blocked
+docs, docs with blockers, and orphans.
+
+With a file, shows a tree: what the doc depends on (recursive) and what
+depends on it.
+
+Options:
+  --depth <n>            Max tree depth (default: 5)
+  --json                 Machine-readable JSON output`,
+
   doctor: `dotmd doctor — auto-fix everything in one pass
 
 Runs in sequence: fix broken references, lint --fix, sync dates from
@@ -176,6 +192,15 @@ Examples:
   dotmd watch              # re-run list on changes
   dotmd watch check        # re-run check on changes
   dotmd watch context      # live briefing`,
+
+  summary: `dotmd summary <file> — AI summary of a document
+
+Generates an AI-powered summary using a local MLX model via uv.
+
+Options:
+  --model <name>         MLX model (default: mlx-community/Llama-3.2-3B-Instruct-4bit)
+  --max-tokens <n>       Max tokens for generation (default: 200)
+  --json                 Output as JSON`,
 
   diff: `dotmd diff [file] — show changes since last updated date
 
@@ -295,6 +320,8 @@ async function main() {
   // Watch and diff (handle their own index building)
   if (command === 'watch') { runWatch(restArgs, config); return; }
   if (command === 'diff') { runDiff(restArgs, config); return; }
+  if (command === 'summary') { runSummary(restArgs, config); return; }
+  if (command === 'deps') { runDeps(restArgs, config); return; }
 
   // Lifecycle commands
   if (command === 'status') { runStatus(restArgs, config, { dryRun }); return; }
@@ -404,7 +431,13 @@ async function main() {
 
   if (command === 'focus') { runFocus(index, restArgs, config); return; }
   if (command === 'query') { runQuery(index, restArgs, config); return; }
-  if (command === 'context') { process.stdout.write(renderContext(index, config)); return; }
+  if (command === 'context') {
+    const summarize = args.includes('--summarize');
+    const modelIdx = args.indexOf('--model');
+    const model = modelIdx !== -1 && args[modelIdx + 1] ? args[modelIdx + 1] : undefined;
+    process.stdout.write(renderContext(index, config, { summarize, model }));
+    return;
+  }
 
   if (command === 'graph') {
     const statusFilter = (() => { const i = args.indexOf('--status'); return i !== -1 && args[i + 1] ? args[i + 1] : null; })();

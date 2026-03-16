@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { asString, toRepoPath, resolveDocPath, die, warn } from './util.mjs';
 import { gitDiffSince } from './git.mjs';
 import { buildIndex } from './index.mjs';
+import { summarizeDiffText } from './ai.mjs';
 import { bold, dim, green } from './color.mjs';
 
 export function runDiff(argv, config) {
@@ -82,7 +82,7 @@ function printFileDiff(relPath, since, diffOutput, opts) {
     try {
       summary = opts.config?.hooks?.summarizeDiff
         ? opts.config.hooks.summarizeDiff(diffOutput, relPath)
-        : summarizeWithMLX(diffOutput, relPath, opts.model);
+        : summarizeDiffText(diffOutput, relPath, opts.model);
     } catch (err) {
       warn(`Hook 'summarizeDiff' threw: ${err.message}`);
       summary = null;
@@ -98,29 +98,3 @@ function printFileDiff(relPath, since, diffOutput, opts) {
   process.stdout.write('\n');
 }
 
-function summarizeWithMLX(diffText, filePath, model) {
-  const uvCheck = spawnSync('uv', ['--version'], { encoding: 'utf8' });
-  if (uvCheck.error) {
-    warn('uv is not installed. Install it to enable --summarize: https://docs.astral.sh/uv/');
-    return null;
-  }
-
-  const prompt = `Summarize this git diff in 1-2 sentences. Focus on what changed semantically, not line counts.\n\nFile: ${filePath}\n\n${diffText.slice(0, 4000)}`;
-
-  const result = spawnSync('uv', [
-    'run', '--with', 'mlx-lm',
-    'python3', '-m', 'mlx_lm', 'generate',
-    '--model', model,
-    '--prompt', prompt,
-    '--max-tokens', '150',
-    '--verbose', 'false',
-  ], { encoding: 'utf8', timeout: 120000 });
-
-  if (result.status !== 0) {
-    return null;
-  }
-
-  const output = result.stdout.trim();
-  const lines = output.split('\n').filter(l => !l.includes('Fetching') && !l.includes('Warning:') && !l.includes('=========='));
-  return lines.join(' ').trim() || null;
-}

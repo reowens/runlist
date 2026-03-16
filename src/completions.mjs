@@ -1,9 +1,9 @@
 import { die } from './util.mjs';
 
 const COMMANDS = [
-  'list', 'json', 'check', 'coverage', 'stats', 'graph', 'context', 'focus', 'query',
+  'list', 'json', 'check', 'coverage', 'stats', 'graph', 'deps', 'context', 'focus', 'query',
   'index', 'status', 'archive', 'touch', 'doctor', 'lint', 'rename', 'migrate',
-  'fix-refs', 'watch', 'diff', 'init', 'new', 'completions',
+  'fix-refs', 'summary', 'watch', 'diff', 'init', 'new', 'completions',
 ];
 
 const GLOBAL_FLAGS = ['--config', '--dry-run', '--verbose', '--root', '--help', '--version'];
@@ -11,7 +11,8 @@ const GLOBAL_FLAGS = ['--config', '--dry-run', '--verbose', '--root', '--help', 
 const COMMAND_FLAGS = {
   query: ['--status', '--keyword', '--module', '--surface', '--domain', '--owner',
           '--updated-since', '--stale', '--has-next-step', '--has-blockers',
-          '--checklist-open', '--sort', '--limit', '--all', '--git', '--json'],
+          '--checklist-open', '--sort', '--limit', '--all', '--git', '--json',
+          '--summarize', '--summarize-limit', '--model'],
   index: ['--write'],
   list: ['--verbose'],
   coverage: ['--json'],
@@ -20,10 +21,13 @@ const COMMAND_FLAGS = {
   check: ['--errors-only', '--fix'],
   stats: ['--json'],
   graph: ['--dot', '--json', '--status', '--module', '--surface'],
+  deps: ['--json', '--depth'],
   lint: ['--fix'],
   rename: [],
   migrate: [],
   'fix-refs': [],
+  summary: ['--model', '--max-tokens', '--json'],
+  context: ['--summarize', '--model'],
   touch: ['--git'],
 };
 
