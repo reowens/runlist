@@ -77,11 +77,15 @@ export function collectDocFiles(config) {
   const files = [];
   const skipPaths = new Set();
   if (config.indexPath) skipPaths.add(config.indexPath);
-  walkMarkdownFiles(config.docsRoot, files, config.excludeDirs, skipPaths);
+  const roots = config.docsRoots || [config.docsRoot];
+  const seen = new Set();
+  for (const root of roots) {
+    walkMarkdownFiles(root, files, config.excludeDirs, skipPaths, seen);
+  }
   return files.sort((a, b) => a.localeCompare(b));
 }
 
-function walkMarkdownFiles(directory, files, excludedDirs, skipPaths) {
+function walkMarkdownFiles(directory, files, excludedDirs, skipPaths, seen = new Set()) {
   let entries;
   try {
     entries = readdirSync(directory, { withFileTypes: true });
@@ -91,11 +95,12 @@ function walkMarkdownFiles(directory, files, excludedDirs, skipPaths) {
   for (const entry of entries) {
     if (entry.isDirectory()) {
       if (excludedDirs && excludedDirs.has(entry.name)) continue;
-      walkMarkdownFiles(path.join(directory, entry.name), files, excludedDirs, skipPaths);
+      walkMarkdownFiles(path.join(directory, entry.name), files, excludedDirs, skipPaths, seen);
       continue;
     }
     const fullPath = path.join(directory, entry.name);
-    if (!entry.isFile() || !entry.name.endsWith('.md') || skipPaths.has(fullPath)) continue;
+    if (!entry.isFile() || !entry.name.endsWith('.md') || skipPaths.has(fullPath) || seen.has(fullPath)) continue;
+    seen.add(fullPath);
     files.push(fullPath);
   }
 }
@@ -127,8 +132,14 @@ export function parseDocFile(filePath, config) {
     refFields[field] = normalizeStringList(parsedFrontmatter[field]);
   }
 
+  // Tag doc with its root
+  const roots = config.docsRoots || [config.docsRoot];
+  const docRoot = roots.find(r => filePath.startsWith(r)) ?? config.docsRoot;
+  const rootLabel = path.relative(config.repoRoot, docRoot).split(path.sep).join('/');
+
   const doc = {
     path: relativePath,
+    root: rootLabel,
     status: asString(parsedFrontmatter.status) ?? null,
     owner: asString(parsedFrontmatter.owner) ?? null,
     surface,

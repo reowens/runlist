@@ -182,11 +182,15 @@ export async function resolveConfig(cwd, explicitConfigPath) {
 
   const config = deepMerge(DEFAULTS, userConfig);
 
-  const docsRoot = path.resolve(configDir, config.root);
+  const rootPaths = Array.isArray(config.root) ? config.root : [config.root];
+  const docsRoots = rootPaths.map(r => path.resolve(configDir, r));
+  const docsRoot = docsRoots[0]; // primary root for backwards compat
 
   const earlyWarnings = [];
-  if (!existsSync(docsRoot)) {
-    earlyWarnings.push('Config: docs root does not exist: ' + docsRoot);
+  for (const dr of docsRoots) {
+    if (!existsSync(dr)) {
+      earlyWarnings.push('Config: docs root does not exist: ' + dr);
+    }
   }
 
   // Find repo root by walking up looking for .git
@@ -235,6 +239,7 @@ export async function resolveConfig(cwd, explicitConfigPath) {
     raw: config,
 
     docsRoot,
+    docsRoots,
     repoRoot,
     configDir,
     configPath: configPath ?? null,

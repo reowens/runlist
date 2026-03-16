@@ -1,12 +1,12 @@
 import { die } from './util.mjs';
 
 const COMMANDS = [
-  'list', 'json', 'check', 'coverage', 'graph', 'context', 'focus', 'query',
+  'list', 'json', 'check', 'coverage', 'stats', 'graph', 'context', 'focus', 'query',
   'index', 'status', 'archive', 'touch', 'doctor', 'lint', 'rename', 'migrate',
   'fix-refs', 'watch', 'diff', 'init', 'new', 'completions',
 ];
 
-const GLOBAL_FLAGS = ['--config', '--dry-run', '--verbose', '--help', '--version'];
+const GLOBAL_FLAGS = ['--config', '--dry-run', '--verbose', '--root', '--help', '--version'];
 
 const COMMAND_FLAGS = {
   query: ['--status', '--keyword', '--module', '--surface', '--domain', '--owner',
@@ -15,9 +15,10 @@ const COMMAND_FLAGS = {
   index: ['--write'],
   list: ['--verbose'],
   coverage: ['--json'],
-  new: ['--status', '--title', '--template', '--list-templates'],
+  new: ['--status', '--title', '--template', '--list-templates', '--root'],
   diff: ['--stat', '--since', '--summarize', '--model'],
   check: ['--errors-only', '--fix'],
+  stats: ['--json'],
   graph: ['--dot', '--json', '--status', '--module', '--surface'],
   lint: ['--fix'],
   rename: [],

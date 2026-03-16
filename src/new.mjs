@@ -44,10 +44,12 @@ export function runNew(argv, config, opts = {}) {
   let status = 'active';
   let title = null;
   let templateName = null;
+  let rootName = null;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--status' && argv[i + 1]) { status = argv[++i]; continue; }
     if (argv[i] === '--title' && argv[i + 1]) { title = argv[++i]; continue; }
     if (argv[i] === '--template' && argv[i + 1]) { templateName = argv[++i]; continue; }
+    if (argv[i] === '--root' && argv[i + 1]) { rootName = argv[++i]; continue; }
     if (argv[i] === '--list-templates') {
       listTemplates(config);
       return;
@@ -73,8 +75,20 @@ export function runNew(argv, config, opts = {}) {
   // Title
   const docTitle = title ?? name.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
+  // Resolve target root
+  let targetRoot = config.docsRoot;
+  if (rootName) {
+    const roots = config.docsRoots || [config.docsRoot];
+    const match = roots.find(r => r.endsWith(rootName) || path.basename(r) === rootName);
+    if (!match) {
+      const available = roots.map(r => path.basename(r)).join(', ');
+      die(`Unknown root: ${rootName}\nAvailable: ${available}`);
+    }
+    targetRoot = match;
+  }
+
   // Path
-  const filePath = path.join(config.docsRoot, slug + '.md');
+  const filePath = path.join(targetRoot, slug + '.md');
   const repoPath = toRepoPath(filePath, config.repoRoot);
 
   if (existsSync(filePath)) {

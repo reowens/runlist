@@ -77,8 +77,11 @@ export function resolveDocPath(input, config) {
   let candidate = path.resolve(config.repoRoot, input);
   if (existsSync(candidate)) return candidate;
 
-  candidate = path.resolve(config.docsRoot, input);
-  if (existsSync(candidate)) return candidate;
+  const roots = config.docsRoots || [config.docsRoot];
+  for (const root of roots) {
+    candidate = path.resolve(root, input);
+    if (existsSync(candidate)) return candidate;
+  }
 
   return null;
 }

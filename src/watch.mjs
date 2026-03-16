@@ -28,18 +28,21 @@ export function runWatch(argv, config) {
   // Run once immediately
   run();
 
-  process.stderr.write(dim(`\nWatching ${config.docsRoot} for changes... (Ctrl+C to stop)`) + '\n');
+  const roots = config.docsRoots || [config.docsRoot];
+  process.stderr.write(dim(`\nWatching ${roots.length} root(s) for changes... (Ctrl+C to stop)`) + '\n');
 
-  // Watch for changes
-  const watcher = watch(config.docsRoot, { recursive: true }, (eventType, filename) => {
-    if (filename && filename.endsWith('.md')) {
-      run();
-    }
-  });
+  // Watch for changes across all roots
+  const watchers = roots.map(root =>
+    watch(root, { recursive: true }, (eventType, filename) => {
+      if (filename && filename.endsWith('.md')) {
+        run();
+      }
+    })
+  );
 
   // Clean exit
   process.on('SIGINT', () => {
-    watcher.close();
+    for (const w of watchers) w.close();
     process.exit(0);
   });
 

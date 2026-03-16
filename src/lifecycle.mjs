@@ -7,6 +7,11 @@ import { buildIndex, collectDocFiles } from './index.mjs';
 import { renderIndexFile, writeIndex } from './index-file.mjs';
 import { green, dim, yellow } from './color.mjs';
 
+function findFileRoot(filePath, config) {
+  const roots = config.docsRoots || [config.docsRoot];
+  return roots.find(r => filePath.startsWith(r)) ?? config.docsRoot;
+}
+
 export function runStatus(argv, config, opts = {}) {
   const { dryRun } = opts;
   const input = argv[0];
@@ -29,7 +34,8 @@ export function runStatus(argv, config, opts = {}) {
   }
 
   const today = new Date().toISOString().slice(0, 10);
-  const archiveDir = path.join(config.docsRoot, config.archiveDir);
+  const fileRoot = findFileRoot(filePath, config);
+  const archiveDir = path.join(fileRoot, config.archiveDir);
   const isArchiving = config.lifecycle.archiveStatuses.has(newStatus) && !filePath.includes(`/${config.archiveDir}/`);
   const isUnarchiving = !config.lifecycle.archiveStatuses.has(newStatus) && filePath.includes(`/${config.archiveDir}/`);
   let finalPath = filePath;
@@ -43,7 +49,7 @@ export function runStatus(argv, config, opts = {}) {
       finalPath = targetPath;
     }
     if (isUnarchiving) {
-      const targetPath = path.join(config.docsRoot, path.basename(filePath));
+      const targetPath = path.join(fileRoot, path.basename(filePath));
       process.stdout.write(`${prefix} Would move: ${toRepoPath(filePath, config.repoRoot)} → ${toRepoPath(targetPath, config.repoRoot)}\n`);
       finalPath = targetPath;
     }
@@ -66,7 +72,7 @@ export function runStatus(argv, config, opts = {}) {
   }
 
   if (isUnarchiving) {
-    const targetPath = path.join(config.docsRoot, path.basename(filePath));
+    const targetPath = path.join(fileRoot, path.basename(filePath));
     if (existsSync(targetPath)) { die(`Target already exists: ${toRepoPath(targetPath, config.repoRoot)}`); }
     const result = gitMv(filePath, targetPath, config.repoRoot);
     if (result.status !== 0) { die(result.stderr || 'git mv failed.'); }
@@ -102,7 +108,8 @@ export function runArchive(argv, config, opts = {}) {
   const oldStatus = asString(parsed.status) ?? 'unknown';
 
   const today = new Date().toISOString().slice(0, 10);
-  const targetDir = path.join(config.docsRoot, config.archiveDir);
+  const archiveFileRoot = findFileRoot(filePath, config);
+  const targetDir = path.join(archiveFileRoot, config.archiveDir);
   const targetPath = path.join(targetDir, path.basename(filePath));
   const oldRepoPath = toRepoPath(filePath, config.repoRoot);
   const newRepoPath = toRepoPath(targetPath, config.repoRoot);

@@ -20,6 +20,7 @@ import { runMigrate } from '../src/migrate.mjs';
 import { runFixRefs, fixBrokenRefs } from '../src/fix-refs.mjs';
 import { buildGraph, renderGraphText, renderGraphDot, renderGraphJson } from '../src/graph.mjs';
 import { runDoctor } from '../src/doctor.mjs';
+import { buildStats, renderStats, renderStatsJson } from '../src/stats.mjs';
 import { die, warn } from '../src/util.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -34,6 +35,7 @@ Commands:
   json                   Full index as JSON
   check [flags]          Validate frontmatter and references
   coverage [--json]      Metadata coverage report
+  stats [--json]         Doc health dashboard
   graph [--dot|--json]   Visualize document relationships
   context                Compact briefing (LLM-oriented)
   focus [status]         Detailed view for one status group
@@ -100,6 +102,14 @@ Sets status to 'archived', moves to the archive directory, auto-updates
 references in other docs, and regenerates the index.
 
 Use --dry-run (-n) to preview changes without writing anything.`,
+
+  stats: `dotmd stats — doc health dashboard
+
+Shows aggregated metrics: status counts, staleness, errors/warnings,
+freshness, completeness, checklist progress, and audit coverage.
+
+Options:
+  --json                 Machine-readable JSON output`,
 
   graph: `dotmd graph — visualize document relationships
 
@@ -270,7 +280,8 @@ async function main() {
 
   if (verbose) {
     process.stderr.write(`Config: ${config.configPath ?? 'none'}\n`);
-    process.stderr.write(`Docs root: ${config.docsRoot}\n`);
+    const roots = config.docsRoots || [config.docsRoot];
+    process.stderr.write(`Docs root${roots.length > 1 ? 's' : ''}: ${roots.join(', ')}\n`);
     process.stderr.write(`Repo root: ${config.repoRoot}\n`);
   }
 
@@ -297,6 +308,17 @@ async function main() {
   if (command === 'doctor') { runDoctor(restArgs, config, { dryRun }); return; }
 
   const index = buildIndex(config);
+
+  // Apply --root filter
+  const rootFilter = (() => { const i = args.indexOf('--root'); return i !== -1 && args[i + 1] ? args[i + 1] : null; })();
+  if (rootFilter) {
+    index.docs = index.docs.filter(d => d.root === rootFilter || d.root.endsWith('/' + rootFilter) || d.root.split('/').pop() === rootFilter);
+    index.errors = index.errors.filter(e => index.docs.some(d => d.path === e.path));
+    index.warnings = index.warnings.filter(w => index.docs.some(d => d.path === w.path));
+    for (const status of config.statusOrder) {
+      index.countsByStatus[status] = index.docs.filter(d => d.status === status).length;
+    }
+  }
 
   if (verbose) {
     process.stderr.write(`Docs found: ${index.docs.length}\n`);
@@ -349,6 +371,16 @@ async function main() {
       process.stdout.write(`${JSON.stringify(buildCoverage(index, config), null, 2)}\n`);
     } else {
       process.stdout.write(renderCoverage(index, config));
+    }
+    return;
+  }
+
+  if (command === 'stats') {
+    const stats = buildStats(index, config);
+    if (args.includes('--json')) {
+      process.stdout.write(renderStatsJson(stats));
+    } else {
+      process.stdout.write(renderStats(stats, config));
     }
     return;
   }
