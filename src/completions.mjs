@@ -2,7 +2,7 @@ import { die } from './util.mjs';
 
 const COMMANDS = [
   'list', 'json', 'check', 'coverage', 'graph', 'context', 'focus', 'query',
-  'index', 'status', 'archive', 'touch', 'lint', 'rename', 'migrate',
+  'index', 'status', 'archive', 'touch', 'doctor', 'lint', 'rename', 'migrate',
   'fix-refs', 'watch', 'diff', 'init', 'new', 'completions',
 ];
 

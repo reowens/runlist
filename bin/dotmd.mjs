@@ -19,6 +19,7 @@ import { runRename } from '../src/rename.mjs';
 import { runMigrate } from '../src/migrate.mjs';
 import { runFixRefs, fixBrokenRefs } from '../src/fix-refs.mjs';
 import { buildGraph, renderGraphText, renderGraphDot, renderGraphJson } from '../src/graph.mjs';
+import { runDoctor } from '../src/doctor.mjs';
 import { die, warn } from '../src/util.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -41,6 +42,7 @@ Commands:
   status <file> <status> Transition document status
   archive <file>         Archive (status + move + update refs)
   touch <file>           Bump updated date
+  doctor                 Auto-fix everything: refs, lint, dates, index
   fix-refs               Auto-fix broken reference paths
   lint [--fix]           Check and auto-fix frontmatter issues
   rename <old> <new>     Rename doc and update references
@@ -110,6 +112,13 @@ Filters:
   --status <s1,s2>       Show only docs with these statuses
   --module <name>        Show only docs with this module
   --surface <name>       Show only docs with this surface`,
+
+  doctor: `dotmd doctor — auto-fix everything in one pass
+
+Runs in sequence: fix broken references, lint --fix, sync dates from
+git, regenerate index, then show remaining issues.
+
+Use --dry-run (-n) to preview all changes without writing anything.`,
 
   'fix-refs': `dotmd fix-refs — auto-fix broken reference paths
 
@@ -285,6 +294,7 @@ async function main() {
   if (command === 'rename') { runRename(restArgs, config, { dryRun }); return; }
   if (command === 'migrate') { runMigrate(restArgs, config, { dryRun }); return; }
   if (command === 'fix-refs') { runFixRefs(restArgs, config, { dryRun }); return; }
+  if (command === 'doctor') { runDoctor(restArgs, config, { dryRun }); return; }
 
   const index = buildIndex(config);
 
