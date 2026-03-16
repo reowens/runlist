@@ -35,7 +35,7 @@ export const lifecycle = {
 
 // Taxonomy validation — set fields to null to skip validation
 export const taxonomy = {
-  surfaces: ['frontend', 'backend', 'mobile', 'docs', 'ops', 'platform'],
+  surfaces: ['web', 'ios', 'android', 'mobile', 'full-stack', 'frontend', 'backend', 'api', 'docs', 'ops', 'platform', 'infra', 'design'],
   moduleRequiredFor: ['active', 'ready', 'planned', 'blocked'],
 };
 

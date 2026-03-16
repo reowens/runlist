@@ -17,6 +17,7 @@ import { runDiff } from '../src/diff.mjs';
 import { runLint } from '../src/lint.mjs';
 import { runRename } from '../src/rename.mjs';
 import { runMigrate } from '../src/migrate.mjs';
+import { runFixRefs, fixBrokenRefs } from '../src/fix-refs.mjs';
 import { die, warn } from '../src/util.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -29,15 +30,16 @@ const HELP = {
 Commands:
   list [--verbose]       List docs grouped by status (default)
   json                   Full index as JSON
-  check                  Validate frontmatter and references
+  check [flags]          Validate frontmatter and references
   coverage [--json]      Metadata coverage report
   context                Compact briefing (LLM-oriented)
   focus [status]         Detailed view for one status group
   query [filters]        Filtered search
   index [--write]        Generate/update docs.md index block
   status <file> <status> Transition document status
-  archive <file>         Archive (status + move + index regen)
+  archive <file>         Archive (status + move + update refs)
   touch <file>           Bump updated date
+  fix-refs               Auto-fix broken reference paths
   lint [--fix]           Check and auto-fix frontmatter issues
   rename <old> <new>     Rename doc and update references
   migrate <f> <old> <new>  Batch update a frontmatter field
@@ -82,10 +84,33 @@ regenerates the index (if configured).
 
 Use --dry-run (-n) to preview changes without writing anything.`,
 
+  check: `dotmd check — validate frontmatter and references
+
+Options:
+  --errors-only          Show only errors, suppress warnings
+  --fix                  Auto-fix broken references and regenerate index`,
+
   archive: `dotmd archive <file> — archive a document
 
-Sets status to 'archived', moves to the archive directory, regenerates
-the index, and scans for stale references.
+Sets status to 'archived', moves to the archive directory, auto-updates
+references in other docs, and regenerates the index.
+
+Use --dry-run (-n) to preview changes without writing anything.`,
+
+  'fix-refs': `dotmd fix-refs — auto-fix broken reference paths
+
+Scans all docs for reference fields that point to non-existent files,
+then attempts to resolve them by matching the basename against all known
+docs. Fixes are applied by rewriting the frontmatter path.
+
+Use --dry-run (-n) to preview changes without writing anything.`,
+
+  touch: `dotmd touch <file> — bump updated date
+       dotmd touch --git  — bulk-sync dates from git history
+
+Without --git, updates a single file's frontmatter updated date to today.
+With --git, scans all docs (or a specific file) and syncs their updated
+date to match the last git commit date, fixing date drift warnings.
 
 Use --dry-run (-n) to preview changes without writing anything.`,
 
@@ -243,6 +268,7 @@ async function main() {
   if (command === 'lint') { runLint(restArgs, config, { dryRun }); return; }
   if (command === 'rename') { runRename(restArgs, config, { dryRun }); return; }
   if (command === 'migrate') { runMigrate(restArgs, config, { dryRun }); return; }
+  if (command === 'fix-refs') { runFixRefs(restArgs, config, { dryRun }); return; }
 
   const index = buildIndex(config);
 
@@ -265,7 +291,29 @@ async function main() {
   }
 
   if (command === 'check') {
-    process.stdout.write(renderCheck(index, config));
+    const fix = args.includes('--fix');
+    const errorsOnly = args.includes('--errors-only');
+
+    if (fix) {
+      // Auto-fix: broken refs, then lint, then rebuild index
+      const refResult = fixBrokenRefs(config, { dryRun, quiet: false });
+      if (!dryRun) {
+        runLint(['--fix'], config, { dryRun });
+      }
+      if (!dryRun && config.indexPath) {
+        const { renderIndexFile: rif, writeIndex: wi } = await import('../src/index-file.mjs');
+        const freshIndex = buildIndex(config);
+        wi(rif(freshIndex, config), config);
+        process.stdout.write('Index regenerated.\n');
+      }
+      // Show remaining issues
+      const freshIndex = buildIndex(config);
+      process.stdout.write('\n' + renderCheck(freshIndex, config, { errorsOnly }));
+      if (freshIndex.errors.length > 0) process.exitCode = 1;
+      return;
+    }
+
+    process.stdout.write(renderCheck(index, config, { errorsOnly }));
     if (index.errors.length > 0) process.exitCode = 1;
     return;
   }

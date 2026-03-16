@@ -1,11 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
+import { extractFrontmatter, parseSimpleFrontmatter, replaceFrontmatter } from './frontmatter.mjs';
 import { asString, toRepoPath, die, warn, resolveDocPath, escapeRegex } from './util.mjs';
-import { gitMv } from './git.mjs';
+import { gitMv, getGitLastModified } from './git.mjs';
 import { buildIndex, collectDocFiles } from './index.mjs';
 import { renderIndexFile, writeIndex } from './index-file.mjs';
-import { green, dim } from './color.mjs';
+import { green, dim, yellow } from './color.mjs';
 
 export function runStatus(argv, config, opts = {}) {
   const { dryRun } = opts;
@@ -114,20 +114,10 @@ export function runArchive(argv, config, opts = {}) {
     process.stdout.write(`${prefix} Would move: ${oldRepoPath} → ${newRepoPath}\n`);
     if (config.indexPath) process.stdout.write(`${prefix} Would regenerate index\n`);
 
-    // Reference scan is read-only, still useful in dry-run
-    const basename = path.basename(filePath);
-    const references = [];
-    for (const docFile of collectDocFiles(config)) {
-      if (docFile === targetPath) continue;
-      const docRaw = readFileSync(docFile, 'utf8');
-      const { frontmatter: docFm } = extractFrontmatter(docRaw);
-      if (docFm.includes(basename)) {
-        references.push(toRepoPath(docFile, config.repoRoot));
-      }
-    }
-    if (references.length > 0) {
-      process.stdout.write('\nThese docs reference the old path — would need updating:\n');
-      for (const ref of references) process.stdout.write(`- ${ref}\n`);
+    // Preview reference updates
+    const refCount = countRefsToUpdate(filePath, targetPath, config);
+    if (refCount > 0) {
+      process.stdout.write(`${prefix} Would update references in ${refCount} file(s)\n`);
     }
     return;
   }
@@ -140,39 +130,78 @@ export function runArchive(argv, config, opts = {}) {
   const result = gitMv(filePath, targetPath, config.repoRoot);
   if (result.status !== 0) { die(result.stderr || 'git mv failed.'); }
 
+  // Auto-update references in other docs
+  const updatedRefCount = updateRefsAfterMove(filePath, targetPath, config);
+
   if (config.indexPath) {
     const index = buildIndex(config);
     writeIndex(renderIndexFile(index, config), config);
   }
 
   process.stdout.write(`${green('Archived')}: ${oldRepoPath} → ${newRepoPath}\n`);
+  if (updatedRefCount > 0) process.stdout.write(`Updated references in ${updatedRefCount} file(s).\n`);
   if (config.indexPath) process.stdout.write('Index regenerated.\n');
 
-  const basename = path.basename(filePath);
-  const references = [];
-  for (const docFile of collectDocFiles(config)) {
-    if (docFile === targetPath) continue;
-    const docRaw = readFileSync(docFile, 'utf8');
-    const { frontmatter: docFm } = extractFrontmatter(docRaw);
-    if (docFm.includes(basename)) {
-      references.push(toRepoPath(docFile, config.repoRoot));
-    }
-  }
-
-  if (references.length > 0) {
-    process.stdout.write('\nThese docs reference the old path — update reference entries:\n');
-    for (const ref of references) process.stdout.write(`- ${ref}\n`);
-  }
-
-  process.stdout.write('\nNext: commit, then update references if needed.\n');
   try { config.hooks.onArchive?.({ path: newRepoPath, oldStatus }, { oldPath: oldRepoPath, newPath: newRepoPath }); } catch (err) { warn(`Hook 'onArchive' threw: ${err.message}`); }
 }
 
 export function runTouch(argv, config, opts = {}) {
   const { dryRun } = opts;
-  const input = argv[0];
+  const useGit = argv.includes('--git');
+  const positional = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--config') { i++; continue; }
+    if (argv[i].startsWith('-')) continue;
+    positional.push(argv[i]);
+  }
+  const input = positional[0];
 
-  if (!input) { die('Usage: dotmd touch <file>'); }
+  // --git mode: bulk-sync frontmatter dates from git history
+  if (useGit) {
+    const allFiles = input ? [resolveDocPath(input, config)].filter(Boolean) : collectDocFiles(config);
+    if (input && allFiles.length === 0) { die(`File not found: ${input}`); }
+
+    const prefix = dryRun ? dim('[dry-run] ') : '';
+    let synced = 0;
+
+    for (const filePath of allFiles) {
+      const repoPath = toRepoPath(filePath, config.repoRoot);
+      const raw = readFileSync(filePath, 'utf8');
+      const { frontmatter } = extractFrontmatter(raw);
+      if (!frontmatter) continue;
+
+      const parsed = parseSimpleFrontmatter(frontmatter);
+      const status = asString(parsed.status);
+      if (config.lifecycle.skipStaleFor.has(status)) continue;
+
+      const fmUpdated = asString(parsed.updated);
+      const gitDate = getGitLastModified(repoPath, config.repoRoot);
+      if (!gitDate) continue;
+
+      const gitDay = gitDate.slice(0, 10);
+      if (fmUpdated === gitDay) continue;
+
+      // Only sync if git is newer than frontmatter
+      const gitMs = new Date(gitDate).getTime();
+      const fmMs = fmUpdated ? new Date(fmUpdated).getTime() : 0;
+      if (fmMs >= gitMs) continue;
+
+      if (!dryRun) {
+        updateFrontmatter(filePath, { updated: gitDay });
+      }
+      process.stdout.write(`${prefix}${green('Synced')}: ${repoPath} (updated → ${gitDay})\n`);
+      synced++;
+    }
+
+    if (synced === 0) {
+      process.stdout.write(green('All frontmatter dates are in sync with git.') + '\n');
+    } else {
+      process.stdout.write(`\n${prefix}${synced} file(s) synced.\n`);
+    }
+    return;
+  }
+
+  if (!input) { die('Usage: dotmd touch <file>\n       dotmd touch --git          Bulk-sync dates from git history'); }
 
   const filePath = resolveDocPath(input, config);
   if (!filePath) { die(`File not found: ${input}\nSearched: ${toRepoPath(config.repoRoot, config.repoRoot) || '.'}, ${toRepoPath(config.docsRoot, config.repoRoot)}`); }
@@ -188,6 +217,69 @@ export function runTouch(argv, config, opts = {}) {
   process.stdout.write(`${green('Touched')}: ${toRepoPath(filePath, config.repoRoot)} (updated → ${today})\n`);
 
   try { config.hooks.onTouch?.({ path: toRepoPath(filePath, config.repoRoot) }, { path: toRepoPath(filePath, config.repoRoot), date: today }); } catch (err) { warn(`Hook 'onTouch' threw: ${err.message}`); }
+}
+
+/**
+ * After a file moves (archive/unarchive), update frontmatter references in all
+ * docs that pointed to the old location so they point to the new one.
+ */
+function updateRefsAfterMove(oldPath, newPath, config) {
+  const basename = path.basename(oldPath);
+  const allFiles = collectDocFiles(config);
+  let updatedCount = 0;
+
+  for (const docFile of allFiles) {
+    if (docFile === newPath) continue;
+    let raw = readFileSync(docFile, 'utf8');
+    const { frontmatter: fm } = extractFrontmatter(raw);
+    if (!fm || !fm.includes(basename)) continue;
+
+    const docDir = path.dirname(docFile);
+    const oldRelPath = path.relative(docDir, oldPath).split(path.sep).join('/');
+    const newRelPath = path.relative(docDir, newPath).split(path.sep).join('/');
+
+    let newFm = fm;
+
+    // Replace exact relative path
+    if (newFm.includes(oldRelPath)) {
+      newFm = newFm.split(oldRelPath).join(newRelPath);
+    }
+
+    // Also handle ./ prefix variant
+    const dotSlashOld = './' + oldRelPath;
+    if (newFm.includes(dotSlashOld)) {
+      newFm = newFm.split(dotSlashOld).join(newRelPath);
+    }
+
+    if (newFm !== fm) {
+      raw = replaceFrontmatter(raw, newFm);
+      writeFileSync(docFile, raw, 'utf8');
+      updatedCount++;
+    }
+  }
+
+  return updatedCount;
+}
+
+function countRefsToUpdate(oldPath, newPath, config) {
+  const basename = path.basename(oldPath);
+  const allFiles = collectDocFiles(config);
+  let count = 0;
+
+  for (const docFile of allFiles) {
+    if (docFile === newPath) continue;
+    const raw = readFileSync(docFile, 'utf8');
+    const { frontmatter: fm } = extractFrontmatter(raw);
+    if (!fm || !fm.includes(basename)) continue;
+
+    const docDir = path.dirname(docFile);
+    const oldRelPath = path.relative(docDir, oldPath).split(path.sep).join('/');
+    if (fm.includes(oldRelPath) || fm.includes('./' + oldRelPath)) {
+      count++;
+    }
+  }
+
+  return count;
 }
 
 export function updateFrontmatter(filePath, updates) {

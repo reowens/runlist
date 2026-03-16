@@ -3,7 +3,7 @@ import { die } from './util.mjs';
 const COMMANDS = [
   'list', 'json', 'check', 'coverage', 'context', 'focus', 'query',
   'index', 'status', 'archive', 'touch', 'lint', 'rename', 'migrate',
-  'watch', 'diff', 'init', 'new', 'completions',
+  'fix-refs', 'watch', 'diff', 'init', 'new', 'completions',
 ];
 
 const GLOBAL_FLAGS = ['--config', '--dry-run', '--verbose', '--help', '--version'];
@@ -17,9 +17,12 @@ const COMMAND_FLAGS = {
   coverage: ['--json'],
   new: ['--status', '--title'],
   diff: ['--stat', '--since', '--summarize', '--model'],
+  check: ['--errors-only', '--fix'],
   lint: ['--fix'],
   rename: [],
   migrate: [],
+  'fix-refs': [],
+  touch: ['--git'],
 };
 
 function bashCompletion() {

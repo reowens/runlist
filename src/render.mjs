@@ -143,8 +143,8 @@ function _renderContext(index, config) {
   return `${lines.join('\n').trimEnd()}\n`;
 }
 
-export function renderCheck(index, config) {
-  const defaultRenderer = (idx) => _renderCheck(idx);
+export function renderCheck(index, config, opts = {}) {
+  const defaultRenderer = (idx) => _renderCheck(idx, opts);
   if (config.hooks.renderCheck) {
     try { return config.hooks.renderCheck(index, defaultRenderer); }
     catch (err) { warn(`Hook 'renderCheck' threw: ${err.message}`); }
@@ -152,7 +152,8 @@ export function renderCheck(index, config) {
   return defaultRenderer(index);
 }
 
-function _renderCheck(index) {
+function _renderCheck(index, opts = {}) {
+  const { errorsOnly } = opts;
   const lines = ['Check', ''];
   lines.push(`- docs scanned: ${index.docs.length}`);
   lines.push(`- errors: ${index.errors.length}`);
@@ -167,7 +168,7 @@ function _renderCheck(index) {
     lines.push('');
   }
 
-  if (index.warnings.length > 0) {
+  if (!errorsOnly && index.warnings.length > 0) {
     lines.push(yellow('Warnings'));
     for (const issue of index.warnings) {
       lines.push(`- ${issue.path}: ${issue.message}`);
