@@ -1,5 +1,5 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
-import { strictEqual, deepStrictEqual, ok } from 'node:assert';
+import { strictEqual, deepStrictEqual, ok, rejects } from 'node:assert';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -91,24 +91,16 @@ describe('resolveConfig', () => {
     strictEqual(config.configFound, false);
   });
 
-  it('handles malformed config gracefully', async () => {
+  it('handles malformed config by throwing', async () => {
     writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = (;`);
-    // Capture stderr to verify error message
-    const origWrite = process.stderr.write;
-    let stderrOutput = '';
-    process.stderr.write = (chunk) => { stderrOutput += chunk; return true; };
-    const origExitCode = process.exitCode;
-
-    const config = await resolveConfig(tmpDir);
-
-    process.stderr.write = origWrite;
-    process.exitCode = origExitCode;
-
-    ok(stderrOutput.includes('Failed to load config'), 'shows error message');
-    ok(stderrOutput.includes('dotmd init'), 'suggests dotmd init');
-    // Should still return a usable config with defaults
-    ok(config.validStatuses.has('active'), 'has default statuses');
-    strictEqual(config.configFound, true, 'configFound is true since file was found');
+    await rejects(
+      () => resolveConfig(tmpDir),
+      (err) => {
+        ok(err.message.includes('Failed to load config'), 'shows error message');
+        ok(err.message.includes('dotmd init'), 'suggests dotmd init');
+        return true;
+      }
+    );
   });
 
   it('resolves surfaces taxonomy', async () => {

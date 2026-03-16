@@ -47,6 +47,10 @@ export function mergeUniqueStrings(...lists) {
   return [...new Set(lists.flat().filter(Boolean))];
 }
 
+export function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 export function toRepoPath(absolutePath, repoRoot) {
   return path.relative(repoRoot, absolutePath).split(path.sep).join('/');
 }
@@ -55,9 +59,15 @@ export function warn(message) {
   process.stderr.write(`${dim(message)}\n`);
 }
 
+export class DotmdError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'DotmdError';
+  }
+}
+
 export function die(message) {
-  process.stderr.write(`${message}\n`);
-  process.exitCode = 1;
+  throw new DotmdError(message);
 }
 
 export function resolveDocPath(input, config) {

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
+import { extractFrontmatter, parseSimpleFrontmatter, replaceFrontmatter } from './frontmatter.mjs';
 import { toRepoPath, resolveDocPath, die, warn } from './util.mjs';
 import { collectDocFiles } from './index.mjs';
 import { gitMv } from './git.mjs';
@@ -21,14 +21,12 @@ export function runRename(argv, config, opts = {}) {
 
   if (!oldInput || !newInput) {
     die('Usage: dotmd rename <old> <new>');
-    return;
   }
 
   // Resolve old path
   const oldPath = resolveDocPath(oldInput, config);
   if (!oldPath) {
     die(`File not found: ${oldInput}\nSearched: ${toRepoPath(config.repoRoot, config.repoRoot) || '.'}, ${toRepoPath(config.docsRoot, config.repoRoot)}`);
-    return;
   }
 
   // Compute new path in same directory as old
@@ -109,7 +107,6 @@ export function runRename(argv, config, opts = {}) {
   const result = gitMv(oldPath, newPath, config.repoRoot);
   if (result.status !== 0) {
     die(result.stderr || 'git mv failed.');
-    return;
   }
 
   // Update references in frontmatter of other docs
@@ -127,7 +124,7 @@ export function runRename(argv, config, opts = {}) {
     }).join('\n');
 
     if (newFm !== fm) {
-      raw = raw.replace(`---\n${fm}\n---`, `---\n${newFm}\n---`);
+      raw = replaceFrontmatter(raw, newFm);
       writeFileSync(filePath, raw, 'utf8');
       updatedCount++;
     }
@@ -145,5 +142,5 @@ export function runRename(argv, config, opts = {}) {
     }
   }
 
-  config.hooks.onRename?.({ oldPath: oldRepoPath, newPath: newRepoPath, referencesUpdated: updatedCount });
+  try { config.hooks.onRename?.({ oldPath: oldRepoPath, newPath: newRepoPath, referencesUpdated: updatedCount }); } catch (err) { warn(`Hook 'onRename' threw: ${err.message}`); }
 }

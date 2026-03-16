@@ -90,7 +90,6 @@ export function runCompletions(argv) {
   const shell = argv[0];
   if (!shell) {
     die('Usage: dotmd completions <bash|zsh>');
-    return;
   }
   if (shell === 'bash') {
     process.stdout.write(bashCompletion() + '\n');

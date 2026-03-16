@@ -27,7 +27,6 @@ export function runDiff(argv, config) {
     const filePath = resolveDocPath(file, config);
     if (!filePath) {
       die(`File not found: ${file}\nSearched: ${toRepoPath(config.repoRoot, config.repoRoot) || '.'}, ${toRepoPath(config.docsRoot, config.repoRoot)}`);
-      return;
     }
 
     const raw = readFileSync(filePath, 'utf8');
@@ -37,7 +36,6 @@ export function runDiff(argv, config) {
 
     if (!since) {
       die(`No updated date found in ${file} and no --since provided.`);
-      return;
     }
 
     const relPath = toRepoPath(filePath, config.repoRoot);
@@ -80,9 +78,15 @@ function printFileDiff(relPath, since, diffOutput, opts) {
   process.stdout.write(bold(relPath) + dim(` (updated: ${since})`) + '\n');
 
   if (opts.summarize) {
-    const summary = opts.config?.hooks?.summarizeDiff
-      ? opts.config.hooks.summarizeDiff(diffOutput, relPath)
-      : summarizeWithMLX(diffOutput, relPath, opts.model);
+    let summary;
+    try {
+      summary = opts.config?.hooks?.summarizeDiff
+        ? opts.config.hooks.summarizeDiff(diffOutput, relPath)
+        : summarizeWithMLX(diffOutput, relPath, opts.model);
+    } catch (err) {
+      warn(`Hook 'summarizeDiff' threw: ${err.message}`);
+      summary = null;
+    }
     if (summary) {
       process.stdout.write(dim(`  Summary: ${summary}`) + '\n');
     } else {
@@ -95,6 +99,12 @@ function printFileDiff(relPath, since, diffOutput, opts) {
 }
 
 function summarizeWithMLX(diffText, filePath, model) {
+  const uvCheck = spawnSync('uv', ['--version'], { encoding: 'utf8' });
+  if (uvCheck.error) {
+    warn('uv is not installed. Install it to enable --summarize: https://docs.astral.sh/uv/');
+    return null;
+  }
+
   const prompt = `Summarize this git diff in 1-2 sentences. Focus on what changed semantically, not line counts.\n\nFile: ${filePath}\n\n${diffText.slice(0, 4000)}`;
 
   const result = spawnSync('uv', [

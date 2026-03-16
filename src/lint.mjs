@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs';
-import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
-import { asString, toRepoPath } from './util.mjs';
+import { extractFrontmatter, parseSimpleFrontmatter, replaceFrontmatter } from './frontmatter.mjs';
+import { asString, toRepoPath, escapeRegex, warn } from './util.mjs';
 import { buildIndex, collectDocFiles } from './index.mjs';
 import { updateFrontmatter } from './lifecycle.mjs';
 import { bold, green, yellow, dim } from './color.mjs';
@@ -132,7 +132,7 @@ export function runLint(argv, config, opts = {}) {
         const { frontmatter: fm } = extractFrontmatter(raw);
         let newFm = fm;
         for (const kr of keyRenames) {
-          const regex = new RegExp(`^${kr.oldValue}:`, 'm');
+          const regex = new RegExp(`^${escapeRegex(kr.oldValue)}:`, 'm');
           newFm = newFm.replace(regex, `${kr.newValue}:`);
         }
         for (const tf of trimFixes) {
@@ -140,7 +140,7 @@ export function runLint(argv, config, opts = {}) {
           newFm = newFm.replace(regex, `$1${tf.newValue}`);
         }
         if (newFm !== fm) {
-          raw = raw.replace(`---\n${fm}\n---`, `---\n${newFm}\n---`);
+          raw = replaceFrontmatter(raw, newFm);
           writeFileSync(filePath, raw, 'utf8');
         }
       }
@@ -174,13 +174,10 @@ export function runLint(argv, config, opts = {}) {
     totalFixes += fixes.length;
 
     if (!dryRun) {
-      config.hooks.onLint?.({ path: repoPath, fixes });
+      try { config.hooks.onLint?.({ path: repoPath, fixes }); } catch (err) { warn(`Hook 'onLint' threw: ${err.message}`); }
     }
   }
 
   process.stdout.write(`\n${prefix}${totalFixes} fix${totalFixes !== 1 ? 'es' : ''} applied across ${fixable.length} file(s).\n`);
 }
 
-function escapeRegex(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}

@@ -100,6 +100,15 @@ function validateConfig(userConfig, config, validStatuses, indexPath) {
     }
   }
 
+  // staleDays keys must exist in validStatuses
+  if (config.statuses?.staleDays) {
+    for (const key of Object.keys(config.statuses.staleDays)) {
+      if (!validStatuses.has(key)) {
+        warnings.push(`Config: statuses.staleDays contains unknown status '${key}'.`);
+      }
+    }
+  }
+
   // taxonomy.surfaces must be null or array
   if (config.taxonomy?.surfaces !== undefined && config.taxonomy.surfaces !== null && !Array.isArray(config.taxonomy.surfaces)) {
     warnings.push('Config: taxonomy.surfaces must be null or an array.');
@@ -149,22 +158,6 @@ export async function resolveConfig(cwd, explicitConfigPath) {
       mod = await import(configUrl);
     } catch (err) {
       die('Failed to load config: ' + configPath + '\n' + err.message + '\nRun `dotmd init` to create a starter config.');
-      // Return defaults so caller can still function
-      const defaults = deepMerge(DEFAULTS, {});
-      const defaultStatusOrder = defaults.statuses.order;
-      return {
-        raw: defaults, docsRoot: cwd, repoRoot: cwd, configDir: cwd,
-        configPath: configPath ?? null, configFound: Boolean(configPath),
-        archiveDir: defaults.archiveDir, excludeDirs: new Set(defaults.excludeDirs),
-        docsRootPrefix: '', statusOrder: defaultStatusOrder,
-        validStatuses: new Set(defaultStatusOrder), staleDaysByStatus: {},
-        lifecycle: { archiveStatuses: new Set(defaults.lifecycle.archiveStatuses), skipStaleFor: new Set(defaults.lifecycle.skipStaleFor), skipWarningsFor: new Set(defaults.lifecycle.skipWarningsFor) },
-        validSurfaces: null, moduleRequiredStatuses: new Set(),
-        indexPath: null, indexStartMarker: '<!-- GENERATED:dotmd:start -->', indexEndMarker: '<!-- GENERATED:dotmd:end -->', archivedHighlightLimit: 8,
-        context: defaults.context, display: defaults.display,
-        referenceFields: defaults.referenceFields, presets: defaults.presets, hooks: {},
-        configWarnings: [],
-      };
     }
 
     configDir = path.dirname(configPath);
@@ -189,8 +182,9 @@ export async function resolveConfig(cwd, explicitConfigPath) {
 
   const docsRoot = path.resolve(configDir, config.root);
 
+  const earlyWarnings = [];
   if (!existsSync(docsRoot)) {
-    warn('Docs root does not exist: ' + docsRoot);
+    earlyWarnings.push('Config: docs root does not exist: ' + docsRoot);
   }
 
   // Find repo root by walking up looking for .git
@@ -233,7 +227,7 @@ export async function resolveConfig(cwd, explicitConfigPath) {
   const skipStaleFor = new Set(lifecycle.skipStaleFor);
   const skipWarningsFor = new Set(lifecycle.skipWarningsFor);
 
-  const configWarnings = validateConfig(userConfig, config, validStatuses, indexPath);
+  const configWarnings = [...earlyWarnings, ...validateConfig(userConfig, config, validStatuses, indexPath)];
 
   return {
     raw: config,

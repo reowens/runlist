@@ -1,5 +1,5 @@
 import { describe, it } from 'node:test';
-import { strictEqual, deepStrictEqual } from 'node:assert';
+import { strictEqual, deepStrictEqual, ok, throws } from 'node:assert';
 import {
   escapeTable,
   asString,
@@ -8,6 +8,9 @@ import {
   normalizeStringList,
   normalizeBlockers,
   mergeUniqueStrings,
+  escapeRegex,
+  die,
+  DotmdError,
 } from '../src/util.mjs';
 
 describe('escapeTable', () => {
@@ -117,5 +120,50 @@ describe('mergeUniqueStrings', () => {
 
   it('handles empty input', () => {
     deepStrictEqual(mergeUniqueStrings([], []), []);
+  });
+});
+
+describe('escapeRegex', () => {
+  it('escapes regex metacharacters', () => {
+    strictEqual(escapeRegex('foo.bar*baz?'), 'foo\\.bar\\*baz\\?');
+  });
+
+  it('escapes brackets, parens, braces, and pipes', () => {
+    strictEqual(escapeRegex('a(b)[c]{d}|e'), 'a\\(b\\)\\[c\\]\\{d\\}\\|e');
+  });
+
+  it('escapes caret, dollar, plus, and backslash', () => {
+    strictEqual(escapeRegex('^start$+end\\'), '\\^start\\$\\+end\\\\');
+  });
+
+  it('passes alphanumeric strings through unchanged', () => {
+    strictEqual(escapeRegex('hello123'), 'hello123');
+  });
+});
+
+describe('DotmdError', () => {
+  it('is an instance of Error', () => {
+    const err = new DotmdError('test message');
+    ok(err instanceof Error);
+  });
+
+  it('has name set to DotmdError', () => {
+    const err = new DotmdError('test message');
+    strictEqual(err.name, 'DotmdError');
+  });
+
+  it('stores the message', () => {
+    const err = new DotmdError('something broke');
+    strictEqual(err.message, 'something broke');
+  });
+});
+
+describe('die', () => {
+  it('throws a DotmdError', () => {
+    throws(() => die('fatal error'), DotmdError);
+  });
+
+  it('throws with the correct message', () => {
+    throws(() => die('bad input'), { message: 'bad input' });
   });
 });

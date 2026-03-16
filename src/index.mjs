@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { extractFirstHeading, extractSummary, extractStatusSnapshot, extractNextStep, extractChecklistCounts } from './extractors.mjs';
-import { asString, normalizeStringList, normalizeBlockers, mergeUniqueStrings, toRepoPath } from './util.mjs';
+import { asString, normalizeStringList, normalizeBlockers, mergeUniqueStrings, toRepoPath, warn } from './util.mjs';
 import { validateDoc, checkBidirectionalReferences, checkGitStaleness, computeDaysSinceUpdate, computeIsStale, computeChecklistCompletionRate } from './validate.mjs';
 import { checkIndex } from './index-file.mjs';
 
@@ -19,20 +19,32 @@ export function buildIndex(config) {
   if (config.hooks.validate) {
     const ctx = { config, allDocs: docs, repoRoot: config.repoRoot };
     for (const doc of docs) {
-      const result = config.hooks.validate(doc, ctx);
-      if (result?.errors) {
-        doc.errors.push(...result.errors);
-        errors.push(...result.errors);
-      }
-      if (result?.warnings) {
-        doc.warnings.push(...result.warnings);
-        warnings.push(...result.warnings);
+      try {
+        const result = config.hooks.validate(doc, ctx);
+        if (result?.errors) {
+          doc.errors.push(...result.errors);
+          errors.push(...result.errors);
+        }
+        if (result?.warnings) {
+          doc.warnings.push(...result.warnings);
+          warnings.push(...result.warnings);
+        }
+      } catch (err) {
+        const hookError = { path: doc.path, level: 'error', message: `Hook 'validate' threw: ${err.message}` };
+        doc.errors.push(hookError);
+        errors.push(hookError);
       }
     }
   }
 
   const transformedDocs = config.hooks.transformDoc
-    ? docs.map(d => config.hooks.transformDoc(d) ?? d)
+    ? docs.map(d => {
+        try { return config.hooks.transformDoc(d) ?? d; }
+        catch (err) {
+          warnings.push({ path: d.path, level: 'warning', message: `Hook 'transformDoc' threw: ${err.message}` });
+          return d;
+        }
+      })
     : docs;
 
   const countsByStatus = Object.fromEntries(config.statusOrder.map(status => [

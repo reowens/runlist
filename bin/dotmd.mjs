@@ -282,7 +282,6 @@ async function main() {
   if (command === 'index') {
     if (!config.indexPath) {
       die('Index generation is not configured. Add an `index` section to your dotmd.config.mjs.');
-      return;
     }
     const write = args.includes('--write');
     const rendered = renderIndexFile(index, config);
@@ -306,5 +305,6 @@ async function main() {
 }
 
 main().catch(err => {
-  die(err.message);
+  process.stderr.write(`${err.message}\n`);
+  process.exitCode = 1;
 });

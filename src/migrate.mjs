@@ -21,7 +21,6 @@ export function runMigrate(argv, config, opts = {}) {
 
   if (!field || !oldValue || !newValue) {
     die('Usage: dotmd migrate <field> <old-value> <new-value>');
-    return;
   }
 
   const allFiles = collectDocFiles(config);

@@ -1,10 +1,11 @@
-import { capitalize, toSlug, truncate } from './util.mjs';
+import { capitalize, toSlug, truncate, warn } from './util.mjs';
 import { bold, red, yellow, green } from './color.mjs';
 
 export function renderCompactList(index, config) {
   const defaultRenderer = (idx) => _renderCompactList(idx, config);
   if (config.hooks.renderCompactList) {
-    return config.hooks.renderCompactList(index, defaultRenderer);
+    try { return config.hooks.renderCompactList(index, defaultRenderer); }
+    catch (err) { warn(`Hook 'renderCompactList' threw: ${err.message}`); }
   }
   return defaultRenderer(index);
 }
@@ -63,7 +64,8 @@ export function renderVerboseList(index, config) {
 export function renderContext(index, config) {
   const defaultRenderer = (idx) => _renderContext(idx, config);
   if (config.hooks.renderContext) {
-    return config.hooks.renderContext(index, defaultRenderer);
+    try { return config.hooks.renderContext(index, defaultRenderer); }
+    catch (err) { warn(`Hook 'renderContext' threw: ${err.message}`); }
   }
   return defaultRenderer(index);
 }
@@ -144,7 +146,8 @@ function _renderContext(index, config) {
 export function renderCheck(index, config) {
   const defaultRenderer = (idx) => _renderCheck(idx);
   if (config.hooks.renderCheck) {
-    return config.hooks.renderCheck(index, defaultRenderer);
+    try { return config.hooks.renderCheck(index, defaultRenderer); }
+    catch (err) { warn(`Hook 'renderCheck' threw: ${err.message}`); }
   }
   return defaultRenderer(index);
 }
@@ -234,7 +237,8 @@ export function renderProgressBar(checklist) {
 export function formatSnapshot(doc, config) {
   const defaultFormatter = (d) => _formatSnapshot(d);
   if (config.hooks.formatSnapshot) {
-    return config.hooks.formatSnapshot(doc, defaultFormatter);
+    try { return config.hooks.formatSnapshot(doc, defaultFormatter); }
+    catch (err) { warn(`Hook 'formatSnapshot' threw: ${err.message}`); }
   }
   return defaultFormatter(doc);
 }

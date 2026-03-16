@@ -1,7 +1,7 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
-import { asString, toRepoPath, die, resolveDocPath } from './util.mjs';
+import { asString, toRepoPath, die, warn, resolveDocPath, escapeRegex } from './util.mjs';
 import { gitMv } from './git.mjs';
 import { buildIndex, collectDocFiles } from './index.mjs';
 import { renderIndexFile, writeIndex } from './index-file.mjs';
@@ -12,11 +12,11 @@ export function runStatus(argv, config, opts = {}) {
   const input = argv[0];
   const newStatus = argv[1];
 
-  if (!input || !newStatus) { die('Usage: dotmd status <file> <new-status>'); return; }
-  if (!config.validStatuses.has(newStatus)) { die(`Invalid status: ${newStatus}\nValid: ${[...config.validStatuses].join(', ')}`); return; }
+  if (!input || !newStatus) { die('Usage: dotmd status <file> <new-status>'); }
+  if (!config.validStatuses.has(newStatus)) { die(`Invalid status: ${newStatus}\nValid: ${[...config.validStatuses].join(', ')}`); }
 
   const filePath = resolveDocPath(input, config);
-  if (!filePath) { die(`File not found: ${input}\nSearched: ${toRepoPath(config.repoRoot, config.repoRoot) || '.'}, ${toRepoPath(config.docsRoot, config.repoRoot)}`); return; }
+  if (!filePath) { die(`File not found: ${input}\nSearched: ${toRepoPath(config.repoRoot, config.repoRoot) || '.'}, ${toRepoPath(config.docsRoot, config.repoRoot)}`); }
 
   const raw = readFileSync(filePath, 'utf8');
   const { frontmatter } = extractFrontmatter(raw);
@@ -57,18 +57,19 @@ export function runStatus(argv, config, opts = {}) {
   updateFrontmatter(filePath, { status: newStatus, updated: today });
 
   if (isArchiving) {
+    mkdirSync(archiveDir, { recursive: true });
     const targetPath = path.join(archiveDir, path.basename(filePath));
-    if (existsSync(targetPath)) { die(`Target already exists: ${toRepoPath(targetPath, config.repoRoot)}`); return; }
+    if (existsSync(targetPath)) { die(`Target already exists: ${toRepoPath(targetPath, config.repoRoot)}`); }
     const result = gitMv(filePath, targetPath, config.repoRoot);
-    if (result.status !== 0) { die(result.stderr || 'git mv failed.'); return; }
+    if (result.status !== 0) { die(result.stderr || 'git mv failed.'); }
     finalPath = targetPath;
   }
 
   if (isUnarchiving) {
     const targetPath = path.join(config.docsRoot, path.basename(filePath));
-    if (existsSync(targetPath)) { die(`Target already exists: ${toRepoPath(targetPath, config.repoRoot)}`); return; }
+    if (existsSync(targetPath)) { die(`Target already exists: ${toRepoPath(targetPath, config.repoRoot)}`); }
     const result = gitMv(filePath, targetPath, config.repoRoot);
-    if (result.status !== 0) { die(result.stderr || 'git mv failed.'); return; }
+    if (result.status !== 0) { die(result.stderr || 'git mv failed.'); }
     finalPath = targetPath;
   }
 
@@ -79,21 +80,21 @@ export function runStatus(argv, config, opts = {}) {
 
   process.stdout.write(`${green(toRepoPath(finalPath, config.repoRoot))}: ${oldStatus ?? 'unknown'} → ${newStatus}\n`);
 
-  config.hooks.onStatusChange?.({ path: toRepoPath(finalPath, config.repoRoot), oldStatus, newStatus }, {
+  try { config.hooks.onStatusChange?.({ path: toRepoPath(finalPath, config.repoRoot), oldStatus, newStatus }, {
     oldPath: toRepoPath(filePath, config.repoRoot),
     newPath: toRepoPath(finalPath, config.repoRoot),
-  });
+  }); } catch (err) { warn(`Hook 'onStatusChange' threw: ${err.message}`); }
 }
 
 export function runArchive(argv, config, opts = {}) {
   const { dryRun } = opts;
   const input = argv[0];
 
-  if (!input) { die('Usage: dotmd archive <file>'); return; }
+  if (!input) { die('Usage: dotmd archive <file>'); }
 
   const filePath = resolveDocPath(input, config);
-  if (!filePath) { die(`File not found: ${input}\nSearched: ${toRepoPath(config.repoRoot, config.repoRoot) || '.'}, ${toRepoPath(config.docsRoot, config.repoRoot)}`); return; }
-  if (filePath.includes(`/${config.archiveDir}/`)) { die(`Already archived: ${toRepoPath(filePath, config.repoRoot)}`); return; }
+  if (!filePath) { die(`File not found: ${input}\nSearched: ${toRepoPath(config.repoRoot, config.repoRoot) || '.'}, ${toRepoPath(config.docsRoot, config.repoRoot)}`); }
+  if (filePath.includes(`/${config.archiveDir}/`)) { die(`Already archived: ${toRepoPath(filePath, config.repoRoot)}`); }
 
   const raw = readFileSync(filePath, 'utf8');
   const { frontmatter } = extractFrontmatter(raw);
@@ -109,7 +110,7 @@ export function runArchive(argv, config, opts = {}) {
   if (dryRun) {
     const prefix = dim('[dry-run]');
     process.stdout.write(`${prefix} Would update frontmatter: status: ${oldStatus} → archived, updated: ${today}\n`);
-    if (existsSync(targetPath)) { die(`Target already exists: ${toRepoPath(targetPath, config.repoRoot)}`); return; }
+    if (existsSync(targetPath)) { die(`Target already exists: ${toRepoPath(targetPath, config.repoRoot)}`); }
     process.stdout.write(`${prefix} Would move: ${oldRepoPath} → ${newRepoPath}\n`);
     if (config.indexPath) process.stdout.write(`${prefix} Would regenerate index\n`);
 
@@ -133,10 +134,11 @@ export function runArchive(argv, config, opts = {}) {
 
   updateFrontmatter(filePath, { status: 'archived', updated: today });
 
-  if (existsSync(targetPath)) { die(`Target already exists: ${toRepoPath(targetPath, config.repoRoot)}`); return; }
+  mkdirSync(targetDir, { recursive: true });
+  if (existsSync(targetPath)) { die(`Target already exists: ${toRepoPath(targetPath, config.repoRoot)}`); }
 
   const result = gitMv(filePath, targetPath, config.repoRoot);
-  if (result.status !== 0) { die(result.stderr || 'git mv failed.'); return; }
+  if (result.status !== 0) { die(result.stderr || 'git mv failed.'); }
 
   if (config.indexPath) {
     const index = buildIndex(config);
@@ -163,17 +165,17 @@ export function runArchive(argv, config, opts = {}) {
   }
 
   process.stdout.write('\nNext: commit, then update references if needed.\n');
-  config.hooks.onArchive?.({ path: newRepoPath, oldStatus }, { oldPath: oldRepoPath, newPath: newRepoPath });
+  try { config.hooks.onArchive?.({ path: newRepoPath, oldStatus }, { oldPath: oldRepoPath, newPath: newRepoPath }); } catch (err) { warn(`Hook 'onArchive' threw: ${err.message}`); }
 }
 
 export function runTouch(argv, config, opts = {}) {
   const { dryRun } = opts;
   const input = argv[0];
 
-  if (!input) { die('Usage: dotmd touch <file>'); return; }
+  if (!input) { die('Usage: dotmd touch <file>'); }
 
   const filePath = resolveDocPath(input, config);
-  if (!filePath) { die(`File not found: ${input}\nSearched: ${toRepoPath(config.repoRoot, config.repoRoot) || '.'}, ${toRepoPath(config.docsRoot, config.repoRoot)}`); return; }
+  if (!filePath) { die(`File not found: ${input}\nSearched: ${toRepoPath(config.repoRoot, config.repoRoot) || '.'}, ${toRepoPath(config.docsRoot, config.repoRoot)}`); }
 
   const today = new Date().toISOString().slice(0, 10);
 
@@ -185,7 +187,7 @@ export function runTouch(argv, config, opts = {}) {
   updateFrontmatter(filePath, { updated: today });
   process.stdout.write(`${green('Touched')}: ${toRepoPath(filePath, config.repoRoot)} (updated → ${today})\n`);
 
-  config.hooks.onTouch?.({ path: toRepoPath(filePath, config.repoRoot) }, { path: toRepoPath(filePath, config.repoRoot), date: today });
+  try { config.hooks.onTouch?.({ path: toRepoPath(filePath, config.repoRoot) }, { path: toRepoPath(filePath, config.repoRoot), date: today }); } catch (err) { warn(`Hook 'onTouch' threw: ${err.message}`); }
 }
 
 export function updateFrontmatter(filePath, updates) {
@@ -199,7 +201,7 @@ export function updateFrontmatter(filePath, updates) {
   const body = raw.slice(endMarker + 5);
 
   for (const [key, value] of Object.entries(updates)) {
-    const regex = new RegExp(`^${key}:.*$`, 'm');
+    const regex = new RegExp(`^${escapeRegex(key)}:.*$`, 'm');
     if (regex.test(frontmatter)) {
       frontmatter = frontmatter.replace(regex, `${key}: ${value}`);
     } else {

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import { strictEqual, deepStrictEqual } from 'node:assert';
-import { extractFrontmatter, parseSimpleFrontmatter } from '../src/frontmatter.mjs';
+import { extractFrontmatter, parseSimpleFrontmatter, replaceFrontmatter } from '../src/frontmatter.mjs';
 
 describe('extractFrontmatter', () => {
   it('extracts frontmatter and body', () => {
@@ -78,5 +78,46 @@ describe('parseSimpleFrontmatter', () => {
   it('handles hyphenated keys', () => {
     const result = parseSimpleFrontmatter('current_state: Phase 1 done\nnext_step: Start Phase 2');
     deepStrictEqual(result, { current_state: 'Phase 1 done', next_step: 'Start Phase 2' });
+  });
+
+  it('keeps first value for duplicate keys', () => {
+    const result = parseSimpleFrontmatter('status: active\nmodule: catalog\nstatus: archived');
+    strictEqual(result.status, 'active');
+  });
+
+  it('preserves mismatched quotes as literal text', () => {
+    const result = parseSimpleFrontmatter("title: 'hello\"");
+    strictEqual(result.title, "'hello\"");
+  });
+
+  it('preserves single-char quote as literal text', () => {
+    const result = parseSimpleFrontmatter("title: '");
+    strictEqual(result.title, "'");
+  });
+});
+
+describe('replaceFrontmatter', () => {
+  it('replaces frontmatter content', () => {
+    const raw = '---\nstatus: active\n---\n# Hello\n';
+    const result = replaceFrontmatter(raw, 'status: archived');
+    strictEqual(result, '---\nstatus: archived\n---\n# Hello\n');
+  });
+
+  it('preserves body that contains --- horizontal rules', () => {
+    const raw = '---\nstatus: active\n---\n# Title\n\n---\n\nMore content.\n';
+    const result = replaceFrontmatter(raw, 'status: ready');
+    strictEqual(result, '---\nstatus: ready\n---\n# Title\n\n---\n\nMore content.\n');
+  });
+
+  it('returns raw text unchanged when no opening fence', () => {
+    const raw = '# No frontmatter\nBody text.';
+    const result = replaceFrontmatter(raw, 'status: active');
+    strictEqual(result, raw);
+  });
+
+  it('returns raw text unchanged when no closing fence', () => {
+    const raw = '---\nstatus: active\n# Unclosed';
+    const result = replaceFrontmatter(raw, 'status: ready');
+    strictEqual(result, raw);
   });
 });

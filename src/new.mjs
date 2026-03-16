@@ -1,6 +1,6 @@
 import { existsSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { toRepoPath, die } from './util.mjs';
+import { toRepoPath, die, warn } from './util.mjs';
 import { green, dim } from './color.mjs';
 
 export function runNew(argv, config, opts = {}) {
@@ -17,17 +17,16 @@ export function runNew(argv, config, opts = {}) {
   }
 
   const name = positional[0];
-  if (!name) { die('Usage: dotmd new <name> [--status <s>] [--title <t>]'); return; }
+  if (!name) { die('Usage: dotmd new <name> [--status <s>] [--title <t>]'); }
 
   // Validate status
   if (!config.validStatuses.has(status)) {
     die(`Invalid status: ${status}\nValid: ${[...config.validStatuses].join(', ')}`);
-    return;
   }
 
   // Slugify
   const slug = name.toLowerCase().replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').replace(/^-|-$/g, '');
-  if (!slug) { die('Name resolves to empty slug: ' + name); return; }
+  if (!slug) { die('Name resolves to empty slug: ' + name); }
 
   // Title
   const docTitle = title ?? name.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
@@ -38,7 +37,6 @@ export function runNew(argv, config, opts = {}) {
 
   if (existsSync(filePath)) {
     die(`File already exists: ${repoPath}`);
-    return;
   }
 
   if (dryRun) {
@@ -52,5 +50,5 @@ export function runNew(argv, config, opts = {}) {
   writeFileSync(filePath, content, 'utf8');
   process.stdout.write(`${green('Created')}: ${repoPath}\n`);
 
-  config.hooks.onNew?.({ path: repoPath, status, title: docTitle });
+  try { config.hooks.onNew?.({ path: repoPath, status, title: docTitle }); } catch (err) { warn(`Hook 'onNew' threw: ${err.message}`); }
 }
