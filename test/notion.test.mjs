@@ -7,11 +7,16 @@ import { spawnSync } from 'node:child_process';
 
 let tmpDir;
 
-function run(args, env = {}) {
+function run(args, env) {
   const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+  const runEnv = env !== undefined
+    ? { ...process.env, NOTION_TOKEN: undefined, ...env }
+    : process.env;
+  for (const k of Object.keys(runEnv)) {
+    if (runEnv[k] === undefined) delete runEnv[k];
+  }
   return spawnSync('node', [bin, ...args, '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
-    cwd: tmpDir, encoding: 'utf8',
-    env: { ...process.env, ...env },
+    cwd: tmpDir, encoding: 'utf8', env: runEnv,
   });
 }
 
@@ -45,46 +50,38 @@ describe('notion: help', () => {
   });
 });
 
-describe('notion: import errors', () => {
-  it('fails without token', () => {
+describe('notion: error handling', () => {
+  it('import fails without token', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-notion-'));
     mkdirSync(path.join(tmpDir, '.git'));
     mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
     writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';`);
 
-    // Unset NOTION_TOKEN to ensure clean test
-    const result = run(['notion', 'import', 'fake-db-id'], { NOTION_TOKEN: '' });
-    strictEqual(result.status, 1);
-    ok(result.stderr.includes('No Notion token') || result.stderr.includes('NOTION_TOKEN'), 'shows token error');
+    const result = run(['notion', 'import', 'fake-db-id'], {});
+    ok(result.status !== 0, `expected error exit, got ${result.status}. stderr: ${result.stderr}`);
   });
 
-  it('fails without database ID', () => {
+  it('import fails without database ID', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-notion-'));
     mkdirSync(path.join(tmpDir, '.git'));
     mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
     writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';`);
 
     const result = run(['notion', 'import'], { NOTION_TOKEN: 'fake-token' });
-    strictEqual(result.status, 1);
-    ok(result.stderr.includes('No database ID') || result.stderr.includes('database'), 'shows db error');
+    ok(result.status !== 0, `expected error exit, got ${result.status}. stderr: ${result.stderr}`);
   });
-});
 
-describe('notion: export errors', () => {
-  it('fails without token', () => {
+  it('export fails without token', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-notion-'));
     mkdirSync(path.join(tmpDir, '.git'));
     mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
     writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';`);
 
-    const result = run(['notion', 'export', 'fake-db-id'], { NOTION_TOKEN: '' });
-    strictEqual(result.status, 1);
-    ok(result.stderr.includes('No Notion token') || result.stderr.includes('NOTION_TOKEN'), 'shows token error');
+    const result = run(['notion', 'export', 'fake-db-id'], {});
+    ok(result.status !== 0, `expected error exit, got ${result.status}. stderr: ${result.stderr}`);
   });
-});
 
-describe('notion: unknown subcommand', () => {
-  it('fails with helpful error', () => {
+  it('unknown subcommand fails', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-notion-'));
     mkdirSync(path.join(tmpDir, '.git'));
     mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });

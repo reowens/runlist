@@ -34,16 +34,19 @@ eval "$(dotmd completions zsh)"     # add to ~/.zshrc
 
 ## What It Does
 
-dotmd scans a directory of markdown files, parses their YAML frontmatter, and gives you tools to work with them:
-
 - **Index** — group docs by status, show progress bars, next steps
 - **Query** — filter by status, keyword, module, surface, owner, staleness
-- **Validate** — check for missing fields, broken references, stale dates, broken body links
+- **Validate** — check for missing fields, broken references, broken body links, stale dates
+- **Stats** — health dashboard with staleness, completeness, audit coverage
 - **Graph** — visualize document relationships as text, Graphviz DOT, or JSON
+- **Deps** — dependency tree or overview of what blocks what
 - **Lifecycle** — transition statuses, auto-archive with `git mv` and reference updates
 - **Doctor** — auto-fix broken refs, lint issues, date drift, and stale indexes in one pass
 - **Scaffold** — create new docs from templates (plan, ADR, RFC, audit, design)
-- **Index generation** — auto-generate a `docs.md` index block
+- **AI summaries** — summarize docs via local MLX model or custom hook
+- **Export** — generate concatenated markdown, static HTML site, or JSON bundle
+- **Notion** — import from, export to, and bidirectionally sync with Notion databases
+- **Multi-root** — manage docs across multiple directories with a single config
 - **Context briefing** — compact summary designed for AI/LLM consumption
 - **Dry-run** — preview any mutation with `--dry-run` before committing
 
@@ -72,17 +75,19 @@ Design doc content here...
 - [ ] Add tests
 ```
 
-The only required field is `status`. Everything else is optional but unlocks more features (staleness detection, filtering, coverage reports, graph visualization).
+The only required field is `status`. Everything else is optional but unlocks more features.
 
 ## Commands
 
 ```
 dotmd list [--verbose]       List docs grouped by status (default)
 dotmd json                   Full index as JSON
-dotmd check [--errors-only] [--fix]  Validate frontmatter and references
+dotmd check [flags]          Validate frontmatter and references
 dotmd coverage [--json]      Metadata coverage report
+dotmd stats [--json]         Doc health dashboard
 dotmd graph [--dot|--json]   Visualize document relationships
-dotmd context                Compact briefing (LLM-oriented)
+dotmd deps [file]            Dependency tree or overview
+dotmd context [--summarize]  Compact briefing (LLM-oriented)
 dotmd focus [status]         Detailed view for one status group
 dotmd query [filters]        Filtered search
 dotmd index [--write]        Generate/update docs.md index block
@@ -95,6 +100,9 @@ dotmd fix-refs               Auto-fix broken reference paths
 dotmd lint [--fix]           Check and auto-fix frontmatter issues
 dotmd rename <old> <new>     Rename doc and update references
 dotmd migrate <f> <old> <new>  Batch update a frontmatter field
+dotmd notion <sub> [db-id]   Notion import/export/sync
+dotmd export [file]          Export docs as md, html, or json
+dotmd summary <file>         AI summary of a document
 dotmd watch [command]        Re-run a command on file changes
 dotmd diff [file]            Show changes since last updated date
 dotmd new <name>             Create a new document from template
@@ -107,6 +115,7 @@ dotmd completions <shell>    Output shell completion script (bash, zsh)
 ```
 --config <path>        Explicit config file path
 --dry-run, -n          Preview changes without writing anything
+--root <name>          Filter to a specific docs root
 --verbose              Show resolved config details
 --help, -h             Show help (per-command with: dotmd <cmd> --help)
 --version, -v          Show version
@@ -119,9 +128,11 @@ dotmd query --status active,ready --module auth
 dotmd query --keyword "token" --has-next-step
 dotmd query --stale --sort updated --all
 dotmd query --surface backend --checklist-open
+dotmd query --status active --summarize             # AI summaries
+dotmd query --status active --summarize --summarize-limit 3
 ```
 
-Flags: `--status`, `--keyword`, `--module`, `--surface`, `--domain`, `--owner`, `--updated-since`, `--stale`, `--has-next-step`, `--has-blockers`, `--checklist-open`, `--sort`, `--limit`, `--all`, `--git`, `--json`.
+Flags: `--status`, `--keyword`, `--module`, `--surface`, `--domain`, `--owner`, `--updated-since`, `--stale`, `--has-next-step`, `--has-blockers`, `--checklist-open`, `--sort`, `--limit`, `--all`, `--git`, `--json`, `--summarize`, `--summarize-limit`, `--model`.
 
 ### Scaffold with Templates
 
@@ -133,6 +144,7 @@ dotmd new my-proposal --template rfc                  # RFC: Summary, Motivation
 dotmd new my-audit --template audit                   # Audit: Scope, Findings, Recommendations
 dotmd new my-design --template design                 # Design: Goals, Non-Goals, Design
 dotmd new my-feature --status planned --title "Title" # custom status and title
+dotmd new my-doc --root modules                       # create in a specific root
 dotmd new --list-templates                            # show all available templates
 ```
 
@@ -158,20 +170,23 @@ dotmd check --fix            # auto-fix broken refs + lint + regen index
 
 Validates: required fields, status values, broken reference paths, broken body links (`[text](path.md)`), bidirectional reference symmetry, git date drift, taxonomy mismatches.
 
-### Doctor
+### Stats
 
-One command to fix everything fixable:
+```bash
+dotmd stats                  # health dashboard
+dotmd stats --json           # machine-readable
+```
+
+Shows: status counts, staleness, errors/warnings, freshness (today/week/month), completeness (owner/surface/module/next_step), checklist progress, audit coverage.
+
+### Doctor
 
 ```bash
 dotmd doctor                 # fix refs → lint → sync git dates → regen index
 dotmd doctor --dry-run       # preview all changes
 ```
 
-Runs in sequence: `fix-refs` → `lint --fix` → `touch --git` → `index --write` → shows remaining issues.
-
 ### Graph
-
-Visualize how documents reference each other:
 
 ```bash
 dotmd graph                              # text adjacency list
@@ -181,6 +196,78 @@ dotmd graph --status active,ready        # filter by status
 dotmd graph --module auth                # filter by module
 ```
 
+### Deps
+
+```bash
+dotmd deps                               # overview: most blocking, most blocked
+dotmd deps docs/plan-a.md                # tree: depends-on + depended-on-by
+dotmd deps docs/plan-a.md --depth 2      # limit tree depth
+dotmd deps --json                        # machine-readable
+```
+
+### AI Summaries
+
+```bash
+dotmd summary docs/plan-a.md             # AI summary of a single doc
+dotmd summary docs/plan-a.md --json      # JSON output
+dotmd query --status active --summarize  # AI summaries in query results
+dotmd context --summarize                # AI-enhanced briefing
+```
+
+Uses local MLX model via `uv`. Override with `--model <name>` or the `summarizeDoc` hook.
+
+### Export
+
+```bash
+dotmd export                             # all docs as concatenated markdown
+dotmd export --format html --output site # static HTML site
+dotmd export --format json > bundle.json # JSON bundle with bodies
+dotmd export docs/plan-a.md              # single doc + dependencies
+dotmd export --status active             # filtered export
+```
+
+### Notion Integration
+
+```bash
+dotmd notion import <database-id>        # pull Notion database → local .md files
+dotmd notion export <database-id>        # push local docs → Notion database
+dotmd notion sync <database-id>          # bidirectional sync (newer wins)
+dotmd notion import <db-id> --force      # overwrite existing files
+dotmd notion sync <db-id> --dry-run      # preview sync actions
+```
+
+Requires `NOTION_TOKEN` env var or `notion.token` in config. Maps Notion properties (select, multi_select, date, status, people, etc.) to YAML frontmatter fields. Configure property mapping in config:
+
+```js
+export const notion = {
+  token: process.env.NOTION_TOKEN,
+  database: 'your-database-id',
+  propertyMap: {
+    'Status': 'status',
+    'Last Updated': 'updated',
+    'Tags': 'surfaces',
+  },
+};
+```
+
+### Multi-Root
+
+Manage docs across multiple directories:
+
+```js
+export const root = ['docs/plans', 'docs/modules', 'docs/app'];
+```
+
+All commands work across all roots. Filter with `--root`:
+
+```bash
+dotmd list --root plans                  # only docs from docs/plans
+dotmd stats --root modules               # stats for modules only
+dotmd new my-doc --root modules          # create in docs/modules
+```
+
+Archive stays within the source file's root. Cross-root references validate correctly.
+
 ### Archive
 
 ```bash
@@ -188,43 +275,32 @@ dotmd archive docs/old-plan.md           # move + update refs + regen index
 dotmd archive docs/old-plan.md -n        # preview
 ```
 
-Archives a document: sets status to `archived`, moves to archive directory via `git mv`, auto-updates references in other docs, and regenerates the index.
-
 ### Touch
 
 ```bash
 dotmd touch docs/my-doc.md              # set updated to today
 dotmd touch --git                        # bulk-sync all docs from git history
-dotmd touch --git docs/my-doc.md         # sync one file from git
 ```
 
 ### Fix References
 
 ```bash
-dotmd fix-refs                           # find and fix broken ref paths
+dotmd fix-refs                           # fix broken frontmatter refs + body links
 dotmd fix-refs --dry-run                 # preview fixes
 ```
-
-Scans all reference fields for broken paths, resolves by basename matching, and rewrites frontmatter.
 
 ### Lint
 
 ```bash
 dotmd lint                   # report issues
 dotmd lint --fix             # fix all issues
-dotmd lint --fix --dry-run   # preview fixes without writing
 ```
-
-Detected issues: missing `updated`, status casing, camelCase keys, trailing whitespace, missing EOF newline.
 
 ### Rename
 
 ```bash
 dotmd rename old-name.md new-name        # renames + updates refs
-dotmd rename old-name.md new-name -n     # preview without writing
 ```
-
-Uses `git mv` and updates all frontmatter references. Body markdown links are warned about but not auto-fixed.
 
 ### Migrate
 
@@ -261,12 +337,16 @@ dotmd diff --stat                    # summary stats only
 dotmd diff --summarize               # AI summary via local MLX model
 ```
 
+### Init Auto-Detect
+
+When `dotmd init` runs in a directory with existing `.md` files, it scans them and pre-populates the config with discovered statuses, surfaces, modules, and reference fields.
+
 ## Configuration
 
 Create `dotmd.config.mjs` at your project root (or run `dotmd init`):
 
 ```js
-export const root = 'docs/plans';         // where your .md files live
+export const root = 'docs/plans';         // string or array of paths
 export const archiveDir = 'archived';     // subdirectory for archived docs
 
 export const statuses = {
@@ -312,8 +392,7 @@ export function validate(doc, ctx) {
   const warnings = [];
   if (doc.status === 'active' && !doc.owner) {
     warnings.push({
-      path: doc.path,
-      level: 'warning',
+      path: doc.path, level: 'warning',
       message: 'Active docs should have an owner.',
     });
   }
@@ -332,7 +411,7 @@ export function renderContext(index, defaultRenderer) {
 }
 ```
 
-Available: `renderContext`, `renderCompactList`, `renderCheck`, `renderGraph`, `formatSnapshot`.
+Available: `renderContext`, `renderCompactList`, `renderCheck`, `renderGraph`, `renderStats`, `formatSnapshot`.
 
 ### Lifecycle Hooks
 
@@ -340,33 +419,33 @@ Available: `renderContext`, `renderCompactList`, `renderCheck`, `renderGraph`, `
 export function onArchive(doc, { oldPath, newPath }) {
   console.log(`Archived: ${oldPath} → ${newPath}`);
 }
-
-export function onStatusChange(doc, { oldStatus, newStatus }) {
-  // notify, log, trigger CI, etc.
-}
 ```
 
 Available: `onArchive`, `onStatusChange`, `onTouch`, `onNew`, `onRename`, `onLint`.
 
-### Summarize Hook
-
-Override the diff summarizer (replaces the default MLX model call):
+### AI Hooks
 
 ```js
+// Override doc summarization (replaces local MLX model)
+export function summarizeDoc(body, meta) {
+  return 'Custom summary for ' + meta.title;
+}
+
+// Override diff summarization
 export function summarizeDiff(diffOutput, filePath) {
-  // call your preferred LLM, return a string summary
   return `Changes in ${filePath}: ...`;
 }
 ```
 
 ## Features
 
-- **Zero dependencies** — pure Node.js builtins (`fs`, `path`, `child_process`)
-- **No build step** — ships as plain ESM, runs directly
 - **Git-aware** — detects frontmatter date drift vs git history, uses `git mv` for archives
 - **Dry-run everything** — preview any mutation with `--dry-run` / `-n`
-- **Configurable everything** — statuses, taxonomy, lifecycle, validation rules, display, templates
+- **Multi-root** — manage docs across multiple directories with `--root` filtering
+- **Configurable** — statuses, taxonomy, lifecycle, validation rules, display, templates
 - **Hook system** — extend with JS functions, no plugin framework to learn
+- **AI-powered** — local MLX summaries for docs, queries, diffs, and context briefings
+- **Notion sync** — import, export, and bidirectional sync with Notion databases
 - **LLM-friendly** — `dotmd context` generates compact briefings for AI assistants
 - **Shell completion** — bash and zsh via `dotmd completions`
 
