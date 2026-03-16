@@ -98,6 +98,53 @@ describe('init command', () => {
   });
 });
 
+describe('init auto-detect', () => {
+  it('detects statuses, surfaces, and ref fields from existing docs', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-detect-'));
+    const docsDir = path.join(tmpDir, 'docs');
+    mkdirSync(docsDir, { recursive: true });
+
+    writeFileSync(path.join(docsDir, 'a.md'), '---\nstatus: active\nsurface: backend\nrelated_plans:\n  - ./b.md\n---\n# A\n');
+    writeFileSync(path.join(docsDir, 'b.md'), '---\nstatus: planned\nsurface: frontend\nmodule: auth\n---\n# B\n');
+
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const result = spawnSync('node', [bin, 'init'], { cwd: tmpDir, encoding: 'utf8' });
+
+    ok(result.stdout.includes('detected 2 docs'), 'reports detected doc count');
+
+    const config = readFileSync(path.join(tmpDir, 'dotmd.config.mjs'), 'utf8');
+    ok(config.includes("'active'"), 'detected active status');
+    ok(config.includes("'planned'"), 'detected planned status');
+    ok(config.includes("'backend'"), 'detected backend surface');
+    ok(config.includes("'frontend'"), 'detected frontend surface');
+    ok(config.includes("'related_plans'"), 'detected related_plans ref field');
+  });
+
+  it('falls back to starter config when no docs exist', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-empty-'));
+
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    spawnSync('node', [bin, 'init'], { cwd: tmpDir, encoding: 'utf8' });
+
+    const config = readFileSync(path.join(tmpDir, 'dotmd.config.mjs'), 'utf8');
+    ok(config.includes('All exports are optional'), 'uses starter config');
+    ok(!config.includes('auto-detected'), 'not auto-detected');
+  });
+
+  it('falls back when docs exist but have no frontmatter', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-nofm-'));
+    const docsDir = path.join(tmpDir, 'docs');
+    mkdirSync(docsDir, { recursive: true });
+    writeFileSync(path.join(docsDir, 'plain.md'), '# Just a heading\nNo frontmatter here.\n');
+
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    spawnSync('node', [bin, 'init'], { cwd: tmpDir, encoding: 'utf8' });
+
+    const config = readFileSync(path.join(tmpDir, 'dotmd.config.mjs'), 'utf8');
+    ok(!config.includes('auto-detected'), 'not auto-detected');
+  });
+});
+
 describe('status command (dry-run)', () => {
   it('previews status change without modifying files', async () => {
     const docsDir = setupProject();
