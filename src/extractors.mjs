@@ -39,6 +39,25 @@ export function extractNextStep(body) {
   return lines[0] ?? null;
 }
 
+export function extractBodyLinks(body) {
+  if (!body) return [];
+  // Strip fenced code blocks to avoid false positives
+  const stripped = body.replace(/^```[\s\S]*?^```/gm, '');
+  const links = [];
+  // Match [text](path.md) or [text](path.md#anchor), skip images (preceded by !)
+  const regex = /(?<!!)\[([^\]]+)\]\(([^)]+\.md(?:#[^)]*)?)\)/g;
+  let match;
+  while ((match = regex.exec(stripped)) !== null) {
+    const href = match[2];
+    // Skip external URLs
+    if (/^https?:\/\//i.test(href)) continue;
+    // Strip anchor fragment for path resolution
+    const cleanHref = href.replace(/#.*$/, '');
+    links.push({ text: match[1], href: cleanHref });
+  }
+  return links;
+}
+
 export function extractChecklistCounts(body) {
   const matches = [...body.matchAll(/^\s*[-*]\s+\[([ xX])\]\s+/gm)];
   let completed = 0;

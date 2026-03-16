@@ -55,6 +55,8 @@ const DEFAULTS = {
     unidirectional: [],
   },
 
+  templates: {},
+
   presets: {
     stale: ['--status', 'active,ready,planned,blocked,research', '--stale', '--sort', 'updated', '--all'],
     actionable: ['--status', 'active,ready', '--has-next-step', '--sort', 'updated', '--all'],

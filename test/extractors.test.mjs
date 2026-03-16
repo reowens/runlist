@@ -6,6 +6,7 @@ import {
   extractStatusSnapshot,
   extractNextStep,
   extractChecklistCounts,
+  extractBodyLinks,
 } from '../src/extractors.mjs';
 
 describe('extractFirstHeading', () => {
@@ -111,5 +112,75 @@ describe('extractChecklistCounts', () => {
   it('handles * bullet variant', () => {
     const body = '* [x] Done\n* [ ] Open\n';
     deepStrictEqual(extractChecklistCounts(body), { completed: 1, open: 1, total: 2 });
+  });
+});
+
+describe('extractBodyLinks', () => {
+  it('extracts markdown links to .md files', () => {
+    const body = 'See [the plan](plan-b.md) for details.';
+    const links = extractBodyLinks(body);
+    strictEqual(links.length, 1);
+    strictEqual(links[0].text, 'the plan');
+    strictEqual(links[0].href, 'plan-b.md');
+  });
+
+  it('extracts multiple links', () => {
+    const body = 'See [A](a.md) and [B](b.md).';
+    const links = extractBodyLinks(body);
+    strictEqual(links.length, 2);
+  });
+
+  it('handles relative paths', () => {
+    const body = 'See [doc](../other/doc.md) and [local](./local.md).';
+    const links = extractBodyLinks(body);
+    strictEqual(links.length, 2);
+    strictEqual(links[0].href, '../other/doc.md');
+    strictEqual(links[1].href, './local.md');
+  });
+
+  it('strips anchor fragments from href', () => {
+    const body = 'See [section](doc.md#heading).';
+    const links = extractBodyLinks(body);
+    strictEqual(links[0].href, 'doc.md');
+  });
+
+  it('skips image links', () => {
+    const body = '![alt](image.md)';
+    const links = extractBodyLinks(body);
+    strictEqual(links.length, 0);
+  });
+
+  it('skips external URLs', () => {
+    const body = '[docs](https://example.com/docs.md)';
+    const links = extractBodyLinks(body);
+    strictEqual(links.length, 0);
+  });
+
+  it('skips http URLs', () => {
+    const body = '[docs](http://example.com/docs.md)';
+    const links = extractBodyLinks(body);
+    strictEqual(links.length, 0);
+  });
+
+  it('skips non-.md links', () => {
+    const body = '[pic](image.png) and [pdf](doc.pdf)';
+    const links = extractBodyLinks(body);
+    strictEqual(links.length, 0);
+  });
+
+  it('skips links inside fenced code blocks', () => {
+    const body = '```\n[fake](fake.md)\n```\n\n[real](real.md)';
+    const links = extractBodyLinks(body);
+    strictEqual(links.length, 1);
+    strictEqual(links[0].href, 'real.md');
+  });
+
+  it('returns empty array for empty body', () => {
+    strictEqual(extractBodyLinks('').length, 0);
+    strictEqual(extractBodyLinks(null).length, 0);
+  });
+
+  it('returns empty array when no links', () => {
+    strictEqual(extractBodyLinks('Just plain text.').length, 0);
   });
 });

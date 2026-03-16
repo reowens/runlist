@@ -18,6 +18,7 @@ import { runLint } from '../src/lint.mjs';
 import { runRename } from '../src/rename.mjs';
 import { runMigrate } from '../src/migrate.mjs';
 import { runFixRefs, fixBrokenRefs } from '../src/fix-refs.mjs';
+import { buildGraph, renderGraphText, renderGraphDot, renderGraphJson } from '../src/graph.mjs';
 import { die, warn } from '../src/util.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -32,6 +33,7 @@ Commands:
   json                   Full index as JSON
   check [flags]          Validate frontmatter and references
   coverage [--json]      Metadata coverage report
+  graph [--dot|--json]   Visualize document relationships
   context                Compact briefing (LLM-oriented)
   focus [status]         Detailed view for one status group
   query [filters]        Filtered search
@@ -97,6 +99,18 @@ references in other docs, and regenerates the index.
 
 Use --dry-run (-n) to preview changes without writing anything.`,
 
+  graph: `dotmd graph — visualize document relationships
+
+Output formats:
+  (default)              Text adjacency list
+  --dot                  Graphviz DOT format (pipe to dot -Tpng)
+  --json                 Machine-readable JSON
+
+Filters:
+  --status <s1,s2>       Show only docs with these statuses
+  --module <name>        Show only docs with this module
+  --surface <name>       Show only docs with this surface`,
+
   'fix-refs': `dotmd fix-refs — auto-fix broken reference paths
 
 Scans all docs for reference fields that point to non-existent files,
@@ -126,8 +140,10 @@ Use --dry-run (-n) with --write to preview without writing.`,
 Creates a new markdown document with frontmatter in the docs root.
 
 Options:
+  --template <name>    Use a template (default, plan, adr, rfc, audit, design)
   --status <s>         Set initial status (default: active)
   --title <t>          Override the document title
+  --list-templates     Show available templates
 
 The filename is derived from <name> by slugifying it.
 Use --dry-run (-n) to preview without creating the file.`,
@@ -347,6 +363,25 @@ async function main() {
   if (command === 'focus') { runFocus(index, restArgs, config); return; }
   if (command === 'query') { runQuery(index, restArgs, config); return; }
   if (command === 'context') { process.stdout.write(renderContext(index, config)); return; }
+
+  if (command === 'graph') {
+    const statusFilter = (() => { const i = args.indexOf('--status'); return i !== -1 && args[i + 1] ? args[i + 1] : null; })();
+    const moduleFilter = (() => { const i = args.indexOf('--module'); return i !== -1 && args[i + 1] ? args[i + 1] : null; })();
+    const surfaceFilter = (() => { const i = args.indexOf('--surface'); return i !== -1 && args[i + 1] ? args[i + 1] : null; })();
+    const graph = buildGraph(index, config, {
+      statuses: statusFilter?.split(',') ?? null,
+      module: moduleFilter,
+      surface: surfaceFilter,
+    });
+    if (args.includes('--dot')) {
+      process.stdout.write(renderGraphDot(graph, config));
+    } else if (args.includes('--json')) {
+      process.stdout.write(renderGraphJson(graph));
+    } else {
+      process.stdout.write(renderGraphText(graph, config));
+    }
+    return;
+  }
 
   // Unknown command — show help
   die(`Unknown command: ${command}\n\n${HELP._main}`);

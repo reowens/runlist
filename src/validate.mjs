@@ -76,6 +76,14 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
       }
     }
   }
+
+  // Validate body links resolve to existing files
+  for (const link of (doc.bodyLinks || [])) {
+    const resolved = path.resolve(docDir, link.href);
+    if (!existsSync(resolved)) {
+      doc.warnings.push({ path: doc.path, level: 'warning', message: `body link \`${link.href}\` does not resolve to an existing file.` });
+    }
+  }
 }
 
 export function checkBidirectionalReferences(docs, config) {

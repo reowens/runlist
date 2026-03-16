@@ -1,7 +1,7 @@
 import { die } from './util.mjs';
 
 const COMMANDS = [
-  'list', 'json', 'check', 'coverage', 'context', 'focus', 'query',
+  'list', 'json', 'check', 'coverage', 'graph', 'context', 'focus', 'query',
   'index', 'status', 'archive', 'touch', 'lint', 'rename', 'migrate',
   'fix-refs', 'watch', 'diff', 'init', 'new', 'completions',
 ];
@@ -15,9 +15,10 @@ const COMMAND_FLAGS = {
   index: ['--write'],
   list: ['--verbose'],
   coverage: ['--json'],
-  new: ['--status', '--title'],
+  new: ['--status', '--title', '--template', '--list-templates'],
   diff: ['--stat', '--since', '--summarize', '--model'],
   check: ['--errors-only', '--fix'],
+  graph: ['--dot', '--json', '--status', '--module', '--surface'],
   lint: ['--fix'],
   rename: [],
   migrate: [],

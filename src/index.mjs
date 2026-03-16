@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
-import { extractFirstHeading, extractSummary, extractStatusSnapshot, extractNextStep, extractChecklistCounts } from './extractors.mjs';
+import { extractFirstHeading, extractSummary, extractStatusSnapshot, extractNextStep, extractChecklistCounts, extractBodyLinks } from './extractors.mjs';
 import { asString, normalizeStringList, normalizeBlockers, mergeUniqueStrings, toRepoPath, warn } from './util.mjs';
 import { validateDoc, checkBidirectionalReferences, checkGitStaleness, computeDaysSinceUpdate, computeIsStale, computeChecklistCompletionRate } from './validate.mjs';
 import { checkIndex } from './index-file.mjs';
@@ -119,6 +119,7 @@ export function parseDocFile(filePath, config) {
   const audience = asString(parsedFrontmatter.audience) ?? null;
   const executionMode = asString(parsedFrontmatter.execution_mode) ?? null;
   const checklist = extractChecklistCounts(body);
+  const bodyLinks = extractBodyLinks(body);
 
   // Dynamic reference field extraction
   const refFields = {};
@@ -148,6 +149,7 @@ export function parseDocFile(filePath, config) {
     auditLevel: asString(parsedFrontmatter.audit_level) ?? null,
     sourceOfTruth: asString(parsedFrontmatter.source_of_truth) ?? null,
     checklist,
+    bodyLinks,
     refFields,
     checklistCompletionRate: computeChecklistCompletionRate(checklist),
     hasNextStep: Boolean(nextStep),
