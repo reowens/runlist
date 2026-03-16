@@ -1,6 +1,6 @@
 {
   "name": "dotmd-cli",
-  "version": "0.7.5",
+  "version": "0.7.6",
   "description": "CLI for managing markdown documents with YAML frontmatter — index, query, validate, lifecycle.",
   "type": "module",
   "license": "MIT",
