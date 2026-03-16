@@ -1,7 +1,7 @@
 {
   "name": "dotmd-cli",
   "version": "0.7.0",
-  "description": "Zero-dependency CLI for managing markdown documents with YAML frontmatter \u2014 index, query, validate, lifecycle.",
+  "description": "Zero-dependency CLI for managing markdown documents with YAML frontmatter — index, query, validate, lifecycle.",
   "type": "module",
   "license": "MIT",
   "bin": {
@@ -28,7 +28,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/reowens/runlist.git"
+    "url": "git+https://github.com/reowens/dotmd.git"
   },
   "scripts": {
     "test": "node --test test/*.test.mjs"
