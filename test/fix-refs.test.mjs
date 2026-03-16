@@ -82,6 +82,59 @@ describe('fix-refs command', () => {
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(result.stdout.includes('could not be auto-resolved'), 'shows unfixable count');
   });
+
+  it('fixes broken body links by basename match', () => {
+    const docsDir = setupProject();
+    writeFileSync(path.join(docsDir, 'a.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\n---\n# A\n\nSee [plan B](b.md) for details.\n');
+    writeFileSync(path.join(docsDir, 'archived', 'b.md'),
+      '---\nstatus: archived\n---\n# B\n');
+
+    const result = run(['fix-refs']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('body link'), 'shows body link fix');
+
+    const content = readFileSync(path.join(docsDir, 'a.md'), 'utf8');
+    ok(content.includes('[plan B](archived/b.md)'), 'body link rewritten');
+    ok(!content.includes('[plan B](b.md)'), 'old body link gone');
+  });
+
+  it('preserves anchor fragments in body link fixes', () => {
+    const docsDir = setupProject();
+    writeFileSync(path.join(docsDir, 'a.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\n---\n# A\n\nSee [section](b.md#details) here.\n');
+    writeFileSync(path.join(docsDir, 'archived', 'b.md'),
+      '---\nstatus: archived\n---\n# B\n');
+
+    run(['fix-refs']);
+    const content = readFileSync(path.join(docsDir, 'a.md'), 'utf8');
+    ok(content.includes('[section](archived/b.md#details)'), 'anchor preserved');
+  });
+
+  it('dry-run does not modify body links', () => {
+    const docsDir = setupProject();
+    writeFileSync(path.join(docsDir, 'a.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\n---\n# A\n\n[broken](b.md)\n');
+    writeFileSync(path.join(docsDir, 'archived', 'b.md'),
+      '---\nstatus: archived\n---\n# B\n');
+
+    run(['fix-refs', '--dry-run']);
+    const content = readFileSync(path.join(docsDir, 'a.md'), 'utf8');
+    ok(content.includes('[broken](b.md)'), 'body link not modified in dry-run');
+  });
+
+  it('does not fix links inside code blocks', () => {
+    const docsDir = setupProject();
+    writeFileSync(path.join(docsDir, 'a.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\n---\n# A\n\n```\n[fake](b.md)\n```\n');
+    writeFileSync(path.join(docsDir, 'archived', 'b.md'),
+      '---\nstatus: archived\n---\n# B\n');
+
+    const result = run(['fix-refs']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    // extractBodyLinks skips code blocks, so no warning is generated, so no fix attempted
+    ok(!result.stdout.includes('body link'), 'no body link fix for code block content');
+  });
 });
 
 describe('check --errors-only', () => {
