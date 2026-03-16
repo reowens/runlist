@@ -1,3 +1,4 @@
 .osgrep
 .gmax
 .npmrc
+node_modules/

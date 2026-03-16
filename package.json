@@ -35,5 +35,9 @@
   },
   "engines": {
     "node": ">=18"
+  },
+  "dependencies": {
+    "@notionhq/client": "^5.13.0",
+    "notion-to-md": "^3.1.9"
   }
 }

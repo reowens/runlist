@@ -24,6 +24,7 @@ import { buildStats, renderStats, renderStatsJson } from '../src/stats.mjs';
 import { runSummary } from '../src/summary.mjs';
 import { runDeps } from '../src/deps.mjs';
 import { runExport } from '../src/export.mjs';
+import { runNotion } from '../src/notion.mjs';
 import { die, warn } from '../src/util.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -54,6 +55,7 @@ Commands:
   rename <old> <new>     Rename doc and update references
   migrate <f> <old> <new>  Batch update a frontmatter field
   watch [command]       Re-run a command on file changes
+  notion <sub> [db-id]   Notion import/export/sync
   export [file]          Export docs as md, html, or json
   summary <file>        AI summary of a document
   diff [file]           Show changes since last updated date
@@ -194,6 +196,19 @@ Examples:
   dotmd watch              # re-run list on changes
   dotmd watch check        # re-run check on changes
   dotmd watch context      # live briefing`,
+
+  notion: `dotmd notion — Notion database integration
+
+Subcommands:
+  import <database-id>   Pull Notion database → local .md files
+  export <database-id>   Push local docs → Notion database rows
+  sync <database-id>     Bidirectional sync (merge by slug)
+
+Options:
+  --force                Overwrite existing files on import
+  --dry-run, -n          Preview without changes
+
+Requires NOTION_TOKEN env var or notion.token in config.`,
 
   export: `dotmd export — export docs as markdown, HTML, or JSON
 
@@ -337,6 +352,7 @@ async function main() {
   if (command === 'summary') { runSummary(restArgs, config); return; }
   if (command === 'deps') { runDeps(restArgs, config); return; }
   if (command === 'export') { runExport(restArgs, config); return; }
+  if (command === 'notion') { await runNotion(restArgs, config, { dryRun }); return; }
 
   // Lifecycle commands
   if (command === 'status') { runStatus(restArgs, config, { dryRun }); return; }

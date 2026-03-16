@@ -3,7 +3,7 @@ import { die } from './util.mjs';
 const COMMANDS = [
   'list', 'json', 'check', 'coverage', 'stats', 'graph', 'deps', 'context', 'focus', 'query',
   'index', 'status', 'archive', 'touch', 'doctor', 'lint', 'rename', 'migrate',
-  'fix-refs', 'export', 'summary', 'watch', 'diff', 'init', 'new', 'completions',
+  'fix-refs', 'notion', 'export', 'summary', 'watch', 'diff', 'init', 'new', 'completions',
 ];
 
 const GLOBAL_FLAGS = ['--config', '--dry-run', '--verbose', '--root', '--help', '--version'];
@@ -22,6 +22,7 @@ const COMMAND_FLAGS = {
   stats: ['--json'],
   graph: ['--dot', '--json', '--status', '--module', '--surface'],
   deps: ['--json', '--depth'],
+  notion: ['import', 'export', 'sync', '--force', '--dry-run'],
   export: ['--format', '--output', '--status', '--module', '--root'],
   lint: ['--fix'],
   rename: [],
