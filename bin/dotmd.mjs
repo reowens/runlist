@@ -23,6 +23,7 @@ import { runDoctor } from '../src/doctor.mjs';
 import { buildStats, renderStats, renderStatsJson } from '../src/stats.mjs';
 import { runSummary } from '../src/summary.mjs';
 import { runDeps } from '../src/deps.mjs';
+import { runExport } from '../src/export.mjs';
 import { die, warn } from '../src/util.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -53,6 +54,7 @@ Commands:
   rename <old> <new>     Rename doc and update references
   migrate <f> <old> <new>  Batch update a frontmatter field
   watch [command]       Re-run a command on file changes
+  export [file]          Export docs as md, html, or json
   summary <file>        AI summary of a document
   diff [file]           Show changes since last updated date
   new <name>             Create a new document from template
@@ -193,6 +195,18 @@ Examples:
   dotmd watch check        # re-run check on changes
   dotmd watch context      # live briefing`,
 
+  export: `dotmd export — export docs as markdown, HTML, or JSON
+
+Without a file, exports all docs (with optional filters).
+With a file, exports that doc plus all its dependencies.
+
+Options:
+  --format <md|html|json>  Output format (default: md)
+  --output <path>          Write to file/directory (default: stdout for md/json)
+  --status <s1,s2>         Filter by status
+  --module <name>          Filter by module
+  --root <name>            Filter by root`,
+
   summary: `dotmd summary <file> — AI summary of a document
 
 Generates an AI-powered summary using a local MLX model via uv.
@@ -322,6 +336,7 @@ async function main() {
   if (command === 'diff') { runDiff(restArgs, config); return; }
   if (command === 'summary') { runSummary(restArgs, config); return; }
   if (command === 'deps') { runDeps(restArgs, config); return; }
+  if (command === 'export') { runExport(restArgs, config); return; }
 
   // Lifecycle commands
   if (command === 'status') { runStatus(restArgs, config, { dryRun }); return; }
