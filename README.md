@@ -1,6 +1,6 @@
 # dotmd
 
-Zero-dependency CLI for managing markdown documents with YAML frontmatter.
+CLI for managing markdown documents with YAML frontmatter.
 
 Index, query, validate, and lifecycle-manage any collection of `.md` files — plans, ADRs, RFCs, design docs, meeting notes. Built for AI-assisted development workflows where structured docs need to stay current.
 
