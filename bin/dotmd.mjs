@@ -431,8 +431,10 @@ async function main() {
     index.docs = index.docs.filter(d => d.root === rootFilter || d.root.endsWith('/' + rootFilter) || d.root.split('/').pop() === rootFilter);
     index.errors = index.errors.filter(e => index.docs.some(d => d.path === e.path));
     index.warnings = index.warnings.filter(w => index.docs.some(d => d.path === w.path));
-    for (const status of config.statusOrder) {
-      index.countsByStatus[status] = index.docs.filter(d => d.status === status).length;
+    index.countsByStatus = {};
+    for (const doc of index.docs) {
+      const s = doc.status ?? 'unknown';
+      index.countsByStatus[s] = (index.countsByStatus[s] ?? 0) + 1;
     }
   }
 
@@ -551,9 +553,10 @@ async function main() {
   if (command === 'context') {
     if (args.includes('--json')) {
       const byStatus = {};
-      for (const s of config.statusOrder) {
-        const docs = index.docs.filter(d => d.status === s);
-        if (docs.length) byStatus[s] = docs;
+      for (const doc of index.docs) {
+        const s = doc.status ?? 'unknown';
+        if (!byStatus[s]) byStatus[s] = [];
+        byStatus[s].push(doc);
       }
       const stale = index.docs.filter(d => d.isStale && !config.lifecycle.skipStaleFor.has(d.status));
       process.stdout.write(JSON.stringify({

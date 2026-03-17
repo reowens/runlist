@@ -124,8 +124,10 @@ function _renderContext(index, config, opts = {}) {
   const ctx = config.context;
 
   const byStatus = {};
-  for (const status of config.statusOrder) {
-    byStatus[status] = index.docs.filter(d => d.status === status);
+  for (const doc of index.docs) {
+    const s = doc.status ?? 'unknown';
+    if (!byStatus[s]) byStatus[s] = [];
+    byStatus[s].push(doc);
   }
 
   for (const status of (ctx.expanded || [])) {

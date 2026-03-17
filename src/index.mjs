@@ -51,6 +51,12 @@ export function buildIndex(config) {
     status,
     transformedDocs.filter(doc => doc.status === status).length,
   ]));
+  const knownStatuses = new Set(config.statusOrder);
+  for (const doc of transformedDocs) {
+    if (doc.status && !knownStatuses.has(doc.status)) {
+      countsByStatus[doc.status] = (countsByStatus[doc.status] ?? 0) + 1;
+    }
+  }
 
   if (config.indexPath) {
     const indexCheck = checkIndex(transformedDocs, config);

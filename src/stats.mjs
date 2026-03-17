@@ -94,7 +94,11 @@ function _renderStats(stats, config) {
 
   // Status
   lines.push(bold('Status'));
-  const statusParts = config.statusOrder
+  const allStatuses = [
+    ...config.statusOrder.filter(s => stats.countsByStatus[s]),
+    ...Object.keys(stats.countsByStatus).filter(s => !config.statusOrder.includes(s)).sort(),
+  ];
+  const statusParts = allStatuses
     .filter(s => stats.countsByStatus[s])
     .map(s => `${s}: ${stats.countsByStatus[s]}`);
   lines.push('  ' + statusParts.join('  '));
