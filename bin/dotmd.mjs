@@ -266,8 +266,14 @@ Options:
 
   lint: `dotmd lint [--fix] — check and auto-fix frontmatter issues
 
-Scans all docs for fixable problems: missing updated dates, status casing,
-camelCase key names, trailing whitespace in values, missing EOF newline.
+Scans all docs for fixable problems:
+  - Missing status (inferred via local AI model when available)
+  - Missing updated date (set to today)
+  - Status casing (e.g. Active → active)
+  - camelCase key names (e.g. nextStep → next_step)
+  - Comma-separated surface values (converted to surfaces: array)
+  - Trailing whitespace in frontmatter values
+  - Missing newline at end of file
 
 Without --fix, reports all issues. With --fix, applies fixes in place.
 Use --dry-run (-n) with --fix to preview without writing anything.`,
