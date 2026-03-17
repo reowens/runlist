@@ -144,4 +144,24 @@ describe('dotmd lint', () => {
     // Should NOT report old.md as fixable since archived is in skipWarningsFor
     ok(!result.stdout.includes('old.md') || !result.stdout.includes('add updated'), 'archived doc not flagged for missing updated');
   });
+
+  it('detects and fixes comma-separated surface values', () => {
+    const docsDir = setupProject();
+    writeFileSync(path.join(docsDir, 'multi.md'), '---\nstatus: active\nupdated: 2025-01-01\nsurface: api, web, ios\n---\n# Multi\n');
+
+    // Report mode
+    const report = run(['lint']);
+    strictEqual(report.status, 0, `stderr: ${report.stderr}`);
+    ok(report.stdout.includes('surfaces'), 'reports comma-separated surface');
+
+    // Fix mode
+    const fix = run(['lint', '--fix']);
+    strictEqual(fix.status, 0, `stderr: ${fix.stderr}`);
+
+    const content = readFileSync(path.join(docsDir, 'multi.md'), 'utf8');
+    ok(!content.includes('surface: api, web, ios'), 'old comma-separated surface removed');
+    ok(content.includes('- api'), 'has api in array');
+    ok(content.includes('- web'), 'has web in array');
+    ok(content.includes('- ios'), 'has ios in array');
+  });
 });

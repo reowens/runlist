@@ -10,7 +10,7 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
   if (!doc.status) {
     doc.errors.push({ path: doc.path, level: 'error', message: 'Missing frontmatter `status`.' });
   } else if (!config.validStatuses.has(doc.status)) {
-    doc.errors.push({ path: doc.path, level: 'error', message: `Invalid status \`${doc.status}\`.` });
+    doc.warnings.push({ path: doc.path, level: 'warning', message: `Unknown status \`${doc.status}\`; not in statuses.order.` });
   }
 
   if (!config.lifecycle.skipWarningsFor.has(doc.status) && !doc.updated) {

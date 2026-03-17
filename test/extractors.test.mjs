@@ -183,4 +183,16 @@ describe('extractBodyLinks', () => {
   it('returns empty array when no links', () => {
     strictEqual(extractBodyLinks('Just plain text.').length, 0);
   });
+
+  it('skips links inside inline code', () => {
+    const body = 'Use `[text](fake.md)` syntax for links.';
+    strictEqual(extractBodyLinks(body).length, 0);
+  });
+
+  it('extracts real links but skips inline code links in same line', () => {
+    const body = 'See `[example](fake.md)` or [real link](real.md).';
+    const links = extractBodyLinks(body);
+    strictEqual(links.length, 1);
+    strictEqual(links[0].href, 'real.md');
+  });
 });

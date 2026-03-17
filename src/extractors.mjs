@@ -41,8 +41,8 @@ export function extractNextStep(body) {
 
 export function extractBodyLinks(body) {
   if (!body) return [];
-  // Strip fenced code blocks to avoid false positives
-  const stripped = body.replace(/^```[\s\S]*?^```/gm, '');
+  // Strip fenced code blocks and inline code to avoid false positives
+  const stripped = body.replace(/^```[\s\S]*?^```/gm, '').replace(/`[^`]+`/g, '');
   const links = [];
   // Match [text](path.md) or [text](path.md#anchor), skip images (preceded by !)
   const regex = /(?<!!)\[([^\]]+)\]\(([^)]+\.md(?:#[^)]*)?)\)/g;

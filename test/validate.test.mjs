@@ -81,6 +81,16 @@ describe('body link validation', () => {
     ok(!result.stdout.includes('body link'), 'no warning for link inside code block');
   });
 
+  it('unknown status is warning not error', () => {
+    const docsDir = setupProject();
+    writeFileSync(path.join(docsDir, 'a.md'),
+      '---\nstatus: implemented\nupdated: 2025-01-01\n---\n# A\n');
+
+    const result = run(['check']);
+    strictEqual(result.status, 0, `should not fail for unknown status. stderr: ${result.stderr}`);
+    ok(result.stdout.includes('Unknown status'), 'shows warning about unknown status');
+  });
+
   it('body link issues are warnings not errors', () => {
     const docsDir = setupProject();
     writeFileSync(path.join(docsDir, 'a.md'),

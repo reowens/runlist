@@ -47,6 +47,13 @@ export function runLint(argv, config, opts = {}) {
       }
     }
 
+    // Comma-separated surface → surfaces array
+    const surfaceVal = asString(parsed.surface);
+    if (surfaceVal && surfaceVal.includes(',')) {
+      const values = surfaceVal.split(',').map(s => s.trim()).filter(Boolean);
+      fixes.push({ field: 'surface', oldValue: surfaceVal, newValue: values, type: 'split-to-array' });
+    }
+
     // Trailing whitespace in values
     for (const line of frontmatter.split('\n')) {
       const m = line.match(/^([A-Za-z0-9_-]+):(.+\S)\s+$/);
@@ -78,6 +85,8 @@ export function runLint(argv, config, opts = {}) {
         for (const f of fixes) {
           if (f.type === 'rename-key') {
             process.stdout.write(dim(`    ${f.oldValue} → ${f.newValue}\n`));
+          } else if (f.type === 'split-to-array') {
+            process.stdout.write(dim(`    ${f.field}: "${f.oldValue}" → surfaces: [${f.newValue.join(', ')}]\n`));
           } else if (f.type === 'eof') {
             process.stdout.write(dim(`    missing newline at end of file\n`));
           } else if (f.type === 'add') {
@@ -112,6 +121,7 @@ export function runLint(argv, config, opts = {}) {
     const keyRenames = [];
     let needsEofFix = false;
     const trimFixes = [];
+    const splitToArray = [];
 
     for (const f of fixes) {
       if (f.type === 'rename-key') {
@@ -120,12 +130,36 @@ export function runLint(argv, config, opts = {}) {
         needsEofFix = true;
       } else if (f.type === 'trim') {
         trimFixes.push(f);
+      } else if (f.type === 'split-to-array') {
+        splitToArray.push(f);
       } else {
         updates[f.field] = f.newValue;
       }
     }
 
     if (!dryRun) {
+      // Apply split-to-array fixes (surface: a, b → surfaces: array)
+      for (const sa of splitToArray) {
+        let raw = readFileSync(filePath, 'utf8');
+        const { frontmatter: fm } = extractFrontmatter(raw);
+        // Remove the scalar surface line
+        let newFm = fm.replace(new RegExp(`^${escapeRegex(sa.field)}:.*$`, 'm'), '').replace(/\n{2,}/g, '\n');
+        // Check if surfaces: array already exists
+        if (newFm.includes('surfaces:')) {
+          // Append new values to existing array
+          for (const val of sa.newValue) {
+            if (!newFm.includes(`- ${val}`)) {
+              newFm = newFm.replace(/^(surfaces:)$/m, `$1\n  - ${val}`);
+            }
+          }
+        } else {
+          // Create new surfaces: array
+          newFm += `\nsurfaces:\n${sa.newValue.map(v => `  - ${v}`).join('\n')}`;
+        }
+        raw = replaceFrontmatter(raw, newFm.trim());
+        writeFileSync(filePath, raw, 'utf8');
+      }
+
       // Apply key renames and trim fixes via raw string manipulation
       if (keyRenames.length > 0 || trimFixes.length > 0) {
         let raw = readFileSync(filePath, 'utf8');
@@ -165,6 +199,8 @@ export function runLint(argv, config, opts = {}) {
         process.stdout.write(`${prefix}  ${dim(`${f.oldValue} → ${f.newValue}`)}\n`);
       } else if (f.type === 'eof') {
         process.stdout.write(`${prefix}  ${dim('added newline at EOF')}\n`);
+      } else if (f.type === 'split-to-array') {
+        process.stdout.write(`${prefix}  ${dim(`${f.field}: "${f.oldValue}" → surfaces: [${f.newValue.join(', ')}]`)}\n`);
       } else if (f.type === 'add') {
         process.stdout.write(`${prefix}  ${dim(`add ${f.field}: ${f.newValue}`)}\n`);
       } else {
