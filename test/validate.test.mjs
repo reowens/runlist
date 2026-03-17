@@ -81,6 +81,26 @@ describe('body link validation', () => {
     ok(!result.stdout.includes('body link'), 'no warning for link inside code block');
   });
 
+  it('unknown status without updated is not an error', () => {
+    const docsDir = setupProject();
+    writeFileSync(path.join(docsDir, 'a.md'),
+      '---\nstatus: implemented\n---\n# A\n');
+
+    const result = run(['check']);
+    strictEqual(result.status, 0, `should not fail. stderr: ${result.stderr}`);
+    ok(!result.stdout.includes('Missing frontmatter `updated`'), 'no updated error for unknown status');
+  });
+
+  it('known status without updated is still an error', () => {
+    const docsDir = setupProject();
+    writeFileSync(path.join(docsDir, 'a.md'),
+      '---\nstatus: active\n---\n# A\n');
+
+    const result = run(['check']);
+    strictEqual(result.status, 1, 'should fail for known status missing updated');
+    ok(result.stdout.includes('Missing frontmatter `updated`'), 'shows updated error');
+  });
+
   it('unknown status is warning not error', () => {
     const docsDir = setupProject();
     writeFileSync(path.join(docsDir, 'a.md'),

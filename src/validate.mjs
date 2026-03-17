@@ -13,15 +13,18 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
     doc.warnings.push({ path: doc.path, level: 'warning', message: `Unknown status \`${doc.status}\`; not in statuses.order.` });
   }
 
-  if (!config.lifecycle.skipWarningsFor.has(doc.status) && !doc.updated) {
+  // Only enforce lifecycle fields for known statuses (skip for unknown like implemented, partial, etc.)
+  const knownStatus = config.validStatuses.has(doc.status);
+
+  if (knownStatus && !config.lifecycle.skipWarningsFor.has(doc.status) && !doc.updated) {
     doc.errors.push({ path: doc.path, level: 'error', message: 'Missing frontmatter `updated` for non-archived doc.' });
   }
 
-  if (doc.auditLevel && doc.auditLevel !== 'none' && !doc.audited) {
+  if (knownStatus && doc.auditLevel && doc.auditLevel !== 'none' && !doc.audited) {
     doc.errors.push({ path: doc.path, level: 'error', message: '`audit_level` is set without `audited`.' });
   }
 
-  if (doc.auditLevel === 'none' && doc.audited) {
+  if (knownStatus && doc.auditLevel === 'none' && doc.audited) {
     doc.errors.push({ path: doc.path, level: 'error', message: '`audit_level: none` cannot be combined with `audited`.' });
   }
 
