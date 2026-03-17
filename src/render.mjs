@@ -41,6 +41,32 @@ function _renderCompactList(index, config) {
     lines.push('');
   }
 
+  // Render docs with statuses not in statusOrder
+  const knownStatuses = new Set(config.statusOrder);
+  const otherStatuses = [...new Set(index.docs.filter(d => d.status && !knownStatuses.has(d.status)).map(d => d.status))].sort();
+  for (const status of otherStatuses) {
+    const docs = index.docs.filter(d => d.status === status);
+    if (!docs.length) continue;
+
+    lines.push(bold(`${capitalize(status)} (${docs.length})`));
+    const maxTitle = Math.min(config.display.truncateTitle || 30, Math.max(...docs.map(d => d.title.length)));
+
+    for (const doc of docs) {
+      const title = doc.title.length > maxTitle
+        ? doc.title.slice(0, maxTitle - 3) + '...'
+        : doc.title.padEnd(maxTitle);
+      const days = doc.daysSinceUpdate != null ? `${doc.daysSinceUpdate}d` : '';
+      const progress = renderProgressBar(doc.checklist);
+      const next = doc.nextStep ? `next: ${doc.nextStep}` : '';
+      const parts = [`  ${title}  ${days.padStart(4)}`];
+      if (progress) parts.push(progress);
+      if (next) parts.push(next);
+      const line = parts.join('  ');
+      lines.push(line.length > maxWidth ? line.slice(0, maxWidth - 3) + '...' : line);
+    }
+    lines.push('');
+  }
+
   return `${lines.join('\n').trimEnd()}\n`;
 }
 
@@ -48,6 +74,24 @@ export function renderVerboseList(index, config) {
   const lines = ['Index', ''];
 
   for (const status of config.statusOrder) {
+    const docs = index.docs.filter(doc => doc.status === status);
+    if (docs.length === 0) continue;
+
+    lines.push(`${capitalize(status)} (${docs.length})`);
+    for (const doc of docs) {
+      const parts = [`- ${doc.title}`, `${capitalize(status)}: ${doc.currentState}`, `(${doc.path})`];
+      if (doc.nextStep) {
+        parts.push(`next: ${doc.nextStep}`);
+      }
+      lines.push(parts.join(' — '));
+    }
+    lines.push('');
+  }
+
+  // Render docs with statuses not in statusOrder
+  const knownStatuses = new Set(config.statusOrder);
+  const otherStatuses = [...new Set(index.docs.filter(d => d.status && !knownStatuses.has(d.status)).map(d => d.status))].sort();
+  for (const status of otherStatuses) {
     const docs = index.docs.filter(doc => doc.status === status);
     if (docs.length === 0) continue;
 

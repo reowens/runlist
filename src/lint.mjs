@@ -78,9 +78,13 @@ export function runLint(argv, config, opts = {}) {
     }
   }
 
-  // Also get non-fixable issues from index
+  // Also get non-fixable issues from index, excluding issues we can already fix
   const index = buildIndex(config);
-  const nonFixable = [...index.errors, ...index.warnings];
+  const fixablePaths = new Set(fixable.map(f => f.repoPath));
+  const nonFixable = [...index.errors, ...index.warnings].filter(issue => {
+    if (issue.message.includes('Missing frontmatter `status`') && fixablePaths.has(issue.path)) return false;
+    return true;
+  });
 
   if (!fix) {
     // Report mode

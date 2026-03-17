@@ -35,7 +35,7 @@ const HELP = {
   _main: `dotmd v${pkg.version} — frontmatter markdown document manager
 
 Commands:
-  list [--verbose]       List docs grouped by status (default)
+  list [--verbose|--json] List docs grouped by status (default)
   json                   Full index as JSON
   check [flags]          Validate frontmatter and references
   coverage [--json]      Metadata coverage report
@@ -69,6 +69,22 @@ Options:
   --verbose              Show config details and doc count
   --help, -h             Show help
   --version, -v          Show version`,
+
+  list: `dotmd list — list docs grouped by status
+
+Options:
+  --verbose              Show full details per doc
+  --json                 Output full index as JSON (same as dotmd json)`,
+
+  json: `dotmd json — full index as JSON
+
+Outputs the complete document index as JSON to stdout.`,
+
+  completions: `dotmd completions <bash|zsh> — output shell completion script
+
+Add to your shell config:
+  bash: eval "$(dotmd completions bash)"
+  zsh:  eval "$(dotmd completions zsh)"`,
 
   query: `dotmd query — filtered document search
 
@@ -105,7 +121,9 @@ Use --dry-run (-n) to preview changes without writing anything.`,
 
 Options:
   --errors-only          Show only errors, suppress warnings
-  --fix                  Auto-fix broken references and regenerate index`,
+  --fix                  Auto-fix broken refs, lint issues, and regenerate index
+  --json                 Output errors and warnings as JSON
+  --dry-run, -n          Preview fixes without writing (with --fix)`,
 
   archive: `dotmd archive <file> — archive a document
 
@@ -123,13 +141,17 @@ Options:
 
   focus: `dotmd focus [status] — detailed view for one status group
 
-Shows detailed info for all docs matching the given status (default: active).`,
+Shows detailed info for all docs matching the given status (default: active).
+
+Options:
+  --json                 Output as JSON`,
 
   context: `dotmd context — compact briefing (LLM-oriented)
 
 Generates a compact status briefing designed for AI/LLM consumption.
 
 Options:
+  --json                 Output as JSON
   --summarize            Add AI summaries for expanded docs
   --model <name>         MLX model for AI summaries`,
 
@@ -242,7 +264,8 @@ Options:
   --output <path>          Write to file/directory (default: stdout for md/json)
   --status <s1,s2>         Filter by status
   --module <name>          Filter by module
-  --root <name>            Filter by root`,
+  --root <name>            Filter by root
+  --dry-run, -n            Preview without writing`,
 
   summary: `dotmd summary <file> — AI summary of a document
 
@@ -439,19 +462,32 @@ async function main() {
 
     if (fix) {
       // Auto-fix: broken refs, then lint, then rebuild index
-      const refResult = fixBrokenRefs(config, { dryRun, quiet: false });
-      if (!dryRun) {
-        runLint(['--fix'], config, { dryRun });
-      }
-      if (!dryRun && config.indexPath) {
-        const { renderIndexFile: rif, writeIndex: wi } = await import('../src/index-file.mjs');
-        const freshIndex = buildIndex(config);
-        wi(rif(freshIndex, config), config);
-        process.stdout.write('Index regenerated.\n');
+      fixBrokenRefs(config, { dryRun, quiet: false });
+      runLint(['--fix'], config, { dryRun });
+      if (config.indexPath) {
+        if (!dryRun) {
+          const { renderIndexFile: rif, writeIndex: wi } = await import('../src/index-file.mjs');
+          const freshIndex = buildIndex(config);
+          wi(rif(freshIndex, config), config);
+          process.stdout.write('Index regenerated.\n');
+        } else {
+          process.stdout.write('[dry-run] Would regenerate index.\n');
+        }
       }
       // Show remaining issues
       const freshIndex = buildIndex(config);
-      process.stdout.write('\n' + renderCheck(freshIndex, config, { errorsOnly }));
+      if (args.includes('--json')) {
+        process.stdout.write(JSON.stringify({
+          docsScanned: freshIndex.docs.length,
+          errors: freshIndex.errors,
+          warnings: errorsOnly ? [] : freshIndex.warnings,
+          errorCount: freshIndex.errors.length,
+          warningCount: freshIndex.warnings.length,
+          passed: freshIndex.errors.length === 0,
+        }, null, 2) + '\n');
+      } else {
+        process.stdout.write('\n' + renderCheck(freshIndex, config, { errorsOnly }));
+      }
       if (freshIndex.errors.length > 0) process.exitCode = 1;
       return;
     }
