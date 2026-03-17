@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { warn } from './util.mjs';
+import { dim } from './color.mjs';
 
 let uvChecked = null;
 
@@ -11,10 +12,13 @@ export function checkUvAvailable() {
   return uvChecked;
 }
 
+export const DEFAULT_MODEL = 'mlx-community/Llama-3.2-3B-Instruct-4bit';
+
 export function runMLX(prompt, opts = {}) {
-  const { model = 'mlx-community/Llama-3.2-3B-Instruct-4bit', maxTokens = 200, timeout = 120000 } = opts;
+  const { model = DEFAULT_MODEL, maxTokens = 200, timeout = 120000 } = opts;
   if (!checkUvAvailable()) return null;
 
+  process.stderr.write(dim('  generating...'));
   const result = spawnSync('uv', [
     'run', '--with', 'mlx-lm',
     'python3', '-m', 'mlx_lm', 'generate',
@@ -24,6 +28,7 @@ export function runMLX(prompt, opts = {}) {
     '--verbose', 'false',
   ], { encoding: 'utf8', timeout });
 
+  process.stderr.write('\r\x1b[K');
   if (result.status !== 0) return null;
 
   const output = result.stdout.trim();

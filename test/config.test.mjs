@@ -97,7 +97,7 @@ describe('resolveConfig', () => {
       () => resolveConfig(tmpDir),
       (err) => {
         ok(err.message.includes('Failed to load config'), 'shows error message');
-        ok(err.message.includes('dotmd init'), 'suggests dotmd init');
+        ok(err.message.includes('syntax errors'), 'suggests checking syntax');
         return true;
       }
     );

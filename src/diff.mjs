@@ -3,7 +3,7 @@ import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { asString, toRepoPath, resolveDocPath, die, warn } from './util.mjs';
 import { gitDiffSince } from './git.mjs';
 import { buildIndex } from './index.mjs';
-import { summarizeDiffText } from './ai.mjs';
+import { summarizeDiffText, DEFAULT_MODEL } from './ai.mjs';
 import { bold, dim, green } from './color.mjs';
 
 export function runDiff(argv, config) {
@@ -12,7 +12,7 @@ export function runDiff(argv, config) {
   let stat = false;
   let sinceOverride = null;
   let summarize = false;
-  let model = 'mlx-community/Llama-3.2-3B-Instruct-4bit';
+  let model = DEFAULT_MODEL;
 
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--stat') { stat = true; continue; }

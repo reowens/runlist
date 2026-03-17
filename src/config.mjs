@@ -161,7 +161,7 @@ export async function resolveConfig(cwd, explicitConfigPath) {
     try {
       mod = await import(configUrl);
     } catch (err) {
-      die('Failed to load config: ' + configPath + '\n' + err.message + '\nRun `dotmd init` to create a starter config.');
+      die('Failed to load config: ' + configPath + '\n' + err.message + '\nCheck for syntax errors in your config file.');
     }
 
     configDir = path.dirname(configPath);

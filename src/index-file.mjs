@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { capitalize, escapeTable } from './util.mjs';
 import { formatSnapshot } from './render.mjs';
 
@@ -19,7 +20,7 @@ export function renderIndexFile(index, config) {
 
 function renderGeneratedBlock(index, config) {
   const lines = [];
-  const prefix = config.docsRootPrefix;
+  const indexDir = config.indexPath ? path.dirname(path.relative(config.repoRoot, config.indexPath)).split(path.sep).join('/') : '';
 
   for (const status of config.statusOrder) {
     const docs = index.docs.filter(doc => doc.status === status);
@@ -37,7 +38,7 @@ function renderGeneratedBlock(index, config) {
     lines.push('|-----|-----------------|');
     for (const doc of docs) {
       const snapshot = formatSnapshot(doc, config);
-      const linkPath = prefix ? doc.path.replace(prefix, '') : doc.path;
+      const linkPath = indexDir ? path.relative(indexDir, doc.path).split(path.sep).join('/') : doc.path;
       lines.push(`| [${escapeTable(doc.title)}](${linkPath}) | ${escapeTable(snapshot)} |`);
     }
     lines.push('');
@@ -49,7 +50,7 @@ function renderGeneratedBlock(index, config) {
 function renderArchivedSection(docs, config, status) {
   const lines = [];
   const limit = config.archivedHighlightLimit;
-  const prefix = config.docsRootPrefix;
+  const indexDir = config.indexPath ? path.dirname(path.relative(config.repoRoot, config.indexPath)).split(path.sep).join('/') : '';
   const highlights = docs
     .filter(doc => doc.currentState && doc.currentState !== 'No current_state set')
     .sort((a, b) => {
@@ -66,7 +67,7 @@ function renderArchivedSection(docs, config, status) {
   lines.push('| Doc | Status Snapshot |');
   lines.push('|-----|-----------------|');
   for (const doc of highlights) {
-    const linkPath = prefix ? doc.path.replace(prefix, '') : doc.path;
+    const linkPath = indexDir ? path.relative(indexDir, doc.path).split(path.sep).join('/') : doc.path;
     lines.push(`| [${escapeTable(doc.title)}](${linkPath}) | ${escapeTable(formatSnapshot(doc, config))} |`);
   }
   lines.push('');

@@ -145,6 +145,15 @@ describe('dotmd lint', () => {
     ok(!result.stdout.includes('old.md') || !result.stdout.includes('add updated'), 'archived doc not flagged for missing updated');
   });
 
+  it('detects missing status as fixable', () => {
+    const docsDir = setupProject();
+    writeFileSync(path.join(docsDir, 'no-status.md'), '---\nupdated: 2025-01-01\n---\n# No Status\n');
+
+    const result = run(['lint']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('missing status') || result.stdout.includes('no-status.md'), 'reports missing status as fixable');
+  });
+
   it('detects and fixes comma-separated surface values', () => {
     const docsDir = setupProject();
     writeFileSync(path.join(docsDir, 'multi.md'), '---\nstatus: active\nupdated: 2025-01-01\nsurface: api, web, ios\n---\n# Multi\n');

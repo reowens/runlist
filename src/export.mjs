@@ -5,13 +5,14 @@ import { buildIndex } from './index.mjs';
 import { buildGraph } from './graph.mjs';
 import { resolveDocPath, toRepoPath, capitalize, die } from './util.mjs';
 
-export function runExport(argv, config) {
+export function runExport(argv, config, opts = {}) {
   const positional = [];
   let format = 'md';
   let output = null;
   let statusFilter = null;
   let moduleFilter = null;
   let rootFilter = null;
+  const dryRun = opts.dryRun;
 
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--format' && argv[i + 1]) { format = argv[++i]; continue; }
@@ -62,26 +63,42 @@ export function runExport(argv, config) {
   // Load bodies
   const docsWithBody = docs.map(d => loadDocWithBody(d, config));
 
+  const prefix = dryRun ? '[dry-run] ' : '';
+
   if (format === 'md') {
-    const content = exportMarkdown(docsWithBody, config);
-    if (output) {
-      writeFileSync(output, content, 'utf8');
-      process.stdout.write(`Exported ${docs.length} docs to ${output}\n`);
+    if (dryRun) {
+      process.stdout.write(`${prefix}Would export ${docs.length} docs as markdown`);
+      process.stdout.write(output ? ` to ${output}\n` : ' to stdout\n');
     } else {
-      process.stdout.write(content);
+      const content = exportMarkdown(docsWithBody, config);
+      if (output) {
+        writeFileSync(output, content, 'utf8');
+        process.stdout.write(`Exported ${docs.length} docs to ${output}\n`);
+      } else {
+        process.stdout.write(content);
+      }
     }
   } else if (format === 'json') {
-    const content = exportJson(docsWithBody);
-    if (output) {
-      writeFileSync(output, content, 'utf8');
-      process.stdout.write(`Exported ${docs.length} docs to ${output}\n`);
+    if (dryRun) {
+      process.stdout.write(`${prefix}Would export ${docs.length} docs as JSON`);
+      process.stdout.write(output ? ` to ${output}\n` : ' to stdout\n');
     } else {
-      process.stdout.write(content);
+      const content = exportJson(docsWithBody);
+      if (output) {
+        writeFileSync(output, content, 'utf8');
+        process.stdout.write(`Exported ${docs.length} docs to ${output}\n`);
+      } else {
+        process.stdout.write(content);
+      }
     }
   } else if (format === 'html') {
     const outDir = output ?? 'dotmd-export';
-    exportHtml(docsWithBody, config, outDir);
-    process.stdout.write(`Exported ${docs.length} docs to ${outDir}/\n`);
+    if (dryRun) {
+      process.stdout.write(`${prefix}Would export ${docs.length} docs as HTML to ${outDir}/\n`);
+    } else {
+      exportHtml(docsWithBody, config, outDir);
+      process.stdout.write(`Exported ${docs.length} docs to ${outDir}/\n`);
+    }
   }
 }
 

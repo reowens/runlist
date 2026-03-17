@@ -9,8 +9,13 @@ import { summarizeDocBody } from './ai.mjs';
 import { dim } from './color.mjs';
 
 export function runFocus(index, argv, config) {
-  const statusFilter = argv[0] ?? 'active';
+  const statusFilter = argv.find(a => !a.startsWith('-')) ?? 'active';
   const docs = index.docs.filter(doc => doc.status === statusFilter);
+
+  if (argv.includes('--json')) {
+    process.stdout.write(JSON.stringify({ status: statusFilter, count: docs.length, docs }, null, 2) + '\n');
+    return;
+  }
 
   if (docs.length === 0) {
     process.stdout.write(`No docs found for status: ${statusFilter}\n`);
@@ -139,7 +144,7 @@ function getDocSummary(doc, config) {
     const meta = { title: doc.title, status: doc.status, path: doc.path };
     return config.hooks.summarizeDoc
       ? config.hooks.summarizeDoc(body, meta)
-      : summarizeDocBody(body, meta, { model: undefined });
+      : summarizeDocBody(body, meta);
   } catch { return null; }
 }
 

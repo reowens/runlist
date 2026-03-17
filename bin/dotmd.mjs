@@ -25,7 +25,7 @@ import { runSummary } from '../src/summary.mjs';
 import { runDeps } from '../src/deps.mjs';
 import { runExport } from '../src/export.mjs';
 import { runNotion } from '../src/notion.mjs';
-import { die, warn } from '../src/util.mjs';
+import { die, warn, levenshtein } from '../src/util.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -88,7 +88,10 @@ Filters:
   --limit <n>            Max results (default: 20)
   --all                  Show all results (no limit)
   --git                  Use git dates instead of frontmatter
-  --json                 Output as JSON`,
+  --json                 Output as JSON
+  --summarize            Add AI summaries to results
+  --summarize-limit <n>  Max docs to summarize (default: 5)
+  --model <name>         MLX model for AI summaries`,
 
   status: `dotmd status <file> <new-status> — transition document status
 
@@ -110,6 +113,25 @@ Sets status to 'archived', moves to the archive directory, auto-updates
 references in other docs, and regenerates the index.
 
 Use --dry-run (-n) to preview changes without writing anything.`,
+
+  coverage: `dotmd coverage — metadata coverage report
+
+Shows which docs are missing surface, module, or audit metadata.
+
+Options:
+  --json                 Machine-readable JSON output`,
+
+  focus: `dotmd focus [status] — detailed view for one status group
+
+Shows detailed info for all docs matching the given status (default: active).`,
+
+  context: `dotmd context — compact briefing (LLM-oriented)
+
+Generates a compact status briefing designed for AI/LLM consumption.
+
+Options:
+  --summarize            Add AI summaries for expanded docs
+  --model <name>         MLX model for AI summaries`,
 
   stats: `dotmd stats — doc health dashboard
 
@@ -320,7 +342,14 @@ async function main() {
   const verbose = args.includes('--verbose');
 
   const config = await resolveConfig(process.cwd(), explicitConfig);
-  const restArgs = args.slice(1);
+
+  // Strip global flags from restArgs so commands don't have to filter them
+  const restArgs = [];
+  for (let i = 1; i < args.length; i++) {
+    if (args[i] === '--config') { i++; continue; }
+    if (args[i] === '--dry-run' || args[i] === '-n' || args[i] === '--verbose') continue;
+    restArgs.push(args[i]);
+  }
 
   if (!config.configFound && command !== 'init') {
     warn('No dotmd config found — using defaults. Run `dotmd init` to create one.');
@@ -351,16 +380,16 @@ async function main() {
   if (command === 'diff') { runDiff(restArgs, config); return; }
   if (command === 'summary') { runSummary(restArgs, config); return; }
   if (command === 'deps') { runDeps(restArgs, config); return; }
-  if (command === 'export') { runExport(restArgs, config); return; }
+  if (command === 'export') { runExport(restArgs, config, { dryRun }); return; }
   if (command === 'notion') { await runNotion(restArgs, config, { dryRun }); return; }
 
   // Lifecycle commands
-  if (command === 'status') { runStatus(restArgs, config, { dryRun }); return; }
+  if (command === 'status') { await runStatus(restArgs, config, { dryRun }); return; }
   if (command === 'archive') { runArchive(restArgs, config, { dryRun }); return; }
   if (command === 'touch') { runTouch(restArgs, config, { dryRun }); return; }
-  if (command === 'new') { runNew(restArgs, config, { dryRun }); return; }
+  if (command === 'new') { await runNew(restArgs, config, { dryRun }); return; }
   if (command === 'lint') { runLint(restArgs, config, { dryRun }); return; }
-  if (command === 'rename') { runRename(restArgs, config, { dryRun }); return; }
+  if (command === 'rename') { await runRename(restArgs, config, { dryRun }); return; }
   if (command === 'migrate') { runMigrate(restArgs, config, { dryRun }); return; }
   if (command === 'fix-refs') { runFixRefs(restArgs, config, { dryRun }); return; }
   if (command === 'doctor') { runDoctor(restArgs, config, { dryRun }); return; }
@@ -388,7 +417,9 @@ async function main() {
   }
 
   if (command === 'list') {
-    if (args.includes('--verbose')) {
+    if (args.includes('--json')) {
+      process.stdout.write(`${JSON.stringify(index, null, 2)}\n`);
+    } else if (args.includes('--verbose')) {
       process.stdout.write(renderVerboseList(index, config));
     } else {
       process.stdout.write(renderCompactList(index, config));
@@ -416,6 +447,19 @@ async function main() {
       const freshIndex = buildIndex(config);
       process.stdout.write('\n' + renderCheck(freshIndex, config, { errorsOnly }));
       if (freshIndex.errors.length > 0) process.exitCode = 1;
+      return;
+    }
+
+    if (args.includes('--json')) {
+      process.stdout.write(JSON.stringify({
+        docsScanned: index.docs.length,
+        errors: index.errors,
+        warnings: errorsOnly ? [] : index.warnings,
+        errorCount: index.errors.length,
+        warningCount: index.warnings.length,
+        passed: index.errors.length === 0,
+      }, null, 2) + '\n');
+      if (index.errors.length > 0) process.exitCode = 1;
       return;
     }
 
@@ -463,6 +507,23 @@ async function main() {
   if (command === 'focus') { runFocus(index, restArgs, config); return; }
   if (command === 'query') { runQuery(index, restArgs, config); return; }
   if (command === 'context') {
+    if (args.includes('--json')) {
+      const byStatus = {};
+      for (const s of config.statusOrder) {
+        const docs = index.docs.filter(d => d.status === s);
+        if (docs.length) byStatus[s] = docs;
+      }
+      const stale = index.docs.filter(d => d.isStale && !config.lifecycle.skipStaleFor.has(d.status));
+      process.stdout.write(JSON.stringify({
+        generatedAt: new Date().toISOString(),
+        docsByStatus: byStatus,
+        countsByStatus: index.countsByStatus,
+        stale: stale.map(d => ({ path: d.path, title: d.title, daysSinceUpdate: d.daysSinceUpdate })),
+        errorCount: index.errors.length,
+        warningCount: index.warnings.length,
+      }, null, 2) + '\n');
+      return;
+    }
     const summarize = args.includes('--summarize');
     const modelIdx = args.indexOf('--model');
     const model = modelIdx !== -1 && args[modelIdx + 1] ? args[modelIdx + 1] : undefined;
@@ -489,8 +550,20 @@ async function main() {
     return;
   }
 
-  // Unknown command — show help
-  die(`Unknown command: ${command}\n\n${HELP._main}`);
+  // Unknown command — suggest closest match
+  const allCommands = [
+    'list', 'json', 'check', 'coverage', 'stats', 'graph', 'deps', 'context',
+    'focus', 'query', 'index', 'status', 'archive', 'touch', 'doctor',
+    'fix-refs', 'lint', 'rename', 'migrate', 'notion', 'export', 'summary',
+    'watch', 'diff', 'new', 'init', 'completions',
+  ];
+  const matches = allCommands
+    .map(c => ({ cmd: c, dist: levenshtein(command, c) }))
+    .sort((a, b) => a.dist - b.dist);
+  if (matches[0] && matches[0].dist <= 3) {
+    die(`Unknown command: ${command}\n\nDid you mean \`dotmd ${matches[0].cmd}\`?`);
+  }
+  die(`Unknown command: ${command}\n\nRun \`dotmd --help\` for available commands.`);
 }
 
 main().catch(err => {

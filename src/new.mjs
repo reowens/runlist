@@ -2,6 +2,7 @@ import { existsSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { toRepoPath, die, warn } from './util.mjs';
 import { green, dim, bold } from './color.mjs';
+import { isInteractive, promptText } from './prompt.mjs';
 
 const BUILTIN_TEMPLATES = {
   default: {
@@ -36,7 +37,7 @@ const BUILTIN_TEMPLATES = {
   },
 };
 
-export function runNew(argv, config, opts = {}) {
+export async function runNew(argv, config, opts = {}) {
   const { dryRun } = opts;
 
   // Parse args
@@ -50,6 +51,7 @@ export function runNew(argv, config, opts = {}) {
     if (argv[i] === '--title' && argv[i + 1]) { title = argv[++i]; continue; }
     if (argv[i] === '--template' && argv[i + 1]) { templateName = argv[++i]; continue; }
     if (argv[i] === '--root' && argv[i + 1]) { rootName = argv[++i]; continue; }
+    if (argv[i] === '--config') { i++; continue; }
     if (argv[i] === '--list-templates') {
       listTemplates(config);
       return;
@@ -57,8 +59,15 @@ export function runNew(argv, config, opts = {}) {
     if (!argv[i].startsWith('-')) positional.push(argv[i]);
   }
 
-  const name = positional[0];
-  if (!name) { die('Usage: dotmd new <name> [--template <t>] [--status <s>] [--title <t>]\n       dotmd new --list-templates'); }
+  let name = positional[0];
+  if (!name) {
+    if (isInteractive()) {
+      name = await promptText('Document name: ');
+      if (!name) die('No name provided.');
+    } else {
+      die('Usage: dotmd new <name> [--template <t>] [--status <s>] [--title <t>]\n       dotmd new --list-templates');
+    }
+  }
 
   // Validate status
   if (!config.validStatuses.has(status)) {

@@ -5,8 +5,9 @@ import { toRepoPath, resolveDocPath, die, warn } from './util.mjs';
 import { collectDocFiles } from './index.mjs';
 import { gitMv } from './git.mjs';
 import { green, dim, yellow } from './color.mjs';
+import { isInteractive, promptText } from './prompt.mjs';
 
-export function runRename(argv, config, opts = {}) {
+export async function runRename(argv, config, opts = {}) {
   const { dryRun } = opts;
 
   // Parse positional args (skip flags)
@@ -17,10 +18,16 @@ export function runRename(argv, config, opts = {}) {
   }
 
   const oldInput = positional[0];
-  const newInput = positional[1];
+  let newInput = positional[1];
 
-  if (!oldInput || !newInput) {
-    die('Usage: dotmd rename <old> <new>');
+  if (!oldInput) { die('Usage: dotmd rename <old> <new>'); }
+  if (!newInput) {
+    if (isInteractive()) {
+      newInput = await promptText('New name: ');
+      if (!newInput) die('No name provided.');
+    } else {
+      die('Usage: dotmd rename <old> <new>');
+    }
   }
 
   // Resolve old path

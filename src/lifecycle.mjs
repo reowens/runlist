@@ -6,18 +6,27 @@ import { gitMv, getGitLastModified } from './git.mjs';
 import { buildIndex, collectDocFiles } from './index.mjs';
 import { renderIndexFile, writeIndex } from './index-file.mjs';
 import { green, dim, yellow } from './color.mjs';
+import { isInteractive, promptChoice } from './prompt.mjs';
 
 function findFileRoot(filePath, config) {
   const roots = config.docsRoots || [config.docsRoot];
   return roots.find(r => filePath.startsWith(r)) ?? config.docsRoot;
 }
 
-export function runStatus(argv, config, opts = {}) {
+export async function runStatus(argv, config, opts = {}) {
   const { dryRun } = opts;
   const input = argv[0];
-  const newStatus = argv[1];
+  let newStatus = argv[1];
 
-  if (!input || !newStatus) { die('Usage: dotmd status <file> <new-status>'); }
+  if (!input) { die('Usage: dotmd status <file> <new-status>'); }
+  if (!newStatus) {
+    if (isInteractive()) {
+      newStatus = await promptChoice('Which status?', config.statusOrder);
+      if (!newStatus) die('No status selected.');
+    } else {
+      die('Usage: dotmd status <file> <new-status>');
+    }
+  }
   if (!config.validStatuses.has(newStatus)) { die(`Invalid status: ${newStatus}\nValid: ${[...config.validStatuses].join(', ')}`); }
 
   const filePath = resolveDocPath(input, config);

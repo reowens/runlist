@@ -3,6 +3,7 @@ import { extractFrontmatter, parseSimpleFrontmatter, replaceFrontmatter } from '
 import { asString, toRepoPath, escapeRegex, warn } from './util.mjs';
 import { buildIndex, collectDocFiles } from './index.mjs';
 import { updateFrontmatter } from './lifecycle.mjs';
+import { runMLX, checkUvAvailable } from './ai.mjs';
 import { bold, green, yellow, dim } from './color.mjs';
 
 const KEY_RENAMES = {
@@ -27,6 +28,11 @@ export function runLint(argv, config, opts = {}) {
     const parsed = parseSimpleFrontmatter(frontmatter);
     const repoPath = toRepoPath(filePath, config.repoRoot);
     const fixes = [];
+
+    // Missing status (fixable via AI inference)
+    if (!asString(parsed.status)) {
+      fixes.push({ field: 'status', oldValue: null, newValue: null, type: 'infer-status' });
+    }
 
     // Missing updated
     if (!asString(parsed.updated) && asString(parsed.status) && !config.lifecycle.skipWarningsFor.has(asString(parsed.status))) {
@@ -85,6 +91,8 @@ export function runLint(argv, config, opts = {}) {
         for (const f of fixes) {
           if (f.type === 'rename-key') {
             process.stdout.write(dim(`    ${f.oldValue} → ${f.newValue}\n`));
+          } else if (f.type === 'infer-status') {
+            process.stdout.write(dim(`    missing status (fixable via AI)\n`));
           } else if (f.type === 'split-to-array') {
             process.stdout.write(dim(`    ${f.field}: "${f.oldValue}" → surfaces: [${f.newValue.join(', ')}]\n`));
           } else if (f.type === 'eof') {
@@ -138,6 +146,20 @@ export function runLint(argv, config, opts = {}) {
     }
 
     if (!dryRun) {
+      // Apply infer-status fixes via AI
+      for (const f of fixes.filter(f => f.type === 'infer-status')) {
+        const raw = readFileSync(filePath, 'utf8');
+        const { body } = extractFrontmatter(raw);
+        const statusList = config.statusOrder.join(', ');
+        const prompt = `Given this markdown document, classify it into exactly one of these statuses: ${statusList}.\nReply with ONLY the status word, nothing else.\n\nFile: ${repoPath}\n\n${(body ?? '').slice(0, 4000)}`;
+        const result = runMLX(prompt, { maxTokens: 10 });
+        const suggested = result?.trim().toLowerCase().split(/\s+/)[0];
+        if (suggested && config.validStatuses.has(suggested)) {
+          updateFrontmatter(filePath, { status: suggested });
+          f.newValue = suggested;
+        }
+      }
+
       // Apply split-to-array fixes (surface: a, b → surfaces: array)
       for (const sa of splitToArray) {
         let raw = readFileSync(filePath, 'utf8');
@@ -199,6 +221,12 @@ export function runLint(argv, config, opts = {}) {
         process.stdout.write(`${prefix}  ${dim(`${f.oldValue} → ${f.newValue}`)}\n`);
       } else if (f.type === 'eof') {
         process.stdout.write(`${prefix}  ${dim('added newline at EOF')}\n`);
+      } else if (f.type === 'infer-status') {
+        if (f.newValue) {
+          process.stdout.write(`${prefix}  ${dim(`status: (missing) → ${f.newValue} (AI-inferred)`)}\n`);
+        } else {
+          process.stdout.write(`${prefix}  ${dim('status: (missing) — AI inference unavailable')}\n`);
+        }
       } else if (f.type === 'split-to-array') {
         process.stdout.write(`${prefix}  ${dim(`${f.field}: "${f.oldValue}" → surfaces: [${f.newValue.join(', ')}]`)}\n`);
       } else if (f.type === 'add') {
