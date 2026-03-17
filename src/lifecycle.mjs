@@ -188,10 +188,8 @@ export function runTouch(argv, config, opts = {}) {
       const gitDay = gitDate.slice(0, 10);
       if (fmUpdated === gitDay) continue;
 
-      // Only sync if git is newer than frontmatter
-      const gitMs = new Date(gitDate).getTime();
-      const fmMs = fmUpdated ? new Date(fmUpdated).getTime() : 0;
-      if (fmMs >= gitMs) continue;
+      // Only sync if git is newer than frontmatter (compare date strings)
+      if (fmUpdated && fmUpdated >= gitDay) continue;
 
       if (!dryRun) {
         updateFrontmatter(filePath, { updated: gitDay });

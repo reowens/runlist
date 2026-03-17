@@ -126,8 +126,8 @@ export function checkGitStaleness(docs, config) {
     const gitDate = getGitLastModified(doc.path, config.repoRoot);
     if (!gitDate) continue;
 
-    const gitDay = Math.floor(new Date(gitDate).getTime() / 86400000);
-    const fmDay = Math.floor(new Date(doc.updated).getTime() / 86400000);
+    const gitDay = gitDate.slice(0, 10);
+    const fmDay = doc.updated.slice(0, 10);
 
     if (gitDay > fmDay) {
       warnings.push({
