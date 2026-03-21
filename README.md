@@ -9,6 +9,7 @@ Index, query, validate, and lifecycle-manage any collection of `.md` files — p
 ```bash
 npm install -g dotmd-cli    # global — use `dotmd` anywhere
 npm install -D dotmd-cli    # project devDep — use via npm scripts
+# requires Node.js >= 20
 ```
 
 ## Quick Start
@@ -214,7 +215,7 @@ dotmd query --status active --summarize  # AI summaries in query results
 dotmd context --summarize                # AI-enhanced briefing
 ```
 
-Uses local MLX model via `uv`. Override with `--model <name>` or the `summarizeDoc` hook.
+Uses a local model by default. Override with `--model <name>` or the `summarizeDoc` hook.
 
 ### Export
 
