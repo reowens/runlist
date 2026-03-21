@@ -122,3 +122,65 @@ describe('body link validation', () => {
     ok(!result.stdout.includes('body link'), 'body link warning suppressed with --errors-only');
   });
 });
+
+describe('rootStatuses validation', () => {
+  function setupMultiRootProject() {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-rootstatus-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, 'plans'), { recursive: true });
+    mkdirSync(path.join(tmpDir, 'modules'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const root = ['plans', 'modules'];
+      export const statuses = {
+        rootStatuses: {
+          'modules': ['implemented', 'partial'],
+        },
+      };
+    `);
+    return { plans: path.join(tmpDir, 'plans'), modules: path.join(tmpDir, 'modules') };
+  }
+
+  function run(args) {
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    return spawnSync('node', [bin, ...args, '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir, encoding: 'utf8',
+    });
+  }
+
+  it('accepts root-specific status without warning', () => {
+    const dirs = setupMultiRootProject();
+    writeFileSync(path.join(dirs.modules, 'a.md'),
+      '---\nstatus: implemented\nupdated: 2025-01-01\n---\n# A\n');
+    const result = run(['check']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(!result.stdout.includes('Unknown status'), 'no unknown status warning for root-allowed status');
+  });
+
+  it('warns when root-specific status used in wrong root', () => {
+    const dirs = setupMultiRootProject();
+    writeFileSync(path.join(dirs.plans, 'a.md'),
+      '---\nstatus: implemented\nupdated: 2025-01-01\n---\n# A\n');
+    const result = run(['check']);
+    ok(result.stdout.includes('Unknown status'), 'warns about implemented in plans root');
+  });
+
+  it('global statuses valid in all roots', () => {
+    const dirs = setupMultiRootProject();
+    writeFileSync(path.join(dirs.modules, 'a.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\n---\n# A\n');
+    writeFileSync(path.join(dirs.plans, 'b.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\n---\n# B\n');
+    const result = run(['check']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(!result.stdout.includes('Unknown status'), 'global status valid everywhere');
+  });
+
+  it('treats root-specific status as known for lifecycle field enforcement', () => {
+    const dirs = setupMultiRootProject();
+    // implemented without updated — should get error because it's now a known status
+    writeFileSync(path.join(dirs.modules, 'a.md'),
+      '---\nstatus: implemented\n---\n# A\n');
+    const result = run(['check']);
+    ok(result.stdout.includes('Missing frontmatter `updated`'), 'enforces updated for known root status');
+  });
+});

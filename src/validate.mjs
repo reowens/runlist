@@ -6,15 +6,20 @@ import { toRepoPath } from './util.mjs';
 
 const NOW = new Date();
 
+function isValidStatus(status, root, config) {
+  const rootSet = config.rootValidStatuses?.get(root);
+  if (rootSet) return rootSet.has(status);
+  return config.validStatuses.has(status);
+}
+
 export function validateDoc(doc, frontmatter, headingTitle, config) {
   if (!doc.status) {
     doc.errors.push({ path: doc.path, level: 'error', message: 'Missing frontmatter `status`.' });
-  } else if (!config.validStatuses.has(doc.status)) {
+  } else if (!isValidStatus(doc.status, doc.root, config)) {
     doc.warnings.push({ path: doc.path, level: 'warning', message: `Unknown status \`${doc.status}\`; not in statuses.order.` });
   }
 
-  // Only enforce lifecycle fields for known statuses (skip for unknown like implemented, partial, etc.)
-  const knownStatus = config.validStatuses.has(doc.status);
+  const knownStatus = isValidStatus(doc.status, doc.root, config);
 
   if (knownStatus && !config.lifecycle.skipWarningsFor.has(doc.status) && !doc.updated) {
     doc.errors.push({ path: doc.path, level: 'error', message: 'Missing frontmatter `updated` for non-archived doc.' });

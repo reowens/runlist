@@ -16,6 +16,12 @@ export const excludeDirs = ['evidence'];
 // Status workflow — order determines display grouping
 export const statuses = {
   order: ['active', 'ready', 'planned', 'research', 'blocked', 'reference', 'archived'],
+  // Additional statuses valid only in specific roots (merged with order)
+  // Useful when different doc areas track different things (e.g. plans vs module docs)
+  // rootStatuses: {
+  //   'docs/modules': ['implemented', 'partial', 'draft', 'deprecated'],
+  //   'docs/core':    ['implemented', 'partial'],
+  // },
   // Days after which a doc is considered stale (null = never stale)
   staleDays: {
     active: 14,

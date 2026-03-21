@@ -147,4 +147,44 @@ describe('resolveConfig', () => {
     const config = await resolveConfig(tmpDir);
     strictEqual(config.configWarnings.length, 0, 'no warnings');
   });
+
+  it('parses rootStatuses into rootValidStatuses Map', async () => {
+    mkdirSync(path.join(tmpDir, 'plans'), { recursive: true });
+    mkdirSync(path.join(tmpDir, 'modules'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const root = ['plans', 'modules'];
+      export const statuses = {
+        rootStatuses: {
+          'modules': ['implemented', 'partial'],
+        },
+      };
+    `);
+    const config = await resolveConfig(tmpDir);
+    ok(config.rootValidStatuses instanceof Map, 'is a Map');
+    strictEqual(config.rootValidStatuses.size, 1, 'one root entry');
+    const modSet = config.rootValidStatuses.get('modules');
+    ok(modSet.has('implemented'), 'has root-specific status');
+    ok(modSet.has('partial'), 'has root-specific status');
+    ok(modSet.has('active'), 'includes global statuses');
+    ok(!config.rootValidStatuses.has('plans'), 'plans not in rootStatuses');
+  });
+
+  it('returns empty rootValidStatuses when not configured', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = '.';`);
+    const config = await resolveConfig(tmpDir);
+    ok(config.rootValidStatuses instanceof Map, 'is a Map');
+    strictEqual(config.rootValidStatuses.size, 0, 'empty');
+  });
+
+  it('warns when rootStatuses key does not match any root', async () => {
+    mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const root = 'docs';
+      export const statuses = {
+        rootStatuses: { 'nonexistent': ['implemented'] },
+      };
+    `);
+    const config = await resolveConfig(tmpDir);
+    ok(config.configWarnings.some(w => w.includes("'nonexistent'")), 'warns about unknown root key');
+  });
 });

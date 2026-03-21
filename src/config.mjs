@@ -216,6 +216,16 @@ export async function resolveConfig(cwd, explicitConfigPath) {
     staleDaysByStatus[status] = config.statuses.staleDays?.[status] ?? null;
   }
 
+  // Per-root additional statuses (merged with global validStatuses)
+  const rootStatusesRaw = config.statuses.rootStatuses ?? {};
+  const rootLabels = new Set(rootPaths.map(r => path.relative(configDir, path.resolve(configDir, r)).split(path.sep).join('/')));
+  const rootValidStatuses = new Map();
+  for (const [rootKey, extraStatuses] of Object.entries(rootStatusesRaw)) {
+    const merged = new Set(validStatuses);
+    for (const s of extraStatuses) merged.add(s);
+    rootValidStatuses.set(rootKey, merged);
+  }
+
   const validSurfaces = config.taxonomy.surfaces
     ? new Set(config.taxonomy.surfaces)
     : null;
@@ -235,6 +245,13 @@ export async function resolveConfig(cwd, explicitConfigPath) {
   const skipStaleFor = new Set(lifecycle.skipStaleFor);
   const skipWarningsFor = new Set(lifecycle.skipWarningsFor);
 
+  // Warn if rootStatuses keys don't match any configured root
+  for (const rootKey of Object.keys(rootStatusesRaw)) {
+    if (!rootLabels.has(rootKey)) {
+      earlyWarnings.push(`Config: statuses.rootStatuses key '${rootKey}' does not match any configured root.`);
+    }
+  }
+
   const configWarnings = [...earlyWarnings, ...validateConfig(userConfig, config, validStatuses, indexPath)];
 
   return {
@@ -252,6 +269,7 @@ export async function resolveConfig(cwd, explicitConfigPath) {
 
     statusOrder,
     validStatuses,
+    rootValidStatuses,
     staleDaysByStatus,
 
     lifecycle: { archiveStatuses, skipStaleFor, skipWarningsFor },

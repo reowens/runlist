@@ -27,10 +27,15 @@ export async function runStatus(argv, config, opts = {}) {
       die('Usage: dotmd status <file> <new-status>');
     }
   }
-  if (!config.validStatuses.has(newStatus)) { die(`Invalid status: ${newStatus}\nValid: ${[...config.validStatuses].join(', ')}`); }
-
   const filePath = resolveDocPath(input, config);
   if (!filePath) { die(`File not found: ${input}\nSearched: ${toRepoPath(config.repoRoot, config.repoRoot) || '.'}, ${toRepoPath(config.docsRoot, config.repoRoot)}`); }
+
+  // Validate status against root-specific vocabulary
+  const fileRoot = findFileRoot(filePath, config);
+  const rootLabel = path.relative(config.repoRoot, fileRoot).split(path.sep).join('/');
+  const rootSet = config.rootValidStatuses?.get(rootLabel);
+  const effectiveValid = rootSet ?? config.validStatuses;
+  if (!effectiveValid.has(newStatus)) { die(`Invalid status: ${newStatus}\nValid: ${[...effectiveValid].join(', ')}`); }
 
   const raw = readFileSync(filePath, 'utf8');
   const { frontmatter } = extractFrontmatter(raw);
@@ -43,7 +48,6 @@ export async function runStatus(argv, config, opts = {}) {
   }
 
   const today = new Date().toISOString().slice(0, 10);
-  const fileRoot = findFileRoot(filePath, config);
   const archiveDir = path.join(fileRoot, config.archiveDir);
   const isArchiving = config.lifecycle.archiveStatuses.has(newStatus) && !filePath.includes(`/${config.archiveDir}/`);
   const isUnarchiving = !config.lifecycle.archiveStatuses.has(newStatus) && filePath.includes(`/${config.archiveDir}/`);
