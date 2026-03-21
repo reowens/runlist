@@ -1,4 +1,26 @@
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.code-workspace
+
+# Environment & secrets
+.env
+.env.*
+.npmrc
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Build / cache
 .osgrep
 .gmax
-.npmrc
-node_modules/
+*.tgz
