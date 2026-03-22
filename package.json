@@ -40,7 +40,7 @@
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "preversion": "npm test",
-    "postversion": "git push origin main --tags && gh release create v$npm_package_version --generate-notes --title v$npm_package_version && gh run watch $(gh run list --workflow=publish.yml --limit 1 --json databaseId --jq '.[0].databaseId') --exit-status && npm install -g dotmd-cli@$npm_package_version"
+    "postversion": "git push origin main --tags && gh release create v$npm_package_version --generate-notes --title v$npm_package_version && sleep 5 && gh run watch $(gh run list --workflow=publish.yml --limit 1 --json databaseId --jq '.[0].databaseId') --exit-status && sleep 10 && npm cache clean --force && npm install -g dotmd-cli@$npm_package_version"
   },
   "engines": {
     "node": ">=20"
