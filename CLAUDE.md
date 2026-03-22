@@ -12,9 +12,21 @@ dotmd is a CLI (`dotmd-cli` on npm) for managing markdown documents with YAML fr
 npm test                           # run all tests (node:test)
 node --test test/frontmatter.test.mjs  # run a single test file
 node bin/dotmd.mjs <command>       # run CLI locally without installing
+npm version patch                  # release: test → bump → tag → push → publish
 ```
 
 Run `dotmd --help` or `dotmd <command> --help` for the full command list and options.
+
+## Releasing
+
+`npm version patch|minor|major` handles the entire release pipeline:
+
+1. Runs tests (`preversion`)
+2. Bumps `package.json` + `package-lock.json`, commits, tags
+3. Pushes to `origin main --tags`, creates GitHub Release (`postversion`)
+4. The `v*` tag push triggers `.github/workflows/publish.yml` → npm publish
+
+No manual steps needed. Use `patch` for fixes, `minor` for features, `major` for breaking changes.
 
 ## Architecture
 
