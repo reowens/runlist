@@ -9,7 +9,16 @@ import { summarizeDocBody } from './ai.mjs';
 import { dim } from './color.mjs';
 
 export function runFocus(index, argv, config) {
-  const statusFilter = argv.find(a => !a.startsWith('-')) ?? 'active';
+  // Find first positional arg, skipping flag-value pairs like --root <name>
+  const FLAGS_WITH_VALUES = new Set(['--root']);
+  let statusFilter = 'active';
+  for (let i = 0; i < argv.length; i++) {
+    if (FLAGS_WITH_VALUES.has(argv[i])) { i++; continue; }
+    if (argv[i].startsWith('-')) continue;
+    statusFilter = argv[i];
+    break;
+  }
+
   const docs = index.docs.filter(doc => doc.status === statusFilter);
 
   if (argv.includes('--json')) {

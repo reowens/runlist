@@ -57,6 +57,7 @@ Any `.md` file with YAML frontmatter:
 
 ```markdown
 ---
+type: doc
 status: active
 updated: 2026-03-14
 module: auth
@@ -76,7 +77,31 @@ Design doc content here...
 - [ ] Add tests
 ```
 
-The only required field is `status`. Everything else is optional but unlocks more features.
+The only required field is `status`. Everything else is optional but unlocks more features. The `type` field (`plan`, `doc`, or `research`) enables type-specific statuses and smarter context briefings.
+
+## Document Types
+
+Every document can have a `type` field in its frontmatter. Types determine which statuses are valid and how the document appears in context briefings.
+
+| Type | Purpose | Valid Statuses |
+|------|---------|----------------|
+| `plan` | Execution plans | `in-session`, `active`, `planned`, `blocked`, `done`, `archived` |
+| `doc` | Design docs, specs, ADRs, RFCs | `draft`, `active`, `review`, `reference`, `deprecated`, `archived` |
+| `research` | Investigations, audits, analysis | `active`, `reference`, `archived` |
+
+Documents without a `type` field use the global `statuses.order` from config.
+
+Templates auto-set the type: `--template plan` sets `type: plan`, `--template adr` sets `type: doc`, `--template audit` sets `type: research`.
+
+Filter by type with `--type`:
+
+```bash
+dotmd query --type plan --status active   # active plans
+dotmd list --type doc                     # all docs
+dotmd export --type research              # export research only
+```
+
+Customize types and their statuses in config with the `types` key. See [`dotmd.config.example.mjs`](dotmd.config.example.mjs).
 
 ## Commands
 
@@ -117,6 +142,7 @@ dotmd completions <shell>    Output shell completion script (bash, zsh)
 --config <path>        Explicit config file path
 --dry-run, -n          Preview changes without writing anything
 --root <name>          Filter to a specific docs root
+--type <t1,t2>         Filter by document type (plan, doc, research)
 --verbose              Show resolved config details
 --help, -h             Show help (per-command with: dotmd <cmd> --help)
 --version, -v          Show version
@@ -133,7 +159,7 @@ dotmd query --status active --summarize             # AI summaries
 dotmd query --status active --summarize --summarize-limit 3
 ```
 
-Flags: `--status`, `--keyword`, `--module`, `--surface`, `--domain`, `--owner`, `--updated-since`, `--stale`, `--has-next-step`, `--has-blockers`, `--checklist-open`, `--sort`, `--limit`, `--all`, `--git`, `--json`, `--summarize`, `--summarize-limit`, `--model`.
+Flags: `--type`, `--status`, `--keyword`, `--module`, `--surface`, `--domain`, `--owner`, `--updated-since`, `--stale`, `--has-next-step`, `--has-blockers`, `--checklist-open`, `--sort`, `--limit`, `--all`, `--git`, `--json`, `--summarize`, `--summarize-limit`, `--model`.
 
 ### Scaffold with Templates
 
@@ -225,6 +251,7 @@ dotmd export --format html --output site # static HTML site
 dotmd export --format json > bundle.json # JSON bundle with bodies
 dotmd export docs/plan-a.md              # single doc + dependencies
 dotmd export --status active             # filtered export
+dotmd export --type plan                 # export only plans
 ```
 
 ### Notion Integration
@@ -359,6 +386,7 @@ export const lifecycle = {
   archiveStatuses: ['archived'],          // auto-move to archiveDir
   skipStaleFor: ['archived'],
   skipWarningsFor: ['archived'],
+  terminalStatuses: ['archived', 'deprecated', 'reference', 'done'],
 };
 
 export const taxonomy = {
@@ -378,7 +406,7 @@ export const index = {
 };
 ```
 
-All exports are optional. See [`dotmd.config.example.mjs`](dotmd.config.example.mjs) for the full reference.
+All exports are optional. Additional options: `types`, `context`, `display`, `presets`, `templates`, `excludeDirs`, `notion`. See [`dotmd.config.example.mjs`](dotmd.config.example.mjs) for the full reference.
 
 Config discovery walks up from cwd looking for `dotmd.config.mjs` or `.dotmd.config.mjs`.
 
@@ -423,6 +451,16 @@ export function onArchive(doc, { oldPath, newPath }) {
 ```
 
 Available: `onArchive`, `onStatusChange`, `onTouch`, `onNew`, `onRename`, `onLint`.
+
+### Transform Hooks
+
+```js
+// Add computed fields to every doc after parsing
+export function transformDoc(doc) {
+  doc.priority = doc.blockers?.length ? 'high' : 'normal';
+  return doc;
+}
+```
 
 ### AI Hooks
 

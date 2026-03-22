@@ -238,6 +238,7 @@ Options:
   --template <name>    Use a template (default, plan, adr, rfc, audit, design)
   --status <s>         Set initial status (default: active)
   --title <t>          Override the document title
+  --root <name>        Create in a specific docs root
   --list-templates     Show available templates
 
 The filename is derived from <name> by slugifying it.
@@ -275,6 +276,7 @@ Options:
   --format <md|html|json>  Output format (default: md)
   --output <path>          Write to file/directory (default: stdout for md/json)
   --status <s1,s2>         Filter by status
+  --type <t1,t2>           Filter by type (plan, doc, research)
   --module <name>          Filter by module
   --root <name>            Filter by root
   --dry-run, -n            Preview without writing`,
@@ -335,7 +337,10 @@ Use --dry-run (-n) to preview changes without writing anything.`,
   init: `dotmd init — create starter config and docs directory
 
 Creates dotmd.config.mjs, docs/, and docs/docs.md in the current
-directory. Skips any files that already exist.`,
+directory. Skips any files that already exist.
+
+If docs/ already contains .md files, auto-detects statuses, surfaces,
+modules, and reference fields to pre-populate the config.`,
 };
 
 async function main() {
@@ -384,10 +389,17 @@ async function main() {
 
   const config = await resolveConfig(process.cwd(), explicitConfig);
 
+  // Watch is a pure proxy — pass raw args so the child process gets all flags
+  if (command === 'watch') { runWatch(args.slice(1), config); return; }
+
   // Strip global flags from restArgs so commands don't have to filter them
   const restArgs = [];
+  let rootArg = null;
+  let typeArg = null;
   for (let i = 1; i < args.length; i++) {
     if (args[i] === '--config') { i++; continue; }
+    if (args[i] === '--type' && args[i + 1]) { typeArg = args[++i]; continue; }
+    if (args[i] === '--root' && args[i + 1]) { rootArg = args[++i]; continue; }
     if (args[i] === '--dry-run' || args[i] === '-n' || args[i] === '--verbose') continue;
     restArgs.push(args[i]);
   }
@@ -416,19 +428,18 @@ async function main() {
     return;
   }
 
-  // Watch and diff (handle their own index building)
-  if (command === 'watch') { runWatch(restArgs, config); return; }
+  // Commands that handle their own index building
   if (command === 'diff') { runDiff(restArgs, config); return; }
   if (command === 'summary') { runSummary(restArgs, config); return; }
   if (command === 'deps') { runDeps(restArgs, config); return; }
-  if (command === 'export') { runExport(restArgs, config, { dryRun }); return; }
+  if (command === 'export') { runExport(restArgs, config, { dryRun, root: rootArg, type: typeArg }); return; }
   if (command === 'notion') { await runNotion(restArgs, config, { dryRun }); return; }
 
   // Lifecycle commands
   if (command === 'status') { await runStatus(restArgs, config, { dryRun }); return; }
   if (command === 'archive') { runArchive(restArgs, config, { dryRun }); return; }
   if (command === 'touch') { runTouch(restArgs, config, { dryRun }); return; }
-  if (command === 'new') { await runNew(restArgs, config, { dryRun }); return; }
+  if (command === 'new') { await runNew(restArgs, config, { dryRun, root: rootArg }); return; }
   if (command === 'lint') { runLint(restArgs, config, { dryRun }); return; }
   if (command === 'rename') { await runRename(restArgs, config, { dryRun }); return; }
   if (command === 'migrate') { runMigrate(restArgs, config, { dryRun }); return; }
@@ -437,27 +448,32 @@ async function main() {
 
   const index = buildIndex(config);
 
-  // Apply --root filter
-  const rootFilter = (() => { const i = args.indexOf('--root'); return i !== -1 && args[i + 1] ? args[i + 1] : null; })();
-  if (rootFilter) {
-    index.docs = index.docs.filter(d => d.root === rootFilter || d.root.endsWith('/' + rootFilter) || d.root.split('/').pop() === rootFilter);
+  // Apply --root and --type filters
+  const rootFilter = rootArg;
+  const typeFilter = typeArg;
+
+  function applyIndexFilters(idx) {
+    if (rootFilter) {
+      idx.docs = idx.docs.filter(d => d.root === rootFilter || d.root.endsWith('/' + rootFilter) || d.root.split('/').pop() === rootFilter);
+    }
+    if (typeFilter) {
+      const types = typeFilter.split(',').map(t => t.trim()).filter(Boolean);
+      idx.docs = idx.docs.filter(d => types.includes(d.type));
+    }
+    if (rootFilter || typeFilter) {
+      idx.errors = idx.errors.filter(e => idx.docs.some(d => d.path === e.path));
+      idx.warnings = idx.warnings.filter(w => idx.docs.some(d => d.path === w.path));
+      idx.countsByStatus = {};
+      for (const doc of idx.docs) {
+        const s = doc.status ?? 'unknown';
+        idx.countsByStatus[s] = (idx.countsByStatus[s] ?? 0) + 1;
+      }
+    }
   }
 
-  // Apply --type filter
-  const typeFilter = (() => { const i = args.indexOf('--type'); return i !== -1 && args[i + 1] ? args[i + 1] : null; })();
-  if (typeFilter) {
-    const types = typeFilter.split(',').map(t => t.trim()).filter(Boolean);
-    index.docs = index.docs.filter(d => types.includes(d.type));
-  }
+  applyIndexFilters(index);
 
   if (rootFilter || typeFilter) {
-    index.errors = index.errors.filter(e => index.docs.some(d => d.path === e.path));
-    index.warnings = index.warnings.filter(w => index.docs.some(d => d.path === w.path));
-    index.countsByStatus = {};
-    for (const doc of index.docs) {
-      const s = doc.status ?? 'unknown';
-      index.countsByStatus[s] = (index.countsByStatus[s] ?? 0) + 1;
-    }
   }
 
   if (verbose) {
@@ -500,6 +516,7 @@ async function main() {
       }
       // Show remaining issues
       const freshIndex = buildIndex(config);
+      applyIndexFilters(freshIndex);
       if (args.includes('--json')) {
         process.stdout.write(JSON.stringify({
           docsScanned: freshIndex.docs.length,
@@ -573,6 +590,10 @@ async function main() {
   if (command === 'focus') { runFocus(index, restArgs, config); return; }
   if (command === 'query') { runQuery(index, restArgs, config); return; }
   if (command === 'context') {
+    const summarize = args.includes('--summarize');
+    const modelIdx = args.indexOf('--model');
+    const model = modelIdx !== -1 && args[modelIdx + 1] ? args[modelIdx + 1] : undefined;
+
     if (args.includes('--json')) {
       const byStatus = {};
       for (const doc of index.docs) {
@@ -580,9 +601,36 @@ async function main() {
         if (!byStatus[s]) byStatus[s] = [];
         byStatus[s].push(doc);
       }
+      const byType = {};
+      for (const doc of index.docs) {
+        if (doc.type) {
+          if (!byType[doc.type]) byType[doc.type] = [];
+          byType[doc.type].push(doc);
+        }
+      }
+      if (summarize) {
+        const { summarizeDocBody } = await import('../src/ai.mjs');
+        const { extractFrontmatter } = await import('../src/frontmatter.mjs');
+        const { readFileSync } = await import('node:fs');
+        const limit = 5;
+        for (let i = 0; i < index.docs.length && i < limit; i++) {
+          try {
+            const absPath = path.resolve(config.repoRoot, index.docs[i].path);
+            const raw = readFileSync(absPath, 'utf8');
+            const { body } = extractFrontmatter(raw);
+            if (body?.trim()) {
+              const meta = { title: index.docs[i].title, status: index.docs[i].status, path: index.docs[i].path };
+              index.docs[i].aiSummary = config.hooks.summarizeDoc
+                ? config.hooks.summarizeDoc(body, meta)
+                : summarizeDocBody(body, meta, { model });
+            }
+          } catch { /* skip */ }
+        }
+      }
       const stale = index.docs.filter(d => d.isStale && !config.lifecycle.skipStaleFor.has(d.status));
       process.stdout.write(JSON.stringify({
         generatedAt: new Date().toISOString(),
+        docsByType: Object.keys(byType).length > 0 ? byType : undefined,
         docsByStatus: byStatus,
         countsByStatus: index.countsByStatus,
         stale: stale.map(d => ({ path: d.path, title: d.title, daysSinceUpdate: d.daysSinceUpdate })),
@@ -591,9 +639,6 @@ async function main() {
       }, null, 2) + '\n');
       return;
     }
-    const summarize = args.includes('--summarize');
-    const modelIdx = args.indexOf('--model');
-    const model = modelIdx !== -1 && args[modelIdx + 1] ? args[modelIdx + 1] : undefined;
     process.stdout.write(renderContext(index, config, { summarize, model }));
     return;
   }

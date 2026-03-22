@@ -11,7 +11,8 @@ export function runExport(argv, config, opts = {}) {
   let output = null;
   let statusFilter = null;
   let moduleFilter = null;
-  let rootFilter = null;
+  let rootFilter = opts.root ?? null;
+  let typeFilter = opts.type ?? null;
   const dryRun = opts.dryRun;
 
   for (let i = 0; i < argv.length; i++) {
@@ -20,6 +21,7 @@ export function runExport(argv, config, opts = {}) {
     if (argv[i] === '--status' && argv[i + 1]) { statusFilter = argv[++i]; continue; }
     if (argv[i] === '--module' && argv[i + 1]) { moduleFilter = argv[++i]; continue; }
     if (argv[i] === '--root' && argv[i + 1]) { rootFilter = argv[++i]; continue; }
+    if (argv[i] === '--type' && argv[i + 1]) { typeFilter = argv[++i]; continue; }
     if (argv[i] === '--config') { i++; continue; }
     if (argv[i].startsWith('-')) continue;
     positional.push(argv[i]);
@@ -53,6 +55,10 @@ export function runExport(argv, config, opts = {}) {
     }
     if (rootFilter) {
       docs = docs.filter(d => d.root === rootFilter || d.root?.endsWith('/' + rootFilter) || d.root?.split('/').pop() === rootFilter);
+    }
+    if (typeFilter) {
+      const types = typeFilter.split(',').map(t => t.trim()).filter(Boolean);
+      docs = docs.filter(d => types.includes(d.type));
     }
   }
 

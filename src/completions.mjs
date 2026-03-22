@@ -6,10 +6,10 @@ const COMMANDS = [
   'fix-refs', 'notion', 'export', 'summary', 'watch', 'diff', 'init', 'new', 'completions',
 ];
 
-const GLOBAL_FLAGS = ['--config', '--dry-run', '--verbose', '--root', '--help', '--version'];
+const GLOBAL_FLAGS = ['--config', '--dry-run', '--verbose', '--root', '--type', '--help', '--version'];
 
 const COMMAND_FLAGS = {
-  query: ['--status', '--keyword', '--module', '--surface', '--domain', '--owner',
+  query: ['--type', '--status', '--keyword', '--module', '--surface', '--domain', '--owner',
           '--updated-since', '--stale', '--has-next-step', '--has-blockers',
           '--checklist-open', '--sort', '--limit', '--all', '--git', '--json',
           '--summarize', '--summarize-limit', '--model'],
@@ -17,13 +17,13 @@ const COMMAND_FLAGS = {
   list: ['--verbose', '--json'],
   coverage: ['--json'],
   new: ['--status', '--title', '--template', '--list-templates', '--root'],
-  diff: ['--stat', '--since', '--summarize', '--model', '--max-tokens'],
+  diff: ['--stat', '--since', '--summarize', '--model'],
   check: ['--errors-only', '--fix', '--json'],
   stats: ['--json'],
   graph: ['--dot', '--json', '--status', '--module', '--surface'],
   deps: ['--json', '--depth'],
   notion: ['import', 'export', 'sync', '--force', '--dry-run'],
-  export: ['--format', '--output', '--status', '--module', '--root'],
+  export: ['--format', '--output', '--status', '--module', '--root', '--type'],
   focus: ['--json'],
   status: [],
   archive: [],

@@ -27,7 +27,7 @@ const BUILTIN_TEMPLATES = {
   },
   audit: {
     description: 'Codebase audit or research investigation',
-    frontmatter: (s, d) => `type: research\nstatus: active\nupdated: ${d}\naudited: ${d}\naudit_level: pass1\nmodule:\nsource_of_truth: code\nsupports_plans:`,
+    frontmatter: (s, d) => `type: research\nstatus: ${s}\nupdated: ${d}\naudited: ${d}\naudit_level: pass1\nmodule:\nsource_of_truth: code\nsupports_plans:`,
     body: (t) => `\n# ${t}\n\n## Scope\n\n\n\n## Findings\n\n\n\n## Recommendations\n\n\n`,
   },
   design: {
@@ -45,7 +45,7 @@ export async function runNew(argv, config, opts = {}) {
   let status = 'active';
   let title = null;
   let templateName = null;
-  let rootName = null;
+  let rootName = opts.root ?? null;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--status' && argv[i + 1]) { status = argv[++i]; continue; }
     if (argv[i] === '--title' && argv[i + 1]) { title = argv[++i]; continue; }

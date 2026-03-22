@@ -43,6 +43,7 @@ const DEFAULTS = {
     archiveStatuses: ['archived'],
     skipStaleFor: ['archived', 'reference'],
     skipWarningsFor: ['archived'],
+    terminalStatuses: ['archived', 'deprecated', 'reference', 'done'],
   },
 
   taxonomy: {
@@ -284,6 +285,7 @@ export async function resolveConfig(cwd, explicitConfigPath) {
   const archiveStatuses = new Set(lifecycle.archiveStatuses);
   const skipStaleFor = new Set(lifecycle.skipStaleFor);
   const skipWarningsFor = new Set(lifecycle.skipWarningsFor);
+  const terminalStatuses = new Set(lifecycle.terminalStatuses);
 
   // Warn if rootStatuses keys don't match any configured root
   for (const rootKey of Object.keys(rootStatusesRaw)) {
@@ -315,7 +317,7 @@ export async function resolveConfig(cwd, explicitConfigPath) {
     rootValidStatuses,
     staleDaysByStatus,
 
-    lifecycle: { archiveStatuses, skipStaleFor, skipWarningsFor },
+    lifecycle: { archiveStatuses, skipStaleFor, skipWarningsFor, terminalStatuses },
 
     validSurfaces,
     moduleRequiredStatuses,

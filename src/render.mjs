@@ -324,9 +324,8 @@ export function renderCoverage(index, config) {
 }
 
 export function buildCoverage(index, config) {
-  const terminalStatuses = new Set(['archived', 'deprecated', 'reference', 'done']);
-  const scope = [...new Set(index.docs.map(d => d.status).filter(s => s && !terminalStatuses.has(s) && !config.lifecycle.skipWarningsFor.has(s)))];
-  const scoped = index.docs.filter(doc => doc.status && !terminalStatuses.has(doc.status) && !config.lifecycle.skipWarningsFor.has(doc.status));
+  const scope = [...new Set(index.docs.map(d => d.status).filter(s => s && !config.lifecycle.terminalStatuses.has(s) && !config.lifecycle.skipWarningsFor.has(s)))];
+  const scoped = index.docs.filter(doc => doc.status && !config.lifecycle.terminalStatuses.has(doc.status) && !config.lifecycle.skipWarningsFor.has(doc.status));
   const missingSurface = scoped.filter(doc => !doc.surface);
   const missingModule = scoped.filter(doc => !doc.module);
   const modulePlatform = scoped.filter(doc => doc.module === 'platform');

@@ -137,8 +137,7 @@ export function runInit(cwd) {
     process.stdout.write(`  ${green('create')}  docs/docs.md\n`);
   }
 
-  const today = new Date().toISOString().slice(0, 10);
   process.stdout.write(`\nReady. Create your first doc:\n`);
-  process.stdout.write(`  printf '---\\nstatus: active\\nupdated: ${today}\\n---\\n\\n# My Doc\\n' > docs/my-doc.md\n`);
+  process.stdout.write(`  dotmd new my-doc\n`);
   process.stdout.write(`  dotmd list\n\n`);
 }

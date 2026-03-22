@@ -56,7 +56,7 @@ dotmd query --type research               # all research
 dotmd context --type plan                  # briefing filtered to plans
 ```
 
-The `--type` flag works as a global filter on most commands: `list`, `check`, `context`, `focus`, `query`, `coverage`, `stats`, `graph`.
+The `--type` flag works as a global filter on most commands: `list`, `json`, `check`, `context`, `focus`, `query`, `coverage`, `stats`, `graph`, `index`, `export`.
 
 ## Commands
 
@@ -112,5 +112,5 @@ Everything is automated — do NOT manually `git push`, `git tag`, `npm publish`
 - **Interactive prompts.** `status`, `new`, `rename` prompt for missing args when stdin is a TTY.
 - **Tests** use `node:test` + `node:assert`. Test files mirror source: `src/foo.mjs` → `test/foo.test.mjs`.
 - **Help text** in `bin/dotmd.mjs` HELP object must stay in sync with command capabilities.
-- **Global arg stripping** happens in the CLI dispatcher — `--config <path>`, `--dry-run`, `-n`, `--verbose` are removed from `restArgs` before passing to commands.
+- **Global arg stripping** happens in the CLI dispatcher — `--config <path>`, `--type <t>`, `--root <name>`, `--dry-run`, `-n`, `--verbose` are removed from `restArgs` before passing to commands.
 - Preset aliases in config expand to query filter args and are dispatched as if they were built-in commands.

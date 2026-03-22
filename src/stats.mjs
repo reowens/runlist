@@ -8,7 +8,12 @@ function pct(n, total) {
 
 export function buildStats(index, config) {
   const docs = index.docs;
-  const scope = ['active', 'ready', 'planned', 'blocked'];
+  const scope = config.statusOrder.filter(s => !config.lifecycle.terminalStatuses.has(s) && !config.lifecycle.skipWarningsFor.has(s));
+  for (const typeSet of (config.typeStatuses?.values() ?? [])) {
+    for (const s of typeSet) {
+      if (!config.lifecycle.terminalStatuses.has(s) && !config.lifecycle.skipWarningsFor.has(s) && !scope.includes(s)) scope.push(s);
+    }
+  }
   const scoped = docs.filter(d => scope.includes(d.status));
   const nonArchived = docs.filter(d => !config.lifecycle.skipWarningsFor.has(d.status));
 

@@ -57,6 +57,7 @@ export const lifecycle = {
   archiveStatuses: ['archived'],      // auto-move to archiveDir on transition
   skipStaleFor: ['archived'],         // skip staleness checks
   skipWarningsFor: ['archived'],      // skip validation warnings (summary, etc.)
+  terminalStatuses: ['archived', 'deprecated', 'reference', 'done'],  // skip current_state/next_step warnings, exclude from stats scope
 };
 
 // Taxonomy validation — set fields to null to skip validation
@@ -107,7 +108,7 @@ export const presets = {
 // IMPORTANT: Use environment variables for tokens — never hardcode secrets in config files.
 // export const notion = {
 //   token: process.env.NOTION_TOKEN,
-//   databaseId: process.env.NOTION_DATABASE_ID,
+//   database: process.env.NOTION_DATABASE_ID,
 // };
 
 // ─── Function Hooks ──────────────────────────────────────────────────────────
@@ -123,20 +124,13 @@ export const presets = {
 //   return { errors: [], warnings };
 // }
 
-// Override the context briefing output.
-// export function renderContext(index, defaultRenderer) {
-//   return defaultRenderer(index);
-// }
-
-// Override the index file rendering.
-// export function renderIndex(index, defaultRenderer) {
-//   return defaultRenderer(index);
-// }
-
-// Override the status snapshot display format.
-// export function formatSnapshot(doc, defaultFormatter) {
-//   return defaultFormatter(doc);
-// }
+// Render hooks — override any renderer by wrapping the default.
+// export function renderContext(index, defaultRenderer) { return defaultRenderer(index); }
+// export function renderCompactList(index, defaultRenderer) { return defaultRenderer(index); }
+// export function renderCheck(index, defaultRenderer) { return defaultRenderer(index); }
+// export function renderStats(stats, defaultRenderer) { return defaultRenderer(stats); }
+// export function renderGraph(graph, defaultRenderer) { return defaultRenderer(graph); }
+// export function formatSnapshot(doc, defaultFormatter) { return defaultFormatter(doc); }
 
 // Post-parse doc transformation — add computed fields.
 // export function transformDoc(doc) {
@@ -147,3 +141,10 @@ export const presets = {
 // export function onArchive(doc, { oldPath, newPath }) {}
 // export function onStatusChange(doc, { oldStatus, newStatus, path }) {}
 // export function onTouch(doc, { path, date }) {}
+// export function onNew({ path, status, title, template }) {}
+// export function onRename({ oldPath, newPath, referencesUpdated }) {}
+// export function onLint({ path, fixes }) {}
+
+// AI hooks — override summarization (replaces local MLX model).
+// export function summarizeDoc(body, meta) { return 'Custom summary'; }
+// export function summarizeDiff(diffOutput, filePath) { return 'Custom diff summary'; }

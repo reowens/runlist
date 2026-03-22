@@ -25,6 +25,7 @@ function makeConfig(overrides = {}) {
       skipStaleFor: new Set(),
       skipWarningsFor: new Set(),
       archiveStatuses: new Set(['archived']),
+      terminalStatuses: new Set(['archived', 'deprecated', 'reference', 'done']),
     },
     hooks: {},
     ...overrides,

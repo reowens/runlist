@@ -11,7 +11,7 @@ let tmpDir;
 function makeConfig(overrides = {}) {
   return {
     statusOrder: ['active', 'ready', 'planned', 'blocked', 'archived'],
-    lifecycle: { skipWarningsFor: new Set(['archived']), skipStaleFor: new Set(['archived']), archiveStatuses: new Set(['archived']) },
+    lifecycle: { skipWarningsFor: new Set(['archived']), skipStaleFor: new Set(['archived']), archiveStatuses: new Set(['archived']), terminalStatuses: new Set(['archived', 'deprecated', 'reference', 'done']) },
     hooks: {},
     ...overrides,
   };

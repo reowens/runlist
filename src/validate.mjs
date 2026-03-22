@@ -80,8 +80,7 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
   }
 
   // Determine which statuses should have current_state and next_step
-  const terminalStatuses = new Set(['archived', 'deprecated', 'reference', 'done']);
-  const isWorkStatus = knownStatus && doc.status && !terminalStatuses.has(doc.status) && !config.lifecycle.skipWarningsFor.has(doc.status);
+  const isWorkStatus = knownStatus && doc.status && !config.lifecycle.terminalStatuses.has(doc.status) && !config.lifecycle.skipWarningsFor.has(doc.status);
 
   if (isWorkStatus && !asString(frontmatter.current_state)) {
     doc.warnings.push({ path: doc.path, level: 'warning', message: 'Missing `current_state`; index output is using a fallback or placeholder.' });
