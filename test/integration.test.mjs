@@ -57,7 +57,7 @@ describe('CLI integration', () => {
   it('--help prints usage', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-help-'));
     const result = run(['--help']);
-    ok(result.stdout.includes('Commands:'));
+    ok(result.stdout.includes('View & Query:'));
   });
 
   it('list shows docs grouped by status', () => {

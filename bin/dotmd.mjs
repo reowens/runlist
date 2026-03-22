@@ -34,40 +34,50 @@ const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 
 const HELP = {
   _main: `dotmd v${pkg.version} — frontmatter markdown document manager
 
-Commands:
-  list [--verbose|--json] List docs grouped by status (default)
-  json                   Full index as JSON
-  check [flags]          Validate frontmatter and references
-  coverage [--json]      Metadata coverage report
-  stats [--json]         Doc health dashboard
-  graph [--dot|--json]   Visualize document relationships
-  deps [file]            Dependency tree or overview
-  context                Compact briefing (LLM-oriented)
-  focus [status]         Detailed view for one status group
-  query [filters]        Filtered search
-  index [--write]        Generate/update docs.md index block
-  status <file> <status> Transition document status
-  archive <file>         Archive (status + move + update refs)
-  touch <file>           Bump updated date
-  doctor                 Auto-fix everything: refs, lint, dates, index
-  fix-refs               Auto-fix broken reference paths
-  lint [--fix]           Check and auto-fix frontmatter issues
-  rename <old> <new>     Rename doc and update references
-  migrate <f> <old> <new>  Batch update a frontmatter field
-  watch [command]       Re-run a command on file changes
-  notion <sub> [db-id]   Notion import/export/sync
-  export [file]          Export docs as md, html, or json
-  summary <file>        AI summary of a document
-  diff [file]           Show changes since last updated date
-  new <name>             Create a new document from template
-  init                   Create starter config + docs directory
-  completions <shell>    Output shell completion script (bash, zsh)
+View & Query:
+  list [--verbose] [--json]         List docs grouped by status (default command)
+  json                              Full index as JSON
+  context [--summarize] [--json]    Compact briefing (LLM-oriented)
+  focus [status] [--json]           Detailed view for one status group
+  query [filters] [--json]          Filtered search (--status, --keyword, --stale, etc.)
+  coverage [--json]                 Metadata coverage report
+  stats [--json]                    Doc health dashboard
+  graph [--dot] [--json]            Visualize document relationships
+  deps [file] [--json]              Dependency tree or overview
+  diff [file] [--summarize]         Show changes since last updated date
+  summary <file> [--json]           AI summary of a document
 
-Options:
+Validate & Fix:
+  check [--fix] [--errors-only] [--json]  Validate frontmatter and references
+  doctor [--dry-run]                Auto-fix everything: refs, lint, dates, index
+  lint [--fix]                      Check and auto-fix frontmatter issues
+  fix-refs [--dry-run]              Auto-fix broken reference paths + body links
+
+Lifecycle:
+  status <file> <status>            Transition document status
+  archive <file>                    Archive (status + move + update refs)
+  touch <file>                      Bump updated date
+  touch --git                       Bulk-sync dates from git history
+  rename <old> <new>                Rename doc and update all references
+  migrate <field> <old> <new>       Batch update a frontmatter field value
+
+Create & Export:
+  new <name> [--template <t>]       Create doc from template (plan, adr, rfc, audit, design)
+  index [--write]                   Generate/update docs.md index block
+  export [--format md|html|json]    Export docs as markdown, HTML, or JSON
+  notion import|export|sync [db-id] Notion database integration
+
+Setup:
+  init                              Create starter config + docs directory
+  watch [command]                   Re-run a command on file changes
+  completions <shell>               Shell completion script (bash, zsh)
+
+Global Options:
   --config <path>        Explicit config file path
+  --root <name>          Filter to a specific docs root
   --dry-run, -n          Preview changes without writing anything
   --verbose              Show config details and doc count
-  --help, -h             Show help
+  --help, -h             Show help (per-command: dotmd <cmd> --help)
   --version, -v          Show version`,
 
   list: `dotmd list — list docs grouped by status
