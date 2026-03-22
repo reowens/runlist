@@ -34,18 +34,19 @@ export function runMLX(prompt, opts = {}) {
   const output = result.stdout.trim();
   const lines = output.split('\n')
     .filter(l => !l.includes('Fetching') && !l.includes('Warning:') && !l.includes('=========='));
-  return lines.join(' ').trim() || null;
+  const text = lines.join(' ').trim();
+  return text ? text.replace(/\*\*/g, '').replace(/^#+\s*/gm, '').trim() : null;
 }
 
 export function summarizeDocBody(bodyText, meta, opts = {}) {
   if (!bodyText?.trim()) return null;
-  const prompt = `Summarize this markdown document in 2-3 sentences. Focus on what the document is about, its current state, and any key next actions or open questions.
+  const prompt = `<|begin_of_text|><|start_header_id|>system<|end_header_id|>
+You write brief, direct summaries. No preamble. No filler. Start with the subject immediately.<|eot_id|><|start_header_id|>user<|end_header_id|>
+Write a 2-3 sentence plain text summary of this document. State what it covers, its current state (${meta.status}), and what remains to be done. No markdown formatting. No bold, headers, or bullets. Do not start with "This document" or "Here is".
 
 Title: ${meta.title}
-Status: ${meta.status}
-File: ${meta.path}
-
-${bodyText.slice(0, 6000)}`;
+${bodyText.slice(0, 6000)}<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+`;
   return runMLX(prompt, { maxTokens: 200, ...opts });
 }
 
