@@ -118,24 +118,20 @@ export function renderContext(index, config, opts = {}) {
   return defaultRenderer(index);
 }
 
-function _renderContext(index, config, opts = {}) {
-  const today = new Date().toISOString().slice(0, 10);
-  const lines = [`BRIEFING (${today})`, ''];
-  const ctx = config.context;
-
+function _renderContextSection(docs, ctx, opts, config, lines) {
   const byStatus = {};
-  for (const doc of index.docs) {
+  for (const doc of docs) {
     const s = doc.status ?? 'unknown';
     if (!byStatus[s]) byStatus[s] = [];
     byStatus[s].push(doc);
   }
 
   for (const status of (ctx.expanded || [])) {
-    const docs = byStatus[status];
-    if (!docs?.length) continue;
-    lines.push(bold(`${capitalize(status)} (${docs.length}):`));
-    const maxSlug = Math.min(24, Math.max(...docs.map(d => toSlug(d).length)));
-    for (const doc of docs) {
+    const sdocs = byStatus[status];
+    if (!sdocs?.length) continue;
+    lines.push(bold(`${capitalize(status)} (${sdocs.length}):`));
+    const maxSlug = Math.min(24, Math.max(...sdocs.map(d => toSlug(d).length)));
+    for (const doc of sdocs) {
       const slug = toSlug(doc).padEnd(maxSlug);
       const next = doc.nextStep
         ? truncate(doc.nextStep, ctx.truncateNextStep || 80)
@@ -160,9 +156,9 @@ function _renderContext(index, config, opts = {}) {
   }
 
   for (const status of (ctx.listed || [])) {
-    const docs = byStatus[status];
-    if (!docs?.length) continue;
-    lines.push(`${capitalize(status)} (${docs.length}): ${docs.map(toSlug).join(', ')}`);
+    const sdocs = byStatus[status];
+    if (!sdocs?.length) continue;
+    lines.push(`${capitalize(status)} (${sdocs.length}): ${sdocs.map(toSlug).join(', ')}`);
   }
 
   const counts = (ctx.counted || [])
@@ -171,7 +167,59 @@ function _renderContext(index, config, opts = {}) {
   if (counts.length) {
     lines.push(counts.join('  |  '));
   }
-  lines.push('');
+}
+
+function _renderContext(index, config, opts = {}) {
+  const today = new Date().toISOString().slice(0, 10);
+  const lines = [`BRIEFING (${today})`, ''];
+
+  // Group docs by type
+  const typeOrder = ['plan', 'doc', 'research'];
+  const byType = {};
+  const untyped = [];
+  for (const doc of index.docs) {
+    if (doc.type) {
+      if (!byType[doc.type]) byType[doc.type] = [];
+      byType[doc.type].push(doc);
+    } else {
+      untyped.push(doc);
+    }
+  }
+
+  const hasTypedDocs = Object.keys(byType).length > 0;
+  const typeLabels = { plan: 'PLANS', doc: 'DOCS', research: 'RESEARCH' };
+
+  if (hasTypedDocs) {
+    for (const typeName of typeOrder) {
+      const docs = byType[typeName];
+      if (!docs?.length) continue;
+      const typeCtx = config.typeContextConfig?.get(typeName) ?? config.context;
+      lines.push(bold(typeLabels[typeName] ?? typeName.toUpperCase()));
+      _renderContextSection(docs, typeCtx, opts, config, lines);
+      lines.push('');
+    }
+    // Any types not in typeOrder
+    for (const typeName of Object.keys(byType)) {
+      if (typeOrder.includes(typeName)) continue;
+      const docs = byType[typeName];
+      if (!docs?.length) continue;
+      const typeCtx = config.typeContextConfig?.get(typeName) ?? config.context;
+      lines.push(bold(typeName.toUpperCase()));
+      _renderContextSection(docs, typeCtx, opts, config, lines);
+      lines.push('');
+    }
+  }
+
+  // Render untyped docs (backward compat) or all docs if no types present
+  if (untyped.length > 0) {
+    if (hasTypedDocs) lines.push(bold('OTHER'));
+    _renderContextSection(untyped, config.context, opts, config, lines);
+    lines.push('');
+  } else if (!hasTypedDocs) {
+    // No types at all — fall back to original flat rendering
+    _renderContextSection(index.docs, config.context, opts, config, lines);
+    lines.push('');
+  }
 
   const stale = index.docs.filter(d => d.isStale && !config.lifecycle.skipStaleFor.has(d.status));
   if (stale.length) {
@@ -189,6 +237,7 @@ function _renderContext(index, config, opts = {}) {
     lines.push(`Non-compliant: ${parts.join(', ')} (run \`dotmd check\` for details)`);
   }
 
+  const ctx = config.context;
   const recentStatuses = new Set(ctx.recentStatuses || ['active', 'ready', 'planned']);
   const recentDays = ctx.recentDays ?? 3;
   const recentLimit = ctx.recentLimit ?? 10;
@@ -275,8 +324,9 @@ export function renderCoverage(index, config) {
 }
 
 export function buildCoverage(index, config) {
-  const scope = ['active', 'ready', 'planned', 'blocked'];
-  const scoped = index.docs.filter(doc => scope.includes(doc.status));
+  const terminalStatuses = new Set(['archived', 'deprecated', 'reference', 'done']);
+  const scope = [...new Set(index.docs.map(d => d.status).filter(s => s && !terminalStatuses.has(s) && !config.lifecycle.skipWarningsFor.has(s)))];
+  const scoped = index.docs.filter(doc => doc.status && !terminalStatuses.has(doc.status) && !config.lifecycle.skipWarningsFor.has(doc.status));
   const missingSurface = scoped.filter(doc => !doc.surface);
   const missingModule = scoped.filter(doc => !doc.module);
   const modulePlatform = scoped.filter(doc => doc.module === 'platform');

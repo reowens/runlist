@@ -75,6 +75,7 @@ Setup:
 Global Options:
   --config <path>        Explicit config file path
   --root <name>          Filter to a specific docs root
+  --type <t1,t2>         Filter by document type (plan, doc, research)
   --dry-run, -n          Preview changes without writing anything
   --verbose              Show config details and doc count
   --help, -h             Show help (per-command: dotmd <cmd> --help)
@@ -99,6 +100,7 @@ Add to your shell config:
   query: `dotmd query — filtered document search
 
 Filters:
+  --type <t1,t2>         Filter by type (plan, doc, research)
   --status <s1,s2>       Filter by status (comma-separated)
   --keyword <term>       Search title, summary, state, path
   --module <name>        Filter by module
@@ -439,6 +441,16 @@ async function main() {
   const rootFilter = (() => { const i = args.indexOf('--root'); return i !== -1 && args[i + 1] ? args[i + 1] : null; })();
   if (rootFilter) {
     index.docs = index.docs.filter(d => d.root === rootFilter || d.root.endsWith('/' + rootFilter) || d.root.split('/').pop() === rootFilter);
+  }
+
+  // Apply --type filter
+  const typeFilter = (() => { const i = args.indexOf('--type'); return i !== -1 && args[i + 1] ? args[i + 1] : null; })();
+  if (typeFilter) {
+    const types = typeFilter.split(',').map(t => t.trim()).filter(Boolean);
+    index.docs = index.docs.filter(d => types.includes(d.type));
+  }
+
+  if (rootFilter || typeFilter) {
     index.errors = index.errors.filter(e => index.docs.some(d => d.path === e.path));
     index.warnings = index.warnings.filter(w => index.docs.some(d => d.path === w.path));
     index.countsByStatus = {};

@@ -19,28 +19,42 @@ export async function runStatus(argv, config, opts = {}) {
   let newStatus = argv[1];
 
   if (!input) { die('Usage: dotmd status <file> <new-status>'); }
+
+  const filePath = resolveDocPath(input, config);
+  if (!filePath) { die(`File not found: ${input}\nSearched: ${toRepoPath(config.repoRoot, config.repoRoot) || '.'}, ${toRepoPath(config.docsRoot, config.repoRoot)}`); }
+
+  // Determine type-specific or root-specific valid statuses
+  const raw = readFileSync(filePath, 'utf8');
+  const { frontmatter: fmRaw } = extractFrontmatter(raw);
+  const parsedFm = parseSimpleFrontmatter(fmRaw);
+  const docType = asString(parsedFm.type) ?? null;
+  const fileRoot = findFileRoot(filePath, config);
+  const rootLabel = path.relative(config.repoRoot, fileRoot).split(path.sep).join('/');
+
+  // Build effective valid status set: type > root > global
+  let effectiveValid;
+  let effectiveOrder;
+  if (docType && config.typeStatuses?.has(docType)) {
+    effectiveValid = config.typeStatuses.get(docType);
+    effectiveOrder = [...effectiveValid];
+  } else {
+    const rootSet = config.rootValidStatuses?.get(rootLabel);
+    effectiveValid = rootSet ?? config.validStatuses;
+    effectiveOrder = config.statusOrder;
+  }
+
   if (!newStatus) {
     if (isInteractive()) {
-      newStatus = await promptChoice('Which status?', config.statusOrder);
+      newStatus = await promptChoice('Which status?', effectiveOrder);
       if (!newStatus) die('No status selected.');
     } else {
       die('Usage: dotmd status <file> <new-status>');
     }
   }
-  const filePath = resolveDocPath(input, config);
-  if (!filePath) { die(`File not found: ${input}\nSearched: ${toRepoPath(config.repoRoot, config.repoRoot) || '.'}, ${toRepoPath(config.docsRoot, config.repoRoot)}`); }
 
-  // Validate status against root-specific vocabulary
-  const fileRoot = findFileRoot(filePath, config);
-  const rootLabel = path.relative(config.repoRoot, fileRoot).split(path.sep).join('/');
-  const rootSet = config.rootValidStatuses?.get(rootLabel);
-  const effectiveValid = rootSet ?? config.validStatuses;
   if (!effectiveValid.has(newStatus)) { die(`Invalid status: ${newStatus}\nValid: ${[...effectiveValid].join(', ')}`); }
 
-  const raw = readFileSync(filePath, 'utf8');
-  const { frontmatter } = extractFrontmatter(raw);
-  const parsed = parseSimpleFrontmatter(frontmatter);
-  const oldStatus = asString(parsed.status);
+  const oldStatus = asString(parsedFm.status);
 
   if (oldStatus === newStatus) {
     process.stdout.write(`${toRepoPath(filePath, config.repoRoot)}: already ${newStatus}, no changes made.\n`);

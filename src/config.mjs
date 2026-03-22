@@ -10,6 +10,24 @@ const DEFAULTS = {
   archiveDir: 'archived',
   excludeDirs: [],
 
+  types: {
+    plan: {
+      statuses: ['in-session', 'active', 'planned', 'blocked', 'done', 'archived'],
+      context: { expanded: ['in-session', 'active'], listed: ['planned', 'blocked'], counted: ['done', 'archived'] },
+      staleDays: { 'in-session': 1, active: 14, planned: 30, blocked: 30 },
+    },
+    doc: {
+      statuses: ['draft', 'active', 'review', 'reference', 'deprecated', 'archived'],
+      context: { expanded: ['active'], listed: ['draft', 'review'], counted: ['reference', 'deprecated', 'archived'] },
+      staleDays: { draft: 30, active: 14, review: 14 },
+    },
+    research: {
+      statuses: ['active', 'reference', 'archived'],
+      context: { expanded: ['active'], listed: [], counted: ['reference', 'archived'] },
+      staleDays: { active: 30 },
+    },
+  },
+
   statuses: {
     order: ['active', 'ready', 'planned', 'research', 'blocked', 'reference', 'archived'],
     staleDays: {
@@ -209,11 +227,33 @@ export async function resolveConfig(cwd, explicitConfigPath) {
     }
   }
 
+  // Resolve document types
+  const typesConfig = config.types ?? {};
+  const validTypes = new Set(Object.keys(typesConfig));
+  const typeStatuses = new Map();
+  const typeContextConfig = new Map();
+  for (const [typeName, typeDef] of Object.entries(typesConfig)) {
+    typeStatuses.set(typeName, new Set(typeDef.statuses ?? []));
+    if (typeDef.context) typeContextConfig.set(typeName, typeDef.context);
+  }
+
   const statusOrder = config.statuses.order;
   const validStatuses = new Set(statusOrder);
+  // Merge all type-specific statuses into the global valid set
+  for (const typeSet of typeStatuses.values()) {
+    for (const s of typeSet) validStatuses.add(s);
+  }
   const staleDaysByStatus = {};
   for (const status of statusOrder) {
     staleDaysByStatus[status] = config.statuses.staleDays?.[status] ?? null;
+  }
+  // Merge type-specific staleDays
+  for (const typeDef of Object.values(typesConfig)) {
+    if (typeDef.staleDays) {
+      for (const [status, days] of Object.entries(typeDef.staleDays)) {
+        if (!(status in staleDaysByStatus)) staleDaysByStatus[status] = days;
+      }
+    }
   }
 
   // Per-root additional statuses (merged with global validStatuses)
@@ -269,6 +309,9 @@ export async function resolveConfig(cwd, explicitConfigPath) {
 
     statusOrder,
     validStatuses,
+    validTypes,
+    typeStatuses,
+    typeContextConfig,
     rootValidStatuses,
     staleDaysByStatus,
 

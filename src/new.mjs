@@ -7,32 +7,32 @@ import { isInteractive, promptText } from './prompt.mjs';
 const BUILTIN_TEMPLATES = {
   default: {
     description: 'Minimal document with status and updated date',
-    frontmatter: (s, d) => `status: ${s}\nupdated: ${d}`,
+    frontmatter: (s, d) => `type: doc\nstatus: ${s}\nupdated: ${d}`,
     body: (t) => `\n# ${t}\n`,
   },
   plan: {
     description: 'Execution plan with module, surface, and cross-references',
-    frontmatter: (s, d) => `status: ${s}\nupdated: ${d}\nsurface:\nmodule:\ncurrent_state:\nrelated_plans:`,
+    frontmatter: (s, d) => `type: plan\nstatus: ${s}\nupdated: ${d}\nsurface:\nmodule:\ncurrent_state:\nrelated_plans:`,
     body: (t) => `\n# ${t}\n\n## Overview\n\n\n\n## Implementation Plan\n\n- [ ] \n\n## Open Questions\n\n\n`,
   },
   adr: {
     description: 'Architecture Decision Record',
-    frontmatter: (s, d) => `status: ${s}\nupdated: ${d}\ndecision_date:\ndeciders:`,
+    frontmatter: (s, d) => `type: doc\nstatus: ${s}\nupdated: ${d}\ndecision_date:\ndeciders:`,
     body: (t) => `\n# ${t}\n\n## Context\n\n\n\n## Decision\n\n\n\n## Consequences\n\n\n`,
   },
   rfc: {
     description: 'Request for Comments',
-    frontmatter: (s, d) => `status: ${s}\nupdated: ${d}\nowner:\nreviewers:`,
+    frontmatter: (s, d) => `type: doc\nstatus: ${s}\nupdated: ${d}\nowner:\nreviewers:`,
     body: (t) => `\n# ${t}\n\n## Summary\n\n\n\n## Motivation\n\n\n\n## Detailed Design\n\n\n\n## Alternatives\n\n\n\n## Open Questions\n\n\n`,
   },
   audit: {
     description: 'Codebase audit or research investigation',
-    frontmatter: (s, d) => `status: research\nupdated: ${d}\naudited: ${d}\naudit_level: pass1\nmodule:\nsource_of_truth: code\nsupports_plans:`,
+    frontmatter: (s, d) => `type: research\nstatus: active\nupdated: ${d}\naudited: ${d}\naudit_level: pass1\nmodule:\nsource_of_truth: code\nsupports_plans:`,
     body: (t) => `\n# ${t}\n\n## Scope\n\n\n\n## Findings\n\n\n\n## Recommendations\n\n\n`,
   },
   design: {
     description: 'Design document with goals, non-goals, and implementation plan',
-    frontmatter: (s, d) => `status: ${s}\nupdated: ${d}\nowner:\nsurface:\nmodule:\nrelated_plans:`,
+    frontmatter: (s, d) => `type: doc\nstatus: ${s}\nupdated: ${d}\nowner:\nsurface:\nmodule:\nrelated_plans:`,
     body: (t) => `\n# ${t}\n\n## Overview\n\n\n\n## Goals\n\n\n\n## Non-Goals\n\n\n\n## Design\n\n\n\n## Implementation Plan\n\n- [ ] \n`,
   },
 };

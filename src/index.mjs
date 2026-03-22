@@ -143,9 +143,12 @@ export function parseDocFile(filePath, config) {
   const docRoot = roots.find(r => filePath.startsWith(r)) ?? config.docsRoot;
   const rootLabel = path.relative(config.repoRoot, docRoot).split(path.sep).join('/');
 
+  const docType = asString(parsedFrontmatter.type) ?? null;
+
   const doc = {
     path: relativePath,
     root: rootLabel,
+    type: docType,
     status: asString(parsedFrontmatter.status) ?? null,
     owner: asString(parsedFrontmatter.owner) ?? null,
     surface,

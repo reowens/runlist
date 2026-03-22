@@ -126,7 +126,7 @@ describe('dotmd lint', () => {
 
   it('reports no issues for clean docs', () => {
     const docsDir = setupProject();
-    writeFileSync(path.join(docsDir, 'clean.md'), '---\nstatus: active\nupdated: 2025-01-01\ntitle: Clean\nsummary: A clean doc\ncurrent_state: all good\nnext_step: nothing\n---\n\n# Clean\n\n> A clean doc\n');
+    writeFileSync(path.join(docsDir, 'clean.md'), '---\ntype: doc\nstatus: active\nupdated: 2025-01-01\ntitle: Clean\nsummary: A clean doc\ncurrent_state: all good\nnext_step: nothing\n---\n\n# Clean\n\n> A clean doc\n');
 
     const result = run(['lint']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);

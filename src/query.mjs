@@ -60,7 +60,7 @@ export function runQuery(index, argv, config) {
 
 export function parseQueryArgs(argv) {
   const filters = {
-    statuses: null, keyword: null, owner: null, surface: null,
+    types: null, statuses: null, keyword: null, owner: null, surface: null,
     module: null, domain: null, audience: null, executionMode: null,
     updatedSince: null, limit: 20, all: false, sort: 'updated',
     stale: false, hasNextStep: false, hasBlockers: false,
@@ -72,6 +72,7 @@ export function parseQueryArgs(argv) {
     const arg = argv[i];
     const next = argv[i + 1];
 
+    if (arg === '--type' && next) { filters.types = next.split(',').map(v => v.trim()).filter(Boolean); i += 1; continue; }
     if (arg === '--status' && next) { filters.statuses = next.split(',').map(v => v.trim()).filter(Boolean); i += 1; continue; }
     if (arg === '--keyword' && next) { filters.keyword = next; i += 1; continue; }
     if (arg === '--owner' && next) { filters.owner = next; i += 1; continue; }
@@ -101,6 +102,7 @@ export function parseQueryArgs(argv) {
 export function filterDocs(docs, filters, config) {
   let result = [...docs];
 
+  if (filters.types?.length) result = result.filter(d => filters.types.includes(d.type));
   if (filters.statuses?.length) result = result.filter(d => filters.statuses.includes(d.status));
 
   if (filters.keyword) {
@@ -151,6 +153,7 @@ function getDocSummary(doc, config) {
 function renderQueryResults(docs, filters, config) {
   process.stdout.write('Query\n\n');
   process.stdout.write(`- results: ${docs.length}\n`);
+  if (filters.types?.length) process.stdout.write(`- type: ${filters.types.join(', ')}\n`);
   if (filters.statuses?.length) process.stdout.write(`- status: ${filters.statuses.join(', ')}\n`);
   if (filters.keyword) process.stdout.write(`- keyword: ${filters.keyword}\n`);
   if (filters.owner) process.stdout.write(`- owner: ${filters.owner}\n`);
@@ -173,6 +176,7 @@ function renderQueryResults(docs, filters, config) {
   for (let idx = 0; idx < docs.length; idx++) {
     const doc = docs[idx];
     process.stdout.write(`- ${doc.title}\n`);
+    if (doc.type) process.stdout.write(`  type: ${doc.type}\n`);
     process.stdout.write(`  status: ${doc.status}\n`);
     process.stdout.write(`  updated: ${doc.updated ?? 'n/a'}\n`);
     if (doc.daysSinceUpdate != null) process.stdout.write(`  days-since-update: ${doc.daysSinceUpdate}\n`);

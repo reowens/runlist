@@ -6,6 +6,58 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 dotmd is a CLI (`dotmd-cli` on npm) for managing markdown documents with YAML frontmatter. It indexes, queries, validates, graphs, exports, and lifecycle-manages collections of `.md` files (plans, ADRs, RFCs, design docs). Built as ESM with two npm dependencies (`@notionhq/client`, `notion-to-md` for Notion integration).
 
+## Document Types
+
+Every document has a `type:` field in its frontmatter. Types determine which statuses are valid and how the document appears in briefings.
+
+| type | purpose | statuses |
+|------|---------|----------|
+| `plan` | Execution plans that Claude sessions work on | `in-session`, `active`, `planned`, `blocked`, `done`, `archived` |
+| `doc` | Reference material, design docs, specs, ADRs, RFCs | `draft`, `active`, `review`, `reference`, `deprecated`, `archived` |
+| `research` | Investigations, audits, analysis | `active`, `reference`, `archived` |
+
+### Plan statuses explained
+
+- **`in-session`** — A Claude instance is actively working on this plan right now. Do not pick up `in-session` plans. When you start working on a plan, set it to `in-session`. When you finish, set it to `done` or back to `active`.
+- **`active`** — Ready for a Claude session to pick up and work on.
+- **`planned`** — Queued for future work, not yet ready to execute.
+- **`blocked`** — Cannot proceed, has blockers listed in frontmatter.
+- **`done`** — Work is complete.
+- **`archived`** — No longer relevant, moved to archive directory.
+
+### Working with plans (for Claude instances)
+
+1. Before starting work on a plan: `dotmd status <plan-file> in-session`
+2. When done: `dotmd status <plan-file> done` (or `active` if more work needed)
+3. To see available plans: `dotmd query --type plan --status active`
+4. To see what's in flight: `dotmd query --type plan --status in-session`
+5. Never pick up a plan that is `in-session` — another session is working on it.
+
+### Creating documents
+
+Templates automatically set the `type:` field:
+
+```bash
+dotmd new my-plan --template plan          # type: plan
+dotmd new my-doc                           # type: doc (default template)
+dotmd new my-doc --template design         # type: doc
+dotmd new my-doc --template adr            # type: doc
+dotmd new my-doc --template rfc            # type: doc
+dotmd new my-investigation --template audit # type: research
+```
+
+### Querying by type
+
+```bash
+dotmd query --type plan                    # all plans
+dotmd query --type plan --status active    # plans ready to pick up
+dotmd query --type doc --status active     # active docs
+dotmd query --type research               # all research
+dotmd context --type plan                  # briefing filtered to plans
+```
+
+The `--type` flag works as a global filter on most commands: `list`, `check`, `context`, `focus`, `query`, `coverage`, `stats`, `graph`.
+
 ## Commands
 
 ```bash
@@ -19,14 +71,24 @@ Run `dotmd --help` or `dotmd <command> --help` for the full command list and opt
 
 ## Releasing
 
-`npm version patch|minor|major` handles the entire release pipeline:
+**One command. That's it.**
 
-1. Runs tests (`preversion`)
-2. Bumps `package.json` + `package-lock.json`, commits, tags
-3. Pushes to `origin main --tags`, creates GitHub Release (`postversion`)
-4. The `v*` tag push triggers `.github/workflows/publish.yml` → npm publish
+```bash
+npm version patch    # bug fixes, small tweaks
+npm version minor    # new features
+npm version major    # breaking changes
+```
 
-No manual steps needed. Use `patch` for fixes, `minor` for features, `major` for breaking changes.
+Everything is automated — do NOT manually `git push`, `git tag`, `npm publish`, or anything else. The single `npm version` command does all of this:
+
+1. Runs tests (blocks release if they fail)
+2. Bumps `package.json` + `package-lock.json`, commits, creates git tag
+3. Pushes to `origin main --tags`
+4. Creates GitHub Release with auto-generated notes
+5. Waits for GitHub Actions `publish.yml` to `npm publish`
+6. Installs the new version locally via `npm install -g`
+
+**If it fails partway through:** Check if the tag was pushed (`git log --oneline -1`). If yes, the GitHub Actions publish workflow is probably already running — check GitHub Actions. If not, run `git push origin main --tags` manually and the rest will follow.
 
 ## Architecture
 
@@ -42,6 +104,7 @@ No manual steps needed. Use `patch` for fixes, `minor` for features, `major` for
 
 - **Pure ESM.** All files use `.mjs` extension and `import`/`export`.
 - **Minimal dependencies.** Everything beyond Notion integration uses Node.js builtins.
+- **Document types.** Every doc should have `type: plan|doc|research`. Each type has its own valid statuses. Status validation is type-aware (type > root > global).
 - **Hook pattern.** Config functions are automatically detected as hooks. See `dotmd.config.example.mjs` for the full hook API.
 - **`--dry-run` / `-n`** is supported by all mutation commands. Pass `{ dryRun }` options object to `runX()` functions.
 - **`--json`** is supported by most read commands.

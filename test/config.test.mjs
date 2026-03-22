@@ -21,7 +21,17 @@ describe('resolveConfig', () => {
   it('returns defaults when no config file exists', async () => {
     const config = await resolveConfig(tmpDir);
     strictEqual(config.configPath, null);
-    deepStrictEqual([...config.validStatuses], ['active', 'ready', 'planned', 'research', 'blocked', 'reference', 'archived']);
+    // validStatuses is union of global order + all type-specific statuses
+    ok(config.validStatuses.has('active'));
+    ok(config.validStatuses.has('archived'));
+    ok(config.validStatuses.has('in-session')); // plan-specific
+    ok(config.validStatuses.has('done'));        // plan-specific
+    ok(config.validStatuses.has('draft'));       // doc-specific
+    ok(config.validStatuses.has('review'));      // doc-specific
+    ok(config.validStatuses.has('deprecated')); // doc-specific
+    ok(config.validTypes.has('plan'));
+    ok(config.validTypes.has('doc'));
+    ok(config.validTypes.has('research'));
     strictEqual(config.archiveDir, 'archived');
     strictEqual(config.indexPath, null);
   });

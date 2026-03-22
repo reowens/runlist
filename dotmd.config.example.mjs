@@ -13,7 +13,27 @@ export const archiveDir = 'archived';
 // Directories to skip when scanning
 export const excludeDirs = ['evidence'];
 
-// Status workflow — order determines display grouping
+// Document types — each type has its own status vocabulary and context layout
+// Defaults: plan, doc, research. Override to customize statuses per type.
+// export const types = {
+//   plan: {
+//     statuses: ['in-session', 'active', 'planned', 'blocked', 'done', 'archived'],
+//     context: { expanded: ['in-session', 'active'], listed: ['planned', 'blocked'], counted: ['done', 'archived'] },
+//     staleDays: { 'in-session': 1, active: 14, planned: 30, blocked: 30 },
+//   },
+//   doc: {
+//     statuses: ['draft', 'active', 'review', 'reference', 'deprecated', 'archived'],
+//     context: { expanded: ['active'], listed: ['draft', 'review'], counted: ['reference', 'deprecated', 'archived'] },
+//     staleDays: { draft: 30, active: 14, review: 14 },
+//   },
+//   research: {
+//     statuses: ['active', 'reference', 'archived'],
+//     context: { expanded: ['active'], listed: [], counted: ['reference', 'archived'] },
+//     staleDays: { active: 30 },
+//   },
+// };
+
+// Status workflow — fallback for docs without a type field. Order determines display grouping.
 export const statuses = {
   order: ['active', 'ready', 'planned', 'research', 'blocked', 'reference', 'archived'],
   // Additional statuses valid only in specific roots (merged with order)

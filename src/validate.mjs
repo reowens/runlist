@@ -6,20 +6,32 @@ import { toRepoPath } from './util.mjs';
 
 const NOW = new Date();
 
-function isValidStatus(status, root, config) {
+function isValidStatus(status, root, config, type) {
+  // Type-specific statuses take priority
+  if (type) {
+    const typeSet = config.typeStatuses?.get(type);
+    if (typeSet) return typeSet.has(status);
+  }
   const rootSet = config.rootValidStatuses?.get(root);
   if (rootSet) return rootSet.has(status);
   return config.validStatuses.has(status);
 }
 
 export function validateDoc(doc, frontmatter, headingTitle, config) {
-  if (!doc.status) {
-    doc.errors.push({ path: doc.path, level: 'error', message: 'Missing frontmatter `status`.' });
-  } else if (!isValidStatus(doc.status, doc.root, config)) {
-    doc.warnings.push({ path: doc.path, level: 'warning', message: `Unknown status \`${doc.status}\`; not in statuses.order.` });
+  // Validate type field
+  if (doc.type && config.validTypes && !config.validTypes.has(doc.type)) {
+    doc.warnings.push({ path: doc.path, level: 'warning', message: `Unknown type \`${doc.type}\`; expected one of: ${[...config.validTypes].join(', ')}.` });
   }
 
-  const knownStatus = isValidStatus(doc.status, doc.root, config);
+  if (!doc.status) {
+    doc.errors.push({ path: doc.path, level: 'error', message: 'Missing frontmatter `status`.' });
+  } else if (!isValidStatus(doc.status, doc.root, config, doc.type)) {
+    const validSet = doc.type && config.typeStatuses?.get(doc.type);
+    const hint = validSet ? `valid for type \`${doc.type}\`: ${[...validSet].join(', ')}` : 'not in statuses.order';
+    doc.warnings.push({ path: doc.path, level: 'warning', message: `Unknown status \`${doc.status}\`; ${hint}.` });
+  }
+
+  const knownStatus = isValidStatus(doc.status, doc.root, config, doc.type);
 
   if (knownStatus && !config.lifecycle.skipWarningsFor.has(doc.status) && !doc.updated) {
     doc.errors.push({ path: doc.path, level: 'error', message: 'Missing frontmatter `updated` for non-archived doc.' });
@@ -65,11 +77,15 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
     doc.warnings.push({ path: doc.path, level: 'warning', message: 'Missing `summary` and no blockquote fallback found.' });
   }
 
-  if (['active', 'ready', 'planned', 'blocked'].includes(doc.status) && !asString(frontmatter.current_state)) {
+  // Determine which statuses should have current_state and next_step
+  const terminalStatuses = new Set(['archived', 'deprecated', 'reference', 'done']);
+  const isWorkStatus = knownStatus && doc.status && !terminalStatuses.has(doc.status) && !config.lifecycle.skipWarningsFor.has(doc.status);
+
+  if (isWorkStatus && !asString(frontmatter.current_state)) {
     doc.warnings.push({ path: doc.path, level: 'warning', message: 'Missing `current_state`; index output is using a fallback or placeholder.' });
   }
 
-  if (['active', 'ready', 'planned'].includes(doc.status) && !asString(frontmatter.next_step)) {
+  if (isWorkStatus && doc.status !== 'blocked' && !asString(frontmatter.next_step)) {
     doc.warnings.push({ path: doc.path, level: 'warning', message: 'Missing `next_step`; command output will omit a clear immediate action.' });
   }
 

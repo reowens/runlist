@@ -29,6 +29,11 @@ export function runLint(argv, config, opts = {}) {
     const repoPath = toRepoPath(filePath, config.repoRoot);
     const fixes = [];
 
+    // Missing type (fixable — default to 'doc')
+    if (!asString(parsed.type)) {
+      fixes.push({ field: 'type', oldValue: null, newValue: 'doc', type: 'add' });
+    }
+
     // Missing status (fixable via AI inference)
     if (!asString(parsed.status)) {
       fixes.push({ field: 'status', oldValue: null, newValue: null, type: 'infer-status' });
@@ -40,9 +45,12 @@ export function runLint(argv, config, opts = {}) {
       fixes.push({ field: 'updated', oldValue: null, newValue: today, type: 'add' });
     }
 
-    // Status casing
+    // Status casing — check against type-specific or global valid statuses
     const status = asString(parsed.status);
-    if (status && status !== status.toLowerCase() && config.validStatuses.has(status.toLowerCase())) {
+    const docType = asString(parsed.type);
+    const typeSet = docType ? config.typeStatuses?.get(docType) : null;
+    const effectiveStatuses = typeSet ?? config.validStatuses;
+    if (status && status !== status.toLowerCase() && effectiveStatuses.has(status.toLowerCase())) {
       fixes.push({ field: 'status', oldValue: status, newValue: status.toLowerCase(), type: 'update' });
     }
 
@@ -153,12 +161,17 @@ export function runLint(argv, config, opts = {}) {
       // Apply infer-status fixes via AI
       for (const f of fixes.filter(f => f.type === 'infer-status')) {
         const raw = readFileSync(filePath, 'utf8');
+        const { frontmatter: fmInfer } = extractFrontmatter(raw);
+        const parsedInfer = parseSimpleFrontmatter(fmInfer);
+        const inferType = asString(parsedInfer.type);
+        const inferTypeSet = inferType ? config.typeStatuses?.get(inferType) : null;
+        const statusList = inferTypeSet ? [...inferTypeSet].join(', ') : config.statusOrder.join(', ');
         const { body } = extractFrontmatter(raw);
-        const statusList = config.statusOrder.join(', ');
         const prompt = `Given this markdown document, classify it into exactly one of these statuses: ${statusList}.\nReply with ONLY the status word, nothing else.\n\nFile: ${repoPath}\n\n${(body ?? '').slice(0, 4000)}`;
         const result = runMLX(prompt, { maxTokens: 10 });
         const suggested = result?.trim().toLowerCase().split(/\s+/)[0];
-        if (suggested && config.validStatuses.has(suggested)) {
+        const inferValid = inferTypeSet ?? config.validStatuses;
+        if (suggested && inferValid.has(suggested)) {
           updateFrontmatter(filePath, { status: suggested });
           f.newValue = suggested;
         }
