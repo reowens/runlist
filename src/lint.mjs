@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter, replaceFrontmatter } from './frontmatter.mjs';
 import { asString, toRepoPath, escapeRegex, warn } from './util.mjs';
 import { buildIndex, collectDocFiles } from './index.mjs';
@@ -29,9 +30,14 @@ export function runLint(argv, config, opts = {}) {
     const repoPath = toRepoPath(filePath, config.repoRoot);
     const fixes = [];
 
-    // Missing type (fixable — default to 'doc')
+    // Missing type (fixable — infer from root: plans → 'plan', else 'doc')
     if (!asString(parsed.type)) {
-      fixes.push({ field: 'type', oldValue: null, newValue: 'doc', type: 'add' });
+      const roots = config.docsRoots || [config.docsRoot];
+      const docRoot = roots.find(r => filePath.startsWith(r)) ?? config.docsRoot;
+      const rootLabel = path.relative(config.repoRoot, docRoot).split(path.sep).join('/');
+      // If the root label contains 'plan' (e.g. 'docs/plans'), default to plan type
+      const inferredType = rootLabel.includes('plan') ? 'plan' : 'doc';
+      fixes.push({ field: 'type', oldValue: null, newValue: inferredType, type: 'add' });
     }
 
     // Missing status (fixable via AI inference)

@@ -7,10 +7,10 @@ import { toRepoPath } from './util.mjs';
 const NOW = new Date();
 
 function isValidStatus(status, root, config, type) {
-  // Type-specific statuses take priority
+  // Union type-specific + root-specific statuses (a doc can satisfy either)
   if (type) {
     const typeSet = config.typeStatuses?.get(type);
-    if (typeSet) return typeSet.has(status);
+    if (typeSet && typeSet.has(status)) return true;
   }
   const rootSet = config.rootValidStatuses?.get(root);
   if (rootSet) return rootSet.has(status);
@@ -26,8 +26,10 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
   if (!doc.status) {
     doc.errors.push({ path: doc.path, level: 'error', message: 'Missing frontmatter `status`.' });
   } else if (!isValidStatus(doc.status, doc.root, config, doc.type)) {
-    const validSet = doc.type && config.typeStatuses?.get(doc.type);
-    const hint = validSet ? `valid for type \`${doc.type}\`: ${[...validSet].join(', ')}` : 'not in statuses.order';
+    const typeSet = doc.type && config.typeStatuses?.get(doc.type);
+    const rootSet = config.rootValidStatuses?.get(doc.root);
+    const combined = new Set([...(typeSet ?? []), ...(rootSet ?? config.validStatuses)]);
+    const hint = `valid: ${[...combined].join(', ')}`;
     doc.warnings.push({ path: doc.path, level: 'warning', message: `Unknown status \`${doc.status}\`; ${hint}.` });
   }
 
