@@ -38,7 +38,9 @@
   },
   "homepage": "https://github.com/reowens/dotmd#readme",
   "scripts": {
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "preversion": "npm test",
+    "postversion": "git push origin main --tags && gh release create v$npm_package_version --generate-notes --title v$npm_package_version"
   },
   "engines": {
     "node": ">=20"
