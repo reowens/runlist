@@ -107,7 +107,7 @@ Filters:
   --json                 Output as JSON
   --summarize            Add AI summaries to results
   --summarize-limit <n>  Max docs to summarize (default: 5)
-  --model <name>         MLX model for AI summaries`,
+  --model <name>         Model for AI summaries`,
 
   status: `dotmd status <file> <new-status> — transition document status
 
@@ -153,7 +153,7 @@ Generates a compact status briefing designed for AI/LLM consumption.
 Options:
   --json                 Output as JSON
   --summarize            Add AI summaries for expanded docs
-  --model <name>         MLX model for AI summaries`,
+  --model <name>         Model for AI summaries`,
 
   stats: `dotmd stats — doc health dashboard
 
@@ -269,10 +269,10 @@ Options:
 
   summary: `dotmd summary <file> — AI summary of a document
 
-Generates an AI-powered summary using a local MLX model via uv.
+Generates an AI-powered summary using a local model.
 
 Options:
-  --model <name>         MLX model (default: mlx-community/Llama-3.2-3B-Instruct-4bit)
+  --model <name>         Model to use (default: mlx-community/Llama-3.2-3B-Instruct-4bit)
   --max-tokens <n>       Max tokens for generation (default: 200)
   --json                 Output as JSON`,
 
@@ -284,8 +284,8 @@ Without a file argument, shows all drifted docs.
 Options:
   --stat                 Summary only (files changed, insertions/deletions)
   --since <date>         Override: diff since this date instead of frontmatter
-  --summarize            Generate AI summary using local MLX model
-  --model <name>         MLX model to use (default: mlx-community/Llama-3.2-3B-Instruct-4bit)`,
+  --summarize            Generate AI summary using local model
+  --model <name>         Model to use (default: mlx-community/Llama-3.2-3B-Instruct-4bit)`,
 
   lint: `dotmd lint [--fix] — check and auto-fix frontmatter issues
 
@@ -336,7 +336,7 @@ async function main() {
     return;
   }
 
-  if (command === '--help' || command === '-h') {
+  if (command === 'help' || command === '--help' || command === '-h') {
     process.stdout.write(`${HELP._main}\n`);
     return;
   }
