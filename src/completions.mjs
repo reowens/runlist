@@ -2,7 +2,7 @@ import { die } from './util.mjs';
 
 const COMMANDS = [
   'list', 'json', 'check', 'coverage', 'stats', 'graph', 'deps', 'context', 'focus', 'query',
-  'index', 'status', 'archive', 'touch', 'doctor', 'lint', 'rename', 'migrate',
+  'plans', 'stale', 'actionable', 'index', 'status', 'archive', 'touch', 'doctor', 'lint', 'rename', 'migrate',
   'fix-refs', 'notion', 'export', 'summary', 'watch', 'diff', 'init', 'new', 'completions',
 ];
 
@@ -25,6 +25,9 @@ const COMMAND_FLAGS = {
   notion: ['import', 'export', 'sync', '--force', '--dry-run'],
   export: ['--format', '--output', '--status', '--module', '--root', '--type'],
   focus: ['--json'],
+  plans: ['--status', '--json', '--sort', '--limit', '--all', '--stale', '--has-next-step'],
+  stale: ['--json', '--sort', '--limit', '--all'],
+  actionable: ['--json', '--sort', '--limit', '--all'],
   status: [],
   archive: [],
   doctor: [],

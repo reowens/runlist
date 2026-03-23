@@ -29,9 +29,10 @@ Every document has a `type:` field in its frontmatter. Types determine which sta
 
 1. Before starting work on a plan: `dotmd status <plan-file> in-session`
 2. When done: `dotmd status <plan-file> done` (or `active` if more work needed)
-3. To see available plans: `dotmd query --type plan --status active`
-4. To see what's in flight: `dotmd query --type plan --status in-session`
-5. Never pick up a plan that is `in-session` — another session is working on it.
+3. To see all plans: `dotmd plans`
+4. To see available plans: `dotmd plans --status active`
+5. To see what's in flight: `dotmd plans --status in-session`
+6. Never pick up a plan that is `in-session` — another session is working on it.
 
 ### Creating documents
 
@@ -49,10 +50,12 @@ dotmd new my-investigation --template audit # type: research
 ### Querying by type
 
 ```bash
-dotmd query --type plan                    # all plans
-dotmd query --type plan --status active    # plans ready to pick up
+dotmd plans                                # all plans
+dotmd plans --status active                # plans ready to pick up
+dotmd stale                                # stale docs across all types
+dotmd actionable                           # docs with next steps
 dotmd query --type doc --status active     # active docs
-dotmd query --type research               # all research
+dotmd query --type research                # all research
 dotmd context --type plan                  # briefing filtered to plans
 ```
 

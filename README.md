@@ -116,6 +116,9 @@ dotmd deps [file]            Dependency tree or overview
 dotmd context [--summarize]  Compact briefing (LLM-oriented)
 dotmd focus [status]         Detailed view for one status group
 dotmd query [filters]        Filtered search
+dotmd plans                  List all plans
+dotmd stale                  List stale docs
+dotmd actionable             List docs with next steps
 dotmd index [--write]        Generate/update docs.md index block
 dotmd status <file> <status> Transition document status
 dotmd archive <file>         Archive (status + move + update refs)
@@ -339,14 +342,16 @@ dotmd migrate module auth identity          # rename a module
 
 ### Preset Aliases
 
+Built-in presets: `plans`, `stale`, `actionable`. Add your own in config:
+
 ```js
 export const presets = {
-  stale: ['--status', 'active,ready', '--stale', '--sort', 'updated', '--all'],
   mine: ['--owner', 'robert', '--status', 'active', '--all'],
+  blocked: ['--status', 'blocked', '--all'],
 };
 ```
 
-Then run `dotmd stale` or `dotmd mine` as shorthand.
+Then run `dotmd mine` or `dotmd blocked` as shorthand. All presets support query flags (`--json`, `--sort`, etc.).
 
 ### Watch Mode
 

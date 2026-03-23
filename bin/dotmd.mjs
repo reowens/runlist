@@ -45,6 +45,9 @@ View & Query:
   graph [--dot] [--json]            Visualize document relationships
   deps [file] [--json]              Dependency tree or overview
   diff [file] [--summarize]         Show changes since last updated date
+  plans                             List all plans (shortcut for query --type plan)
+  stale                             List stale docs across all statuses
+  actionable                        List docs with a next step ready to act on
   summary <file> [--json]           AI summary of a document
 
 Validate & Fix:
@@ -341,6 +344,26 @@ directory. Skips any files that already exist.
 
 If docs/ already contains .md files, auto-detects statuses, surfaces,
 modules, and reference fields to pre-populate the config.`,
+
+  plans: `dotmd plans — list all plans
+
+Shows all documents with type: plan, sorted by status.
+Supports all query flags (--status, --json, --sort, etc.)
+
+Examples:
+  dotmd plans                       # all plans
+  dotmd plans --status active       # active plans only
+  dotmd plans --json                # JSON output`,
+
+  stale: `dotmd stale — list stale documents
+
+Shows docs that haven't been updated within their staleness threshold.
+Supports all query flags (--status, --json, --sort, etc.)`,
+
+  actionable: `dotmd actionable — list docs with next steps
+
+Shows active/ready docs that have a next_step defined.
+Supports all query flags (--status, --json, --sort, etc.)`,
 };
 
 async function main() {
@@ -665,7 +688,7 @@ async function main() {
   // Unknown command — suggest closest match
   const allCommands = [
     'list', 'json', 'check', 'coverage', 'stats', 'graph', 'deps', 'context',
-    'focus', 'query', 'index', 'status', 'archive', 'touch', 'doctor',
+    'focus', 'query', 'plans', 'stale', 'actionable', 'index', 'status', 'archive', 'touch', 'doctor',
     'fix-refs', 'lint', 'rename', 'migrate', 'notion', 'export', 'summary',
     'watch', 'diff', 'new', 'init', 'completions',
   ];

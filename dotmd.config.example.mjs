@@ -99,9 +99,12 @@ export const referenceFields = {
 };
 
 // Query presets — expand to filter args when used as commands
+// Built-in: plans, stale, actionable. Add your own here:
 export const presets = {
-  stale: ['--status', 'active,ready,planned,blocked,research', '--stale', '--sort', 'updated', '--all'],
-  actionable: ['--status', 'active,ready', '--has-next-step', '--sort', 'updated', '--all'],
+  // plans: ['--type', 'plan', '--sort', 'status', '--all'],           // built-in
+  // stale: ['--status', '...', '--stale', '--sort', 'updated', '--all'], // built-in
+  // actionable: ['--status', 'active,ready', '--has-next-step', ...],   // built-in
+  mine: ['--owner', 'robert', '--status', 'active', '--all'],
 };
 
 // ─── Notion ──────────────────────────────────────────────────────────────────
