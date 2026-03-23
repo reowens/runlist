@@ -120,6 +120,8 @@ dotmd plans                  List all plans
 dotmd stale                  List stale docs
 dotmd actionable             List docs with next steps
 dotmd index [--write]        Generate/update docs.md index block
+dotmd pickup <file>          Pick up a plan (in-session + print)
+dotmd finish <file>          Finish a plan (done or active)
 dotmd status <file> <status> Transition document status
 dotmd archive <file>         Archive (status + move + update refs)
 dotmd touch <file>           Bump updated date

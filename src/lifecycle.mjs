@@ -119,6 +119,118 @@ export async function runStatus(argv, config, opts = {}) {
   }); } catch (err) { warn(`Hook 'onStatusChange' threw: ${err.message}`); }
 }
 
+export async function runPickup(argv, config, opts = {}) {
+  const { dryRun } = opts;
+  const json = argv.includes('--json');
+  let input = argv.find(a => !a.startsWith('-'));
+
+  // Interactive: pick from active plans
+  if (!input) {
+    if (!isInteractive()) die('Usage: dotmd pickup <file>');
+    const index = buildIndex(config);
+    const active = index.docs.filter(d => d.type === 'plan' && (d.status === 'active' || d.status === 'planned'));
+    if (active.length === 0) die('No active or planned plans to pick up.');
+    const choice = await promptChoice('Pick a plan:', active.map(d => `${d.title} (${d.status}) — ${d.path}`));
+    if (!choice) die('No plan selected.');
+    const idx = active.findIndex((_, i) => choice === `${active[i].title} (${active[i].status}) — ${active[i].path}`);
+    if (idx === -1) die('No plan selected.');
+    input = active[idx].path;
+  }
+
+  const filePath = resolveDocPath(input, config);
+  if (!filePath) die(`File not found: ${input}`);
+
+  const raw = readFileSync(filePath, 'utf8');
+  const { frontmatter: fmRaw, body } = extractFrontmatter(raw);
+  const parsedFm = parseSimpleFrontmatter(fmRaw);
+  const docType = asString(parsedFm.type) ?? null;
+  const oldStatus = asString(parsedFm.status);
+  const title = asString(parsedFm.title) ?? path.basename(filePath, '.md');
+  const repoPath = toRepoPath(filePath, config.repoRoot);
+
+  if (docType && docType !== 'plan') warn(`${repoPath} has type '${docType}', not 'plan'.`);
+
+  if (oldStatus === 'in-session') die(`Already in-session — another Claude instance may be working on this.\n  ${repoPath}`);
+  if (oldStatus === 'blocked') {
+    const blockers = parsedFm.blockers ? (Array.isArray(parsedFm.blockers) ? parsedFm.blockers.join(', ') : String(parsedFm.blockers)) : 'unknown';
+    die(`Plan is blocked: ${blockers}\n  ${repoPath}`);
+  }
+  const pickupable = new Set(['active', 'planned']);
+  if (oldStatus && !pickupable.has(oldStatus)) die(`Cannot pick up a plan with status '${oldStatus}'. Must be active or planned.\n  ${repoPath}`);
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  if (dryRun) {
+    process.stderr.write(`${dim('[dry-run]')} Would update: status: ${oldStatus} → in-session, updated: ${today}\n`);
+  } else {
+    updateFrontmatter(filePath, { status: 'in-session', updated: today });
+  }
+
+  if (json) {
+    process.stdout.write(JSON.stringify({ path: repoPath, oldStatus, newStatus: 'in-session', title, body: body?.trim() ?? '' }, null, 2) + '\n');
+  } else {
+    process.stderr.write(`${green('▶ Picked up')}: ${repoPath} (${oldStatus} → in-session)\n\n`);
+    if (body?.trim()) process.stdout.write(body.trim() + '\n');
+  }
+
+  try { config.hooks.onPickup?.({ path: repoPath, oldStatus, newStatus: 'in-session' }); } catch (err) { warn(`Hook 'onPickup' threw: ${err.message}`); }
+}
+
+export async function runFinish(argv, config, opts = {}) {
+  const { dryRun } = opts;
+  const json = argv.includes('--json');
+  const positional = argv.filter(a => !a.startsWith('-'));
+  let input = positional[0];
+  const targetStatus = positional[1] ?? 'done';
+
+  if (!['done', 'active'].includes(targetStatus)) die(`Invalid finish status: ${targetStatus}. Use 'done' or 'active'.`);
+
+  // Interactive: pick from in-session plans
+  if (!input) {
+    if (!isInteractive()) die('Usage: dotmd finish <file> [done|active]');
+    const index = buildIndex(config);
+    const inSession = index.docs.filter(d => d.status === 'in-session');
+    if (inSession.length === 0) die('No plans currently in-session.');
+    if (inSession.length === 1) {
+      input = inSession[0].path;
+      process.stderr.write(`${dim(`Auto-selected: ${input}`)}\n`);
+    } else {
+      const choice = await promptChoice('Finish which plan:', inSession.map(d => `${d.title} — ${d.path}`));
+      if (!choice) die('No plan selected.');
+      const idx = inSession.findIndex((_, i) => choice === `${inSession[i].title} — ${inSession[i].path}`);
+      if (idx === -1) die('No plan selected.');
+      input = inSession[idx].path;
+    }
+  }
+
+  const filePath = resolveDocPath(input, config);
+  if (!filePath) die(`File not found: ${input}`);
+
+  const raw = readFileSync(filePath, 'utf8');
+  const { frontmatter: fmRaw } = extractFrontmatter(raw);
+  const parsedFm = parseSimpleFrontmatter(fmRaw);
+  const oldStatus = asString(parsedFm.status);
+  const repoPath = toRepoPath(filePath, config.repoRoot);
+
+  if (oldStatus !== 'in-session') die(`Plan is not in-session (current: ${oldStatus}).\n  ${repoPath}`);
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  if (dryRun) {
+    process.stderr.write(`${dim('[dry-run]')} Would update: status: in-session → ${targetStatus}, updated: ${today}\n`);
+  } else {
+    updateFrontmatter(filePath, { status: targetStatus, updated: today });
+  }
+
+  if (json) {
+    process.stdout.write(JSON.stringify({ path: repoPath, oldStatus, newStatus: targetStatus }, null, 2) + '\n');
+  } else {
+    process.stdout.write(`${green('✓ Finished')}: ${repoPath} (in-session → ${targetStatus})\n`);
+  }
+
+  try { config.hooks.onFinish?.({ path: repoPath, oldStatus, newStatus: targetStatus }); } catch (err) { warn(`Hook 'onFinish' threw: ${err.message}`); }
+}
+
 export function runArchive(argv, config, opts = {}) {
   const { dryRun } = opts;
   const input = argv[0];

@@ -8,7 +8,7 @@ import { buildIndex } from '../src/index.mjs';
 import { renderCompactList, renderVerboseList, renderContext, renderCheck, renderCoverage, buildCoverage } from '../src/render.mjs';
 import { renderIndexFile, writeIndex } from '../src/index-file.mjs';
 import { runFocus, runQuery } from '../src/query.mjs';
-import { runStatus, runArchive, runTouch, runBulkArchive } from '../src/lifecycle.mjs';
+import { runStatus, runArchive, runTouch, runBulkArchive, runPickup, runFinish } from '../src/lifecycle.mjs';
 import { runInit } from '../src/init.mjs';
 import { runNew } from '../src/new.mjs';
 import { runCompletions } from '../src/completions.mjs';
@@ -62,6 +62,8 @@ Validate & Fix:
   fix-refs [--dry-run]              Auto-fix broken reference paths + body links
 
 Lifecycle:
+  pickup <file>                     Pick up a plan (set in-session + print)
+  finish <file> [done|active]       Finish a plan (set done or active)
   status <file> <status>            Transition document status
   archive <file>                    Archive (status + move + update refs)
   bulk archive <f1> <f2> ...        Archive multiple files at once
@@ -129,6 +131,28 @@ Filters:
   --summarize            Add AI summaries to results
   --summarize-limit <n>  Max docs to summarize (default: 5)
   --model <name>         Model for AI summaries`,
+
+  pickup: `dotmd pickup <file> — pick up a plan and start working
+
+Sets the plan to in-session and prints its content.
+Fails if the plan is already in-session, blocked, done, or archived.
+
+Options:
+  --json                 Output as JSON
+  --dry-run, -n          Preview without writing
+
+If no file is given, prompts with a list of active plans.`,
+
+  finish: `dotmd finish <file> [done|active] — finish working on a plan
+
+Sets the plan status to done (default) or back to active.
+Only works on plans currently in-session.
+
+Options:
+  --json                 Output as JSON
+  --dry-run, -n          Preview without writing
+
+If no file is given, prompts with a list of in-session plans.`,
 
   status: `dotmd status <file> <new-status> — transition document status
 
@@ -468,6 +492,8 @@ async function main() {
   if (command === 'notion') { await runNotion(restArgs, config, { dryRun }); return; }
 
   // Lifecycle commands
+  if (command === 'pickup') { await runPickup(restArgs, config, { dryRun }); return; }
+  if (command === 'finish') { await runFinish(restArgs, config, { dryRun }); return; }
   if (command === 'status') { await runStatus(restArgs, config, { dryRun }); return; }
   if (command === 'archive') { runArchive(restArgs, config, { dryRun }); return; }
   if (command === 'bulk' && restArgs[0] === 'archive') { runBulkArchive(restArgs.slice(1), config, { dryRun }); return; }
@@ -698,7 +724,7 @@ async function main() {
   // Unknown command — suggest closest match
   const allCommands = [
     'list', 'json', 'check', 'coverage', 'stats', 'graph', 'deps', 'context',
-    'focus', 'query', 'plans', 'stale', 'actionable', 'index', 'status', 'archive', 'touch', 'doctor',
+    'focus', 'query', 'plans', 'stale', 'actionable', 'index', 'pickup', 'finish', 'status', 'archive', 'touch', 'doctor',
     'fix-refs', 'lint', 'rename', 'migrate', 'notion', 'export', 'summary',
     'watch', 'diff', 'new', 'init', 'completions',
   ];
