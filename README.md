@@ -41,6 +41,9 @@ eval "$(dotmd completions zsh)"     # add to ~/.zshrc
 - **Stats** — health dashboard with staleness, completeness, audit coverage
 - **Graph** — visualize document relationships as text, Graphviz DOT, or JSON
 - **Deps** — dependency tree or overview of what blocks what
+- **Unblocks** — impact analysis: what depends on a doc
+- **Health** — plan velocity, aging, pipeline status
+- **Glossary** — domain term lookup with related docs
 - **Lifecycle** — transition statuses, auto-archive with `git mv` and reference updates
 - **Doctor** — auto-fix broken refs, lint issues, date drift, and stale indexes in one pass
 - **Scaffold** — create new docs from templates (plan, ADR, RFC, audit, design)
@@ -113,6 +116,8 @@ dotmd coverage [--json]      Metadata coverage report
 dotmd stats [--json]         Doc health dashboard
 dotmd graph [--dot|--json]   Visualize document relationships
 dotmd deps [file]            Dependency tree or overview
+dotmd unblocks <file>        Show what depends on this doc
+dotmd health [--json]        Plan velocity, aging, and pipeline
 dotmd briefing               Compact summary for session start
 dotmd context [--summarize]  Full briefing (LLM-oriented)
 dotmd focus [status]         Detailed view for one status group
@@ -125,6 +130,7 @@ dotmd pickup <file>          Pick up a plan (in-session + print)
 dotmd finish <file>          Finish a plan (done or active)
 dotmd status <file> <status> Transition document status
 dotmd archive <file>         Archive (status + move + update refs)
+dotmd bulk archive <files>   Archive multiple files at once
 dotmd touch <file>           Bump updated date
 dotmd touch --git            Bulk-sync dates from git history
 dotmd doctor                 Auto-fix everything in one pass
@@ -135,6 +141,7 @@ dotmd migrate <f> <old> <new>  Batch update a frontmatter field
 dotmd notion <sub> [db-id]   Notion import/export/sync
 dotmd export [file]          Export docs as md, html, or json
 dotmd summary <file>         AI summary of a document
+dotmd glossary <term>        Look up domain terms + related docs
 dotmd watch [command]        Re-run a command on file changes
 dotmd diff [file]            Show changes since last updated date
 dotmd new <name>             Create a new document from template
@@ -238,6 +245,27 @@ dotmd deps docs/plan-a.md --depth 2      # limit tree depth
 dotmd deps --json                        # machine-readable
 ```
 
+### Unblocks
+
+```bash
+dotmd unblocks docs/plan-a.md            # what depends on this plan
+dotmd unblocks docs/plan-a.md --json     # machine-readable
+```
+
+### Health
+
+```bash
+dotmd health                             # plan pipeline and aging
+dotmd health --json                      # machine-readable
+```
+
+### Briefing
+
+```bash
+dotmd briefing                           # compact 5-10 line summary
+dotmd briefing --json                    # machine-readable
+```
+
 ### AI Summaries
 
 ```bash
@@ -248,6 +276,14 @@ dotmd context --summarize                # AI-enhanced briefing
 ```
 
 Uses a local model by default. Override with `--model <name>` or the `summarizeDoc` hook.
+
+### Glossary
+
+```bash
+dotmd glossary "auth token"              # look up a term
+dotmd glossary --list                    # list all terms
+dotmd glossary --json                    # machine-readable
+```
 
 ### Export
 
@@ -307,6 +343,21 @@ Archive stays within the source file's root. Cross-root references validate corr
 ```bash
 dotmd archive docs/old-plan.md           # move + update refs + regen index
 dotmd archive docs/old-plan.md -n        # preview
+```
+
+### Bulk Archive
+
+```bash
+dotmd bulk archive docs/old-a.md docs/old-b.md   # archive multiple
+dotmd bulk archive docs/old-*.md -n               # preview
+```
+
+### Pickup & Finish
+
+```bash
+dotmd pickup docs/plans/my-plan.md       # set in-session + print content
+dotmd finish docs/plans/my-plan.md       # set done + bump date
+dotmd finish docs/plans/my-plan.md active  # back to active for more work
 ```
 
 ### Touch

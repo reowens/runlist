@@ -381,6 +381,38 @@ Supports all query flags (--status, --json, --sort, etc.)`,
 
 Shows active/ready docs that have a next_step defined.
 Supports all query flags (--status, --json, --sort, etc.)`,
+
+  unblocks: `dotmd unblocks <file> — show what completes when this doc ships
+
+Shows documents that reference or depend on the given file.
+Useful for impact analysis before archiving or changing a plan.
+
+Options:
+  --json                 Output as JSON`,
+
+  health: `dotmd health — plan velocity, aging, and pipeline health
+
+Shows plan pipeline status, active plan aging, recently archived
+plans, and checklist progress. Plans-only view.
+
+Options:
+  --json                 Output as JSON`,
+
+  glossary: `dotmd glossary <term> — look up domain terms and related docs
+
+Searches the glossary table in your docs for matching terms.
+Shows definition, related docs, and see-also entries.
+
+Options:
+  --list                 List all glossary terms
+  --json                 Output as JSON`,
+
+  bulk: `dotmd bulk archive <f1> <f2> ... — archive multiple files at once
+
+Archives each file: sets status to archived, moves to archive
+directory, updates references, and regenerates the index.
+
+Use --dry-run (-n) to preview changes without writing anything.`,
 };
 
 async function main() {
@@ -742,7 +774,8 @@ async function main() {
   // Unknown command — suggest closest match
   const allCommands = [
     'list', 'json', 'check', 'coverage', 'stats', 'graph', 'deps', 'briefing', 'context',
-    'focus', 'query', 'plans', 'stale', 'actionable', 'index', 'pickup', 'finish', 'status', 'archive', 'touch', 'doctor',
+    'focus', 'query', 'plans', 'stale', 'actionable', 'index', 'pickup', 'finish', 'status', 'archive', 'bulk', 'touch', 'doctor',
+    'unblocks', 'health', 'glossary',
     'fix-refs', 'lint', 'rename', 'migrate', 'notion', 'export', 'summary',
     'watch', 'diff', 'new', 'init', 'completions',
   ];

@@ -55,6 +55,10 @@ dotmd plans                                # all plans
 dotmd plans --status active                # plans ready to pick up
 dotmd stale                                # stale docs across all types
 dotmd actionable                           # docs with next steps
+dotmd health                               # plan pipeline and aging
+dotmd unblocks docs/plan-a.md              # impact analysis
+dotmd glossary "term"                      # domain term lookup
+dotmd bulk archive <files>                 # archive multiple at once
 dotmd query --type doc --status active     # active docs
 dotmd query --type research                # all research
 dotmd context --type plan                  # briefing filtered to plans
