@@ -5,17 +5,14 @@ import { die, warn } from './util.mjs';
 import { bold, dim, green, yellow } from './color.mjs';
 
 function parseGlossaryTable(content, sectionHeading) {
-  // Find the section
   const headingRegex = new RegExp(`^##\\s+${sectionHeading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'm');
   const match = content.match(headingRegex);
   if (!match) return [];
 
   const sectionStart = match.index + match[0].length;
-  // Find next heading or end
   const nextHeading = content.indexOf('\n## ', sectionStart);
   const section = nextHeading > -1 ? content.slice(sectionStart, nextHeading) : content.slice(sectionStart);
 
-  // Parse markdown table rows (skip header + separator)
   const entries = [];
   const lines = section.split('\n');
   let headerParsed = false;
@@ -31,10 +28,8 @@ function parseGlossaryTable(content, sectionHeading) {
       continue;
     }
 
-    // Skip separator row
     if (cells.every(c => /^[-:]+$/.test(c))) continue;
 
-    // Strip bold markers from term
     const term = cells[0]?.replace(/\*\*/g, '').trim();
     if (!term) continue;
 
@@ -45,7 +40,7 @@ function parseGlossaryTable(content, sectionHeading) {
     entries.push(entry);
   }
 
-  // Also parse schema→UI mappings (list items after the table)
+  // Schema→UI mappings
   const mappingRegex = /^-\s+`([^`]+)`\s+→\s+"([^"]+)"\s*(?:\(([^)]+)\))?/gm;
   let m;
   while ((m = mappingRegex.exec(section)) !== null) {
@@ -70,6 +65,113 @@ function loadGlossary(config) {
   return parseGlossaryTable(content, section);
 }
 
+function matchTerm(query, entries) {
+  const lower = query.toLowerCase();
+
+  // Exact match first
+  const exact = entries.filter(e => e.term.toLowerCase() === lower);
+  if (exact.length > 0) return exact;
+
+  // Term starts with query
+  const startsWith = entries.filter(e => e.term.toLowerCase().startsWith(lower));
+  if (startsWith.length > 0) return startsWith;
+
+  // Substring in term
+  const termMatch = entries.filter(e => e.term.toLowerCase().includes(lower));
+  if (termMatch.length > 0) return termMatch;
+
+  // Substring in meaning (broadest)
+  return entries.filter(e => e.meaning?.toLowerCase().includes(lower));
+}
+
+function findRelatedDocs(entry, index) {
+  const termLower = entry.term.toLowerCase();
+  // Split compound terms like "Trail / Summit / Expedition"
+  const termParts = entry.term.split(/\s*\/\s*/).map(t => t.trim().toLowerCase());
+
+  return index.docs.filter(d => {
+    // Module match (exact)
+    if (d.module?.toLowerCase() === termLower) return true;
+    if (d.modules?.some(m => m.toLowerCase() === termLower)) return true;
+    // Module match on term parts
+    if (termParts.some(p => d.module?.toLowerCase() === p || d.modules?.some(m => m.toLowerCase() === p))) return true;
+    // Path contains term (for terms like "example-term" that aren't modules)
+    if (termParts.some(p => p.length >= 4 && d.path.toLowerCase().includes(p))) return true;
+    // Title match
+    if (termParts.some(p => p.length >= 4 && d.title?.toLowerCase().includes(p))) return true;
+    return false;
+  });
+}
+
+function findSeeAlso(entry, allEntries) {
+  const termLower = entry.term.toLowerCase();
+  const parts = entry.term.split(/\s*\/\s*/).map(t => t.trim().toLowerCase());
+
+  return allEntries.filter(other => {
+    if (other.term === entry.term) return false;
+    const otherLower = other.term.toLowerCase();
+    // Other term contains this term or vice versa
+    if (otherLower.includes(termLower) || termLower.includes(otherLower)) return true;
+    // Other meaning references this term
+    if (other.meaning?.toLowerCase().includes(termLower)) return true;
+    // Part match
+    if (parts.some(p => p.length >= 4 && (otherLower.includes(p) || other.meaning?.toLowerCase().includes(p)))) return true;
+    return false;
+  });
+}
+
+function renderEntry(entry, index, allEntries) {
+  const lines = [];
+  lines.push(`${green(bold(entry.term))}`);
+  if (entry.meaning) lines.push(`  ${entry.meaning}`);
+  if (entry.tiers) lines.push(`  ${dim(`Tiers: ${entry.tiers}`)}`);
+
+  const relatedDocs = findRelatedDocs(entry, index);
+
+  if (relatedDocs.length > 0) {
+    lines.push('');
+
+    // Module entry point (the main module doc, e.g. ledger.md)
+    const entryPoint = relatedDocs.find(d =>
+      d.root?.includes('modules') && path.basename(d.path, '.md') === entry.term.toLowerCase()
+    );
+    if (entryPoint) {
+      lines.push(`  ${bold('Entry point:')} ${entryPoint.path}`);
+    }
+
+    // Other module docs (count, not list)
+    const moduleDocs = relatedDocs.filter(d => d.root?.includes('modules') && d !== entryPoint);
+    if (moduleDocs.length > 0) {
+      lines.push(`  ${bold('Module docs:')} ${moduleDocs.length} files in ${dim(path.dirname(moduleDocs[0].path))}`);
+    }
+
+    // Plans grouped by status
+    const planGroups = [
+      ['Active', 'active'],
+      ['Paused', 'paused'],
+      ['Ready', 'ready'],
+      ['Planned', 'planned'],
+      ['Blocked', 'blocked'],
+      ['Research', 'research'],
+    ];
+
+    for (const [label, status] of planGroups) {
+      const plans = relatedDocs.filter(d => d.type === 'plan' && d.status === status);
+      if (plans.length === 0) continue;
+      lines.push(`  ${bold(`${label}:`)} ${plans.map(d => path.basename(d.path, '.md')).join(', ')}`);
+    }
+  }
+
+  // See also: related glossary terms
+  const seeAlso = findSeeAlso(entry, allEntries);
+  if (seeAlso.length > 0) {
+    lines.push(`  ${dim('See also:')} ${seeAlso.map(e => e.term).join(', ')}`);
+  }
+
+  lines.push('');
+  return lines.join('\n');
+}
+
 export function runGlossary(argv, config) {
   const json = argv.includes('--json');
   const listAll = argv.includes('--list');
@@ -80,7 +182,13 @@ export function runGlossary(argv, config) {
   if (entries.length === 0) die('Glossary section found but no entries parsed.');
 
   if (json && listAll) {
-    process.stdout.write(JSON.stringify(entries, null, 2) + '\n');
+    const index = buildIndex(config);
+    const enriched = entries.map(entry => ({
+      ...entry,
+      relatedDocs: findRelatedDocs(entry, index).map(d => ({ path: d.path, status: d.status, type: d.type, title: d.title })),
+      seeAlso: findSeeAlso(entry, entries).map(e => e.term),
+    }));
+    process.stdout.write(JSON.stringify(enriched, null, 2) + '\n');
     return;
   }
 
@@ -88,30 +196,22 @@ export function runGlossary(argv, config) {
     process.stdout.write(bold('Glossary') + dim(` (${entries.length} terms)`) + '\n\n');
     const maxTerm = Math.max(...entries.map(e => e.term.length));
     for (const entry of entries) {
-      const meaning = entry.meaning || '';
-      process.stdout.write(`  ${green(entry.term.padEnd(maxTerm + 2))} ${meaning}\n`);
+      process.stdout.write(`  ${green(entry.term.padEnd(maxTerm + 2))} ${entry.meaning || ''}\n`);
     }
     return;
   }
 
   if (!term) die('Usage: dotmd glossary <term> | --list | --json');
 
-  // Fuzzy match: case-insensitive substring
-  const lower = term.toLowerCase();
-  const matches = entries.filter(e =>
-    e.term.toLowerCase().includes(lower) ||
-    (e.meaning && e.meaning.toLowerCase().includes(lower))
-  );
+  const matches = matchTerm(term, entries);
 
   if (json) {
     const index = buildIndex(config);
-    const enriched = matches.map(entry => {
-      const termLower = entry.term.toLowerCase();
-      const related = index.docs
-        .filter(d => d.module?.toLowerCase() === termLower || d.modules?.some(m => m.toLowerCase() === termLower) || d.path.toLowerCase().includes(termLower))
-        .map(d => ({ path: d.path, status: d.status, type: d.type, title: d.title }));
-      return { ...entry, relatedDocs: related };
-    });
+    const enriched = matches.map(entry => ({
+      ...entry,
+      relatedDocs: findRelatedDocs(entry, index).map(d => ({ path: d.path, status: d.status, type: d.type, title: d.title })),
+      seeAlso: findSeeAlso(entry, entries).map(e => e.term),
+    }));
     process.stdout.write(JSON.stringify(enriched, null, 2) + '\n');
     return;
   }
@@ -121,62 +221,10 @@ export function runGlossary(argv, config) {
     return;
   }
 
-  // Build index for cross-referencing
   const index = buildIndex(config);
-
   for (const entry of matches) {
-    process.stdout.write(`${green(bold(entry.term))}\n`);
-    if (entry.meaning) process.stdout.write(`  ${entry.meaning}\n`);
-    if (entry.tiers) process.stdout.write(`  ${dim(`Tiers: ${entry.tiers}`)}\n`);
-
-    // Find related docs: module match, path match, or title/summary match
-    const termLower = entry.term.toLowerCase();
-    const relatedDocs = index.docs.filter(d => {
-      if (d.module?.toLowerCase() === termLower) return true;
-      if (d.modules?.some(m => m.toLowerCase() === termLower)) return true;
-      if (d.path.toLowerCase().includes(termLower)) return true;
-      return false;
-    });
-
-    if (relatedDocs.length > 0) {
-      // Group by type/status
-      const moduleDocs = relatedDocs.filter(d => d.root?.includes('modules'));
-      const activePlans = relatedDocs.filter(d => d.type === 'plan' && d.status === 'active');
-      const pausedPlans = relatedDocs.filter(d => d.type === 'plan' && d.status === 'paused');
-      const readyPlans = relatedDocs.filter(d => d.type === 'plan' && d.status === 'ready');
-      const plannedPlans = relatedDocs.filter(d => d.type === 'plan' && d.status === 'planned');
-      const blockedPlans = relatedDocs.filter(d => d.type === 'plan' && d.status === 'blocked');
-      const researchPlans = relatedDocs.filter(d => d.type === 'plan' && d.status === 'research');
-
-      process.stdout.write('\n');
-
-      if (moduleDocs.length > 0) {
-        process.stdout.write(`  ${bold('Module docs:')}\n`);
-        for (const d of moduleDocs.slice(0, 5)) {
-          process.stdout.write(`    ${dim(d.path)}\n`);
-        }
-        if (moduleDocs.length > 5) process.stdout.write(`    ${dim(`...and ${moduleDocs.length - 5} more`)}\n`);
-      }
-
-      const planGroups = [
-        ['Active', activePlans],
-        ['Paused', pausedPlans],
-        ['Ready', readyPlans],
-        ['Planned', plannedPlans],
-        ['Blocked', blockedPlans],
-        ['Research', researchPlans],
-      ];
-
-      for (const [label, plans] of planGroups) {
-        if (plans.length === 0) continue;
-        process.stdout.write(`  ${bold(`${label} plans:`)} `);
-        process.stdout.write(plans.map(d => path.basename(d.path, '.md')).join(', ') + '\n');
-      }
-    }
-
-    process.stdout.write('\n');
+    process.stdout.write(renderEntry(entry, index, entries));
   }
 }
 
-// Export for use by other modules (e.g. plan generation)
 export { loadGlossary };
