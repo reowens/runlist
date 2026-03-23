@@ -90,6 +90,11 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
     doc.warnings.push({ path: doc.path, level: 'warning', message: 'Missing `next_step`; command output will omit a clear immediate action.' });
   }
 
+  // Archived plans must have a ## Closeout section
+  if (config.lifecycle.archiveStatuses.has(doc.status) && doc.type === 'plan' && !doc.hasCloseout) {
+    doc.warnings.push({ path: doc.path, level: 'warning', message: 'Archived plan missing `## Closeout` section.' });
+  }
+
   // Validate reference fields resolve to existing files
   const docDir = path.dirname(path.join(config.repoRoot, doc.path));
   const allRefFields = [...(config.referenceFields.bidirectional || []), ...(config.referenceFields.unidirectional || [])];

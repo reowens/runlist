@@ -131,6 +131,7 @@ export function parseDocFile(filePath, config) {
   const executionMode = asString(parsedFrontmatter.execution_mode) ?? null;
   const checklist = extractChecklistCounts(body);
   const bodyLinks = extractBodyLinks(body);
+  const hasCloseout = /^##\s+Closeout/m.test(body);
 
   // Dynamic reference field extraction
   const refFields = {};
@@ -172,6 +173,7 @@ export function parseDocFile(filePath, config) {
     bodyLinks,
     refFields,
     checklistCompletionRate: computeChecklistCompletionRate(checklist),
+    hasCloseout,
     hasNextStep: Boolean(nextStep),
     hasBlockers: blockers.length > 0,
     daysSinceUpdate: computeDaysSinceUpdate(asString(parsedFrontmatter.updated) ?? null),
