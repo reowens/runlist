@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { resolveConfig } from '../src/config.mjs';
 import { buildIndex } from '../src/index.mjs';
-import { renderCompactList, renderVerboseList, renderContext, renderCheck, renderCoverage, buildCoverage } from '../src/render.mjs';
+import { renderCompactList, renderVerboseList, renderContext, renderBriefing, renderCheck, renderCoverage, buildCoverage } from '../src/render.mjs';
 import { renderIndexFile, writeIndex } from '../src/index-file.mjs';
 import { runFocus, runQuery } from '../src/query.mjs';
 import { runStatus, runArchive, runTouch, runBulkArchive, runPickup, runFinish } from '../src/lifecycle.mjs';
@@ -39,7 +39,8 @@ const HELP = {
 View & Query:
   list [--verbose] [--json]         List docs grouped by status (default command)
   json                              Full index as JSON
-  context [--summarize] [--json]    Compact briefing (LLM-oriented)
+  briefing [--json]                 Compact summary for session start (5-10 lines)
+  context [--summarize] [--json]    Full briefing (LLM-oriented)
   focus [status] [--json]           Detailed view for one status group
   query [filters] [--json]          Filtered search (--status, --keyword, --stale, etc.)
   coverage [--json]                 Metadata coverage report
@@ -191,7 +192,15 @@ Shows detailed info for all docs matching the given status (default: active).
 Options:
   --json                 Output as JSON`,
 
-  context: `dotmd context — compact briefing (LLM-oriented)
+  briefing: `dotmd briefing — compact summary for session start
+
+Shows plan statuses with next steps, doc/research counts, and health
+in 5-10 lines. Designed for LLM context injection.
+
+Options:
+  --json                 Output as JSON`,
+
+  context: `dotmd context — full briefing (LLM-oriented)
 
 Generates a compact status briefing designed for AI/LLM consumption.
 
@@ -648,6 +657,24 @@ async function main() {
 
   if (command === 'focus') { runFocus(index, restArgs, config); return; }
   if (command === 'query') { runQuery(index, restArgs, config); return; }
+  if (command === 'briefing') {
+    if (args.includes('--json')) {
+      const plans = index.docs.filter(d => d.type === 'plan');
+      const docs = index.docs.filter(d => d.type === 'doc');
+      const research = index.docs.filter(d => d.type === 'research');
+      const stale = index.docs.filter(d => d.isStale && !config.lifecycle.skipStaleFor.has(d.status)).length;
+      process.stdout.write(JSON.stringify({
+        plans: { total: plans.length, inSession: plans.filter(d => d.status === 'in-session').map(d => ({ path: d.path, title: d.title, nextStep: d.nextStep })), active: plans.filter(d => d.status === 'active').map(d => ({ path: d.path, title: d.title, nextStep: d.nextStep })) },
+        docs: { total: docs.length, active: docs.filter(d => !config.lifecycle.terminalStatuses.has(d.status)).length },
+        research: { total: research.length, active: research.filter(d => d.status === 'active').length },
+        stale, errorCount: index.errors.length, warningCount: index.warnings.length,
+      }, null, 2) + '\n');
+    } else {
+      process.stdout.write(renderBriefing(index, config));
+    }
+    return;
+  }
+
   if (command === 'context') {
     const summarize = args.includes('--summarize');
     const modelIdx = args.indexOf('--model');
@@ -723,7 +750,7 @@ async function main() {
 
   // Unknown command — suggest closest match
   const allCommands = [
-    'list', 'json', 'check', 'coverage', 'stats', 'graph', 'deps', 'context',
+    'list', 'json', 'check', 'coverage', 'stats', 'graph', 'deps', 'briefing', 'context',
     'focus', 'query', 'plans', 'stale', 'actionable', 'index', 'pickup', 'finish', 'status', 'archive', 'touch', 'doctor',
     'fix-refs', 'lint', 'rename', 'migrate', 'notion', 'export', 'summary',
     'watch', 'diff', 'new', 'init', 'completions',

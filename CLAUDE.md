@@ -27,12 +27,13 @@ Every document has a `type:` field in its frontmatter. Types determine which sta
 
 ### Working with plans (for Claude instances)
 
-1. Pick up a plan: `dotmd pickup <plan-file>` (sets in-session + prints content)
-2. When done: `dotmd finish <plan-file>` (or `dotmd finish <plan-file> active` if more work needed)
-3. To see all plans: `dotmd plans`
-4. To see available plans: `dotmd plans --status active`
-5. To see what's in flight: `dotmd plans --status in-session`
-6. Never pick up a plan that is `in-session` — another session is working on it.
+1. Get oriented: `dotmd briefing` (compact 5-10 line summary)
+2. Pick up a plan: `dotmd pickup <plan-file>` (sets in-session + prints content)
+3. When done: `dotmd finish <plan-file>` (or `dotmd finish <plan-file> active` if more work needed)
+4. To see all plans: `dotmd plans`
+5. To see available plans: `dotmd plans --status active`
+6. To see what's in flight: `dotmd plans --status in-session`
+7. Never pick up a plan that is `in-session` — another session is working on it.
 
 ### Creating documents
 

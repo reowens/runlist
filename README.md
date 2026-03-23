@@ -113,7 +113,8 @@ dotmd coverage [--json]      Metadata coverage report
 dotmd stats [--json]         Doc health dashboard
 dotmd graph [--dot|--json]   Visualize document relationships
 dotmd deps [file]            Dependency tree or overview
-dotmd context [--summarize]  Compact briefing (LLM-oriented)
+dotmd briefing               Compact summary for session start
+dotmd context [--summarize]  Full briefing (LLM-oriented)
 dotmd focus [status]         Detailed view for one status group
 dotmd query [filters]        Filtered search
 dotmd plans                  List all plans

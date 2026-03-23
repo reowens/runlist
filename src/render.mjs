@@ -258,6 +258,44 @@ function _renderContext(index, config, opts = {}) {
   return `${lines.join('\n').trimEnd()}\n`;
 }
 
+export function renderBriefing(index, config) {
+  const lines = [];
+  const plans = index.docs.filter(d => d.type === 'plan');
+  const docs = index.docs.filter(d => d.type === 'doc');
+  const research = index.docs.filter(d => d.type === 'research');
+  const untyped = index.docs.filter(d => !d.type);
+
+  if (plans.length) {
+    const bySt = {};
+    for (const p of plans) { bySt[p.status] = (bySt[p.status] ?? 0) + 1; }
+    const counts = Object.entries(bySt).map(([s, n]) => `${n} ${s}`).join(', ');
+    lines.push(`${plans.length} plans: ${counts}`);
+    const show = plans.filter(p => p.status === 'in-session' || p.status === 'active');
+    for (const p of show) {
+      const next = p.nextStep ? `next: ${p.nextStep}` : '(no next step)';
+      lines.push(`  > ${path.basename(p.path, '.md')} (${p.status}) ${next}`);
+    }
+  }
+
+  const parts = [];
+  if (docs.length) {
+    const active = docs.filter(d => !config.lifecycle.terminalStatuses.has(d.status)).length;
+    const rest = docs.length - active;
+    parts.push(`${active} docs active` + (rest ? `, ${rest} other` : ''));
+  }
+  if (research.length) {
+    const active = research.filter(d => d.status === 'active').length;
+    parts.push(`${active} research active`);
+  }
+  if (untyped.length) parts.push(`${untyped.length} untyped`);
+  if (parts.length) lines.push(parts.join(' | '));
+
+  const stale = index.docs.filter(d => d.isStale && !config.lifecycle.skipStaleFor.has(d.status)).length;
+  lines.push(`Stale: ${stale} | Errors: ${index.errors.length} | Warnings: ${index.warnings.length}`);
+
+  return lines.join('\n') + '\n';
+}
+
 export function renderCheck(index, config, opts = {}) {
   const defaultRenderer = (idx) => _renderCheck(idx, opts);
   if (config.hooks.renderCheck) {
