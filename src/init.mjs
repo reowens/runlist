@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { green, dim } from './color.mjs';
+import { scaffoldClaudeCommands } from './claude-commands.mjs';
 
 const STARTER_CONFIG = `// dotmd.config.mjs — document management configuration
 // All exports are optional. See dotmd.config.example.mjs for full reference.
@@ -103,7 +104,7 @@ function generateDetectedConfig(scan, rootPath) {
   return lines.join('\n');
 }
 
-export function runInit(cwd) {
+export function runInit(cwd, config) {
   const configPath = path.join(cwd, 'dotmd.config.mjs');
   const docsDir = path.join(cwd, 'docs');
   const indexPath = path.join(docsDir, 'docs.md');
@@ -135,6 +136,18 @@ export function runInit(cwd) {
   } else {
     writeFileSync(indexPath, STARTER_INDEX, 'utf8');
     process.stdout.write(`  ${green('create')}  docs/docs.md\n`);
+  }
+
+  // Claude Code integration — auto-detect .claude/ directory
+  if (config) {
+    const results = scaffoldClaudeCommands(cwd, config);
+    for (const r of results) {
+      if (r.action === 'created') {
+        process.stdout.write(`  ${green('create')}  .claude/commands/${r.name}\n`);
+      } else if (r.action === 'current') {
+        process.stdout.write(`  ${dim('current')} .claude/commands/${r.name}\n`);
+      }
+    }
   }
 
   process.stdout.write(`\nReady. Create your first doc:\n`);

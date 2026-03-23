@@ -4,7 +4,8 @@ import { runTouch } from './lifecycle.mjs';
 import { buildIndex } from './index.mjs';
 import { renderIndexFile, writeIndex } from './index-file.mjs';
 import { renderCheck } from './render.mjs';
-import { bold } from './color.mjs';
+import { bold, dim, green, yellow } from './color.mjs';
+import { scaffoldClaudeCommands } from './claude-commands.mjs';
 
 export function runDoctor(argv, config, opts = {}) {
   const { dryRun } = opts;
@@ -34,8 +35,21 @@ export function runDoctor(argv, config, opts = {}) {
     }
   }
 
-  // Step 5: Show remaining check
-  process.stdout.write('\n' + bold('5. Remaining issues:') + '\n');
+  // Step 5: Refresh Claude Code commands
+  const claudeResults = dryRun ? [] : scaffoldClaudeCommands(config.repoRoot, config);
+  if (claudeResults.some(r => r.action !== 'current' && r.action !== 'skipped')) {
+    process.stdout.write('\n' + bold('5. Claude Code commands:') + '\n');
+    for (const r of claudeResults) {
+      if (r.action === 'updated') {
+        process.stdout.write(`${green('Updated')} .claude/commands/${r.name} (v${r.from} → v${r.to})\n`);
+      } else if (r.action === 'created') {
+        process.stdout.write(`${green('Created')} .claude/commands/${r.name}\n`);
+      }
+    }
+  }
+
+  // Step 6: Show remaining check
+  process.stdout.write('\n' + bold('6. Remaining issues:') + '\n');
   const freshIndex = buildIndex(config);
   process.stdout.write(renderCheck(freshIndex, config));
 }

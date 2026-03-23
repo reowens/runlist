@@ -393,12 +393,6 @@ async function main() {
     return;
   }
 
-  // Init and completions don't need config
-  if (command === 'init') {
-    runInit(process.cwd());
-    return;
-  }
-
   if (command === 'completions') {
     runCompletions(args.slice(1));
     return;
@@ -417,6 +411,12 @@ async function main() {
   const verbose = args.includes('--verbose');
 
   const config = await resolveConfig(process.cwd(), explicitConfig);
+
+  // Init — now has access to config for Claude command generation
+  if (command === 'init') {
+    runInit(process.cwd(), config.configFound ? config : null);
+    return;
+  }
 
   // Watch is a pure proxy — pass raw args so the child process gets all flags
   if (command === 'watch') { runWatch(args.slice(1), config); return; }

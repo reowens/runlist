@@ -5,6 +5,7 @@ import { extractFirstHeading, extractSummary, extractStatusSnapshot, extractNext
 import { asString, normalizeStringList, normalizeBlockers, mergeUniqueStrings, toRepoPath, warn } from './util.mjs';
 import { validateDoc, checkBidirectionalReferences, checkGitStaleness, computeDaysSinceUpdate, computeIsStale, computeChecklistCompletionRate } from './validate.mjs';
 import { checkIndex } from './index-file.mjs';
+import { checkClaudeCommands } from './claude-commands.mjs';
 
 export function buildIndex(config) {
   const docs = collectDocFiles(config).map(f => parseDocFile(f, config));
@@ -69,6 +70,9 @@ export function buildIndex(config) {
 
   const gitWarnings = checkGitStaleness(transformedDocs, config);
   warnings.push(...gitWarnings);
+
+  const claudeWarnings = checkClaudeCommands(config.repoRoot);
+  warnings.push(...claudeWarnings);
 
   return {
     generatedAt: new Date().toISOString(),
