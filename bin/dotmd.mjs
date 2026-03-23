@@ -15,23 +15,24 @@ const HELP = {
 
 View & Query:
   list [--verbose] [--json]         List docs grouped by status (default command)
-  json                              Full index as JSON
-  briefing [--json]                 Compact summary for session start (5-10 lines)
+  briefing [--json]                 Compact summary for session start
   context [--summarize] [--json]    Full briefing (LLM-oriented)
   focus [status] [--json]           Detailed view for one status group
   query [filters] [--json]          Filtered search (--status, --keyword, --stale, etc.)
-  coverage [--json]                 Metadata coverage report
+  plans                             All plans (preset)
+  stale                             Stale docs (preset)
+  actionable                        Docs with next steps (preset)
+
+Analyze:
   stats [--json]                    Doc health dashboard
+  health [--json]                   Plan velocity, aging, and pipeline health
+  coverage [--json]                 Metadata coverage report
   graph [--dot] [--json]            Visualize document relationships
   deps [file] [--json]              Dependency tree or overview
   unblocks <file> [--json]          Show what completes when this doc ships
-  health [--json]                   Plan velocity, aging, and pipeline health
-  glossary <term> [--list] [--json] Look up domain terms + related docs
   diff [file] [--summarize]         Show changes since last updated date
-  plans                             List all plans (shortcut for query --type plan)
-  stale                             List stale docs across all statuses
-  actionable                        List docs with a next step ready to act on
   summary <file> [--json]           AI summary of a document
+  glossary <term> [--list] [--json] Look up domain terms + related docs
 
 Validate & Fix:
   check [--fix] [--errors-only] [--json]  Validate frontmatter and references
