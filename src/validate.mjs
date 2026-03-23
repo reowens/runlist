@@ -79,14 +79,15 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
     doc.warnings.push({ path: doc.path, level: 'warning', message: 'Missing `summary` and no blockquote fallback found.' });
   }
 
-  // Determine which statuses should have current_state and next_step
-  const isWorkStatus = knownStatus && doc.status && !config.lifecycle.terminalStatuses.has(doc.status) && !config.lifecycle.skipWarningsFor.has(doc.status);
+  // Determine which statuses should have current_state and next_step (plans only, not docs/research)
+  const isPlanWork = knownStatus && doc.status && (!doc.type || doc.type === 'plan')
+    && !config.lifecycle.terminalStatuses.has(doc.status) && !config.lifecycle.skipWarningsFor.has(doc.status);
 
-  if (isWorkStatus && !asString(frontmatter.current_state)) {
+  if (isPlanWork && !asString(frontmatter.current_state)) {
     doc.warnings.push({ path: doc.path, level: 'warning', message: 'Missing `current_state`; index output is using a fallback or placeholder.' });
   }
 
-  if (isWorkStatus && doc.status !== 'blocked' && !asString(frontmatter.next_step)) {
+  if (isPlanWork && doc.status !== 'blocked' && !asString(frontmatter.next_step)) {
     doc.warnings.push({ path: doc.path, level: 'warning', message: 'Missing `next_step`; command output will omit a clear immediate action.' });
   }
 
