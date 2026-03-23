@@ -164,6 +164,9 @@ export function runArchive(argv, config, opts = {}) {
   const result = gitMv(filePath, targetPath, config.repoRoot);
   if (result.status !== 0) { die(result.stderr || 'git mv failed.'); }
 
+  // Fix refs FROM the archived file (relative paths shifted by move)
+  const selfRefsFixed = updateRefsFromMovedFile(filePath, targetPath, config);
+
   // Auto-update references in other docs
   const updatedRefCount = updateRefsAfterMove(filePath, targetPath, config);
 
@@ -173,6 +176,7 @@ export function runArchive(argv, config, opts = {}) {
   }
 
   process.stdout.write(`${green('Archived')}: ${oldRepoPath} → ${newRepoPath}\n`);
+  if (selfRefsFixed) process.stdout.write('Updated references in archived file.\n');
   if (updatedRefCount > 0) process.stdout.write(`Updated references in ${updatedRefCount} file(s).\n`);
   if (config.indexPath) process.stdout.write('Index regenerated.\n');
 
@@ -291,6 +295,46 @@ function updateRefsAfterMove(oldPath, newPath, config) {
   }
 
   return updatedCount;
+}
+
+function updateRefsFromMovedFile(oldPath, newPath, config) {
+  const oldDir = path.dirname(oldPath);
+  const newDir = path.dirname(newPath);
+  if (oldDir === newDir) return 0;
+
+  let raw = readFileSync(newPath, 'utf8');
+  const { frontmatter, body } = extractFrontmatter(raw);
+
+  // Fix frontmatter ref fields (YAML list items like  - ./path.md)
+  let newFm = frontmatter;
+  const refRegex = /^(\s+-\s+)(\S+\.md)$/gm;
+  newFm = newFm.replace(refRegex, (match, prefix, refPath) => {
+    const absTarget = path.resolve(oldDir, refPath);
+    if (!existsSync(absTarget)) return match;
+    const newRelPath = path.relative(newDir, absTarget).split(path.sep).join('/');
+    return `${prefix}${newRelPath}`;
+  });
+
+  // Fix body markdown links [text](path.md)
+  let newBody = body;
+  const linkRegex = /(\[[^\]]*\]\()([^)]+\.md)(\))/g;
+  newBody = newBody.replace(linkRegex, (match, pre, href, post) => {
+    if (href.startsWith('http')) return match;
+    const absTarget = path.resolve(oldDir, href);
+    if (!existsSync(absTarget)) return match;
+    const newHref = path.relative(newDir, absTarget).split(path.sep).join('/');
+    return `${pre}${newHref}${post}`;
+  });
+
+  if (newFm !== frontmatter || newBody !== body) {
+    const rebuilt = replaceFrontmatter(raw, newFm);
+    // Replace body: rebuilt has updated frontmatter but old body
+    const { frontmatter: updatedFm } = extractFrontmatter(rebuilt);
+    writeFileSync(newPath, `---\n${updatedFm}\n---${newBody}`, 'utf8');
+    return 1;
+  }
+
+  return 0;
 }
 
 function countRefsToUpdate(oldPath, newPath, config) {
