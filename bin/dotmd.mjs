@@ -24,6 +24,7 @@ import { buildStats, renderStats, renderStatsJson } from '../src/stats.mjs';
 import { runSummary } from '../src/summary.mjs';
 import { runDeps, runUnblocks } from '../src/deps.mjs';
 import { runHealth } from '../src/health.mjs';
+import { runGlossary } from '../src/glossary.mjs';
 import { runExport } from '../src/export.mjs';
 import { runNotion } from '../src/notion.mjs';
 import { die, warn, levenshtein } from '../src/util.mjs';
@@ -47,6 +48,7 @@ View & Query:
   deps [file] [--json]              Dependency tree or overview
   unblocks <file> [--json]          Show what completes when this doc ships
   health [--json]                   Plan velocity, aging, and pipeline health
+  glossary <term> [--list] [--json] Look up domain terms + related docs
   diff [file] [--summarize]         Show changes since last updated date
   plans                             List all plans (shortcut for query --type plan)
   stale                             List stale docs across all statuses
@@ -461,6 +463,7 @@ async function main() {
   if (command === 'deps') { runDeps(restArgs, config); return; }
   if (command === 'unblocks') { runUnblocks(restArgs, config); return; }
   if (command === 'health') { runHealth(restArgs, config); return; }
+  if (command === 'glossary') { runGlossary(restArgs, config); return; }
   if (command === 'export') { runExport(restArgs, config, { dryRun, root: rootArg, type: typeArg }); return; }
   if (command === 'notion') { await runNotion(restArgs, config, { dryRun }); return; }
 

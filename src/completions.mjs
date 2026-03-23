@@ -1,7 +1,7 @@
 import { die } from './util.mjs';
 
 const COMMANDS = [
-  'list', 'json', 'check', 'coverage', 'stats', 'graph', 'deps', 'unblocks', 'health', 'context', 'focus', 'query',
+  'list', 'json', 'check', 'coverage', 'stats', 'graph', 'deps', 'unblocks', 'health', 'glossary', 'context', 'focus', 'query',
   'plans', 'stale', 'actionable', 'index', 'status', 'archive', 'bulk', 'touch', 'doctor', 'lint', 'rename', 'migrate',
   'fix-refs', 'notion', 'export', 'summary', 'watch', 'diff', 'init', 'new', 'completions',
 ];
@@ -24,6 +24,7 @@ const COMMAND_FLAGS = {
   deps: ['--json', '--depth'],
   unblocks: ['--json'],
   health: ['--json'],
+  glossary: ['--list', '--json'],
   bulk: ['archive'],
   notion: ['import', 'export', 'sync', '--force', '--dry-run'],
   export: ['--format', '--output', '--status', '--module', '--root', '--type'],

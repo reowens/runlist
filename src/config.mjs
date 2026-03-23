@@ -76,6 +76,8 @@ const DEFAULTS = {
 
   templates: {},
 
+  glossary: null,
+
   notion: null,
 
   presets: {
