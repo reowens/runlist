@@ -151,7 +151,7 @@ function _renderContextSection(docs, ctx, opts, config, lines) {
           if (summary) {
             lines.push(`  ${''.padEnd(maxSlug)}  ${dim('ai: ' + truncate(summary, 120))}`);
           }
-        } catch { /* skip on failure */ }
+        } catch (err) { warn(`AI summary failed for ${doc.path}: ${err.message}`); }
       }
     }
     lines.push('');

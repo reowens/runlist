@@ -99,7 +99,8 @@ function walkMarkdownFiles(directory, files, excludedDirs, skipPaths, seen = new
   let entries;
   try {
     entries = readdirSync(directory, { withFileTypes: true });
-  } catch {
+  } catch (err) {
+    warn(`Could not read directory ${directory}: ${err.message}`);
     return;
   }
   for (const entry of entries) {

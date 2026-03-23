@@ -157,7 +157,7 @@ function getDocSummary(doc, config) {
     return config.hooks.summarizeDoc
       ? config.hooks.summarizeDoc(body, meta)
       : summarizeDocBody(body, meta);
-  } catch { return null; }
+  } catch (err) { warn(`Could not summarize ${doc.path}: ${err.message}`); return null; }
 }
 
 function renderQueryResults(docs, filters, config) {

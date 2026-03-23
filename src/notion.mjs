@@ -402,7 +402,7 @@ export async function runNotionSync(argv, config, opts = {}) {
       try {
         const mdBlocks = await n2m.pageToMarkdown(remote.page.id);
         body = n2m.toMarkdownString(mdBlocks).parent ?? '';
-      } catch { /* skip body on error */ }
+      } catch (err) { warn(`Could not convert Notion page body for "${title}": ${err.message}`); }
 
       const content = `---\n${serializeFrontmatter(fm)}\n---\n\n# ${title}\n\n${body}`;
       const filePath = path.join(config.docsRoot, slug + '.md');
@@ -456,7 +456,7 @@ export async function runNotionSync(argv, config, opts = {}) {
       try {
         const mdBlocks = await n2m.pageToMarkdown(remote.page.id);
         body = n2m.toMarkdownString(mdBlocks).parent ?? '';
-      } catch { /* skip body on error */ }
+      } catch (err) { warn(`Could not convert Notion page body for "${title}": ${err.message}`); }
 
       const content = `---\n${serializeFrontmatter(fm)}\n---\n\n# ${title}\n\n${body}`;
       const filePath = path.join(config.repoRoot, local.path);

@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { green, dim } from './color.mjs';
+import { warn } from './util.mjs';
 import { scaffoldClaudeCommands } from './claude-commands.mjs';
 
 const STARTER_CONFIG = `// dotmd.config.mjs — document management configuration
@@ -35,12 +36,12 @@ function scanExistingDocs(dir) {
 
   function walk(d) {
     let entries;
-    try { entries = readdirSync(d, { withFileTypes: true }); } catch { return; }
+    try { entries = readdirSync(d, { withFileTypes: true }); } catch (err) { warn(`Could not read ${d}: ${err.message}`); return; }
     for (const entry of entries) {
       if (entry.isDirectory()) { walk(path.join(d, entry.name)); continue; }
       if (!entry.name.endsWith('.md')) continue;
       let raw;
-      try { raw = readFileSync(path.join(d, entry.name), 'utf8'); } catch { continue; }
+      try { raw = readFileSync(path.join(d, entry.name), 'utf8'); } catch (err) { warn(`Could not read ${entry.name}: ${err.message}`); continue; }
       const { frontmatter } = extractFrontmatter(raw);
       if (!frontmatter) continue;
       const parsed = parseSimpleFrontmatter(frontmatter);
