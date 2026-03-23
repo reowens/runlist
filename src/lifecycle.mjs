@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter, replaceFrontmatter } from './frontmatter.mjs';
 import { asString, toRepoPath, die, warn, resolveDocPath, escapeRegex } from './util.mjs';
-import { gitMv, getGitLastModified } from './git.mjs';
+import { gitMv, getGitLastModified, getGitLastModifiedBatch } from './git.mjs';
 import { buildIndex, collectDocFiles } from './index.mjs';
 import { renderIndexFile, writeIndex } from './index-file.mjs';
 import { green, dim, yellow } from './color.mjs';
@@ -356,6 +356,7 @@ export function runTouch(argv, config, opts = {}) {
 
     const prefix = dryRun ? dim('[dry-run] ') : '';
     let synced = 0;
+    const gitDates = getGitLastModifiedBatch(config.repoRoot);
 
     for (const filePath of allFiles) {
       const repoPath = toRepoPath(filePath, config.repoRoot);
@@ -368,7 +369,7 @@ export function runTouch(argv, config, opts = {}) {
       if (config.lifecycle.skipStaleFor.has(status)) continue;
 
       const fmUpdated = asString(parsed.updated);
-      const gitDate = getGitLastModified(repoPath, config.repoRoot);
+      const gitDate = gitDates.get(repoPath) ?? null;
       if (!gitDate) continue;
 
       const gitDay = gitDate.slice(0, 10);

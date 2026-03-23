@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { asString } from './util.mjs';
-import { getGitLastModified } from './git.mjs';
+import { getGitLastModified, getGitLastModifiedBatch } from './git.mjs';
 import { toRepoPath } from './util.mjs';
 
 const NOW = new Date();
@@ -150,11 +150,12 @@ export function checkBidirectionalReferences(docs, config) {
 
 export function checkGitStaleness(docs, config) {
   const warnings = [];
+  const gitDates = getGitLastModifiedBatch(config.repoRoot);
   for (const doc of docs) {
     if (config.lifecycle.skipStaleFor.has(doc.status)) continue;
     if (!doc.updated) continue;
 
-    const gitDate = getGitLastModified(doc.path, config.repoRoot);
+    const gitDate = gitDates.get(doc.path) ?? null;
     if (!gitDate) continue;
 
     const gitDay = gitDate.slice(0, 10);

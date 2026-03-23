@@ -19,6 +19,24 @@ export function getGitLastModified(relPath, repoRoot) {
   return result.stdout.trim();
 }
 
+export function getGitLastModifiedBatch(repoRoot) {
+  const result = spawnSync('git', [
+    'log', '--format=commit %aI', '--name-only', '--diff-filter=ACDMR', 'HEAD',
+  ], { cwd: repoRoot, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
+  if (result.error || result.status !== 0) return new Map();
+
+  const map = new Map();
+  let currentDate = null;
+  for (const line of result.stdout.split('\n')) {
+    if (line.startsWith('commit ')) {
+      currentDate = line.slice(7).trim();
+    } else if (line && currentDate && !map.has(line)) {
+      map.set(line, currentDate);
+    }
+  }
+  return map;
+}
+
 export function gitMv(source, target, repoRoot) {
   ensureGit();
   const result = spawnSync('git', ['mv', source, target], {

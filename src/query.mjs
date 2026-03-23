@@ -3,7 +3,7 @@ import path from 'node:path';
 import { capitalize, toSlug, warn } from './util.mjs';
 import { renderProgressBar } from './render.mjs';
 import { computeDaysSinceUpdate, computeIsStale } from './validate.mjs';
-import { getGitLastModified } from './git.mjs';
+import { getGitLastModifiedBatch } from './git.mjs';
 import { extractFrontmatter } from './frontmatter.mjs';
 import { summarizeDocBody } from './ai.mjs';
 import { dim } from './color.mjs';
@@ -128,8 +128,9 @@ export function filterDocs(docs, filters, config) {
   if (filters.updatedSince) result = result.filter(d => d.updated && d.updated >= filters.updatedSince);
 
   if (filters.git) {
+    const gitDates = getGitLastModifiedBatch(config.repoRoot);
     for (const doc of result) {
-      const gitDate = getGitLastModified(doc.path, config.repoRoot);
+      const gitDate = gitDates.get(doc.path) ?? null;
       if (gitDate) {
         doc.daysSinceUpdate = computeDaysSinceUpdate(gitDate);
         doc.isStale = computeIsStale(doc.status, gitDate, config);

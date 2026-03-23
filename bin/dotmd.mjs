@@ -4,29 +4,6 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { resolveConfig } from '../src/config.mjs';
-import { buildIndex } from '../src/index.mjs';
-import { renderCompactList, renderVerboseList, renderContext, renderBriefing, renderCheck, renderCoverage, buildCoverage } from '../src/render.mjs';
-import { renderIndexFile, writeIndex } from '../src/index-file.mjs';
-import { runFocus, runQuery } from '../src/query.mjs';
-import { runStatus, runArchive, runTouch, runBulkArchive, runPickup, runFinish } from '../src/lifecycle.mjs';
-import { runInit } from '../src/init.mjs';
-import { runNew } from '../src/new.mjs';
-import { runCompletions } from '../src/completions.mjs';
-import { runWatch } from '../src/watch.mjs';
-import { runDiff } from '../src/diff.mjs';
-import { runLint } from '../src/lint.mjs';
-import { runRename } from '../src/rename.mjs';
-import { runMigrate } from '../src/migrate.mjs';
-import { runFixRefs, fixBrokenRefs } from '../src/fix-refs.mjs';
-import { buildGraph, renderGraphText, renderGraphDot, renderGraphJson } from '../src/graph.mjs';
-import { runDoctor } from '../src/doctor.mjs';
-import { buildStats, renderStats, renderStatsJson } from '../src/stats.mjs';
-import { runSummary } from '../src/summary.mjs';
-import { runDeps, runUnblocks } from '../src/deps.mjs';
-import { runHealth } from '../src/health.mjs';
-import { runGlossary } from '../src/glossary.mjs';
-import { runExport } from '../src/export.mjs';
-import { runNotion } from '../src/notion.mjs';
 import { die, warn, levenshtein } from '../src/util.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -427,6 +404,7 @@ async function main() {
   }
 
   if (command === 'completions') {
+    const { runCompletions } = await import('../src/completions.mjs');
     runCompletions(args.slice(1));
     return;
   }
@@ -447,12 +425,13 @@ async function main() {
 
   // Init — now has access to config for Claude command generation
   if (command === 'init') {
+    const { runInit } = await import('../src/init.mjs');
     runInit(process.cwd(), config.configFound ? config : null);
     return;
   }
 
   // Watch is a pure proxy — pass raw args so the child process gets all flags
-  if (command === 'watch') { runWatch(args.slice(1), config); return; }
+  if (command === 'watch') { const { runWatch } = await import('../src/watch.mjs'); runWatch(args.slice(1), config); return; }
 
   // Strip global flags from restArgs so commands don't have to filter them
   const restArgs = [];
@@ -485,35 +464,41 @@ async function main() {
 
   // Preset aliases
   if (config.presets[command]) {
+    const { buildIndex } = await import('../src/index.mjs');
+    const { runQuery } = await import('../src/query.mjs');
     const index = buildIndex(config);
     runQuery(index, [...config.presets[command], ...restArgs], config);
     return;
   }
 
   // Commands that handle their own index building
-  if (command === 'diff') { runDiff(restArgs, config); return; }
-  if (command === 'summary') { runSummary(restArgs, config); return; }
-  if (command === 'deps') { runDeps(restArgs, config); return; }
-  if (command === 'unblocks') { runUnblocks(restArgs, config); return; }
-  if (command === 'health') { runHealth(restArgs, config); return; }
-  if (command === 'glossary') { runGlossary(restArgs, config); return; }
-  if (command === 'export') { runExport(restArgs, config, { dryRun, root: rootArg, type: typeArg }); return; }
-  if (command === 'notion') { await runNotion(restArgs, config, { dryRun }); return; }
+  if (command === 'diff') { const { runDiff } = await import('../src/diff.mjs'); runDiff(restArgs, config); return; }
+  if (command === 'summary') { const { runSummary } = await import('../src/summary.mjs'); runSummary(restArgs, config); return; }
+  if (command === 'deps') { const { runDeps } = await import('../src/deps.mjs'); runDeps(restArgs, config); return; }
+  if (command === 'unblocks') { const { runUnblocks } = await import('../src/deps.mjs'); runUnblocks(restArgs, config); return; }
+  if (command === 'health') { const { runHealth } = await import('../src/health.mjs'); runHealth(restArgs, config); return; }
+  if (command === 'glossary') { const { runGlossary } = await import('../src/glossary.mjs'); runGlossary(restArgs, config); return; }
+  if (command === 'export') { const { runExport } = await import('../src/export.mjs'); runExport(restArgs, config, { dryRun, root: rootArg, type: typeArg }); return; }
+  if (command === 'notion') { const { runNotion } = await import('../src/notion.mjs'); await runNotion(restArgs, config, { dryRun }); return; }
 
   // Lifecycle commands
-  if (command === 'pickup') { await runPickup(restArgs, config, { dryRun }); return; }
-  if (command === 'finish') { await runFinish(restArgs, config, { dryRun }); return; }
-  if (command === 'status') { await runStatus(restArgs, config, { dryRun }); return; }
-  if (command === 'archive') { runArchive(restArgs, config, { dryRun }); return; }
-  if (command === 'bulk' && restArgs[0] === 'archive') { runBulkArchive(restArgs.slice(1), config, { dryRun }); return; }
-  if (command === 'touch') { runTouch(restArgs, config, { dryRun }); return; }
-  if (command === 'new') { await runNew(restArgs, config, { dryRun, root: rootArg }); return; }
-  if (command === 'lint') { runLint(restArgs, config, { dryRun }); return; }
-  if (command === 'rename') { await runRename(restArgs, config, { dryRun }); return; }
-  if (command === 'migrate') { runMigrate(restArgs, config, { dryRun }); return; }
-  if (command === 'fix-refs') { runFixRefs(restArgs, config, { dryRun }); return; }
-  if (command === 'doctor') { runDoctor(restArgs, config, { dryRun }); return; }
+  if (command === 'pickup') { const { runPickup } = await import('../src/lifecycle.mjs'); await runPickup(restArgs, config, { dryRun }); return; }
+  if (command === 'finish') { const { runFinish } = await import('../src/lifecycle.mjs'); await runFinish(restArgs, config, { dryRun }); return; }
+  if (command === 'status') { const { runStatus } = await import('../src/lifecycle.mjs'); await runStatus(restArgs, config, { dryRun }); return; }
+  if (command === 'archive') { const { runArchive } = await import('../src/lifecycle.mjs'); runArchive(restArgs, config, { dryRun }); return; }
+  if (command === 'bulk' && restArgs[0] === 'archive') { const { runBulkArchive } = await import('../src/lifecycle.mjs'); runBulkArchive(restArgs.slice(1), config, { dryRun }); return; }
+  if (command === 'touch') { const { runTouch } = await import('../src/lifecycle.mjs'); runTouch(restArgs, config, { dryRun }); return; }
+  if (command === 'new') { const { runNew } = await import('../src/new.mjs'); await runNew(restArgs, config, { dryRun, root: rootArg }); return; }
+  if (command === 'lint') { const { runLint } = await import('../src/lint.mjs'); runLint(restArgs, config, { dryRun }); return; }
+  if (command === 'rename') { const { runRename } = await import('../src/rename.mjs'); await runRename(restArgs, config, { dryRun }); return; }
+  if (command === 'migrate') { const { runMigrate } = await import('../src/migrate.mjs'); runMigrate(restArgs, config, { dryRun }); return; }
+  if (command === 'fix-refs') { const { runFixRefs } = await import('../src/fix-refs.mjs'); runFixRefs(restArgs, config, { dryRun }); return; }
+  if (command === 'doctor') { const { runDoctor } = await import('../src/doctor.mjs'); runDoctor(restArgs, config, { dryRun }); return; }
 
+  // All remaining commands need the index + render modules
+  const { buildIndex } = await import('../src/index.mjs');
+  const { renderCompactList, renderVerboseList, renderContext, renderBriefing, renderCheck, renderCoverage, buildCoverage } = await import('../src/render.mjs');
+  const { runFocus, runQuery } = await import('../src/query.mjs');
   const index = buildIndex(config);
 
   // Apply --root and --type filters
@@ -570,6 +555,8 @@ async function main() {
 
     if (fix) {
       // Auto-fix: broken refs, then lint, then rebuild index
+      const { fixBrokenRefs } = await import('../src/fix-refs.mjs');
+      const { runLint } = await import('../src/lint.mjs');
       fixBrokenRefs(config, { dryRun, quiet: false });
       runLint(['--fix'], config, { dryRun });
       if (config.indexPath) {
@@ -629,6 +616,7 @@ async function main() {
   }
 
   if (command === 'stats') {
+    const { buildStats, renderStats, renderStatsJson } = await import('../src/stats.mjs');
     const stats = buildStats(index, config);
     if (args.includes('--json')) {
       process.stdout.write(renderStatsJson(stats));
@@ -643,6 +631,7 @@ async function main() {
       die('Index generation is not configured. Add an `index` section to your dotmd.config.mjs.');
     }
     const write = args.includes('--write');
+    const { renderIndexFile, writeIndex } = await import('../src/index-file.mjs');
     const rendered = renderIndexFile(index, config);
     if (write && !dryRun) {
       writeIndex(rendered, config);
@@ -730,6 +719,7 @@ async function main() {
   }
 
   if (command === 'graph') {
+    const { buildGraph, renderGraphText, renderGraphDot, renderGraphJson } = await import('../src/graph.mjs');
     const statusFilter = (() => { const i = args.indexOf('--status'); return i !== -1 && args[i + 1] ? args[i + 1] : null; })();
     const moduleFilter = (() => { const i = args.indexOf('--module'); return i !== -1 && args[i + 1] ? args[i + 1] : null; })();
     const surfaceFilter = (() => { const i = args.indexOf('--surface'); return i !== -1 && args[i + 1] ? args[i + 1] : null; })();
