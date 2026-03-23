@@ -2,7 +2,7 @@ import path from 'node:path';
 import { buildGraph } from './graph.mjs';
 import { buildIndex } from './index.mjs';
 import { resolveDocPath, toSlug, toRepoPath, die, warn } from './util.mjs';
-import { bold, dim } from './color.mjs';
+import { bold, dim, green } from './color.mjs';
 
 export function runDeps(argv, config) {
   const positional = [];
@@ -246,4 +246,74 @@ function renderFlatJson(graph, forwardMap, reverseMap, docByPath) {
     withBlockers,
     orphans: graph.orphans,
   }, null, 2) + '\n');
+}
+
+// ── Unblocks ─────────────────────────────────────────────────────────
+
+export function runUnblocks(argv, config) {
+  const input = argv.find(a => !a.startsWith('-'));
+  const json = argv.includes('--json');
+  if (!input) die('Usage: dotmd unblocks <file>');
+
+  const filePath = resolveDocPath(input, config);
+  if (!filePath) die(`File not found: ${input}`);
+  const repoPath = toRepoPath(filePath, config.repoRoot);
+
+  const index = buildIndex(config);
+  const graph = buildGraph(index, config);
+  const docByPath = new Map(index.docs.map(d => [d.path, d]));
+  const doc = docByPath.get(repoPath);
+  if (!doc) die(`Doc not in index: ${repoPath}`);
+
+  // Find docs that reference this one (reverse edges)
+  const reverseMap = new Map();
+  for (const edge of graph.edges) {
+    if (!edge.broken) {
+      if (!reverseMap.has(edge.target)) reverseMap.set(edge.target, []);
+      reverseMap.get(edge.target).push({ source: edge.source, field: edge.field });
+    }
+  }
+
+  // Also find docs with blockers mentioning this file's basename
+  const basename = path.basename(repoPath, '.md');
+  const blockerRefs = index.docs.filter(d =>
+    d.blockers?.some(b => b.includes(basename) || b.includes(path.basename(repoPath)))
+  );
+
+  const directDeps = (reverseMap.get(repoPath) || []).map(e => {
+    const d = docByPath.get(e.source);
+    return { path: e.source, slug: path.basename(e.source, '.md'), status: d?.status, field: e.field };
+  });
+
+  const blockerDeps = blockerRefs
+    .filter(d => d.path !== repoPath)
+    .map(d => ({ path: d.path, slug: path.basename(d.path, '.md'), status: d.status, blockers: d.blockers }));
+
+  if (json) {
+    process.stdout.write(JSON.stringify({ doc: repoPath, directDeps, blockerDeps }, null, 2) + '\n');
+    return;
+  }
+
+  const slug = path.basename(repoPath, '.md');
+  process.stdout.write(`${bold('Unblocks')} — what happens when ${green(slug)} completes:\n\n`);
+
+  if (directDeps.length > 0) {
+    process.stdout.write(bold('Referenced by:') + '\n');
+    for (const d of directDeps) {
+      process.stdout.write(`  ${d.slug.padEnd(24)} ${dim(`(${d.status})`)}  via ${dim(d.field)}\n`);
+    }
+    process.stdout.write('\n');
+  }
+
+  if (blockerDeps.length > 0) {
+    process.stdout.write(bold('Listed as blocker in:') + '\n');
+    for (const d of blockerDeps) {
+      process.stdout.write(`  ${d.slug.padEnd(24)} ${dim(`(${d.status})`)}\n`);
+    }
+    process.stdout.write('\n');
+  }
+
+  if (directDeps.length === 0 && blockerDeps.length === 0) {
+    process.stdout.write(dim('No docs depend on or are blocked by this file.') + '\n');
+  }
 }

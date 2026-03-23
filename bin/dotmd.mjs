@@ -8,7 +8,7 @@ import { buildIndex } from '../src/index.mjs';
 import { renderCompactList, renderVerboseList, renderContext, renderCheck, renderCoverage, buildCoverage } from '../src/render.mjs';
 import { renderIndexFile, writeIndex } from '../src/index-file.mjs';
 import { runFocus, runQuery } from '../src/query.mjs';
-import { runStatus, runArchive, runTouch } from '../src/lifecycle.mjs';
+import { runStatus, runArchive, runTouch, runBulkArchive } from '../src/lifecycle.mjs';
 import { runInit } from '../src/init.mjs';
 import { runNew } from '../src/new.mjs';
 import { runCompletions } from '../src/completions.mjs';
@@ -22,7 +22,8 @@ import { buildGraph, renderGraphText, renderGraphDot, renderGraphJson } from '..
 import { runDoctor } from '../src/doctor.mjs';
 import { buildStats, renderStats, renderStatsJson } from '../src/stats.mjs';
 import { runSummary } from '../src/summary.mjs';
-import { runDeps } from '../src/deps.mjs';
+import { runDeps, runUnblocks } from '../src/deps.mjs';
+import { runHealth } from '../src/health.mjs';
 import { runExport } from '../src/export.mjs';
 import { runNotion } from '../src/notion.mjs';
 import { die, warn, levenshtein } from '../src/util.mjs';
@@ -44,6 +45,8 @@ View & Query:
   stats [--json]                    Doc health dashboard
   graph [--dot] [--json]            Visualize document relationships
   deps [file] [--json]              Dependency tree or overview
+  unblocks <file> [--json]          Show what completes when this doc ships
+  health [--json]                   Plan velocity, aging, and pipeline health
   diff [file] [--summarize]         Show changes since last updated date
   plans                             List all plans (shortcut for query --type plan)
   stale                             List stale docs across all statuses
@@ -59,6 +62,7 @@ Validate & Fix:
 Lifecycle:
   status <file> <status>            Transition document status
   archive <file>                    Archive (status + move + update refs)
+  bulk archive <f1> <f2> ...        Archive multiple files at once
   touch <file>                      Bump updated date
   touch --git                       Bulk-sync dates from git history
   rename <old> <new>                Rename doc and update all references
@@ -455,12 +459,15 @@ async function main() {
   if (command === 'diff') { runDiff(restArgs, config); return; }
   if (command === 'summary') { runSummary(restArgs, config); return; }
   if (command === 'deps') { runDeps(restArgs, config); return; }
+  if (command === 'unblocks') { runUnblocks(restArgs, config); return; }
+  if (command === 'health') { runHealth(restArgs, config); return; }
   if (command === 'export') { runExport(restArgs, config, { dryRun, root: rootArg, type: typeArg }); return; }
   if (command === 'notion') { await runNotion(restArgs, config, { dryRun }); return; }
 
   // Lifecycle commands
   if (command === 'status') { await runStatus(restArgs, config, { dryRun }); return; }
   if (command === 'archive') { runArchive(restArgs, config, { dryRun }); return; }
+  if (command === 'bulk' && restArgs[0] === 'archive') { runBulkArchive(restArgs.slice(1), config, { dryRun }); return; }
   if (command === 'touch') { runTouch(restArgs, config, { dryRun }); return; }
   if (command === 'new') { await runNew(restArgs, config, { dryRun, root: rootArg }); return; }
   if (command === 'lint') { runLint(restArgs, config, { dryRun }); return; }

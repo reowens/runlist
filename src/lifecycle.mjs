@@ -183,6 +183,49 @@ export function runArchive(argv, config, opts = {}) {
   try { config.hooks.onArchive?.({ path: newRepoPath, oldStatus }, { oldPath: oldRepoPath, newPath: newRepoPath }); } catch (err) { warn(`Hook 'onArchive' threw: ${err.message}`); }
 }
 
+export function runBulkArchive(argv, config, opts = {}) {
+  const { dryRun } = opts;
+  const inputs = argv.filter(a => !a.startsWith('-'));
+  if (inputs.length === 0) die('Usage: dotmd bulk archive <file1> <file2> ... or <glob>');
+
+  const allFiles = collectDocFiles(config);
+  const matched = [];
+
+  for (const input of inputs) {
+    const filePath = resolveDocPath(input, config);
+    if (filePath) {
+      matched.push(filePath);
+    } else {
+      // Try as glob-style substring match
+      const hits = allFiles.filter(f => f.includes(input) || path.basename(f).includes(input));
+      matched.push(...hits);
+    }
+  }
+
+  const unique = [...new Set(matched)].filter(f => !f.includes(`/${config.archiveDir}/`));
+  if (unique.length === 0) die('No matching files found (already-archived files are excluded).');
+
+  process.stdout.write(`${unique.length} file(s) to archive:\n`);
+  for (const f of unique) {
+    process.stdout.write(`  ${toRepoPath(f, config.repoRoot)}\n`);
+  }
+
+  if (dryRun) {
+    process.stdout.write(dim('\n[dry-run] No changes made.\n'));
+    return;
+  }
+
+  process.stdout.write('\n');
+  for (const f of unique) {
+    const relPath = toRepoPath(f, config.repoRoot);
+    try {
+      runArchive([relPath], config, opts);
+    } catch (err) {
+      warn(`Failed to archive ${relPath}: ${err.message}`);
+    }
+  }
+}
+
 export function runTouch(argv, config, opts = {}) {
   const { dryRun } = opts;
   const useGit = argv.includes('--git');

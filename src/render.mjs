@@ -133,10 +133,12 @@ function _renderContextSection(docs, ctx, opts, config, lines) {
     const maxSlug = Math.min(24, Math.max(...sdocs.map(d => toSlug(d).length)));
     for (const doc of sdocs) {
       const slug = toSlug(doc).padEnd(maxSlug);
+      const age = doc.created ? Math.floor((Date.now() - new Date(doc.created).getTime()) / 86400000) : null;
+      const ageTag = age !== null ? dim(` (${age}d)`) : '';
       const next = doc.nextStep
         ? truncate(doc.nextStep, ctx.truncateNextStep || 80)
         : '(no next step)';
-      lines.push(`  ${slug}  next: ${next}`);
+      lines.push(`  ${slug}${ageTag}  next: ${next}`);
       if (opts.summarize) {
         try {
           const absPath = path.resolve(config.repoRoot, doc.path);
