@@ -113,6 +113,7 @@ Everything is automated — do NOT manually `git push`, `git tag`, `npm publish`
 - **Pure ESM.** All files use `.mjs` extension and `import`/`export`.
 - **Minimal dependencies.** Everything beyond Notion integration uses Node.js builtins.
 - **Document types.** Every doc should have `type: plan|doc|research`. Each type has its own valid statuses. Status validation is type-aware (type > root > global).
+- **Rich status definitions.** `types.<type>.statuses` accepts an object form where each status co-locates all behavior (`context`, `staleDays`, `requiresModule`, `terminal`, `archive`, `skipStale`, `skipWarnings`). This eliminates the need for separate `lifecycle`, `statuses.staleDays`, `taxonomy.moduleRequiredFor`, and `context` sections. Array form remains backwards compatible.
 - **Hook pattern.** Config functions are automatically detected as hooks. See `dotmd.config.example.mjs` for the full hook API.
 - **`--dry-run` / `-n`** is supported by all mutation commands. Pass `{ dryRun }` options object to `runX()` functions.
 - **`--json`** is supported by most read commands.

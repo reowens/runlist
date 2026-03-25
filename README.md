@@ -430,27 +430,78 @@ When `dotmd init` runs in a directory with existing `.md` files, it scans them a
 
 ## Configuration
 
-Create `dotmd.config.mjs` at your project root (or run `dotmd init`):
+Create `dotmd.config.mjs` at your project root (or run `dotmd init`).
+
+### Rich status definitions (recommended)
+
+Define each status as an object that co-locates all behavioral properties. Adding a new status is one line in one place — no need to update separate `lifecycle`, `staleDays`, `context`, or `taxonomy` sections.
 
 ```js
-export const root = 'docs/plans';         // string or array of paths
-export const archiveDir = 'archived';     // subdirectory for archived docs
+export const root = 'docs/plans';
+export const archiveDir = 'archived';
 
+export const types = {
+  plan: {
+    statuses: {
+      'active':   { context: 'expanded', staleDays: 14, requiresModule: true },
+      'planned':  { context: 'listed', staleDays: 30, requiresModule: true },
+      'blocked':  { context: 'listed', staleDays: 30, skipStale: true },
+      'archived': { context: 'counted', archive: true, terminal: true, skipStale: true, skipWarnings: true },
+    },
+  },
+};
+```
+
+**Status properties:**
+
+| Property | Type | Default | Effect |
+|---|---|---|---|
+| `context` | `'expanded'` \| `'listed'` \| `'counted'` | `'counted'` | Display mode in `dotmd context` |
+| `staleDays` | `number` \| `null` | `null` | Days before doc is stale (`null` = never) |
+| `requiresModule` | `boolean` | `false` | Require `module` in frontmatter |
+| `terminal` | `boolean` | `false` | Skip `current_state`/`next_step` warnings |
+| `archive` | `boolean` | `false` | Auto-move to `archiveDir` on transition |
+| `skipStale` | `boolean` | `false` | Exempt from stale checks |
+| `skipWarnings` | `boolean` | `false` | Exempt from validation warnings |
+
+Object key order determines display order. The config resolver derives `statuses.order`, `lifecycle.*`, `taxonomy.moduleRequiredFor`, and `context.*` from these definitions. Explicit global sections still win when provided.
+
+### Array form (also supported)
+
+The traditional array form remains fully backwards compatible:
+
+```js
+export const types = {
+  plan: {
+    statuses: ['active', 'planned', 'blocked', 'archived'],
+    context: { expanded: ['active'], listed: ['planned', 'blocked'], counted: ['archived'] },
+    staleDays: { active: 14, planned: 30, blocked: 30 },
+  },
+};
+
+// When using array form, define behavior in separate sections:
 export const statuses = {
-  order: ['draft', 'active', 'approved', 'superseded', 'archived'],
-  staleDays: { draft: 7, active: 14, approved: 30 },
+  order: ['active', 'planned', 'blocked', 'archived'],
+  staleDays: { active: 14, planned: 30, blocked: 30 },
 };
 
 export const lifecycle = {
-  archiveStatuses: ['archived'],          // auto-move to archiveDir
+  archiveStatuses: ['archived'],
   skipStaleFor: ['archived'],
   skipWarningsFor: ['archived'],
-  terminalStatuses: ['archived', 'deprecated', 'reference', 'done'],
+  terminalStatuses: ['archived'],
 };
 
 export const taxonomy = {
+  moduleRequiredFor: ['active', 'planned', 'blocked'],
+};
+```
+
+### Other config
+
+```js
+export const taxonomy = {
   surfaces: ['web', 'ios', 'backend', 'api', 'platform'],
-  moduleRequiredFor: ['active', 'ready', 'planned', 'blocked'],
 };
 
 export const referenceFields = {
@@ -465,7 +516,7 @@ export const index = {
 };
 ```
 
-All exports are optional. Additional options: `types`, `context`, `display`, `presets`, `templates`, `excludeDirs`, `notion`. See [`dotmd.config.example.mjs`](dotmd.config.example.mjs) for the full reference.
+All exports are optional. Additional options: `context`, `display`, `presets`, `templates`, `excludeDirs`, `notion`. See [`dotmd.config.example.mjs`](dotmd.config.example.mjs) for the full reference.
 
 Config discovery walks up from cwd looking for `dotmd.config.mjs` or `.dotmd.config.mjs`.
 

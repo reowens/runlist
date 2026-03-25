@@ -13,27 +13,58 @@ export const archiveDir = 'archived';
 // Directories to skip when scanning
 export const excludeDirs = ['evidence'];
 
-// Document types — each type has its own status vocabulary and context layout
+// Document types — each type has its own status vocabulary and context layout.
 // Defaults: plan, doc, research. Override to customize statuses per type.
+//
+// Statuses can be defined as an array (names only) or as an object (rich form).
+// The object form co-locates all behavioral properties with each status,
+// eliminating the need for separate lifecycle, staleDays, context, and taxonomy sections.
+
+// ─── Rich status definitions (recommended) ──────────────────────────────────
+// Each status is an object with optional properties:
+//   context:        'expanded' | 'listed' | 'counted' (default: 'counted')
+//   staleDays:      number | null — stale threshold (default: null = never stale)
+//   requiresModule: boolean — require `module` frontmatter (default: false)
+//   terminal:       boolean — skip current_state/next_step warnings (default: false)
+//   archive:        boolean — auto-move to archiveDir on transition (default: false)
+//   skipStale:      boolean — exempt from stale checks (default: false)
+//   skipWarnings:   boolean — exempt from validation warnings (default: false)
+//
+// export const types = {
+//   plan: {
+//     statuses: {
+//       'in-session': { context: 'expanded', staleDays: 1, requiresModule: true },
+//       'active':     { context: 'expanded', staleDays: 14, requiresModule: true },
+//       'planned':    { context: 'listed', staleDays: 30, requiresModule: true },
+//       'blocked':    { context: 'listed', staleDays: 30, requiresModule: true, skipStale: true },
+//       'done':       { context: 'counted', terminal: true, skipStale: true, skipWarnings: true },
+//       'archived':   { context: 'counted', archive: true, terminal: true, skipStale: true, skipWarnings: true },
+//     },
+//   },
+//   doc: {
+//     statuses: {
+//       'draft':      { context: 'listed', staleDays: 30 },
+//       'active':     { context: 'expanded', staleDays: 14 },
+//       'review':     { context: 'listed', staleDays: 14 },
+//       'reference':  { context: 'counted', skipStale: true },
+//       'deprecated': { context: 'counted', terminal: true, skipStale: true },
+//       'archived':   { context: 'counted', archive: true, terminal: true, skipStale: true, skipWarnings: true },
+//     },
+//   },
+// };
+
+// ─── Array form (also supported) ────────────────────────────────────────────
+// When using array form, define behavior in separate statuses/lifecycle/taxonomy sections.
 // export const types = {
 //   plan: {
 //     statuses: ['in-session', 'active', 'planned', 'blocked', 'done', 'archived'],
 //     context: { expanded: ['in-session', 'active'], listed: ['planned', 'blocked'], counted: ['done', 'archived'] },
 //     staleDays: { 'in-session': 1, active: 14, planned: 30, blocked: 30 },
 //   },
-//   doc: {
-//     statuses: ['draft', 'active', 'review', 'reference', 'deprecated', 'archived'],
-//     context: { expanded: ['active'], listed: ['draft', 'review'], counted: ['reference', 'deprecated', 'archived'] },
-//     staleDays: { draft: 30, active: 14, review: 14 },
-//   },
-//   research: {
-//     statuses: ['active', 'reference', 'archived'],
-//     context: { expanded: ['active'], listed: [], counted: ['reference', 'archived'] },
-//     staleDays: { active: 30 },
-//   },
 // };
 
 // Status workflow — fallback for docs without a type field. Order determines display grouping.
+// When using rich status definitions, statuses.order and staleDays are derived automatically.
 export const statuses = {
   order: ['active', 'ready', 'planned', 'research', 'blocked', 'reference', 'archived'],
   // Additional statuses valid only in specific roots (merged with order)
@@ -52,7 +83,8 @@ export const statuses = {
   },
 };
 
-// Lifecycle behavior — which statuses trigger special handling
+// Lifecycle behavior — which statuses trigger special handling.
+// When using rich status definitions, these are derived from per-status flags.
 export const lifecycle = {
   archiveStatuses: ['archived'],      // auto-move to archiveDir on transition
   skipStaleFor: ['archived'],         // skip staleness checks
@@ -60,7 +92,8 @@ export const lifecycle = {
   terminalStatuses: ['archived', 'deprecated', 'reference', 'done'],  // skip current_state/next_step warnings, exclude from stats scope
 };
 
-// Taxonomy validation — set fields to null to skip validation
+// Taxonomy validation — set fields to null to skip validation.
+// moduleRequiredFor is derived from requiresModule when using rich status definitions.
 export const taxonomy = {
   surfaces: ['web', 'ios', 'android', 'mobile', 'full-stack', 'frontend', 'backend', 'api', 'docs', 'ops', 'platform', 'infra', 'design'],
   moduleRequiredFor: ['active', 'ready', 'planned', 'blocked'],
