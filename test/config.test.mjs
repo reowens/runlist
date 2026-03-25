@@ -62,7 +62,7 @@ describe('resolveConfig', () => {
     strictEqual(config.indexEndMarker, '<!-- END -->');
   });
 
-  it('deep-merges nested objects', async () => {
+  it('replaces staleDays entirely when user provides it', async () => {
     writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
       export const statuses = {
         staleDays: { active: 7 },
@@ -71,8 +71,27 @@ describe('resolveConfig', () => {
     const config = await resolveConfig(tmpDir);
     // Overridden value
     strictEqual(config.staleDaysByStatus.active, 7);
-    // Defaults preserved for un-overridden keys
-    strictEqual(config.staleDaysByStatus.planned, 30);
+    // Default staleDays keys NOT preserved — user's staleDays is authoritative
+    // (planned/ready still in staleDaysByStatus from default statusOrder, but with null threshold)
+    strictEqual(config.staleDaysByStatus.planned, null);
+    strictEqual(config.staleDaysByStatus.ready, null);
+  });
+
+  it('replaces context entirely when user provides it', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const context = {
+        expanded: ['active'],
+        listed: ['planned'],
+        counted: ['archived'],
+        recentDays: 7,
+        recentStatuses: ['active'],
+        recentLimit: 10,
+        truncateNextStep: 80,
+      };
+    `);
+    const config = await resolveConfig(tmpDir);
+    ok(!config.context.listed?.includes('ready'), 'default ready not in user listed');
+    deepStrictEqual(config.context.listed, ['planned']);
   });
 
   it('uses explicit config path', async () => {

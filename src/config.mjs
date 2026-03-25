@@ -5,6 +5,16 @@ import { die, warn } from './util.mjs';
 
 const CONFIG_FILENAMES = ['dotmd.config.mjs', '.dotmd.config.mjs', 'dotmd.config.js'];
 
+// Keys where user config replaces defaults entirely (not deep-merged).
+// These are flat maps or config sections where the user's version is authoritative —
+// default keys that the user omitted should NOT survive the merge.
+const REPLACE_KEYS = new Set([
+  'statuses.staleDays',
+  'statuses.rootStatuses',
+  'presets',
+  'context',
+]);
+
 const DEFAULTS = {
   root: '.',
   archiveDir: 'archived',
@@ -155,12 +165,14 @@ function validateConfig(userConfig, config, validStatuses, indexPath) {
   return warnings;
 }
 
-function deepMerge(defaults, overrides) {
+function deepMerge(defaults, overrides, parentPath = '') {
   const result = { ...defaults };
   for (const [key, value] of Object.entries(overrides)) {
+    const keyPath = parentPath ? `${parentPath}.${key}` : key;
     if (value != null && typeof value === 'object' && !Array.isArray(value) &&
-        result[key] != null && typeof result[key] === 'object' && !Array.isArray(result[key])) {
-      result[key] = deepMerge(result[key], value);
+        result[key] != null && typeof result[key] === 'object' && !Array.isArray(result[key]) &&
+        !REPLACE_KEYS.has(keyPath)) {
+      result[key] = deepMerge(result[key], value, keyPath);
     } else {
       result[key] = value;
     }
