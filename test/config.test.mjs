@@ -217,3 +217,237 @@ describe('resolveConfig', () => {
     ok(config.configWarnings.some(w => w.includes("'nonexistent'")), 'warns about unknown root key');
   });
 });
+
+describe('rich status definitions', () => {
+  it('accepts object-form statuses and derives type config', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const types = {
+        plan: {
+          statuses: {
+            'active':   { context: 'expanded', staleDays: 7, requiresModule: true },
+            'blocked':  { context: 'listed', staleDays: 30, skipStale: true },
+            'archived': { context: 'counted', archive: true, terminal: true, skipStale: true, skipWarnings: true },
+          }
+        }
+      };
+    `);
+    const config = await resolveConfig(tmpDir);
+    // Status names extracted as array
+    ok(config.validStatuses.has('active'));
+    ok(config.validStatuses.has('blocked'));
+    ok(config.validStatuses.has('archived'));
+    // Type statuses is a Set of names
+    const planStatuses = config.typeStatuses.get('plan');
+    ok(planStatuses.has('active'));
+    ok(planStatuses.has('blocked'));
+    ok(planStatuses.has('archived'));
+    strictEqual(planStatuses.size, 3);
+  });
+
+  it('derives lifecycle flags from rich statuses', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const types = {
+        plan: {
+          statuses: {
+            'active':   { context: 'expanded', staleDays: 14 },
+            'blocked':  { context: 'listed', skipStale: true },
+            'done':     { context: 'counted', terminal: true, skipStale: true, skipWarnings: true },
+            'archived': { context: 'counted', archive: true, terminal: true, skipStale: true, skipWarnings: true },
+          }
+        }
+      };
+    `);
+    const config = await resolveConfig(tmpDir);
+    ok(config.lifecycle.archiveStatuses.has('archived'), 'archived is archive status');
+    ok(!config.lifecycle.archiveStatuses.has('done'), 'done is not archive status');
+    ok(config.lifecycle.terminalStatuses.has('done'), 'done is terminal');
+    ok(config.lifecycle.terminalStatuses.has('archived'), 'archived is terminal');
+    ok(!config.lifecycle.terminalStatuses.has('active'), 'active is not terminal');
+    ok(config.lifecycle.skipStaleFor.has('blocked'), 'blocked skips stale');
+    ok(config.lifecycle.skipStaleFor.has('done'), 'done skips stale');
+    ok(config.lifecycle.skipStaleFor.has('archived'), 'archived skips stale');
+    ok(!config.lifecycle.skipStaleFor.has('active'), 'active does not skip stale');
+    ok(config.lifecycle.skipWarningsFor.has('done'), 'done skips warnings');
+    ok(config.lifecycle.skipWarningsFor.has('archived'), 'archived skips warnings');
+    ok(!config.lifecycle.skipWarningsFor.has('blocked'), 'blocked does not skip warnings');
+  });
+
+  it('derives staleDays from rich statuses', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const types = {
+        plan: {
+          statuses: {
+            'active':   { context: 'expanded', staleDays: 7 },
+            'blocked':  { context: 'listed', staleDays: 30 },
+            'archived': { context: 'counted' },
+          }
+        }
+      };
+    `);
+    const config = await resolveConfig(tmpDir);
+    strictEqual(config.staleDaysByStatus.active, 7);
+    strictEqual(config.staleDaysByStatus.blocked, 30);
+    strictEqual(config.staleDaysByStatus.archived ?? null, null);
+  });
+
+  it('derives context display from rich statuses', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const types = {
+        plan: {
+          statuses: {
+            'active':   { context: 'expanded' },
+            'planned':  { context: 'listed' },
+            'blocked':  { context: 'listed' },
+            'archived': { context: 'counted' },
+          }
+        }
+      };
+    `);
+    const config = await resolveConfig(tmpDir);
+    // Type-level context
+    const typeCtx = config.typeContextConfig.get('plan');
+    deepStrictEqual(typeCtx.expanded, ['active']);
+    deepStrictEqual(typeCtx.listed, ['planned', 'blocked']);
+    deepStrictEqual(typeCtx.counted, ['archived']);
+    // Global context derived
+    ok(config.context.expanded.includes('active'));
+    ok(config.context.listed.includes('planned'));
+    ok(config.context.listed.includes('blocked'));
+    ok(config.context.counted.includes('archived'));
+  });
+
+  it('derives moduleRequiredFor from rich statuses', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const types = {
+        plan: {
+          statuses: {
+            'active':   { requiresModule: true },
+            'blocked':  { requiresModule: true },
+            'archived': {},
+          }
+        }
+      };
+    `);
+    const config = await resolveConfig(tmpDir);
+    ok(config.moduleRequiredStatuses.has('active'), 'active requires module');
+    ok(config.moduleRequiredStatuses.has('blocked'), 'blocked requires module');
+    ok(!config.moduleRequiredStatuses.has('archived'), 'archived does not require module');
+  });
+
+  it('derives statusOrder from rich statuses', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const types = {
+        plan: {
+          statuses: {
+            'active':   {},
+            'planned':  {},
+            'archived': {},
+          }
+        }
+      };
+    `);
+    const config = await resolveConfig(tmpDir);
+    const planIdx = config.statusOrder.indexOf('active');
+    const plannedIdx = config.statusOrder.indexOf('planned');
+    const archivedIdx = config.statusOrder.indexOf('archived');
+    ok(planIdx < plannedIdx, 'active before planned');
+    ok(plannedIdx < archivedIdx, 'planned before archived');
+  });
+
+  it('explicit user lifecycle overrides derived values', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const types = {
+        plan: {
+          statuses: {
+            'active':   { context: 'expanded' },
+            'archived': { context: 'counted', archive: true, terminal: true, skipStale: true },
+          }
+        }
+      };
+      export const lifecycle = {
+        archiveStatuses: ['archived'],
+        terminalStatuses: ['archived'],
+        skipStaleFor: ['archived'],
+        skipWarningsFor: [],
+      };
+    `);
+    const config = await resolveConfig(tmpDir);
+    // User's explicit lifecycle wins
+    ok(config.lifecycle.archiveStatuses.has('archived'));
+    ok(config.lifecycle.terminalStatuses.has('archived'));
+    ok(!config.lifecycle.terminalStatuses.has('active'), 'user did not include active');
+    deepStrictEqual([...config.lifecycle.skipWarningsFor], []);
+  });
+
+  it('explicit user context overrides derived values', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const types = {
+        plan: {
+          statuses: {
+            'active':   { context: 'expanded' },
+            'blocked':  { context: 'listed' },
+            'archived': { context: 'counted' },
+          }
+        }
+      };
+      export const context = {
+        expanded: ['active'],
+        listed: [],
+        counted: ['blocked', 'archived'],
+        recentDays: 5,
+        recentStatuses: ['active'],
+        recentLimit: 5,
+        truncateNextStep: 80,
+      };
+    `);
+    const config = await resolveConfig(tmpDir);
+    // User's explicit context wins — blocked moved to counted
+    deepStrictEqual(config.context.listed, []);
+    ok(config.context.counted.includes('blocked'));
+  });
+
+  it('mixed array and object types work together', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const types = {
+        plan: {
+          statuses: {
+            'active':   { context: 'expanded', staleDays: 14 },
+            'archived': { context: 'counted', archive: true, skipStale: true, skipWarnings: true },
+          }
+        },
+        doc: {
+          statuses: ['draft', 'current', 'deprecated'],
+          context: { expanded: [], listed: ['draft'], counted: ['current', 'deprecated'] },
+        }
+      };
+    `);
+    const config = await resolveConfig(tmpDir);
+    // Plan uses rich form
+    ok(config.typeStatuses.get('plan').has('active'));
+    ok(config.typeStatuses.get('plan').has('archived'));
+    // Doc uses array form
+    ok(config.typeStatuses.get('doc').has('draft'));
+    ok(config.typeStatuses.get('doc').has('current'));
+    // Both contribute to validStatuses
+    ok(config.validStatuses.has('active'));
+    ok(config.validStatuses.has('draft'));
+  });
+
+  it('status with no props defaults to counted context', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const types = {
+        plan: {
+          statuses: {
+            'active':   { context: 'expanded' },
+            'misc':     {},
+          }
+        }
+      };
+    `);
+    const config = await resolveConfig(tmpDir);
+    const typeCtx = config.typeContextConfig.get('plan');
+    ok(typeCtx.counted.includes('misc'), 'bare status defaults to counted');
+    ok(!typeCtx.expanded.includes('misc'));
+    ok(!typeCtx.listed.includes('misc'));
+  });
+});

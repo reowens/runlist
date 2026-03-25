@@ -97,6 +97,118 @@ const DEFAULTS = {
   },
 };
 
+const VALID_CONTEXT_VALUES = new Set(['expanded', 'listed', 'counted']);
+
+/**
+ * Normalize rich status definitions (object form) into array form + derived config.
+ * When types.<type>.statuses is an object like:
+ *   { 'active': { context: 'expanded', staleDays: 14, requiresModule: true }, ... }
+ * this extracts all behavioral properties, converts statuses to an array for
+ * downstream processing, and returns derived values for lifecycle/taxonomy/context.
+ *
+ * Returns null if no types use object-form statuses.
+ */
+function normalizeRichStatuses(config, userConfig) {
+  const derived = {
+    archiveStatuses: [],
+    skipStaleFor: [],
+    skipWarningsFor: [],
+    terminalStatuses: [],
+    moduleRequiredFor: [],
+    staleDays: {},
+    statusOrder: [],
+    context: { expanded: [], listed: [], counted: [] },
+  };
+
+  let hasRich = false;
+
+  for (const [typeName, typeDef] of Object.entries(config.types ?? {})) {
+    if (!typeDef.statuses || Array.isArray(typeDef.statuses)) continue;
+    if (typeof typeDef.statuses !== 'object') continue;
+
+    hasRich = true;
+    const statusNames = [];
+    const typeContext = { expanded: [], listed: [], counted: [] };
+    const typeStaleDays = {};
+
+    for (const [name, props] of Object.entries(typeDef.statuses)) {
+      const p = props ?? {};
+      statusNames.push(name);
+
+      const ctx = p.context ?? 'counted';
+      if (typeContext[ctx]) typeContext[ctx].push(name);
+      // Global context: only add if not already in any bucket (first type wins)
+      const inGlobal = derived.context.expanded.includes(name) ||
+        derived.context.listed.includes(name) || derived.context.counted.includes(name);
+      if (!inGlobal && derived.context[ctx]) derived.context[ctx].push(name);
+
+      if (p.staleDays != null) {
+        typeStaleDays[name] = p.staleDays;
+        derived.staleDays[name] = p.staleDays;
+      }
+
+      if (p.archive && !derived.archiveStatuses.includes(name)) derived.archiveStatuses.push(name);
+      if (p.skipStale && !derived.skipStaleFor.includes(name)) derived.skipStaleFor.push(name);
+      if (p.skipWarnings && !derived.skipWarningsFor.includes(name)) derived.skipWarningsFor.push(name);
+      if (p.terminal && !derived.terminalStatuses.includes(name)) derived.terminalStatuses.push(name);
+      if (p.requiresModule && !derived.moduleRequiredFor.includes(name)) derived.moduleRequiredFor.push(name);
+
+      if (!derived.statusOrder.includes(name)) derived.statusOrder.push(name);
+    }
+
+    // Convert to array form for downstream pipeline
+    typeDef.statuses = statusNames;
+
+    // Derive type-level context/staleDays unless user explicitly provided them
+    const userTypeDef = userConfig.types?.[typeName];
+    if (!userTypeDef?.context) typeDef.context = typeContext;
+    if (!userTypeDef?.staleDays) typeDef.staleDays = typeStaleDays;
+  }
+
+  if (!hasRich) return null;
+  return derived;
+}
+
+/**
+ * Apply derived values from rich status definitions into the merged config.
+ * Explicit user config always wins over derived values.
+ */
+function applyDerivedConfig(config, userConfig, derived) {
+  // statuses.order — derive from types if user didn't explicitly set
+  if (!userConfig.statuses?.order && derived.statusOrder.length) {
+    config.statuses.order = derived.statusOrder;
+  }
+
+  // statuses.staleDays — merge derived as base, user overrides
+  if (!userConfig.statuses?.staleDays && Object.keys(derived.staleDays).length) {
+    config.statuses.staleDays = derived.staleDays;
+  }
+
+  // lifecycle — each sub-key independently
+  if (!userConfig.lifecycle?.archiveStatuses && derived.archiveStatuses.length) {
+    config.lifecycle.archiveStatuses = derived.archiveStatuses;
+  }
+  if (!userConfig.lifecycle?.skipStaleFor && derived.skipStaleFor.length) {
+    config.lifecycle.skipStaleFor = derived.skipStaleFor;
+  }
+  if (!userConfig.lifecycle?.skipWarningsFor && derived.skipWarningsFor.length) {
+    config.lifecycle.skipWarningsFor = derived.skipWarningsFor;
+  }
+  if (!userConfig.lifecycle?.terminalStatuses && derived.terminalStatuses.length) {
+    config.lifecycle.terminalStatuses = derived.terminalStatuses;
+  }
+
+  // taxonomy.moduleRequiredFor
+  if (!userConfig.taxonomy?.moduleRequiredFor && derived.moduleRequiredFor.length) {
+    config.taxonomy.moduleRequiredFor = derived.moduleRequiredFor;
+  }
+
+  // context — only the status-related arrays, not recentDays/recentLimit/etc
+  if (!userConfig.context?.expanded) config.context.expanded = derived.context.expanded;
+  if (!userConfig.context?.listed) config.context.listed = derived.context.listed;
+  if (!userConfig.context?.counted) config.context.counted = derived.context.counted;
+}
+
 function findConfigFile(startDir) {
   let dir = path.resolve(startDir);
   const root = path.parse(dir).root;
@@ -217,6 +329,10 @@ export async function resolveConfig(cwd, explicitConfigPath) {
   }
 
   const config = deepMerge(DEFAULTS, userConfig);
+
+  // Normalize rich status definitions (object form → array + derived config)
+  const derived = normalizeRichStatuses(config, userConfig);
+  if (derived) applyDerivedConfig(config, userConfig, derived);
 
   const rootPaths = Array.isArray(config.root) ? config.root : [config.root];
   const docsRoots = rootPaths.map(r => path.resolve(configDir, r));
