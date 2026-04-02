@@ -1,12 +1,12 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { capitalize, toSlug, warn } from './util.mjs';
+import { capitalize, toSlug, truncate, warn } from './util.mjs';
 import { renderProgressBar } from './render.mjs';
 import { computeDaysSinceUpdate, computeIsStale } from './validate.mjs';
 import { getGitLastModifiedBatch } from './git.mjs';
 import { extractFrontmatter } from './frontmatter.mjs';
 import { summarizeDocBody } from './ai.mjs';
-import { dim } from './color.mjs';
+import { bold, dim, yellow, red } from './color.mjs';
 
 export function runFocus(index, argv, config) {
   // Find first positional arg, skipping flag-value pairs like --root <name>
@@ -50,7 +50,7 @@ export function runFocus(index, argv, config) {
   }
 }
 
-export function runQuery(index, argv, config) {
+export function runQuery(index, argv, config, opts = {}) {
   const filters = parseQueryArgs(argv);
   const docs = filterDocs(index.docs, filters, config);
 
@@ -61,6 +61,11 @@ export function runQuery(index, argv, config) {
       }
     }
     process.stdout.write(`${JSON.stringify({ filters, count: docs.length, docs }, null, 2)}\n`);
+    return;
+  }
+
+  if (opts.preset === 'plans') {
+    renderPlansOutput(docs, filters, config);
     return;
   }
 
@@ -226,4 +231,67 @@ function buildSorter(sort, config) {
 function compareUpdatedDesc(a, b) {
   const au = a.updated ?? ''; const bu = b.updated ?? '';
   return au !== bu ? bu.localeCompare(au) : 0;
+}
+
+function renderPlansOutput(docs, filters, config) {
+  if (docs.length === 0) {
+    process.stdout.write('No plans found.\n');
+    return;
+  }
+
+  // Summary line
+  const bySt = {};
+  for (const d of docs) { bySt[d.status] = (bySt[d.status] ?? 0) + 1; }
+  const counts = Object.entries(bySt).map(([s, n]) => `${n} ${s}`).join(', ');
+  process.stdout.write(`${bold('Plans')} ${dim(`(${docs.length})`)}  ${counts}\n`);
+
+  // Active filter note (only if user applied extra filters beyond the preset defaults)
+  const activeFilters = [];
+  if (filters.statuses?.length) activeFilters.push(`status: ${filters.statuses.join(', ')}`);
+  if (filters.keyword) activeFilters.push(`keyword: ${filters.keyword}`);
+  if (filters.stale) activeFilters.push('stale only');
+  if (filters.hasNextStep) activeFilters.push('has next step');
+  if (filters.hasBlockers) activeFilters.push('has blockers');
+  if (activeFilters.length) process.stdout.write(dim(`  filtered: ${activeFilters.join(' | ')}`) + '\n');
+
+  // Group by status, ordered by config.statusOrder
+  const statusGroups = new Map();
+  for (const d of docs) {
+    const s = d.status ?? 'unknown';
+    if (!statusGroups.has(s)) statusGroups.set(s, []);
+    statusGroups.get(s).push(d);
+  }
+
+  const orderedStatuses = [...config.statusOrder.filter(s => statusGroups.has(s)), ...([...statusGroups.keys()].filter(s => !config.statusOrder.includes(s)))];
+  const maxWidth = process.stdout.columns || 100;
+
+  for (const status of orderedStatuses) {
+    const group = statusGroups.get(status);
+    process.stdout.write(`\n${bold(`${capitalize(status)} (${group.length})`)}\n`);
+
+    const maxSlug = Math.min(30, Math.max(...group.map(d => toSlug(d).length)));
+
+    for (const doc of group) {
+      const slug = toSlug(doc).padEnd(maxSlug);
+      const age = doc.daysSinceUpdate != null ? `${doc.daysSinceUpdate}d` : ' —';
+      const ageStr = doc.daysSinceUpdate != null && doc.isStale ? red(age.padStart(4)) : dim(age.padStart(4));
+      const progress = renderProgressBar(doc.checklist);
+
+      const parts = [`  ${slug}  ${ageStr}`];
+      if (progress) parts.push(progress);
+
+      if (doc.blockers?.length && (status === 'blocked')) {
+        parts.push(yellow(`blockers: ${doc.blockers.join('; ')}`));
+      } else if (doc.nextStep) {
+        parts.push(`next: ${doc.nextStep}`);
+      } else {
+        parts.push(dim('(no next step)'));
+      }
+
+      const line = parts.join('  ');
+      process.stdout.write((line.length > maxWidth ? line.slice(0, maxWidth - 3) + '...' : line) + '\n');
+    }
+  }
+
+  process.stdout.write('\n');
 }

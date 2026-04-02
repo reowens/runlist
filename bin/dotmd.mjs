@@ -500,7 +500,7 @@ async function main() {
     const { buildIndex } = await import('../src/index.mjs');
     const { runQuery } = await import('../src/query.mjs');
     const index = buildIndex(config);
-    runQuery(index, [...config.presets[command], ...restArgs], config);
+    runQuery(index, [...config.presets[command], ...restArgs], config, { preset: command });
     return;
   }
 
