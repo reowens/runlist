@@ -122,6 +122,18 @@ describe('dotmd rename', () => {
     ok(result.stderr.includes('not found'), 'shows not found error');
   });
 
+  it('supports cross-directory moves', () => {
+    const docsDir = setupProject();
+    const subDir = path.join(docsDir, 'modules');
+    mkdirSync(subDir, { recursive: true });
+    writeDoc(docsDir, 'old-name.md', 'status: active\nupdated: 2025-01-01', '# Old\n');
+
+    const result = run(['rename', path.join(docsDir, 'old-name.md'), 'docs/modules/old-name.md']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(!existsSync(path.join(docsDir, 'old-name.md')), 'old file gone');
+    ok(existsSync(path.join(subDir, 'old-name.md')), 'file moved to subdirectory');
+  });
+
   it('adds .md extension automatically', () => {
     const docsDir = setupProject();
     writeDoc(docsDir, 'old-name.md', 'status: active\nupdated: 2025-01-01', '# Old\n');

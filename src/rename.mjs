@@ -35,18 +35,17 @@ export async function runRename(argv, config, opts = {}) {
     die(`File not found: ${oldInput}\nSearched: ${toRepoPath(config.repoRoot, config.repoRoot) || '.'}, ${toRepoPath(config.docsRoot, config.repoRoot)}`);
   }
 
-  // Compute new path in same directory as old
-  const oldDir = path.dirname(oldPath);
-  let newBasename = newInput;
-  // If newInput contains a path separator, use just the basename
+  // Compute new path — cross-directory if input has slashes, same directory otherwise
+  let newPath;
   if (newInput.includes('/') || newInput.includes(path.sep)) {
-    newBasename = path.basename(newInput);
+    let resolved = newInput;
+    if (!resolved.endsWith('.md')) resolved += '.md';
+    newPath = path.resolve(config.repoRoot, resolved);
+  } else {
+    let newBasename = newInput;
+    if (!newBasename.endsWith('.md')) newBasename += '.md';
+    newPath = path.join(path.dirname(oldPath), newBasename);
   }
-  // Add .md if not present
-  if (!newBasename.endsWith('.md')) {
-    newBasename += '.md';
-  }
-  const newPath = path.join(oldDir, newBasename);
 
   if (existsSync(newPath)) {
     die(`Target already exists: ${toRepoPath(newPath, config.repoRoot)}`);
@@ -56,6 +55,7 @@ export async function runRename(argv, config, opts = {}) {
   const oldRepoPath = toRepoPath(oldPath, config.repoRoot);
   const newRepoPath = toRepoPath(newPath, config.repoRoot);
   const oldBasename = path.basename(oldPath);
+  const newBasename = path.basename(newPath);
 
   // Scan for references in other docs
   const allFiles = collectDocFiles(config);
