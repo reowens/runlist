@@ -77,12 +77,22 @@ export async function runNew(argv, config, opts = {}) {
   // Resolve template
   const template = resolveTemplate(templateName ?? 'default', config);
 
+  // If name contains path separators, split into directory prefix and basename
+  let nameDir = null;
+  let namePart = name;
+  if (name.includes('/') || name.includes(path.sep)) {
+    nameDir = path.dirname(name);
+    namePart = path.basename(name, '.md');
+  } else if (name.endsWith('.md')) {
+    namePart = name.slice(0, -3);
+  }
+
   // Slugify
-  const slug = name.toLowerCase().replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  const slug = namePart.toLowerCase().replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').replace(/^-|-$/g, '');
   if (!slug) { die('Name resolves to empty slug: ' + name); }
 
   // Title
-  const docTitle = title ?? name.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const docTitle = title ?? namePart.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
   // Resolve target root
   let targetRoot = config.docsRoot;
@@ -96,8 +106,9 @@ export async function runNew(argv, config, opts = {}) {
     targetRoot = match;
   }
 
-  // Path
-  const filePath = path.join(targetRoot, slug + '.md');
+  // Path — if user provided a directory prefix, resolve relative to repoRoot
+  const baseDir = nameDir ? path.resolve(config.repoRoot, nameDir) : targetRoot;
+  const filePath = path.join(baseDir, slug + '.md');
   const repoPath = toRepoPath(filePath, config.repoRoot);
 
   if (existsSync(filePath)) {

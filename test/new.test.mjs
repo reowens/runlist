@@ -187,6 +187,31 @@ describe('dotmd new', () => {
     ok(content.includes('status: planned'), 'status is planned');
   });
 
+  it('handles path input by creating in the specified directory', () => {
+    const docsDir = setupProject();
+    mkdirSync(path.join(docsDir, 'plans'), { recursive: true });
+    const result = run(['new', 'docs/plans/group-folio-features', '--template', 'plan']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(existsSync(path.join(docsDir, 'plans', 'group-folio-features.md')), 'file created at correct path');
+    ok(!existsSync(path.join(docsDir, 'docsplansgroup-folio-features.md')), 'no mangled filename');
+  });
+
+  it('handles path input with .md extension', () => {
+    const docsDir = setupProject();
+    mkdirSync(path.join(docsDir, 'plans'), { recursive: true });
+    const result = run(['new', 'docs/plans/my-feature.md']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(existsSync(path.join(docsDir, 'plans', 'my-feature.md')), 'file created at correct path');
+  });
+
+  it('strips .md from bare name for slugification', () => {
+    const docsDir = setupProject();
+    const result = run(['new', 'my-feature.md']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(existsSync(path.join(docsDir, 'my-feature.md')), 'file created without double .md');
+    ok(!existsSync(path.join(docsDir, 'my-featuremd.md')), 'no mangled filename');
+  });
+
   it('config templates override builtins', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-new-'));
     mkdirSync(path.join(tmpDir, '.git'));
