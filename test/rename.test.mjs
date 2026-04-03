@@ -100,6 +100,20 @@ describe('dotmd rename', () => {
     ok(result.stderr.includes('already exists'), 'shows error');
   });
 
+  it('updates references in body of other docs', () => {
+    const docsDir = setupProject();
+    writeDoc(docsDir, 'old-name.md', 'status: active\nupdated: 2025-01-01', '# Old\n');
+    writeDoc(docsDir, 'referrer.md', 'status: active\nupdated: 2025-01-01', '# Referrer\nSee [old plan](old-name.md) and old-name.md for details.\n');
+
+    const result = run(['rename', path.join(docsDir, 'old-name.md'), 'new-name']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('Updated references'), 'reports updated references');
+
+    const referrerContent = readFileSync(path.join(docsDir, 'referrer.md'), 'utf8');
+    ok(referrerContent.includes('new-name.md'), 'body reference updated to new name');
+    ok(!referrerContent.includes('old-name.md'), 'old body reference removed');
+  });
+
   it('errors when source file not found', () => {
     setupProject();
 

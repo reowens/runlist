@@ -1,10 +1,9 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { extractFrontmatter, parseSimpleFrontmatter, replaceFrontmatter } from './frontmatter.mjs';
 import { toRepoPath, resolveDocPath, die, warn } from './util.mjs';
 import { collectDocFiles } from './index.mjs';
 import { gitMv } from './git.mjs';
-import { green, dim, yellow } from './color.mjs';
+import { green, dim } from './color.mjs';
 import { isInteractive, promptText } from './prompt.mjs';
 
 export async function runRename(argv, config, opts = {}) {
@@ -60,51 +59,23 @@ export async function runRename(argv, config, opts = {}) {
 
   // Scan for references in other docs
   const allFiles = collectDocFiles(config);
-  const allRefFields = [
-    ...(config.referenceFields.bidirectional || []),
-    ...(config.referenceFields.unidirectional || []),
-  ];
-  const refUpdates = [];
-  const bodyWarnings = [];
+  const filesToUpdate = [];
 
   for (const filePath of allFiles) {
     if (filePath === oldPath) continue;
     const raw = readFileSync(filePath, 'utf8');
-    const { frontmatter, body } = extractFrontmatter(raw);
-    if (!frontmatter) continue;
-
-    // Check frontmatter reference fields for old basename
-    let hasRef = false;
-    for (const line of frontmatter.split('\n')) {
-      if (line.includes(oldBasename)) {
-        hasRef = true;
-        break;
-      }
-    }
-
-    if (hasRef) {
-      refUpdates.push(filePath);
-    }
-
-    // Check body for markdown links containing old basename
-    if (body && body.includes(oldBasename)) {
-      bodyWarnings.push(toRepoPath(filePath, config.repoRoot));
+    if (raw.includes(oldBasename)) {
+      filesToUpdate.push(filePath);
     }
   }
 
   if (dryRun) {
     const prefix = dim('[dry-run]');
     process.stdout.write(`${prefix} Would rename: ${oldRepoPath} → ${newRepoPath}\n`);
-    if (refUpdates.length > 0) {
-      process.stdout.write(`${prefix} Would update references in ${refUpdates.length} file(s):\n`);
-      for (const f of refUpdates) {
+    if (filesToUpdate.length > 0) {
+      process.stdout.write(`${prefix} Would update references in ${filesToUpdate.length} file(s):\n`);
+      for (const f of filesToUpdate) {
         process.stdout.write(`${prefix}   ${toRepoPath(f, config.repoRoot)}\n`);
-      }
-    }
-    if (bodyWarnings.length > 0) {
-      process.stdout.write(`\n${yellow('Body links referencing old name')} (manual update needed):\n`);
-      for (const p of bodyWarnings) {
-        process.stdout.write(`  ${p}\n`);
       }
     }
     return;
@@ -116,23 +87,13 @@ export async function runRename(argv, config, opts = {}) {
     die(result.stderr || 'git mv failed.');
   }
 
-  // Update references in frontmatter of other docs
+  // Update all references (frontmatter + body) in other docs
   let updatedCount = 0;
-  for (const filePath of refUpdates) {
-    let raw = readFileSync(filePath, 'utf8');
-    const { frontmatter: fm } = extractFrontmatter(raw);
-    if (!fm) continue;
-
-    const newFm = fm.split('\n').map(line => {
-      if (line.includes(oldBasename)) {
-        return line.split(oldBasename).join(newBasename);
-      }
-      return line;
-    }).join('\n');
-
-    if (newFm !== fm) {
-      raw = replaceFrontmatter(raw, newFm);
-      writeFileSync(filePath, raw, 'utf8');
+  for (const filePath of filesToUpdate) {
+    const raw = readFileSync(filePath, 'utf8');
+    const updated = raw.split(oldBasename).join(newBasename);
+    if (updated !== raw) {
+      writeFileSync(filePath, updated, 'utf8');
       updatedCount++;
     }
   }
@@ -140,13 +101,6 @@ export async function runRename(argv, config, opts = {}) {
   process.stdout.write(`${green('Renamed')}: ${oldRepoPath} → ${newRepoPath}\n`);
   if (updatedCount > 0) {
     process.stdout.write(`Updated references in ${updatedCount} file(s).\n`);
-  }
-
-  if (bodyWarnings.length > 0) {
-    process.stdout.write(`\n${yellow('Body links referencing old name')} (manual update needed):\n`);
-    for (const p of bodyWarnings) {
-      process.stdout.write(`  ${p}\n`);
-    }
   }
 
   try { config.hooks.onRename?.({ oldPath: oldRepoPath, newPath: newRepoPath, referencesUpdated: updatedCount }); } catch (err) { warn(`Hook 'onRename' threw: ${err.message}`); }
