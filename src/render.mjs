@@ -17,8 +17,10 @@ export function renderCompactList(index, config) {
 function _renderCompactList(index, config) {
   const lines = ['Index', ''];
   const maxWidth = config.display.lineWidth || process.stdout.columns || 120;
+  const hidden = config.lifecycle.archiveStatuses;
 
   for (const status of config.statusOrder) {
+    if (hidden.has(status)) continue;
     const docs = index.docs.filter(d => d.status === status);
     if (!docs.length) continue;
 
@@ -43,7 +45,7 @@ function _renderCompactList(index, config) {
 
   // Render docs with statuses not in statusOrder
   const knownStatuses = new Set(config.statusOrder);
-  const otherStatuses = [...new Set(index.docs.filter(d => d.status && !knownStatuses.has(d.status)).map(d => d.status))].sort();
+  const otherStatuses = [...new Set(index.docs.filter(d => d.status && !knownStatuses.has(d.status) && !hidden.has(d.status)).map(d => d.status))].sort();
   for (const status of otherStatuses) {
     const docs = index.docs.filter(d => d.status === status);
     if (!docs.length) continue;
@@ -72,8 +74,10 @@ function _renderCompactList(index, config) {
 
 export function renderVerboseList(index, config) {
   const lines = ['Index', ''];
+  const hidden = config.lifecycle.archiveStatuses;
 
   for (const status of config.statusOrder) {
+    if (hidden.has(status)) continue;
     const docs = index.docs.filter(doc => doc.status === status);
     if (docs.length === 0) continue;
 
@@ -90,7 +94,7 @@ export function renderVerboseList(index, config) {
 
   // Render docs with statuses not in statusOrder
   const knownStatuses = new Set(config.statusOrder);
-  const otherStatuses = [...new Set(index.docs.filter(d => d.status && !knownStatuses.has(d.status)).map(d => d.status))].sort();
+  const otherStatuses = [...new Set(index.docs.filter(d => d.status && !knownStatuses.has(d.status) && !hidden.has(d.status)).map(d => d.status))].sort();
   for (const status of otherStatuses) {
     const docs = index.docs.filter(doc => doc.status === status);
     if (docs.length === 0) continue;
