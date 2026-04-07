@@ -198,3 +198,71 @@ describe('archive command (dry-run)', () => {
     ok(existsSync(filePath), 'original file still exists');
   });
 });
+
+describe('archive path boundary', () => {
+  it('does not double-nest when root name overlaps with archiveDir', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-archboundary-'));
+    spawnSync('git', ['init'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
+
+    // Create two roots: 'docs/archived' and 'docs/archived-extras'
+    mkdirSync(path.join(tmpDir, 'docs', 'archived'), { recursive: true });
+    mkdirSync(path.join(tmpDir, 'docs', 'archived-extras'), { recursive: true });
+
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const root = ['docs/archived', 'docs/archived-extras'];
+    `);
+
+    const filePath = path.join(tmpDir, 'docs', 'archived-extras', 'plan.md');
+    writeFileSync(filePath, '---\nstatus: active\nupdated: 2025-01-01\n---\n# Plan\n');
+    spawnSync('git', ['add', '.'], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-m', 'init'], { cwd: tmpDir });
+
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const result = spawnSync('node', [bin, 'archive', filePath, '--dry-run', '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir, encoding: 'utf8',
+    });
+
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    // Must archive into archived-extras/archived/, NOT docs/archived/archived/
+    ok(result.stdout.includes('docs/archived-extras/archived/plan.md'), `expected correct archive path, got: ${result.stdout}`);
+    ok(!result.stdout.includes('archived/archived/plan.md'), 'must not double-nest');
+  });
+
+  it('allows archiving when repo lives under a directory named like archiveDir', () => {
+    // Create a temp dir whose path contains /archived/ (simulating a repo under an 'archived' parent)
+    const parentDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-'));
+    const archivedParent = path.join(parentDir, 'archived', 'myproject');
+    mkdirSync(archivedParent, { recursive: true });
+    tmpDir = archivedParent;
+
+    spawnSync('git', ['init'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
+
+    const docsDir = path.join(tmpDir, 'docs');
+    mkdirSync(docsDir, { recursive: true });
+
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const root = 'docs';
+    `);
+
+    const filePath = path.join(docsDir, 'plan.md');
+    writeFileSync(filePath, '---\nstatus: active\nupdated: 2025-01-01\n---\n# Plan\n');
+    spawnSync('git', ['add', '.'], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-m', 'init'], { cwd: tmpDir });
+
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const result = spawnSync('node', [bin, 'archive', filePath, '--dry-run', '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir, encoding: 'utf8',
+    });
+
+    strictEqual(result.status, 0, `archive should succeed, stderr: ${result.stderr}`);
+    ok(result.stdout.includes('docs/archived/plan.md'), `expected correct archive path, got: ${result.stdout}`);
+
+    // Clean up parent
+    rmSync(parentDir, { recursive: true, force: true });
+    tmpDir = null;
+  });
+});

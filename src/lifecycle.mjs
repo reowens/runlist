@@ -10,7 +10,7 @@ import { isInteractive, promptChoice } from './prompt.mjs';
 
 function findFileRoot(filePath, config) {
   const roots = config.docsRoots || [config.docsRoot];
-  return roots.find(r => filePath.startsWith(r)) ?? config.docsRoot;
+  return roots.find(r => filePath.startsWith(r + '/')) ?? config.docsRoot;
 }
 
 export async function runStatus(argv, config, opts = {}) {
@@ -63,8 +63,10 @@ export async function runStatus(argv, config, opts = {}) {
 
   const today = new Date().toISOString().slice(0, 10);
   const archiveDir = path.join(fileRoot, config.archiveDir);
-  const isArchiving = config.lifecycle.archiveStatuses.has(newStatus) && !filePath.includes(`/${config.archiveDir}/`);
-  const isUnarchiving = !config.lifecycle.archiveStatuses.has(newStatus) && filePath.includes(`/${config.archiveDir}/`);
+  const relFromRoot = path.relative(fileRoot, filePath);
+  const inArchive = relFromRoot.startsWith(config.archiveDir + '/') || relFromRoot.startsWith(config.archiveDir + path.sep);
+  const isArchiving = config.lifecycle.archiveStatuses.has(newStatus) && !inArchive;
+  const isUnarchiving = !config.lifecycle.archiveStatuses.has(newStatus) && inArchive;
   let finalPath = filePath;
 
   if (dryRun) {
@@ -239,7 +241,10 @@ export function runArchive(argv, config, opts = {}) {
 
   const filePath = resolveDocPath(input, config);
   if (!filePath) { die(`File not found: ${input}\nSearched: ${toRepoPath(config.repoRoot, config.repoRoot) || '.'}, ${toRepoPath(config.docsRoot, config.repoRoot)}`); }
-  if (filePath.includes(`/${config.archiveDir}/`)) { die(`Already archived: ${toRepoPath(filePath, config.repoRoot)}`); }
+
+  const archiveFileRoot = findFileRoot(filePath, config);
+  const relFromRoot = path.relative(archiveFileRoot, filePath);
+  if (relFromRoot.startsWith(config.archiveDir + '/') || relFromRoot.startsWith(config.archiveDir + path.sep)) { die(`Already archived: ${toRepoPath(filePath, config.repoRoot)}`); }
 
   const raw = readFileSync(filePath, 'utf8');
   const { frontmatter } = extractFrontmatter(raw);
@@ -247,7 +252,6 @@ export function runArchive(argv, config, opts = {}) {
   const oldStatus = asString(parsed.status) ?? 'unknown';
 
   const today = new Date().toISOString().slice(0, 10);
-  const archiveFileRoot = findFileRoot(filePath, config);
   const targetDir = path.join(archiveFileRoot, config.archiveDir);
   const targetPath = path.join(targetDir, path.basename(filePath));
   const oldRepoPath = toRepoPath(filePath, config.repoRoot);
@@ -314,7 +318,11 @@ export function runBulkArchive(argv, config, opts = {}) {
     }
   }
 
-  const unique = [...new Set(matched)].filter(f => !f.includes(`/${config.archiveDir}/`));
+  const unique = [...new Set(matched)].filter(f => {
+    const root = findFileRoot(f, config);
+    const rel = path.relative(root, f);
+    return !rel.startsWith(config.archiveDir + '/') && !rel.startsWith(config.archiveDir + path.sep);
+  });
   if (unique.length === 0) die('No matching files found (already-archived files are excluded).');
 
   process.stdout.write(`${unique.length} file(s) to archive:\n`);
