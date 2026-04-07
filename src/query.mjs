@@ -77,6 +77,7 @@ export function parseQueryArgs(argv) {
     types: null, statuses: null, keyword: null, owner: null, surface: null,
     module: null, domain: null, audience: null, executionMode: null,
     updatedSince: null, limit: 20, all: false, sort: 'updated',
+    group: null,
     stale: false, hasNextStep: false, hasBlockers: false,
     checklistOpen: false, json: false, git: false,
     summarize: false, summarizeLimit: 5, model: undefined,
@@ -98,6 +99,7 @@ export function parseQueryArgs(argv) {
     if (arg === '--updated-since' && next) { filters.updatedSince = next; i += 1; continue; }
     if (arg === '--limit' && next) { filters.limit = Number.parseInt(next, 10) || 20; i += 1; continue; }
     if (arg === '--sort' && next) { filters.sort = next; i += 1; continue; }
+    if (arg === '--group' && next) { filters.group = next; i += 1; continue; }
     if (arg === '--all') { filters.all = true; continue; }
     if (arg === '--stale') { filters.stale = true; continue; }
     if (arg === '--has-next-step') { filters.hasNextStep = true; continue; }
@@ -248,50 +250,85 @@ function renderPlansOutput(docs, filters, config) {
   // Active filter note (only if user applied extra filters beyond the preset defaults)
   const activeFilters = [];
   if (filters.statuses?.length) activeFilters.push(`status: ${filters.statuses.join(', ')}`);
+  if (filters.module) activeFilters.push(`module: ${filters.module}`);
+  if (filters.surface) activeFilters.push(`surface: ${filters.surface}`);
+  if (filters.owner) activeFilters.push(`owner: ${filters.owner}`);
   if (filters.keyword) activeFilters.push(`keyword: ${filters.keyword}`);
   if (filters.stale) activeFilters.push('stale only');
   if (filters.hasNextStep) activeFilters.push('has next step');
   if (filters.hasBlockers) activeFilters.push('has blockers');
   if (activeFilters.length) process.stdout.write(dim(`  filtered: ${activeFilters.join(' | ')}`) + '\n');
 
-  // Group by status, ordered by config.statusOrder
-  const statusGroups = new Map();
-  for (const d of docs) {
-    const s = d.status ?? 'unknown';
-    if (!statusGroups.has(s)) statusGroups.set(s, []);
-    statusGroups.get(s).push(d);
-  }
-
-  const orderedStatuses = [...config.statusOrder.filter(s => statusGroups.has(s)), ...([...statusGroups.keys()].filter(s => !config.statusOrder.includes(s)))];
   const maxWidth = process.stdout.columns || 100;
 
-  for (const status of orderedStatuses) {
-    const group = statusGroups.get(status);
-    process.stdout.write(`\n${bold(`${capitalize(status)} (${group.length})`)}\n`);
+  // Group by module or status
+  if (filters.group === 'module') {
+    renderPlansByGroup(docs, d => d.modules?.length ? d.modules : ['(none)'], filters, maxWidth);
+  } else if (filters.group === 'surface') {
+    renderPlansByGroup(docs, d => d.surfaces?.length ? d.surfaces : ['(none)'], filters, maxWidth);
+  } else if (filters.group === 'owner') {
+    renderPlansByGroup(docs, d => [d.owner ?? '(none)'], filters, maxWidth);
+  } else {
+    // Default: group by status, ordered by config.statusOrder
+    const statusGroups = new Map();
+    for (const d of docs) {
+      const s = d.status ?? 'unknown';
+      if (!statusGroups.has(s)) statusGroups.set(s, []);
+      statusGroups.get(s).push(d);
+    }
 
-    const maxSlug = Math.min(30, Math.max(...group.map(d => toSlug(d).length)));
+    const orderedStatuses = [...config.statusOrder.filter(s => statusGroups.has(s)), ...([...statusGroups.keys()].filter(s => !config.statusOrder.includes(s)))];
 
-    for (const doc of group) {
-      const slug = toSlug(doc).padEnd(maxSlug);
-      const age = doc.daysSinceUpdate != null ? `${doc.daysSinceUpdate}d` : ' —';
-      const ageStr = doc.daysSinceUpdate != null && doc.isStale ? red(age.padStart(4)) : dim(age.padStart(4));
-      const progress = renderProgressBar(doc.checklist);
-
-      const parts = [`  ${slug}  ${ageStr}`];
-      if (progress) parts.push(progress);
-
-      if (doc.blockers?.length && (status === 'blocked')) {
-        parts.push(yellow(`blockers: ${doc.blockers.join('; ')}`));
-      } else if (doc.nextStep) {
-        parts.push(`next: ${doc.nextStep}`);
-      } else {
-        parts.push(dim('(no next step)'));
-      }
-
-      const line = parts.join('  ');
-      process.stdout.write((line.length > maxWidth ? line.slice(0, maxWidth - 3) + '...' : line) + '\n');
+    for (const status of orderedStatuses) {
+      const group = statusGroups.get(status);
+      process.stdout.write(`\n${bold(`${capitalize(status)} (${group.length})`)}\n`);
+      renderPlanRows(group, filters, maxWidth);
     }
   }
 
   process.stdout.write('\n');
+}
+
+function renderPlansByGroup(docs, keyFn, filters, maxWidth) {
+  const groups = new Map();
+  for (const d of docs) {
+    for (const key of keyFn(d)) {
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(d);
+    }
+  }
+
+  const ordered = [...groups.keys()].sort((a, b) => a === '(none)' ? 1 : b === '(none)' ? -1 : a.localeCompare(b));
+  for (const key of ordered) {
+    const group = groups.get(key);
+    process.stdout.write(`\n${bold(`${key} (${group.length})`)}\n`);
+    renderPlanRows(group, filters, maxWidth);
+  }
+}
+
+function renderPlanRows(group, filters, maxWidth) {
+  const maxSlug = Math.min(30, Math.max(...group.map(d => toSlug(d).length)));
+  const showModule = !filters.module && filters.group !== 'module';
+
+  for (const doc of group) {
+    const slug = toSlug(doc).padEnd(maxSlug);
+    const age = doc.daysSinceUpdate != null ? `${doc.daysSinceUpdate}d` : ' —';
+    const ageStr = doc.daysSinceUpdate != null && doc.isStale ? red(age.padStart(4)) : dim(age.padStart(4));
+    const progress = renderProgressBar(doc.checklist);
+
+    const parts = [`  ${slug}  ${ageStr}`];
+    if (progress) parts.push(progress);
+    if (showModule && doc.modules?.length) parts.push(dim(`[${doc.modules.join(',')}]`));
+
+    if (doc.blockers?.length && (doc.status === 'blocked')) {
+      parts.push(yellow(`blockers: ${doc.blockers.join('; ')}`));
+    } else if (doc.nextStep) {
+      parts.push(`next: ${doc.nextStep}`);
+    } else {
+      parts.push(dim('(no next step)'));
+    }
+
+    const line = parts.join('  ');
+    process.stdout.write((line.length > maxWidth ? line.slice(0, maxWidth - 3) + '...' : line) + '\n');
+  }
 }

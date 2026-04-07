@@ -103,6 +103,7 @@ Filters:
   --has-blockers         Only docs with blockers
   --checklist-open       Only docs with open checklist items
   --sort <field>         Sort by: updated (default), title, status
+  --group <field>        Group by: module, surface, owner (plans view)
   --limit <n>            Max results (default: 20)
   --all                  Show all results (no limit)
   --git                  Use git dates instead of frontmatter
@@ -365,11 +366,13 @@ modules, and reference fields to pre-populate the config.`,
   plans: `dotmd plans — list all plans
 
 Shows all documents with type: plan, sorted by status.
-Supports all query flags (--status, --json, --sort, etc.)
+Supports all query flags (--status, --module, --json, --sort, --group, etc.)
 
 Examples:
   dotmd plans                       # all plans
   dotmd plans --status active       # active plans only
+  dotmd plans --module auth         # plans for the auth module
+  dotmd plans --group module        # all plans grouped by module
   dotmd plans --json                # JSON output`,
 
   stale: `dotmd stale — list stale documents

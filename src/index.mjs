@@ -146,7 +146,7 @@ export function parseDocFile(filePath, config) {
 
   // Tag doc with its root
   const roots = config.docsRoots || [config.docsRoot];
-  const docRoot = roots.find(r => filePath.startsWith(r)) ?? config.docsRoot;
+  const docRoot = roots.find(r => filePath.startsWith(r + '/')) ?? config.docsRoot;
   const rootLabel = path.relative(config.repoRoot, docRoot).split(path.sep).join('/');
 
   const docType = asString(parsedFrontmatter.type) ?? null;
