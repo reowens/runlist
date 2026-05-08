@@ -272,6 +272,42 @@ describe('rich status definitions', () => {
     ok(!config.lifecycle.skipWarningsFor.has('blocked'), 'blocked does not skip warnings');
   });
 
+  it('treats `quiet: true` as sugar for skipStale + skipWarnings', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const types = {
+        plan: {
+          statuses: {
+            'active':  { context: 'expanded', staleDays: 14 },
+            'partial': { context: 'expanded', quiet: true },
+            'archived': { context: 'counted', archive: true, terminal: true, quiet: true },
+          }
+        }
+      };
+    `);
+    const config = await resolveConfig(tmpDir);
+    ok(config.lifecycle.skipStaleFor.has('partial'), 'quiet implies skipStale');
+    ok(config.lifecycle.skipWarningsFor.has('partial'), 'quiet implies skipWarnings');
+    ok(!config.lifecycle.terminalStatuses.has('partial'), 'quiet does not imply terminal');
+    ok(config.lifecycle.skipStaleFor.has('archived'), 'quiet+terminal still applies skipStale');
+    ok(config.lifecycle.skipWarningsFor.has('archived'), 'quiet+terminal still applies skipWarnings');
+    ok(config.lifecycle.terminalStatuses.has('archived'), 'terminal still applies independently');
+  });
+
+  it('lets explicit `skipStale: false` override `quiet: true`', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const types = {
+        plan: {
+          statuses: {
+            'awaiting': { context: 'listed', quiet: true, skipStale: false },
+          }
+        }
+      };
+    `);
+    const config = await resolveConfig(tmpDir);
+    ok(!config.lifecycle.skipStaleFor.has('awaiting'), 'explicit false wins over quiet sugar');
+    ok(config.lifecycle.skipWarningsFor.has('awaiting'), 'other half of quiet still applies');
+  });
+
   it('derives staleDays from rich statuses', async () => {
     writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
       export const types = {

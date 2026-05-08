@@ -8,10 +8,10 @@ function pct(n, total) {
 
 export function buildStats(index, config) {
   const docs = index.docs;
-  const scope = config.statusOrder.filter(s => !config.lifecycle.terminalStatuses.has(s) && !config.lifecycle.skipWarningsFor.has(s));
+  const scope = config.statusOrder.filter(s => !config.lifecycle.terminalStatuses.has(s));
   for (const typeSet of (config.typeStatuses?.values() ?? [])) {
     for (const s of typeSet) {
-      if (!config.lifecycle.terminalStatuses.has(s) && !config.lifecycle.skipWarningsFor.has(s) && !scope.includes(s)) scope.push(s);
+      if (!config.lifecycle.terminalStatuses.has(s) && !scope.includes(s)) scope.push(s);
     }
   }
   const scoped = docs.filter(d => scope.includes(d.status));

@@ -147,9 +147,13 @@ function normalizeRichStatuses(config, userConfig) {
         derived.staleDays[name] = p.staleDays;
       }
 
+      // `quiet: true` is sugar for skipStale + skipWarnings unless those are explicitly false.
+      const quietImpliesSkipStale = p.quiet && p.skipStale !== false;
+      const quietImpliesSkipWarnings = p.quiet && p.skipWarnings !== false;
+
       if (p.archive && !derived.archiveStatuses.includes(name)) derived.archiveStatuses.push(name);
-      if (p.skipStale && !derived.skipStaleFor.includes(name)) derived.skipStaleFor.push(name);
-      if (p.skipWarnings && !derived.skipWarningsFor.includes(name)) derived.skipWarningsFor.push(name);
+      if ((p.skipStale || quietImpliesSkipStale) && !derived.skipStaleFor.includes(name)) derived.skipStaleFor.push(name);
+      if ((p.skipWarnings || quietImpliesSkipWarnings) && !derived.skipWarningsFor.includes(name)) derived.skipWarningsFor.push(name);
       if (p.terminal && !derived.terminalStatuses.includes(name)) derived.terminalStatuses.push(name);
       if (p.requiresModule && !derived.moduleRequiredFor.includes(name)) derived.moduleRequiredFor.push(name);
 

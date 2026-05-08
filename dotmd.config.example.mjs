@@ -25,10 +25,16 @@ export const excludeDirs = ['evidence'];
 //   context:        'expanded' | 'listed' | 'counted' (default: 'counted')
 //   staleDays:      number | null — stale threshold (default: null = never stale)
 //   requiresModule: boolean — require `module` frontmatter (default: false)
-//   terminal:       boolean — skip current_state/next_step warnings (default: false)
 //   archive:        boolean — auto-move to archiveDir on transition (default: false)
+//   terminal:       boolean — closed state; excluded from active-work stats/coverage scope (default: false)
 //   skipStale:      boolean — exempt from stale checks (default: false)
 //   skipWarnings:   boolean — exempt from validation warnings (default: false)
+//   quiet:          boolean — sugar for `skipStale: true, skipWarnings: true`. Use for visible-but-quiet
+//                   statuses (e.g. `partial`) where you want no nagging but DO want them in scope.
+//                   Setting `skipStale: false` or `skipWarnings: false` explicitly overrides the sugar.
+//
+// `terminal` and `quiet` are orthogonal. Mark a status `terminal` only when it represents closure
+// (excluded from active-work scope). Use `quiet` for noise suppression without closure semantics.
 //
 // export const types = {
 //   plan: {
@@ -37,8 +43,9 @@ export const excludeDirs = ['evidence'];
 //       'active':     { context: 'expanded', staleDays: 14, requiresModule: true },
 //       'planned':    { context: 'listed', staleDays: 30, requiresModule: true },
 //       'blocked':    { context: 'listed', staleDays: 30, requiresModule: true, skipStale: true },
-//       'done':       { context: 'counted', terminal: true, skipStale: true, skipWarnings: true },
-//       'archived':   { context: 'counted', archive: true, terminal: true, skipStale: true, skipWarnings: true },
+//       'partial':    { context: 'expanded', requiresModule: true, quiet: true },  // shipped + deferred tail; visible, no nagging
+//       'done':       { context: 'counted', terminal: true, quiet: true },
+//       'archived':   { context: 'counted', archive: true, terminal: true, quiet: true },
 //     },
 //   },
 //   doc: {
@@ -48,7 +55,7 @@ export const excludeDirs = ['evidence'];
 //       'review':     { context: 'listed', staleDays: 14 },
 //       'reference':  { context: 'counted', skipStale: true },
 //       'deprecated': { context: 'counted', terminal: true, skipStale: true },
-//       'archived':   { context: 'counted', archive: true, terminal: true, skipStale: true, skipWarnings: true },
+//       'archived':   { context: 'counted', archive: true, terminal: true, quiet: true },
 //     },
 //   },
 // };

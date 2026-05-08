@@ -92,6 +92,45 @@ describe('buildStats', () => {
     strictEqual(stats.freshness.oldest.daysSinceUpdate, 100);
   });
 
+  it('includes quiet-but-not-terminal statuses in scope', () => {
+    // Regression: stats.mjs:11 used to filter on `!terminal && !skipWarnings`,
+    // hiding quiet-but-visible statuses (e.g. `partial`) from active-work scope.
+    const config = makeConfig({
+      statusOrder: ['active', 'partial', 'archived'],
+      lifecycle: {
+        skipWarningsFor: new Set(['partial', 'archived']),
+        skipStaleFor: new Set(['partial', 'archived']),
+        archiveStatuses: new Set(['archived']),
+        terminalStatuses: new Set(['archived']),
+      },
+    });
+    const index = makeIndex([
+      makeDoc({ status: 'active', surface: 'web', module: 'auth', hasNextStep: true }),
+      makeDoc({ status: 'partial', surface: null, module: null, hasNextStep: false }),
+      makeDoc({ status: 'archived', surface: null, module: null, hasNextStep: false }),
+    ]);
+    const stats = buildStats(index, config);
+    strictEqual(stats.completeness.scoped, 2, 'partial and active are in scope; archived is excluded by terminal');
+  });
+
+  it('excludes terminal statuses from scope regardless of skipWarnings', () => {
+    const config = makeConfig({
+      statusOrder: ['active', 'done'],
+      lifecycle: {
+        skipWarningsFor: new Set(),
+        skipStaleFor: new Set(),
+        archiveStatuses: new Set(),
+        terminalStatuses: new Set(['done']),
+      },
+    });
+    const index = makeIndex([
+      makeDoc({ status: 'active' }),
+      makeDoc({ status: 'done' }),
+    ]);
+    const stats = buildStats(index, config);
+    strictEqual(stats.completeness.scoped, 1, 'terminal alone excludes from scope');
+  });
+
   it('computes completeness for scoped docs', () => {
     const config = makeConfig();
     const index = makeIndex([
