@@ -25,15 +25,67 @@ describe('resolveConfig', () => {
     ok(config.validStatuses.has('active'));
     ok(config.validStatuses.has('archived'));
     ok(config.validStatuses.has('in-session')); // plan-specific
-    ok(config.validStatuses.has('done'));        // plan-specific
-    ok(config.validStatuses.has('draft'));       // doc-specific
-    ok(config.validStatuses.has('review'));      // doc-specific
+    ok(config.validStatuses.has('partial'));    // plan-specific (new in 0.15)
+    ok(config.validStatuses.has('paused'));     // plan-specific (new in 0.15)
+    ok(config.validStatuses.has('awaiting'));   // plan-specific (new in 0.15)
+    ok(config.validStatuses.has('queued-after'));// plan-specific (new in 0.15)
+    ok(!config.validStatuses.has('done'), 'done was removed from defaults in 0.15');
+    ok(config.validStatuses.has('draft'));      // doc-specific
+    ok(config.validStatuses.has('review'));     // doc-specific
     ok(config.validStatuses.has('deprecated')); // doc-specific
     ok(config.validTypes.has('plan'));
     ok(config.validTypes.has('doc'));
     ok(config.validTypes.has('research'));
     strictEqual(config.archiveDir, 'archived');
     strictEqual(config.indexPath, null);
+  });
+
+  it('default plan vocabulary covers unstuck-action distinctions', async () => {
+    const config = await resolveConfig(tmpDir);
+    const planStatuses = config.typeStatuses.get('plan');
+    // Every named status in the spec is present
+    for (const s of ['in-session', 'active', 'planned', 'blocked', 'partial', 'paused', 'awaiting', 'queued-after', 'archived']) {
+      ok(planStatuses.has(s), `plan should include '${s}'`);
+    }
+    ok(!planStatuses.has('done'), 'done should be dropped from plan defaults');
+  });
+
+  it('default lifecycle flags match the new plan vocabulary', async () => {
+    const config = await resolveConfig(tmpDir);
+    const { skipStaleFor, skipWarningsFor, terminalStatuses, archiveStatuses } = config.lifecycle;
+
+    // Quiet statuses skip both stale + warnings (sugar applied at the lifecycle level)
+    for (const s of ['partial', 'paused', 'queued-after']) {
+      ok(skipStaleFor.has(s), `${s} should skip stale (quiet)`);
+      ok(skipWarningsFor.has(s), `${s} should skip warnings (quiet)`);
+      ok(!terminalStatuses.has(s), `${s} must not be terminal — it stays in active scope`);
+    }
+
+    // awaiting is deliberately loud — pings get forgotten
+    ok(!skipStaleFor.has('awaiting'), 'awaiting must generate stale pressure');
+    ok(!skipWarningsFor.has('awaiting'), 'awaiting must surface warnings');
+
+    // archived stays terminal + archive
+    ok(terminalStatuses.has('archived'));
+    ok(archiveStatuses.has('archived'));
+
+    // done is gone — must not appear in any lifecycle bucket
+    ok(!terminalStatuses.has('done'), 'done dropped from terminalStatuses');
+    ok(!skipStaleFor.has('done'));
+    ok(!skipWarningsFor.has('done'));
+  });
+
+  it('new plan statuses require module by default', async () => {
+    const config = await resolveConfig(tmpDir);
+    for (const s of ['partial', 'paused', 'awaiting', 'queued-after']) {
+      ok(config.moduleRequiredStatuses.has(s), `${s} should require module`);
+    }
+  });
+
+  it('awaiting has a stale threshold so pings don\'t decay silently', async () => {
+    const config = await resolveConfig(tmpDir);
+    strictEqual(typeof config.staleDaysByStatus.awaiting, 'number');
+    ok(config.staleDaysByStatus.awaiting > 0, 'awaiting should have a positive stale threshold');
   });
 
   it('merges user config over defaults', async () => {

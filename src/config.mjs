@@ -22,9 +22,13 @@ const DEFAULTS = {
 
   types: {
     plan: {
-      statuses: ['in-session', 'active', 'planned', 'blocked', 'done', 'archived'],
-      context: { expanded: ['in-session', 'active'], listed: ['planned', 'blocked'], counted: ['done', 'archived'] },
-      staleDays: { 'in-session': 1, active: 14, planned: 30, blocked: 30 },
+      statuses: ['in-session', 'active', 'planned', 'blocked', 'partial', 'paused', 'awaiting', 'queued-after', 'archived'],
+      context: {
+        expanded: ['in-session', 'active', 'partial'],
+        listed: ['planned', 'blocked', 'paused', 'awaiting'],
+        counted: ['queued-after', 'archived'],
+      },
+      staleDays: { 'in-session': 1, active: 14, planned: 30, blocked: 30, awaiting: 14 },
     },
     doc: {
       statuses: ['draft', 'active', 'review', 'reference', 'deprecated', 'archived'],
@@ -51,14 +55,14 @@ const DEFAULTS = {
 
   lifecycle: {
     archiveStatuses: ['archived'],
-    skipStaleFor: ['archived', 'reference'],
-    skipWarningsFor: ['archived'],
-    terminalStatuses: ['archived', 'deprecated', 'reference', 'done'],
+    skipStaleFor: ['archived', 'reference', 'partial', 'paused', 'queued-after'],
+    skipWarningsFor: ['archived', 'partial', 'paused', 'queued-after'],
+    terminalStatuses: ['archived', 'deprecated', 'reference'],
   },
 
   taxonomy: {
     surfaces: null,
-    moduleRequiredFor: [],
+    moduleRequiredFor: ['partial', 'paused', 'awaiting', 'queued-after'],
   },
 
   index: null,

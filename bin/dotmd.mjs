@@ -140,6 +140,17 @@ Moves the document to the new status. If transitioning to an archive
 status, automatically moves the file to the archive directory and
 regenerates the index (if configured).
 
+Default plan statuses (each maps to a distinct unstuck-action):
+  in-session     A Claude session is working on it now
+  active         Ready to be picked up
+  planned        Queued for future work
+  blocked        External arrival wait — monitor (hardware, vendor, rollout)
+  partial        Shipped + deferred tail — spawn successor plans
+  paused         Intentionally set aside — re-evaluate to resume
+  awaiting       Needs human input/decision — chase the answer
+  queued-after   Sequenced behind another plan — check predecessor
+  archived       No longer relevant; auto-moved to archive directory
+
 Use --dry-run (-n) to preview changes without writing anything.`,
 
   check: `dotmd check — validate frontmatter and references
@@ -262,6 +273,10 @@ Options:
   --root <name>        Create in a specific docs root
   --list-templates     Show available templates
 
+For plans, the default status vocabulary is: in-session, active, planned,
+blocked, partial, paused, awaiting, queued-after, archived. Run
+\`dotmd status --help\` for what each one means.
+
 The filename is derived from <name> by slugifying it.
 Use --dry-run (-n) to preview without creating the file.`,
 
@@ -368,12 +383,18 @@ modules, and reference fields to pre-populate the config.`,
 Shows all documents with type: plan, sorted by status.
 Supports all query flags (--status, --module, --json, --sort, --group, etc.)
 
+Default plan statuses: in-session, active, planned, blocked, partial,
+paused, awaiting, queued-after, archived. Run \`dotmd status --help\` for
+the unstuck-action behind each one.
+
 Examples:
-  dotmd plans                       # all plans
-  dotmd plans --status active       # active plans only
-  dotmd plans --module auth         # plans for the auth module
-  dotmd plans --group module        # all plans grouped by module
-  dotmd plans --json                # JSON output`,
+  dotmd plans                          # all plans
+  dotmd plans --status active          # active plans only
+  dotmd plans --status awaiting        # plans waiting on a human decision
+  dotmd plans --status partial,paused  # shipped-tail and parked plans
+  dotmd plans --module auth            # plans for the auth module
+  dotmd plans --group module           # all plans grouped by module
+  dotmd plans --json                   # JSON output`,
 
   stale: `dotmd stale — list stale documents
 

@@ -12,24 +12,35 @@ Every document has a `type:` field in its frontmatter. Types determine which sta
 
 | type | purpose | statuses |
 |------|---------|----------|
-| `plan` | Execution plans that Claude sessions work on | `in-session`, `active`, `planned`, `blocked`, `done`, `archived` |
+| `plan` | Execution plans that Claude sessions work on | `in-session`, `active`, `planned`, `blocked`, `partial`, `paused`, `awaiting`, `queued-after`, `archived` |
 | `doc` | Reference material, design docs, specs, ADRs, RFCs | `draft`, `active`, `review`, `reference`, `deprecated`, `archived` |
 | `research` | Investigations, audits, analysis | `active`, `reference`, `archived` |
 
 ### Plan statuses explained
 
-- **`in-session`** — A Claude instance is actively working on this plan right now. Do not pick up `in-session` plans. When you start working on a plan, set it to `in-session`. When you finish, set it to `done` or back to `active`.
+Each stop-status maps to a distinct **unstuck-action** — that's the test for whether the status earns its keep.
+
+- **`in-session`** — A Claude instance is actively working on this plan right now. Do not pick up `in-session` plans. When you start working on a plan, set it to `in-session`.
 - **`active`** — Ready for a Claude session to pick up and work on.
 - **`planned`** — Queued for future work, not yet ready to execute.
-- **`blocked`** — Cannot proceed, has blockers listed in frontmatter.
-- **`done`** — Work is complete.
+- **`blocked`** — *Unstuck-action: monitor.* External arrival on its own schedule (hardware, vendor delivery, third-party rollout). You can't speed it up.
+- **`partial`** — *Unstuck-action: spawn successors.* Shipped most of the plan; tail work deferred. The plan body should reference the successor plan(s) tracking the tail. Visible but quiet (no nagging stale warnings).
+- **`paused`** — *Unstuck-action: re-evaluate.* Intentionally set aside, no external dependency. Resume by deciding the work is worth picking back up. Quiet.
+- **`awaiting`** — *Unstuck-action: ask.* Needs a human decision or input. NOT quiet — pings get forgotten, so this status generates stale pressure to chase the answer.
+- **`queued-after`** — *Unstuck-action: check predecessor.* Sequenced behind another plan; can start once that one ships. Quiet.
 - **`archived`** — No longer relevant, moved to archive directory.
+
+To finish work, archive directly: `dotmd archive <plan-file>`. The legacy `done` status was dropped from defaults — `archived` is the closure state.
 
 ### Working with plans (for Claude instances)
 
 1. Get oriented: `dotmd briefing` (compact 5-10 line summary)
 2. Pick up a plan: `dotmd pickup <plan-file>` (sets in-session + prints content)
-3. When done: `dotmd finish <plan-file>` (or `dotmd finish <plan-file> active` if more work needed)
+3. When done — pick the right closure status:
+   - Fully shipped → `dotmd archive <plan-file>`
+   - Shipped + tail deferred (with successor plans referenced) → `dotmd status <plan-file> partial`
+   - Need more work later → `dotmd status <plan-file> active`
+   - Stuck on a human decision → `dotmd status <plan-file> awaiting`
 4. To see all plans: `dotmd plans`
 5. To see available plans: `dotmd plans --status active`
 6. To see what's in flight: `dotmd plans --status in-session`

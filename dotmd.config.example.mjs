@@ -36,16 +36,24 @@ export const excludeDirs = ['evidence'];
 // `terminal` and `quiet` are orthogonal. Mark a status `terminal` only when it represents closure
 // (excluded from active-work scope). Use `quiet` for noise suppression without closure semantics.
 //
+// Each plan stop-status maps to a distinct unstuck-action — the test for whether
+// the vocabulary earns its weight. blocked = monitor (external arrival on its own
+// schedule), awaiting = ask (chase the human/decision), queued-after = check the
+// predecessor, paused = re-evaluate, partial = spawn successor plans for the
+// deferred tail.
+//
 // export const types = {
 //   plan: {
 //     statuses: {
-//       'in-session': { context: 'expanded', staleDays: 1, requiresModule: true },
-//       'active':     { context: 'expanded', staleDays: 14, requiresModule: true },
-//       'planned':    { context: 'listed', staleDays: 30, requiresModule: true },
-//       'blocked':    { context: 'listed', staleDays: 30, requiresModule: true, skipStale: true },
-//       'partial':    { context: 'expanded', requiresModule: true, quiet: true },  // shipped + deferred tail; visible, no nagging
-//       'done':       { context: 'counted', terminal: true, quiet: true },
-//       'archived':   { context: 'counted', archive: true, terminal: true, quiet: true },
+//       'in-session':   { context: 'expanded', staleDays: 1, requiresModule: true },
+//       'active':       { context: 'expanded', staleDays: 14, requiresModule: true },
+//       'planned':      { context: 'listed', staleDays: 30, requiresModule: true },
+//       'blocked':      { context: 'listed', staleDays: 30, requiresModule: true },
+//       'partial':      { context: 'expanded', requiresModule: true, quiet: true },     // shipped + deferred tail; visible, no nagging
+//       'paused':       { context: 'listed', requiresModule: true, quiet: true },       // intentionally set aside, no external dep
+//       'awaiting':     { context: 'listed', staleDays: 14, requiresModule: true },     // human input/decision wait — NOT quiet (pings get forgotten)
+//       'queued-after': { context: 'counted', requiresModule: true, quiet: true },      // sequenced behind another plan
+//       'archived':     { context: 'counted', archive: true, terminal: true, quiet: true },
 //     },
 //   },
 //   doc: {
@@ -64,9 +72,13 @@ export const excludeDirs = ['evidence'];
 // When using array form, define behavior in separate statuses/lifecycle/taxonomy sections.
 // export const types = {
 //   plan: {
-//     statuses: ['in-session', 'active', 'planned', 'blocked', 'done', 'archived'],
-//     context: { expanded: ['in-session', 'active'], listed: ['planned', 'blocked'], counted: ['done', 'archived'] },
-//     staleDays: { 'in-session': 1, active: 14, planned: 30, blocked: 30 },
+//     statuses: ['in-session', 'active', 'planned', 'blocked', 'partial', 'paused', 'awaiting', 'queued-after', 'archived'],
+//     context: {
+//       expanded: ['in-session', 'active', 'partial'],
+//       listed: ['planned', 'blocked', 'paused', 'awaiting'],
+//       counted: ['queued-after', 'archived'],
+//     },
+//     staleDays: { 'in-session': 1, active: 14, planned: 30, blocked: 30, awaiting: 14 },
 //   },
 // };
 
