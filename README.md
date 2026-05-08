@@ -244,7 +244,29 @@ Shows: status counts, staleness, errors/warnings, freshness (today/week/month), 
 ```bash
 dotmd doctor                 # fix refs → lint → sync git dates → regen index
 dotmd doctor --dry-run       # preview all changes
+dotmd doctor --statuses      # detect overloaded status buckets (read-only)
+dotmd doctor --statuses --json  # machine-readable suggestions
 ```
+
+`--statuses` is a read-only diagnostic. It scans each status with at least
+10 plans and groups their `current_state` / `next_step` text against cue
+keywords for `partial`, `paused`, `awaiting`, `queued-after`, and `blocked`.
+When a single bucket lands plans in two or more cue groups (each above 15%
+of the bucket), it prints a split suggestion:
+
+```
+47 plan/backlog plans cluster across 4 patterns — consider splitting:
+  ~22 → partial       (cues: "shipped", "landed", "tail", "deferred")
+  ~15 → paused        (cues: "paused", "on hold", "set aside")
+  ~ 6 → queued-after  (cues: "after", "once", "depends on", "waiting on <plan>")
+  ~ 4 →               (kept in backlog — no clear pattern match)
+
+Heuristic — verify before migrating.
+```
+
+The heuristic is intentionally conservative: small buckets are skipped, plans
+that match no cues stay in the original bucket, and the output is always a
+suggestion — never a verdict.
 
 ### Graph
 

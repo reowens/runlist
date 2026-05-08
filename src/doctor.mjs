@@ -7,7 +7,41 @@ import { renderCheck } from './render.mjs';
 import { bold, dim, green, yellow } from './color.mjs';
 import { scaffoldClaudeCommands } from './claude-commands.mjs';
 
+// Tunable thresholds for `dotmd doctor --statuses` conflation detection.
+// MIN_BUCKET_SIZE: only flag buckets with at least this many docs (small buckets aren't worth nagging).
+// CUE_FLOOR_PCT: a target cue must claim at least this fraction of the bucket to be suggested.
+// A bucket is overloaded only when ≥2 distinct target cues each clear the floor.
+const MIN_BUCKET_SIZE = 10;
+const CUE_FLOOR_PCT = 0.15;
+
+// Cue patterns map keyword groups to candidate target statuses.
+// A doc is scored by counting regex hits in its current_state + next_step text;
+// the highest-scoring cue (if any) becomes its suggested bucket. Ties broken by
+// the iteration order below (deterministic). Patterns are intentionally simple
+// and tunable — false positives are fine, false confidence is not.
+const CUE_PATTERNS = {
+  partial: /\b(shipped|landed|merged|complete|tail|deferred|follow[- ]?up|left[- ]?over|remaining)\b/i,
+  paused: /\b(paused?|on hold|set aside|park(?:ed|ing)?|shelv(?:ed|ing)?|frozen|hibernat)/i,
+  'queued-after': /\b(after|once|when|depends on|behind|sequenced|wait(?:ing)? for [a-z\- ]+ to (?:ship|land|merge))\b/i,
+  awaiting: /\b(awaiting|need(?:s)? (?:input|decision|approval|sign[- ]?off)|pending (?:review|approval)|asked? (?:for|about))\b/i,
+  blocked: /\b(hardware|vendor|third[- ]?party|firmware|delivery|arrival|rollout)\b/i,
+};
+
+// Human-readable cue lists for the suggestion table.
+const CUE_LABELS = {
+  partial: '"shipped", "landed", "tail", "deferred"',
+  paused: '"paused", "on hold", "set aside"',
+  'queued-after': '"after", "once", "depends on", "waiting on <plan>"',
+  awaiting: '"awaiting", "needs decision", "pending review"',
+  blocked: '"hardware", "vendor", "third-party", "rollout"',
+};
+
 export function runDoctor(argv, config, opts = {}) {
+  if (argv.includes('--statuses')) {
+    runDoctorStatuses(config, { json: argv.includes('--json') });
+    return;
+  }
+
   const { dryRun } = opts;
   process.stdout.write(bold('dotmd doctor') + '\n\n');
 
@@ -52,4 +86,118 @@ export function runDoctor(argv, config, opts = {}) {
   process.stdout.write('\n' + bold('6. Remaining issues:') + '\n');
   const freshIndex = buildIndex(config);
   process.stdout.write(renderCheck(freshIndex, config));
+}
+
+export function analyzeStatusBuckets(docs) {
+  const buckets = new Map();
+  for (const doc of docs) {
+    if (!doc.status) continue;
+    const key = `${doc.type ?? 'unknown'}::${doc.status}`;
+    if (!buckets.has(key)) {
+      buckets.set(key, { type: doc.type ?? null, status: doc.status, docs: [] });
+    }
+    buckets.get(key).docs.push(doc);
+  }
+
+  const suggestions = [];
+
+  for (const bucket of buckets.values()) {
+    if (bucket.docs.length < MIN_BUCKET_SIZE) continue;
+    const floor = Math.max(1, Math.ceil(bucket.docs.length * CUE_FLOOR_PCT));
+
+    const targetCounts = {};
+    let unmatchedCount = 0;
+
+    for (const doc of bucket.docs) {
+      const text = `${doc.currentState ?? ''}\n${doc.nextStep ?? ''}`;
+      let bestCue = null;
+      let bestScore = 0;
+
+      for (const [cue, pattern] of Object.entries(CUE_PATTERNS)) {
+        if (cue === bucket.status) continue;
+        const globalPat = new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g');
+        const matches = text.match(globalPat);
+        const score = matches ? matches.length : 0;
+        if (score > bestScore) {
+          bestScore = score;
+          bestCue = cue;
+        }
+      }
+
+      if (bestCue == null) {
+        unmatchedCount++;
+      } else {
+        targetCounts[bestCue] = (targetCounts[bestCue] ?? 0) + 1;
+      }
+    }
+
+    const aboveFloor = Object.entries(targetCounts)
+      .filter(([, n]) => n >= floor)
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+
+    if (aboveFloor.length < 2) continue;
+
+    const splitCount = aboveFloor.reduce((s, [, n]) => s + n, 0);
+    const kept = bucket.docs.length - splitCount;
+
+    suggestions.push({
+      type: bucket.type,
+      status: bucket.status,
+      total: bucket.docs.length,
+      splits: aboveFloor.map(([target, count]) => ({
+        target,
+        count,
+        cues: CUE_LABELS[target] ?? '',
+      })),
+      kept,
+    });
+  }
+
+  suggestions.sort((a, b) => {
+    if ((a.type ?? '') !== (b.type ?? '')) return (a.type ?? '').localeCompare(b.type ?? '');
+    return a.status.localeCompare(b.status);
+  });
+
+  return suggestions;
+}
+
+function runDoctorStatuses(config, { json = false } = {}) {
+  const index = buildIndex(config);
+  const suggestions = analyzeStatusBuckets(index.docs);
+
+  if (json) {
+    process.stdout.write(JSON.stringify({
+      thresholds: { minBucketSize: MIN_BUCKET_SIZE, cueFloorPct: CUE_FLOOR_PCT },
+      suggestions,
+    }, null, 2) + '\n');
+    return;
+  }
+
+  process.stdout.write(bold('dotmd doctor --statuses') + '\n\n');
+
+  if (suggestions.length === 0) {
+    process.stdout.write(`No overloaded status buckets detected (min bucket size: ${MIN_BUCKET_SIZE}).\n`);
+    return;
+  }
+
+  for (const s of suggestions) {
+    const typeLabel = s.type ? `${s.type}/` : '';
+    const patternCount = s.splits.length + (s.kept > 0 ? 1 : 0);
+    process.stdout.write(
+      bold(`${s.total} ${typeLabel}${s.status} plans cluster across ${patternCount} patterns — consider splitting:`) + '\n'
+    );
+
+    const targetWidth = Math.max(...s.splits.map(x => x.target.length), 'kept'.length);
+    for (const split of s.splits) {
+      const target = green(split.target.padEnd(targetWidth));
+      process.stdout.write(`  ~${String(split.count).padStart(3)} → ${target}  (cues: ${split.cues})\n`);
+    }
+    if (s.kept > 0) {
+      const tail = dim(`(kept in ${s.status} — no clear pattern match)`);
+      process.stdout.write(`  ~${String(s.kept).padStart(3)} → ${' '.repeat(targetWidth)}  ${tail}\n`);
+    }
+    process.stdout.write('\n');
+  }
+
+  process.stdout.write(yellow('Heuristic — verify before migrating.') + '\n');
 }

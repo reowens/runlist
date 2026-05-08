@@ -236,6 +236,16 @@ Options:
 Runs in sequence: fix broken references, lint --fix, sync dates from
 git, regenerate index, then show remaining issues.
 
+Modes:
+  (default)              Auto-fix pass (writes by default; honors --dry-run)
+  --statuses             Read-only diagnostic: detect overloaded status
+                         buckets where one status holds plans pursuing
+                         multiple distinct unstuck-actions. Suggests how
+                         a bucket might split (e.g. backlog → partial /
+                         paused / queued-after). Heuristic only — verify
+                         before migrating.
+  --statuses --json      Machine-readable suggestion shape for tooling.
+
 Use --dry-run (-n) to preview all changes without writing anything.`,
 
   'fix-refs': `dotmd fix-refs — auto-fix broken reference paths
