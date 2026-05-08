@@ -49,7 +49,7 @@ Lifecycle:
   touch <file>                      Bump updated date
   touch --git                       Bulk-sync dates from git history
   rename <old> <new>                Rename doc and update all references
-  migrate <field> <old> <new>       Batch update a frontmatter field value
+  migrate <field> <old> <new> [f...]Batch update a frontmatter field value (optional file filter)
 
 Create & Export:
   new <name> [--template <t>]       Create doc from template (plan, adr, rfc, audit, design)
@@ -359,14 +359,22 @@ in other docs that point to the old filename.
 Body markdown links are warned about but not auto-fixed.
 Use --dry-run (-n) to preview changes without writing anything.`,
 
-  migrate: `dotmd migrate <field> <old-value> <new-value> — batch update a frontmatter field
+  migrate: `dotmd migrate <field> <old-value> <new-value> [files...] — batch update a frontmatter field
 
 Finds all docs where the given field equals old-value and updates it
-to new-value.
+to new-value. With no file args, every matching doc in the project is
+rewritten (whole-bucket rename).
+
+Pass one or more file args to scope the rewrite — only those files
+are considered. This is how you split one overloaded status into
+several distinct ones (e.g. moving some \`backlog\` plans to
+\`paused\` and others to \`partial\`). File args use the same matching
+as \`bulk archive\`: exact path, then substring fallback.
 
 Examples:
   dotmd migrate status research scoping
   dotmd migrate module auth identity
+  dotmd migrate status backlog paused docs/plans/foo.md docs/plans/bar.md
 
 Use --dry-run (-n) to preview changes without writing anything.`,
 

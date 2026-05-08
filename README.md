@@ -412,7 +412,19 @@ dotmd rename old-name.md new-name        # renames + updates refs
 ```bash
 dotmd migrate status research scoping       # rename a status (e.g. for the 0.15 default-vocab change)
 dotmd migrate module auth identity           # rename a module
+
+# Per-file form: split one overloaded status into several distinct ones.
+# Only the listed files are rewritten; every other doc with the old value is left alone.
+dotmd migrate status backlog paused docs/plans/foo.md docs/plans/bar.md
+dotmd migrate status backlog partial docs/plans/payments-future.md  # one at a time also works
 ```
+
+With no file args, `migrate` rewrites every doc whose field matches
+`<old-value>` (whole-bucket rename). Pass file args to scope the
+rewrite — useful when one status has been doing several jobs and you
+want to split it across the new vocabulary. File args match the same
+way as `bulk archive`: exact path first, then substring fallback
+against full path or basename.
 
 ### Preset Aliases
 
