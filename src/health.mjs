@@ -76,7 +76,7 @@ export function runHealth(argv, config) {
 
   // Pipeline
   process.stdout.write(bold('Pipeline:') + '\n');
-  const pipeline = ['active', 'paused', 'ready', 'planned', 'blocked', 'research', 'archived'];
+  const pipeline = ['active', 'paused', 'ready', 'planned', 'blocked', 'scoping', 'archived'];
   for (const s of pipeline) {
     const count = byStatus[s] || 0;
     if (count > 0) {

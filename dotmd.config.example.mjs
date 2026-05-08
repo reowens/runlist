@@ -85,7 +85,7 @@ export const excludeDirs = ['evidence'];
 // Status workflow — fallback for docs without a type field. Order determines display grouping.
 // When using rich status definitions, statuses.order and staleDays are derived automatically.
 export const statuses = {
-  order: ['active', 'ready', 'planned', 'research', 'blocked', 'reference', 'archived'],
+  order: ['active', 'ready', 'planned', 'scoping', 'blocked', 'reference', 'archived'],
   // Additional statuses valid only in specific roots (merged with order)
   // Useful when different doc areas track different things (e.g. plans vs module docs)
   // rootStatuses: {
@@ -98,7 +98,7 @@ export const statuses = {
     ready: 14,
     planned: 30,
     blocked: 30,
-    research: 30,
+    scoping: 30,
   },
 };
 
@@ -130,7 +130,7 @@ export const index = {
 export const context = {
   expanded: ['active'],
   listed: ['ready', 'planned'],
-  counted: ['blocked', 'research', 'reference', 'archived'],
+  counted: ['blocked', 'scoping', 'reference', 'archived'],
   recentDays: 3,
   recentStatuses: ['active', 'ready', 'planned'],
   recentLimit: 10,

@@ -403,7 +403,7 @@ export function formatSnapshot(doc, config) {
 
 function _formatSnapshot(doc) {
   const state = doc.currentState ?? 'No current_state set';
-  if (/^active:|^ready:|^planned:|^research:|^blocked:|^archived:/i.test(state)) {
+  if (/^active:|^ready:|^planned:|^scoping:|^blocked:|^archived:/i.test(state)) {
     return state;
   }
   return `${capitalize(doc.status ?? 'unknown')}: ${state}`;

@@ -410,8 +410,8 @@ dotmd rename old-name.md new-name        # renames + updates refs
 ### Migrate
 
 ```bash
-dotmd migrate status research exploration   # rename a status
-dotmd migrate module auth identity          # rename a module
+dotmd migrate status research scoping       # rename a status (e.g. for the 0.15 default-vocab change)
+dotmd migrate module auth identity           # rename a module
 ```
 
 ### Preset Aliases

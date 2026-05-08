@@ -68,7 +68,7 @@ function generateDetectedConfig(scan, rootPath) {
   lines.push(`export const root = '${rootPath}';`);
   lines.push('');
 
-  const defaultOrder = ['active', 'ready', 'planned', 'research', 'blocked', 'reference', 'archived'];
+  const defaultOrder = ['active', 'ready', 'planned', 'scoping', 'blocked', 'reference', 'archived'];
   const ordered = defaultOrder.filter(s => scan.statuses.has(s));
   const extra = [...scan.statuses].filter(s => !defaultOrder.includes(s)).sort();
   const allStatuses = [...ordered, ...extra];

@@ -365,7 +365,7 @@ Finds all docs where the given field equals old-value and updates it
 to new-value.
 
 Examples:
-  dotmd migrate status research exploration
+  dotmd migrate status research scoping
   dotmd migrate module auth identity
 
 Use --dry-run (-n) to preview changes without writing anything.`,

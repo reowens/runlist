@@ -43,13 +43,13 @@ const DEFAULTS = {
   },
 
   statuses: {
-    order: ['active', 'ready', 'planned', 'research', 'blocked', 'reference', 'archived'],
+    order: ['active', 'ready', 'planned', 'scoping', 'blocked', 'reference', 'archived'],
     staleDays: {
       active: 14,
       ready: 14,
       planned: 30,
       blocked: 30,
-      research: 30,
+      scoping: 30,
     },
   },
 
@@ -70,7 +70,7 @@ const DEFAULTS = {
   context: {
     expanded: ['active'],
     listed: ['ready', 'planned'],
-    counted: ['blocked', 'research', 'reference', 'archived'],
+    counted: ['blocked', 'scoping', 'reference', 'archived'],
     recentDays: 3,
     recentStatuses: ['active', 'ready', 'planned'],
     recentLimit: 10,
@@ -96,7 +96,7 @@ const DEFAULTS = {
 
   presets: {
     plans: ['--type', 'plan', '--sort', 'status', '--all'],
-    stale: ['--status', 'active,ready,planned,blocked,research', '--stale', '--sort', 'updated', '--all'],
+    stale: ['--status', 'active,ready,planned,blocked,scoping', '--stale', '--sort', 'updated', '--all'],
     actionable: ['--status', 'active,ready', '--has-next-step', '--sort', 'updated', '--all'],
   },
 };
