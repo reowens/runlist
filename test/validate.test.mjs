@@ -123,6 +123,65 @@ describe('body link validation', () => {
   });
 });
 
+describe('reference path resolution', () => {
+  function setupRefProject() {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-refresolve-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, 'docs', 'plans'), { recursive: true });
+    mkdirSync(path.join(tmpDir, 'docs', 'modules', 'catalog'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const root = 'docs';
+      export const referenceFields = { bidirectional: ['related_plans'], unidirectional: [] };
+    `);
+    return tmpDir;
+  }
+
+  it('accepts repo-root-relative paths in related_plans frontmatter', () => {
+    const root = setupRefProject();
+    // a.md is nested two deep; the repo-root form (docs/plans/b.md) should resolve.
+    writeFileSync(path.join(root, 'docs', 'plans', 'a.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\nrelated_plans:\n  - docs/plans/b.md\n---\n# A\n');
+    writeFileSync(path.join(root, 'docs', 'plans', 'b.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\nrelated_plans:\n  - docs/plans/a.md\n---\n# B\n');
+    const result = run(['check']);
+    ok(!result.stdout.includes('does not resolve'),
+      `repo-root-relative path should resolve. stdout: ${result.stdout}`);
+  });
+
+  it('accepts repo-root-relative paths in body links', () => {
+    const root = setupRefProject();
+    writeFileSync(path.join(root, 'docs', 'plans', 'a.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\n---\n# A\n\nSee [catalog](docs/modules/catalog/catalog.md).\n');
+    writeFileSync(path.join(root, 'docs', 'modules', 'catalog', 'catalog.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\n---\n# Catalog\n');
+    const result = run(['check']);
+    ok(!result.stdout.includes('body link'),
+      `repo-root-relative body link should resolve. stdout: ${result.stdout}`);
+  });
+
+  it('still flags genuinely missing reference targets', () => {
+    const root = setupRefProject();
+    writeFileSync(path.join(root, 'docs', 'plans', 'a.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\nrelated_plans:\n  - docs/plans/missing.md\n---\n# A\n');
+    const result = run(['check']);
+    ok(result.stdout.includes('does not resolve'),
+      `missing target should still be flagged. stdout: ${result.stdout}`);
+  });
+
+  it('treats both styles as the same target for bidirectional check', () => {
+    const root = setupRefProject();
+    // a.md uses repo-root style; b.md uses doc-relative style. Both should resolve
+    // to the same canonical key, so the bidirectional pair is satisfied.
+    writeFileSync(path.join(root, 'docs', 'plans', 'a.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\nrelated_plans:\n  - docs/plans/b.md\n---\n# A\n');
+    writeFileSync(path.join(root, 'docs', 'plans', 'b.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\nrelated_plans:\n  - ./a.md\n---\n# B\n');
+    const result = run(['check']);
+    ok(!result.stdout.includes('does not reference back'),
+      `bidirectional pair should be satisfied across both path styles. stdout: ${result.stdout}`);
+  });
+});
+
 describe('rootStatuses validation', () => {
   function setupMultiRootProject() {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-rootstatus-'));

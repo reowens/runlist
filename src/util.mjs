@@ -100,3 +100,17 @@ export function resolveDocPath(input, config) {
 
   return null;
 }
+
+// Resolve a reference path written in frontmatter or a body link.
+// Tries doc-relative first (the historical convention), then falls back to
+// repo-root-relative — so paths like `docs/foo/bar.md` written from any nesting
+// level resolve correctly. Returns the absolute path if either form exists,
+// else null.
+export function resolveRefPath(relPath, docDir, repoRoot) {
+  if (!relPath) return null;
+  const docRelative = path.resolve(docDir, relPath);
+  if (existsSync(docRelative)) return docRelative;
+  const repoRelative = path.resolve(repoRoot, relPath);
+  if (existsSync(repoRelative)) return repoRelative;
+  return null;
+}

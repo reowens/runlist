@@ -22,11 +22,18 @@ export function replaceFrontmatter(raw, newFrontmatter) {
   return `---\n${newFrontmatter}\n---\n${body}`;
 }
 
-export function parseSimpleFrontmatter(text) {
+// Parses our YAML subset. Optional `warnings` array receives non-fatal
+// structural issues (e.g. duplicate keys) — caller decides whether to surface
+// them. Default behavior is unchanged: keep first occurrence of a duplicate
+// key, ignore subsequent ones.
+export function parseSimpleFrontmatter(text, warnings) {
   const data = {};
+  const seenDupKeys = new Set();
   let currentArrayKey = null;
+  let lineNum = 0;
 
   for (const rawLine of text.split('\n')) {
+    lineNum++;
     const line = rawLine.replace(/\r$/, '');
     if (!line.trim()) continue;
 
@@ -35,6 +42,11 @@ export function parseSimpleFrontmatter(text) {
       const [, key, rawValue] = keyMatch;
       if (Object.prototype.hasOwnProperty.call(data, key)) {
         currentArrayKey = null;
+        if (warnings && !seenDupKeys.has(key)) {
+          seenDupKeys.add(key);
+          warnings.push({ key, line: lineNum,
+            message: `Duplicate frontmatter key \`${key}\` at line ${lineNum}; keeping first occurrence, ignoring later values.` });
+        }
         continue;
       }
       if (!rawValue.trim()) {

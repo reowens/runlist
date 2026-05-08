@@ -120,7 +120,8 @@ export function parseDocFile(filePath, config) {
   const relativePath = toRepoPath(filePath, config.repoRoot);
   const raw = readFileSync(filePath, 'utf8');
   const { frontmatter, body } = extractFrontmatter(raw);
-  const parsedFrontmatter = parseSimpleFrontmatter(frontmatter);
+  const fmWarnings = [];
+  const parsedFrontmatter = parseSimpleFrontmatter(frontmatter, fmWarnings);
   const headingTitle = extractFirstHeading(body);
   const title = asString(parsedFrontmatter.title) ?? headingTitle ?? path.basename(filePath, '.md');
   const summary = asString(parsedFrontmatter.summary) ?? extractSummary(body) ?? null;
@@ -186,6 +187,10 @@ export function parseDocFile(filePath, config) {
     warnings: [],
     errors: [],
   };
+
+  for (const w of fmWarnings) {
+    doc.warnings.push({ path: relativePath, level: 'warning', message: w.message });
+  }
 
   validateDoc(doc, parsedFrontmatter, headingTitle, config);
   return doc;

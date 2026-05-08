@@ -1,6 +1,5 @@
-import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { asString } from './util.mjs';
+import { asString, resolveRefPath } from './util.mjs';
 import { getGitLastModified, getGitLastModifiedBatch } from './git.mjs';
 import { toRepoPath } from './util.mjs';
 
@@ -101,8 +100,7 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
   const allRefFields = [...(config.referenceFields.bidirectional || []), ...(config.referenceFields.unidirectional || [])];
   for (const field of allRefFields) {
     for (const relPath of (doc.refFields[field] || [])) {
-      const resolved = path.resolve(docDir, relPath);
-      if (!existsSync(resolved)) {
+      if (!resolveRefPath(relPath, docDir, config.repoRoot)) {
         doc.errors.push({ path: doc.path, level: 'error', message: `${field} entry \`${relPath}\` does not resolve to an existing file.` });
       }
     }
@@ -110,8 +108,7 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
 
   // Validate body links resolve to existing files
   for (const link of (doc.bodyLinks || [])) {
-    const resolved = path.resolve(docDir, link.href);
-    if (!existsSync(resolved)) {
+    if (!resolveRefPath(link.href, docDir, config.repoRoot)) {
       doc.warnings.push({ path: doc.path, level: 'warning', message: `body link \`${link.href}\` does not resolve to an existing file.` });
     }
   }
@@ -128,7 +125,12 @@ export function checkBidirectionalReferences(docs, config) {
     const refs = new Set();
     for (const field of biFields) {
       for (const relPath of (doc.refFields[field] || [])) {
-        const resolved = path.resolve(docDir, relPath);
+        // Use the same doc-relative-then-repo-root fallback as validateDoc so
+        // both styles produce identical refMap keys; otherwise an entry like
+        // `docs/foo.md` (repo-root style) gets keyed as
+        // `<doc-parent>/docs/foo.md` and never matches the target's repo path.
+        const resolved = resolveRefPath(relPath, docDir, config.repoRoot)
+          ?? path.resolve(docDir, relPath);
         refs.add(toRepoPath(resolved, config.repoRoot));
       }
     }

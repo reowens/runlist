@@ -1,5 +1,5 @@
 import { describe, it } from 'node:test';
-import { strictEqual, deepStrictEqual } from 'node:assert';
+import { strictEqual, deepStrictEqual, ok } from 'node:assert';
 import { extractFrontmatter, parseSimpleFrontmatter, replaceFrontmatter } from '../src/frontmatter.mjs';
 
 describe('extractFrontmatter', () => {
@@ -83,6 +83,47 @@ describe('parseSimpleFrontmatter', () => {
   it('keeps first value for duplicate keys', () => {
     const result = parseSimpleFrontmatter('status: active\nmodule: catalog\nstatus: archived');
     strictEqual(result.status, 'active');
+  });
+
+  it('emits a warning when an optional warnings array is passed and a key duplicates', () => {
+    const warnings = [];
+    parseSimpleFrontmatter('status: active\nstatus: archived', warnings);
+    strictEqual(warnings.length, 1);
+    strictEqual(warnings[0].key, 'status');
+    strictEqual(warnings[0].line, 2);
+    ok(warnings[0].message.includes('Duplicate frontmatter key'),
+      `expected duplicate-key warning, got: ${warnings[0].message}`);
+  });
+
+  it('warns once per duplicate key even when key repeats more than twice', () => {
+    const warnings = [];
+    parseSimpleFrontmatter('status: a\nstatus: b\nstatus: c', warnings);
+    strictEqual(warnings.length, 1, 'should not emit duplicate warnings for the same key');
+  });
+
+  it('warns separately for distinct duplicate keys', () => {
+    const warnings = [];
+    parseSimpleFrontmatter('status: a\nmodule: catalog\nstatus: b\nmodule: ledger', warnings);
+    strictEqual(warnings.length, 2);
+    deepStrictEqual(warnings.map(w => w.key).sort(), ['module', 'status']);
+  });
+
+  it('also warns when a list-valued key is duplicated (silent bug case)', () => {
+    const warnings = [];
+    const result = parseSimpleFrontmatter(
+      'related_plans:\n  - a.md\n  - b.md\nrelated_plans:\n  - c.md\n  - d.md',
+      warnings,
+    );
+    deepStrictEqual(result.related_plans, ['a.md', 'b.md'],
+      'first list wins (existing behavior preserved)');
+    strictEqual(warnings.length, 1, 'duplicate list key surfaces a warning');
+    strictEqual(warnings[0].key, 'related_plans');
+  });
+
+  it('omits warnings when no warnings array is passed (backward compatible)', () => {
+    // No second argument — should not throw, behavior unchanged.
+    const result = parseSimpleFrontmatter('status: a\nstatus: b');
+    strictEqual(result.status, 'a');
   });
 
   it('preserves mismatched quotes as literal text', () => {
