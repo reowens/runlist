@@ -2,7 +2,16 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
-## Unreleased
+## 0.16.1 — 2026-05-09
+
+### Changed
+
+- **Default `paused` plan-status is now loud, not quiet.** Previously configured as `quiet: true` (skipStale + skipWarnings); now configured with `staleDays: 3` and no quiet sugar. The original definition treated `paused` as "intentionally set aside" — interchangeable with `queued-after` — but real usage shows `paused` means "started, stopped mid-work, needs near-term review." That deserves stale pressure, not silence. Projects with custom `types.plan.statuses` overrides are unaffected.
+  - Lifecycle-flag effect: `paused` is no longer in `skipStaleFor` / `skipWarningsFor` defaults; it is now in `staleDays` with a 3-day threshold. Still NOT terminal — it stays in active-work scope.
+  - README and CLAUDE.md tables updated; rich-form example in `dotmd.config.example.mjs` reflects the new default.
+  - If you relied on the old quiet behavior, add an explicit `paused: { quiet: true }` override to your project's `types.plan.statuses` (or run `dotmd statuses set paused --type plan --quiet`).
+
+## 0.16.0 — 2026-05-09
 
 ### Breaking changes
 

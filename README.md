@@ -117,12 +117,12 @@ The default plan vocabulary is shaped around the **unstuck-action test**: every 
 | `planned` | Wait for trigger | Queued; not yet ready to execute. |
 | `blocked` | **Monitor** | External arrival on its own schedule (hardware, vendor, third-party rollout). You can't speed it up. |
 | `partial` | **Spawn successors** | Shipped most of the plan; tail deferred. Body should reference successor plans tracking the tail. Visible but quiet (no nagging). |
-| `paused` | **Re-evaluate** | Intentionally set aside, no external dependency. Resume by deciding the work is still worth doing. Quiet. |
+| `paused` | **Re-evaluate** | Started but stopped mid-work; needs near-term review. NOT quiet — short (3-day) stale threshold so resume-decisions don't decay. |
 | `awaiting` | **Ask** | Needs a human decision or input. NOT quiet — pings get forgotten, so this status generates stale pressure to chase the answer. |
 | `queued-after` | **Check predecessor** | Sequenced behind another plan; can start once that one ships. Quiet. |
 | `archived` | — | No longer relevant; auto-moved to the archive directory on transition. |
 
-Each *quiet* status (`partial`, `paused`, `queued-after`, `archived`) is exempt from stale-warning pressure but still appears in active scope and metrics — quietness is a presentation flag, not a closure flag. `awaiting` deliberately stays loud so unanswered questions don't decay into invisible backlog.
+Each *quiet* status (`partial`, `queued-after`, `archived`) is exempt from stale-warning pressure but still appears in active scope and metrics — quietness is a presentation flag, not a closure flag. `awaiting` and `paused` deliberately stay loud so unanswered questions and stalled mid-flight work don't decay into invisible backlog.
 
 > **Heads-up:** versions before 0.15 included a `done` plan status in the defaults. It saw effectively zero real-world use (plans went `in-session`/`active` → `archived` directly), so it was dropped from the built-in vocabulary. To finish a plan, run `dotmd archive <plan-file>` — or, if you preferred the previous behavior, add `done` back via the `types.plan.statuses` key in your config.
 

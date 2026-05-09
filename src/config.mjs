@@ -28,7 +28,7 @@ const DEFAULTS = {
         listed: ['planned', 'blocked', 'paused', 'awaiting'],
         counted: ['queued-after', 'archived'],
       },
-      staleDays: { 'in-session': 1, active: 14, planned: 30, blocked: 30, awaiting: 14 },
+      staleDays: { 'in-session': 1, active: 14, planned: 30, blocked: 30, paused: 3, awaiting: 14 },
     },
     doc: {
       statuses: ['draft', 'active', 'review', 'reference', 'deprecated', 'archived'],
@@ -55,8 +55,8 @@ const DEFAULTS = {
 
   lifecycle: {
     archiveStatuses: ['archived'],
-    skipStaleFor: ['archived', 'reference', 'partial', 'paused', 'queued-after'],
-    skipWarningsFor: ['archived', 'partial', 'paused', 'queued-after'],
+    skipStaleFor: ['archived', 'reference', 'partial', 'queued-after'],
+    skipWarningsFor: ['archived', 'partial', 'queued-after'],
     terminalStatuses: ['archived', 'deprecated', 'reference'],
   },
 

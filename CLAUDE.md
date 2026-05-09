@@ -25,7 +25,7 @@ Each stop-status maps to a distinct **unstuck-action** — that's the test for w
 - **`planned`** — Queued for future work, not yet ready to execute.
 - **`blocked`** — *Unstuck-action: monitor.* External arrival on its own schedule (hardware, vendor delivery, third-party rollout). You can't speed it up.
 - **`partial`** — *Unstuck-action: spawn successors.* Shipped most of the plan; tail work deferred. The plan body should reference the successor plan(s) tracking the tail. Visible but quiet (no nagging stale warnings).
-- **`paused`** — *Unstuck-action: re-evaluate.* Intentionally set aside, no external dependency. Resume by deciding the work is worth picking back up. Quiet.
+- **`paused`** — *Unstuck-action: re-evaluate.* Started but stopped mid-work; needs near-term review. NOT quiet — short (3-day) stale threshold so resume-decisions don't decay.
 - **`awaiting`** — *Unstuck-action: ask.* Needs a human decision or input. NOT quiet — pings get forgotten, so this status generates stale pressure to chase the answer.
 - **`queued-after`** — *Unstuck-action: check predecessor.* Sequenced behind another plan; can start once that one ships. Quiet.
 - **`archived`** — No longer relevant, moved to archive directory.

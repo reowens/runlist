@@ -50,7 +50,7 @@ export const excludeDirs = ['evidence'];
 //       'planned':      { context: 'listed', staleDays: 30, requiresModule: true },
 //       'blocked':      { context: 'listed', staleDays: 30, requiresModule: true },
 //       'partial':      { context: 'expanded', requiresModule: true, quiet: true },     // shipped + deferred tail; visible, no nagging
-//       'paused':       { context: 'listed', requiresModule: true, quiet: true },       // intentionally set aside, no external dep
+//       'paused':       { context: 'listed', staleDays: 3, requiresModule: true },      // stopped mid-work, near-term review — loud (short stale threshold)
 //       'awaiting':     { context: 'listed', staleDays: 14, requiresModule: true },     // human input/decision wait — NOT quiet (pings get forgotten)
 //       'queued-after': { context: 'counted', requiresModule: true, quiet: true },      // sequenced behind another plan
 //       'archived':     { context: 'counted', archive: true, terminal: true, quiet: true },

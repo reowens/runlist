@@ -55,15 +55,18 @@ describe('resolveConfig', () => {
     const { skipStaleFor, skipWarningsFor, terminalStatuses, archiveStatuses } = config.lifecycle;
 
     // Quiet statuses skip both stale + warnings (sugar applied at the lifecycle level)
-    for (const s of ['partial', 'paused', 'queued-after']) {
+    for (const s of ['partial', 'queued-after']) {
       ok(skipStaleFor.has(s), `${s} should skip stale (quiet)`);
       ok(skipWarningsFor.has(s), `${s} should skip warnings (quiet)`);
       ok(!terminalStatuses.has(s), `${s} must not be terminal — it stays in active scope`);
     }
 
-    // awaiting is deliberately loud — pings get forgotten
-    ok(!skipStaleFor.has('awaiting'), 'awaiting must generate stale pressure');
-    ok(!skipWarningsFor.has('awaiting'), 'awaiting must surface warnings');
+    // awaiting and paused are deliberately loud — pings/resume-decisions get forgotten
+    for (const s of ['awaiting', 'paused']) {
+      ok(!skipStaleFor.has(s), `${s} must generate stale pressure`);
+      ok(!skipWarningsFor.has(s), `${s} must surface warnings`);
+      ok(!terminalStatuses.has(s), `${s} must not be terminal`);
+    }
 
     // archived stays terminal + archive
     ok(terminalStatuses.has('archived'));
@@ -86,6 +89,13 @@ describe('resolveConfig', () => {
     const config = await resolveConfig(tmpDir);
     strictEqual(typeof config.staleDaysByStatus.awaiting, 'number');
     ok(config.staleDaysByStatus.awaiting > 0, 'awaiting should have a positive stale threshold');
+  });
+
+  it('paused has a short stale threshold so resume-decisions don\'t decay', async () => {
+    const config = await resolveConfig(tmpDir);
+    strictEqual(typeof config.staleDaysByStatus.paused, 'number');
+    ok(config.staleDaysByStatus.paused > 0 && config.staleDaysByStatus.paused <= 7,
+      'paused should have a short stale threshold (≤ 7 days) — work was mid-flight, decisions to resume must be made soon');
   });
 
   it('merges user config over defaults', async () => {
