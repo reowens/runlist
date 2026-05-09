@@ -423,6 +423,34 @@ dotmd lint                   # report issues
 dotmd lint --fix             # fix all issues
 ```
 
+### Manage Statuses
+
+```bash
+dotmd statuses                                              # table view, all types
+dotmd statuses --type plan                                  # one type
+dotmd statuses --json                                       # machine-readable
+
+dotmd statuses add paused --type plan --like blocked --quiet  # clone blocked, then quiet
+dotmd statuses set archived --type plan --no-quiet            # tweak a flag
+dotmd statuses remove obsolete --type plan                    # refuses if any docs use it
+
+dotmd statuses migrate plan                                 # array-form → rich-form
+```
+
+`--like <existing>` is the affordance for "kinda like X but…" — clones every
+flag from another status, then user flags override. Write commands print a flag
+diff and prompt for confirmation; pass `--yes` to skip the prompt or
+`--dry-run` to preview without writing. Edits are atomic: the rewrite lands in
+a sibling temp file, is validated by re-importing it and running
+`resolveConfig`, then renamed into place — a syntax error or new warning
+leaves the original untouched.
+
+**Lifecycle-override gotcha.** If your config has both rich-form `types` and an
+explicit `export const lifecycle = {...}`, the explicit lifecycle silently
+overrides per-status flags at runtime. `dotmd statuses` write commands refuse
+to write into that state and recommend deleting the explicit `lifecycle` block;
+pass `--ignore-lifecycle-override` to write anyway.
+
 ### Rename
 
 ```bash

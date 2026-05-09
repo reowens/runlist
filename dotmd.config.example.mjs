@@ -103,13 +103,20 @@ export const statuses = {
 };
 
 // Lifecycle behavior — which statuses trigger special handling.
-// When using rich status definitions, these are derived from per-status flags.
-export const lifecycle = {
-  archiveStatuses: ['archived'],      // auto-move to archiveDir on transition
-  skipStaleFor: ['archived'],         // skip staleness checks
-  skipWarningsFor: ['archived'],      // skip validation warnings (summary, etc.)
-  terminalStatuses: ['archived', 'deprecated', 'reference', 'done'],  // skip current_state/next_step warnings, exclude from stats scope
-};
+//
+// IMPORTANT: only enable this block if you're using ARRAY-form types (above) or
+// no `types` definition. With rich-form types, the runtime derives these from
+// per-status `terminal` / `archive` / `skipStale` / `skipWarnings` / `quiet`
+// flags. An explicit `lifecycle` export sitting alongside rich-form types will
+// SILENTLY OVERRIDE the per-status flags — `dotmd statuses` will warn you
+// before writing into a config in that state.
+//
+// export const lifecycle = {
+//   archiveStatuses: ['archived'],      // auto-move to archiveDir on transition
+//   skipStaleFor: ['archived'],         // skip staleness checks
+//   skipWarningsFor: ['archived'],      // skip validation warnings (summary, etc.)
+//   terminalStatuses: ['archived', 'deprecated', 'reference'],  // skip current_state/next_step warnings, exclude from stats scope
+// };
 
 // Taxonomy validation — set fields to null to skip validation.
 // moduleRequiredFor is derived from requiresModule when using rich status definitions.

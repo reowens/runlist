@@ -59,6 +59,7 @@ Create & Export:
 
 Setup:
   init                              Create starter config + docs directory
+  statuses [list|add|set|remove|migrate]  Manage per-project status taxonomy
   watch [command]                   Re-run a command on file changes
   completions <shell>               Shell completion script (bash, zsh)
 
@@ -449,6 +450,53 @@ Options:
   --list                 List all glossary terms
   --json                 Output as JSON`,
 
+  statuses: `dotmd statuses — manage per-project status taxonomy
+
+Subcommands:
+  list [--type <t>] [--json]            Default. Table view of every status × type with all flags.
+                                        --type accepts comma-separated types.
+  add <name> --type <t> [--like <e>] [flags...]
+                                        Add a new status. --like <existing> clones every flag from
+                                        another status; user flags override. Inserts before the
+                                        first terminal/archive status. Refuses if name already
+                                        exists or is invalid.
+  set <name> --type <t> <flags...>      Edit flags on an existing status. Refuses if status doesn't
+                                        exist. Flags overwrite individually.
+  remove <name> --type <t>              Delete a status entry. Refuses if any docs use the status
+                                        (lists offenders, suggests \`dotmd migrate\`). Warns if an
+                                        explicit lifecycle export references the name.
+  migrate <type>                        One-shot conversion of array-form types.<t>.statuses to
+                                        rich form, pulling in peer staleDays/context and per-status
+                                        requiresModule from taxonomy.moduleRequiredFor.
+
+Flags accepted by add/set:
+  --context <expanded|listed|counted>   Briefing layout bucket
+  --staleDays <n|null>                  Stale threshold; null = never stale
+  --requiresModule / --no-requiresModule
+  --terminal / --no-terminal            Closure state — excluded from active-work scope
+  --archive / --no-archive              Auto-move to archive dir on transition
+  --skipStale / --no-skipStale
+  --skipWarnings / --no-skipWarnings
+  --quiet / --no-quiet                  Sugar for skipStale + skipWarnings (explicit overrides win)
+
+Workflow flags:
+  --yes                                 Skip the confirmation prompt
+  --dry-run, -n                         Show the diff without writing
+  --ignore-lifecycle-override           Write even when an explicit \`lifecycle\` export
+                                        would silently mask the per-status flags
+
+Examples:
+  dotmd statuses                                                  # list everything
+  dotmd statuses add paused --type plan --like blocked --quiet
+  dotmd statuses set archived --type plan --no-quiet
+  dotmd statuses remove obsolete --type plan
+  dotmd statuses migrate plan                                     # array → rich
+
+Lifecycle-override gotcha: if your config has both rich-form types and an explicit
+\`export const lifecycle\`, the runtime ignores per-status flags. The CLI refuses
+to write in that case unless you pass --ignore-lifecycle-override; the recommended
+fix is to delete the explicit \`lifecycle\` block so flags take effect.`,
+
   bulk: `dotmd bulk archive <f1> <f2> ... — archive multiple files at once
 
 Archives each file: sets status to archived, moves to archive
@@ -569,6 +617,7 @@ async function main() {
   if (command === 'migrate') { const { runMigrate } = await import('../src/migrate.mjs'); runMigrate(restArgs, config, { dryRun }); return; }
   if (command === 'fix-refs') { const { runFixRefs } = await import('../src/fix-refs.mjs'); runFixRefs(restArgs, config, { dryRun }); return; }
   if (command === 'doctor') { const { runDoctor } = await import('../src/doctor.mjs'); runDoctor(restArgs, config, { dryRun }); return; }
+  if (command === 'statuses') { const { runStatuses } = await import('../src/statuses.mjs'); await runStatuses(restArgs, config, { dryRun, type: typeArg }); return; }
 
   // All remaining commands need the index + render modules
   const { buildIndex } = await import('../src/index.mjs');
@@ -819,7 +868,7 @@ async function main() {
     'focus', 'query', 'plans', 'stale', 'actionable', 'index', 'pickup', 'finish', 'status', 'archive', 'bulk', 'touch', 'doctor',
     'unblocks', 'health', 'glossary',
     'fix-refs', 'lint', 'rename', 'migrate', 'notion', 'export', 'summary',
-    'watch', 'diff', 'new', 'init', 'completions',
+    'watch', 'diff', 'new', 'init', 'completions', 'statuses',
   ];
   const matches = allCommands
     .map(c => ({ cmd: c, dist: levenshtein(command, c) }))
