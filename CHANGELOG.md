@@ -2,6 +2,12 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## 0.17.1 — 2026-05-09
+
+### Fixed
+
+- **README `SessionEnd` hook recipe was using the wrong shape.** The 0.17.0 docs showed the unwrapped form (`{ "SessionEnd": [{ "type": "command", … }] }`), which Claude Code silently ignores. The correct schema requires the wrapped form: `{ "hooks": { "SessionEnd": [{ "hooks": [{ "type": "command", … }] }] } }` — confirmed against the official `claude-code-settings.json` schema. README updated; users who copied the old recipe should update theirs. Also note: `Bash(dotmd:*)` must be present in `permissions.allow` or the hook command is blocked.
+
 ## 0.17.0 — 2026-05-09
 
 ### Added

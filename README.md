@@ -441,19 +441,29 @@ The session id survives `/clear` and auto-compaction, so a re-attach after
 either is silent.
 
 **Auto-release on Claude Code session end** — add this to
-`~/.claude/settings.json`:
+`~/.claude/settings.json` (or your project's `.claude/settings.json`):
 
 ```json
 {
-  "SessionEnd": [
-    { "type": "command", "command": "dotmd unpickup", "timeout": 10 }
-  ]
+  "hooks": {
+    "SessionEnd": [
+      {
+        "hooks": [
+          { "type": "command", "command": "dotmd unpickup", "timeout": 10 }
+        ]
+      }
+    ]
+  }
 }
 ```
 
 When the Claude Code session ends, the hook runs `dotmd unpickup` with
 `$CLAUDE_CODE_SESSION_ID` in the environment, releasing every lease for
 that session and flipping plans back to their prior status.
+
+> The double-`hooks` nesting is correct: `hooks.SessionEnd[*].hooks[*]`
+> is the schema Claude Code requires. `Bash(dotmd:*)` should be in your
+> `permissions.allow` list as well, otherwise the hook will be blocked.
 
 `dotmd briefing` surfaces a `Stuck in-session: N` line when stale leases
 exist, with a `dotmd unpickup --stale` suggestion.
