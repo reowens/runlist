@@ -41,7 +41,8 @@ Validate & Fix:
   fix-refs [--dry-run]              Auto-fix broken reference paths + body links
 
 Lifecycle:
-  pickup <file>                     Pick up a plan (set in-session + print)
+  pickup <file> [--takeover]        Pick up a plan (set in-session + print)
+  unpickup [<file>] [--to <s>]      Release in-session lease (default: all owned by current session)
   finish <file> [done|active]       Finish a plan (set done or active)
   status <file> <status>            Transition document status
   archive <file>                    Archive (status + move + update refs)
@@ -115,14 +116,43 @@ Filters:
 
   pickup: `dotmd pickup <file> — pick up a plan and start working
 
-Sets the plan to in-session and prints its content.
-Fails if the plan is already in-session, blocked, done, or archived.
+Sets the plan to in-session and prints its content. Writes a session
+lease to <repoRoot>/.dotmd/in-session.json so the same Claude session
+can re-attach silently after compaction or /clear.
+
+If a plan is already in-session:
+- Same session → silent re-attach (prints body, no error).
+- Different session, live pid → refuses with "Held by …" message.
+- Different session, dead pid or >24h old → suggests --takeover.
 
 Options:
+  --takeover             Force-claim a plan held by another session
   --json                 Output as JSON
   --dry-run, -n          Preview without writing
 
 If no file is given, prompts with a list of active plans.`,
+
+  unpickup: `dotmd unpickup [<file>] — release a plan from in-session
+
+With no file: releases every lease owned by the current session.
+This is the form intended for a Claude Code SessionEnd hook.
+
+With <file>: releases that one. Refuses if held by another session
+(use --force to override).
+
+Flips the plan's frontmatter status from in-session back to its
+prior status (recorded by pickup), or whatever --to specifies.
+
+Options:
+  --to <status>          Override target status (default: lease.oldStatus → fallback active)
+  --all                  Release every lease in the file (administrative)
+  --stale                Release leases whose pid is dead or age >24h
+  --force                Override "not yours" refusal on a specific file
+  --json                 Output as JSON ({ released, skipped })
+  --dry-run, -n          Preview without writing
+
+Manual-edit fallback: if the plan's status is in-session but no lease
+exists, --to <status> flips it anyway with a warning.`,
 
   finish: `dotmd finish <file> [done|active] — finish working on a plan
 
@@ -606,6 +636,7 @@ async function main() {
 
   // Lifecycle commands
   if (command === 'pickup') { const { runPickup } = await import('../src/lifecycle.mjs'); await runPickup(restArgs, config, { dryRun }); return; }
+  if (command === 'unpickup') { const { runUnpickup } = await import('../src/lifecycle.mjs'); await runUnpickup(restArgs, config, { dryRun }); return; }
   if (command === 'finish') { const { runFinish } = await import('../src/lifecycle.mjs'); await runFinish(restArgs, config, { dryRun }); return; }
   if (command === 'status') { const { runStatus } = await import('../src/lifecycle.mjs'); await runStatus(restArgs, config, { dryRun }); return; }
   if (command === 'archive') { const { runArchive } = await import('../src/lifecycle.mjs'); runArchive(restArgs, config, { dryRun }); return; }

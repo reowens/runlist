@@ -35,16 +35,17 @@ To finish work, archive directly: `dotmd archive <plan-file>`. The legacy `done`
 ### Working with plans (for Claude instances)
 
 1. Get oriented: `dotmd briefing` (compact 5-10 line summary)
-2. Pick up a plan: `dotmd pickup <plan-file>` (sets in-session + prints content)
+2. Pick up a plan: `dotmd pickup <plan-file>` (sets in-session + prints content + writes session lease)
 3. When done — pick the right closure status:
-   - Fully shipped → `dotmd archive <plan-file>`
-   - Shipped + tail deferred (with successor plans referenced) → `dotmd status <plan-file> partial`
-   - Need more work later → `dotmd status <plan-file> active`
-   - Stuck on a human decision → `dotmd status <plan-file> awaiting`
+   - Fully shipped → `dotmd archive <plan-file>` (auto-releases lease)
+   - Shipped + tail deferred (with successor plans referenced) → `dotmd status <plan-file> partial` then `dotmd unpickup`
+   - Need more work later → `dotmd unpickup` (flips back to prior status — usually `active`)
+   - Stuck on a human decision → `dotmd status <plan-file> awaiting` then `dotmd unpickup`
 4. To see all plans: `dotmd plans`
 5. To see available plans: `dotmd plans --status active`
 6. To see what's in flight: `dotmd plans --status in-session`
-7. Never pick up a plan that is `in-session` — another session is working on it.
+7. Picking up an `in-session` plan that you already own (e.g., after `/clear` or auto-compaction) silently re-attaches — no conflict. Picking up one held by another live session refuses; a stale lease (dead pid or >24h) suggests `--takeover`.
+8. If your Claude Code `~/.claude/settings.json` has the `SessionEnd` hook configured (`dotmd unpickup`), graceful session-end auto-releases your leases. Otherwise call `dotmd unpickup` before finishing the session.
 
 ### Creating documents
 

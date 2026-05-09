@@ -139,6 +139,24 @@ export function runInit(cwd, config) {
     process.stdout.write(`  ${green('create')}  docs/docs.md\n`);
   }
 
+  // .gitignore: ensure .dotmd/ is ignored (session leases live there)
+  const gitignorePath = path.join(cwd, '.gitignore');
+  const ignoreLine = '.dotmd/';
+  if (existsSync(gitignorePath)) {
+    const current = readFileSync(gitignorePath, 'utf8');
+    const has = current.split('\n').some(l => l.trim() === ignoreLine || l.trim() === '.dotmd');
+    if (!has) {
+      const sep = current.endsWith('\n') ? '' : '\n';
+      writeFileSync(gitignorePath, `${current}${sep}${ignoreLine}\n`, 'utf8');
+      process.stdout.write(`  ${green('update')}  .gitignore (+${ignoreLine})\n`);
+    } else {
+      process.stdout.write(`  ${dim('exists')}  .gitignore\n`);
+    }
+  } else {
+    writeFileSync(gitignorePath, `${ignoreLine}\n`, 'utf8');
+    process.stdout.write(`  ${green('create')}  .gitignore\n`);
+  }
+
   // Claude Code integration — auto-detect .claude/ directory
   if (config) {
     const results = scaffoldClaudeCommands(cwd, config);

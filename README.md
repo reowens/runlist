@@ -402,6 +402,62 @@ dotmd finish docs/plans/my-plan.md       # set done + bump date
 dotmd finish docs/plans/my-plan.md active  # back to active for more work
 ```
 
+### Session leases & unpickup
+
+`dotmd pickup` records a lease at `<repoRoot>/.dotmd/in-session.json` that
+identifies which Claude session owns the plan. The lease enables three
+distinct outcomes when a plan is already `in-session`:
+
+- **Same session re-attach.** A fresh `dotmd pickup` of a plan you already
+  hold (e.g., after `/clear` or auto-compaction) silently re-attaches and
+  re-prints the body. No conflict.
+- **Cross-session conflict.** If another live session holds the plan,
+  pickup refuses with `Held by <host>/<session> (pid <pid>) since <time>`.
+- **Stale lease.** If the holder's pid is dead (or the lease is >24h old),
+  pickup refuses but suggests `--takeover`.
+
+Releasing leases:
+
+```bash
+dotmd unpickup                    # release every lease owned by current session
+dotmd unpickup docs/plans/foo.md  # release that one (refuses cross-session)
+dotmd unpickup --to planned       # override target status (default: lease.oldStatus)
+dotmd unpickup --stale            # release leases with dead pid or >24h old
+dotmd unpickup --all              # release every lease (administrative)
+dotmd unpickup --json             # { released: [...], skipped: [...] }
+```
+
+`finish`, `archive`, and `rename` auto-release / migrate the lease, so the
+common closeout paths are covered without ceremony.
+
+**Session id resolution** (in order, first wins):
+
+1. `$CLAUDE_CODE_SESSION_ID` (set by Claude Code in Bash subprocess env)
+2. `$CLAUDE_SESSION_ID` (legacy alias)
+3. `$TERM_SESSION_ID` (macOS Terminal/iTerm — stable per window)
+4. `shell:<user>@<host>` (last-resort coarse fallback)
+
+The session id survives `/clear` and auto-compaction, so a re-attach after
+either is silent.
+
+**Auto-release on Claude Code session end** — add this to
+`~/.claude/settings.json`:
+
+```json
+{
+  "SessionEnd": [
+    { "type": "command", "command": "dotmd unpickup", "timeout": 10 }
+  ]
+}
+```
+
+When the Claude Code session ends, the hook runs `dotmd unpickup` with
+`$CLAUDE_CODE_SESSION_ID` in the environment, releasing every lease for
+that session and flipping plans back to their prior status.
+
+`dotmd briefing` surfaces a `Stuck in-session: N` line when stale leases
+exist, with a `dotmd unpickup --stale` suggestion.
+
 ### Touch
 
 ```bash

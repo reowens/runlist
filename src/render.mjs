@@ -4,6 +4,7 @@ import { capitalize, toSlug, truncate, warn } from './util.mjs';
 import { extractFrontmatter } from './frontmatter.mjs';
 import { summarizeDocBody } from './ai.mjs';
 import { bold, red, yellow, green, dim } from './color.mjs';
+import { findStaleLeases } from './lease.mjs';
 
 export function renderCompactList(index, config) {
   const defaultRenderer = (idx) => _renderCompactList(idx, config);
@@ -296,6 +297,13 @@ export function renderBriefing(index, config) {
 
   const stale = index.docs.filter(d => d.isStale && !config.lifecycle.skipStaleFor.has(d.status)).length;
   lines.push(`Stale: ${stale} | Errors: ${index.errors.length} | Warnings: ${index.warnings.length}`);
+
+  try {
+    const staleLeases = findStaleLeases(config);
+    if (staleLeases.length > 0) {
+      lines.push(yellow(`Stuck in-session: ${staleLeases.length} (>1d or dead pid, run \`dotmd unpickup --stale\`)`));
+    }
+  } catch {}
 
   return lines.join('\n') + '\n';
 }

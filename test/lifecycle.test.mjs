@@ -266,3 +266,273 @@ describe('archive path boundary', () => {
     tmpDir = null;
   });
 });
+
+describe('pickup with leases', () => {
+  function runCli(args, env = {}) {
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    return spawnSync('node', [bin, ...args, '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir,
+      encoding: 'utf8',
+      env: { ...process.env, ...env, PATH: process.env.PATH },
+    });
+  }
+
+  it('writes a lease file when picking up an active plan', () => {
+    const docsDir = setupProject();
+    const filePath = writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# Plan\n');
+
+    const result = runCli(['pickup', filePath], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
+    strictEqual(result.status, 0, `pickup should succeed: ${result.stderr}`);
+
+    const leaseFile = path.join(tmpDir, '.dotmd', 'in-session.json');
+    ok(existsSync(leaseFile), 'lease file should exist');
+    const leases = JSON.parse(readFileSync(leaseFile, 'utf8'));
+    const key = Object.keys(leases)[0];
+    strictEqual(leases[key].session, 'sess-A');
+    strictEqual(leases[key].oldStatus, 'active');
+
+    const content = readFileSync(filePath, 'utf8');
+    ok(content.includes('status: in-session'), 'frontmatter flipped');
+  });
+
+  it('same-session re-pickup is silent re-attach', () => {
+    const docsDir = setupProject();
+    const filePath = writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active', '# Plan body\n');
+
+    runCli(['pickup', filePath], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
+    const second = runCli(['pickup', filePath], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
+
+    strictEqual(second.status, 0, `re-pickup should succeed: ${second.stderr}`);
+    ok(second.stderr.includes('Re-attached'), 'should announce re-attach');
+    ok(second.stdout.includes('Plan body'), 'still prints body');
+  });
+
+  it('cross-session pickup of a fresh lease blocks with --takeover suggestion', () => {
+    const docsDir = setupProject();
+    const filePath = writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active', '# Plan\n');
+
+    runCli(['pickup', filePath], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
+    const second = runCli(['pickup', filePath], { CLAUDE_CODE_SESSION_ID: 'sess-B' });
+    ok(second.status !== 0, 'should fail');
+    ok(second.stderr.includes('Held by') || second.stderr.includes('--takeover'), `expected conflict message, got: ${second.stderr}`);
+  });
+
+  it('cross-session pickup of a >24h-old lease reports stale', () => {
+    const docsDir = setupProject();
+    const filePath = writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active', '# Plan\n');
+
+    runCli(['pickup', filePath], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
+    const leaseFile = path.join(tmpDir, '.dotmd', 'in-session.json');
+    const leases = JSON.parse(readFileSync(leaseFile, 'utf8'));
+    const key = Object.keys(leases)[0];
+    leases[key].pickedUpAt = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    writeFileSync(leaseFile, JSON.stringify(leases, null, 2) + '\n');
+
+    const second = runCli(['pickup', filePath], { CLAUDE_CODE_SESSION_ID: 'sess-B' });
+    ok(second.status !== 0, 'should fail');
+    ok(second.stderr.includes('Stale') || second.stderr.includes('>24h'), `expected stale message, got: ${second.stderr}`);
+  });
+
+  it('--takeover overrides a held lease and records takenOverFrom', () => {
+    const docsDir = setupProject();
+    const filePath = writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active', '# Plan\n');
+
+    runCli(['pickup', filePath], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
+
+    const result = runCli(['pickup', filePath, '--takeover'], { CLAUDE_CODE_SESSION_ID: 'sess-B' });
+    strictEqual(result.status, 0, `takeover should succeed: ${result.stderr}`);
+
+    const leaseFile = path.join(tmpDir, '.dotmd', 'in-session.json');
+    const after = JSON.parse(readFileSync(leaseFile, 'utf8'));
+    const newKey = Object.keys(after)[0];
+    strictEqual(after[newKey].session, 'sess-B');
+    ok(after[newKey].takenOverFrom);
+    strictEqual(after[newKey].takenOverFrom.session, 'sess-A');
+  });
+});
+
+describe('unpickup', () => {
+  function runCli(args, env = {}) {
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    return spawnSync('node', [bin, ...args, '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir,
+      encoding: 'utf8',
+      env: { ...process.env, ...env, PATH: process.env.PATH },
+    });
+  }
+
+  it('no-arg releases all leases owned by current session', () => {
+    const docsDir = setupProject();
+    const a = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active', '');
+    const b = writeDoc(docsDir, 'b.md', 'type: plan\nstatus: planned', '');
+    runCli(['pickup', a], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
+    runCli(['pickup', b], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
+
+    const result = runCli(['unpickup'], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
+    strictEqual(result.status, 0, `unpickup failed: ${result.stderr}`);
+
+    const leaseFile = path.join(tmpDir, '.dotmd', 'in-session.json');
+    ok(!existsSync(leaseFile), 'lease file should be gone (empty)');
+
+    ok(readFileSync(a, 'utf8').includes('status: active'), 'a flipped to active');
+    ok(readFileSync(b, 'utf8').includes('status: planned'), 'b flipped to planned (oldStatus)');
+  });
+
+  it('file arg releases that one', () => {
+    const docsDir = setupProject();
+    const a = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active', '');
+    const b = writeDoc(docsDir, 'b.md', 'type: plan\nstatus: active', '');
+    runCli(['pickup', a], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
+    runCli(['pickup', b], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
+
+    runCli(['unpickup', a], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
+
+    const leases = JSON.parse(readFileSync(path.join(tmpDir, '.dotmd', 'in-session.json'), 'utf8'));
+    strictEqual(Object.keys(leases).length, 1, 'only b remains');
+  });
+
+  it('--to overrides target status', () => {
+    const docsDir = setupProject();
+    const a = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active', '');
+    runCli(['pickup', a], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
+    runCli(['unpickup', '--to', 'planned'], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
+    ok(readFileSync(a, 'utf8').includes('status: planned'));
+  });
+
+  it('refuses cross-session release without --force', () => {
+    const docsDir = setupProject();
+    const a = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active', '');
+    runCli(['pickup', a], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
+
+    const result = runCli(['unpickup', a], { CLAUDE_CODE_SESSION_ID: 'sess-B' });
+    ok(result.stderr.includes('Skipped') || result.stderr.includes('held by'), `expected refusal: ${result.stderr}`);
+
+    // Lease still exists
+    const leases = JSON.parse(readFileSync(path.join(tmpDir, '.dotmd', 'in-session.json'), 'utf8'));
+    strictEqual(Object.keys(leases).length, 1, 'lease retained');
+  });
+
+  it('--stale releases stale leases regardless of session', () => {
+    const docsDir = setupProject();
+    const a = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active', '');
+    runCli(['pickup', a], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
+
+    // Forge an old pickedUpAt
+    const leaseFile = path.join(tmpDir, '.dotmd', 'in-session.json');
+    const leases = JSON.parse(readFileSync(leaseFile, 'utf8'));
+    const key = Object.keys(leases)[0];
+    leases[key].pickedUpAt = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    writeFileSync(leaseFile, JSON.stringify(leases, null, 2) + '\n');
+
+    const result = runCli(['unpickup', '--stale'], { CLAUDE_CODE_SESSION_ID: 'sess-B' });
+    strictEqual(result.status, 0, `--stale failed: ${result.stderr}`);
+    ok(!existsSync(leaseFile), 'stale lease cleared');
+    ok(readFileSync(a, 'utf8').includes('status: active'));
+  });
+
+  it('--json returns released and skipped arrays', () => {
+    const docsDir = setupProject();
+    const a = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active', '');
+    runCli(['pickup', a], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
+
+    const result = runCli(['unpickup', '--json'], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
+    const parsed = JSON.parse(result.stdout);
+    ok(Array.isArray(parsed.released));
+    ok(Array.isArray(parsed.skipped));
+    strictEqual(parsed.released.length, 1);
+    strictEqual(parsed.released[0].newStatus, 'active');
+  });
+
+  it('manual-edit fallback warns + flips', () => {
+    const docsDir = setupProject();
+    // Manually create an in-session plan with NO lease
+    const a = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: in-session', '');
+
+    const result = runCli(['unpickup', a, '--to', 'active'], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
+    strictEqual(result.status, 0, `should succeed: ${result.stderr}`);
+    ok(result.stderr.includes('No lease found'), 'warns about missing lease');
+    ok(readFileSync(a, 'utf8').includes('status: active'));
+  });
+
+  it('--dry-run does not mutate the lease file', () => {
+    const docsDir = setupProject();
+    const a = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active', '');
+    runCli(['pickup', a], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
+
+    runCli(['unpickup', '--dry-run'], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
+
+    const leases = JSON.parse(readFileSync(path.join(tmpDir, '.dotmd', 'in-session.json'), 'utf8'));
+    strictEqual(Object.keys(leases).length, 1, 'lease retained');
+    ok(readFileSync(a, 'utf8').includes('status: in-session'), 'frontmatter retained');
+  });
+});
+
+describe('lease auto-release on lifecycle commands', () => {
+  function runCli(args, env = {}) {
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    return spawnSync('node', [bin, ...args, '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir,
+      encoding: 'utf8',
+      env: { ...process.env, ...env, PATH: process.env.PATH },
+    });
+  }
+
+  it('archive auto-releases the lease', () => {
+    const docsDir = setupProject();
+    const a = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active', '# Plan\n');
+    runCli(['pickup', a], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
+
+    const result = runCli(['archive', path.join(docsDir, 'a.md')], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
+    strictEqual(result.status, 0, `archive failed: ${result.stderr}`);
+
+    const leaseFile = path.join(tmpDir, '.dotmd', 'in-session.json');
+    ok(!existsSync(leaseFile), 'lease cleared by archive');
+  });
+
+  it('rename migrates the lease key', () => {
+    const docsDir = setupProject();
+    const a = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active', '');
+    runCli(['pickup', a], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
+
+    const result = runCli(['rename', a, 'renamed.md'], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
+    strictEqual(result.status, 0, `rename failed: ${result.stderr}`);
+
+    const leases = JSON.parse(readFileSync(path.join(tmpDir, '.dotmd', 'in-session.json'), 'utf8'));
+    const keys = Object.keys(leases);
+    strictEqual(keys.length, 1);
+    ok(keys[0].endsWith('renamed.md'), `expected renamed.md key, got ${keys[0]}`);
+  });
+});
+
+describe('init writes .dotmd/ to .gitignore', () => {
+  it('creates .gitignore with .dotmd/ when missing', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    spawnSync('git', ['init'], { cwd: tmpDir });
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    spawnSync('node', [bin, 'init'], { cwd: tmpDir, encoding: 'utf8' });
+    const gi = readFileSync(path.join(tmpDir, '.gitignore'), 'utf8');
+    ok(gi.includes('.dotmd/'), 'gitignore has .dotmd/');
+  });
+
+  it('appends .dotmd/ to an existing .gitignore', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    spawnSync('git', ['init'], { cwd: tmpDir });
+    writeFileSync(path.join(tmpDir, '.gitignore'), 'node_modules/\n.env\n');
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    spawnSync('node', [bin, 'init'], { cwd: tmpDir, encoding: 'utf8' });
+    const gi = readFileSync(path.join(tmpDir, '.gitignore'), 'utf8');
+    ok(gi.includes('node_modules/'), 'preserved existing entries');
+    ok(gi.includes('.dotmd/'), 'appended .dotmd/');
+  });
+
+  it('does not duplicate .dotmd/ if already present', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    spawnSync('git', ['init'], { cwd: tmpDir });
+    writeFileSync(path.join(tmpDir, '.gitignore'), '.dotmd/\n');
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    spawnSync('node', [bin, 'init'], { cwd: tmpDir, encoding: 'utf8' });
+    const gi = readFileSync(path.join(tmpDir, '.gitignore'), 'utf8');
+    const matches = (gi.match(/\.dotmd\/$/gm) || []).length;
+    strictEqual(matches, 1, 'only one .dotmd/ entry');
+  });
+});

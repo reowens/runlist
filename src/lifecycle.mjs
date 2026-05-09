@@ -7,6 +7,15 @@ import { buildIndex, collectDocFiles } from './index.mjs';
 import { renderIndexFile, writeIndex } from './index-file.mjs';
 import { green, dim, yellow } from './color.mjs';
 import { isInteractive, promptChoice } from './prompt.mjs';
+import {
+  acquireLease,
+  releaseLease,
+  releaseAllForSession,
+  releaseStale,
+  readLeases,
+  currentSessionId,
+  migrateLease,
+} from './lease.mjs';
 
 function findFileRoot(filePath, config) {
   const roots = config.docsRoots || [config.docsRoot];
@@ -124,6 +133,7 @@ export async function runStatus(argv, config, opts = {}) {
 export async function runPickup(argv, config, opts = {}) {
   const { dryRun } = opts;
   const json = argv.includes('--json');
+  const takeover = argv.includes('--takeover');
   let input = argv.find(a => !a.startsWith('-'));
 
   // Interactive: pick from active plans
@@ -152,30 +162,198 @@ export async function runPickup(argv, config, opts = {}) {
 
   if (docType && docType !== 'plan') warn(`${repoPath} has type '${docType}', not 'plan'.`);
 
-  if (oldStatus === 'in-session') die(`Already in-session — another Claude instance may be working on this.\n  ${repoPath}`);
   if (oldStatus === 'blocked') {
     const blockers = parsedFm.blockers ? (Array.isArray(parsedFm.blockers) ? parsedFm.blockers.join(', ') : String(parsedFm.blockers)) : 'unknown';
     die(`Plan is blocked: ${blockers}\n  ${repoPath}`);
   }
-  const pickupable = new Set(['active', 'planned']);
+
+  // If frontmatter says we're not in-session, any lingering lease is orphaned —
+  // drop it so a fresh acquire below doesn't see a phantom conflict.
+  if (oldStatus !== 'in-session') {
+    if (readLeases(config)[repoPath]) {
+      releaseLease(config, repoPath, { force: true });
+    }
+  }
+
+  const pickupable = new Set(['active', 'planned', 'in-session']);
   if (oldStatus && !pickupable.has(oldStatus)) die(`Cannot pick up a plan with status '${oldStatus}'. Must be active or planned.\n  ${repoPath}`);
 
   const today = new Date().toISOString().slice(0, 10);
+  const leaseOldStatus = oldStatus === 'in-session' ? 'active' : (oldStatus ?? 'active');
+  let leaseOutcome = 'acquired';
 
   if (dryRun) {
-    process.stderr.write(`${dim('[dry-run]')} Would update: status: ${oldStatus} → in-session, updated: ${today}\n`);
+    if (oldStatus === 'in-session') {
+      process.stderr.write(`${dim('[dry-run]')} Would acquire lease (status already in-session)\n`);
+    } else {
+      process.stderr.write(`${dim('[dry-run]')} Would update: status: ${oldStatus} → in-session, updated: ${today}\n`);
+    }
   } else {
-    updateFrontmatter(filePath, { status: 'in-session', updated: today });
+    const result = acquireLease(config, repoPath, leaseOldStatus, { takeover });
+    leaseOutcome = result.outcome;
+    if (result.outcome === 'conflict-alive') {
+      const c = result.conflict;
+      die(`Held by ${c.host}/${c.session} (pid ${c.pid}) since ${c.pickedUpAt}.\nUse --takeover to override.\n  ${repoPath}`);
+    }
+    if (result.outcome === 'conflict-stale') {
+      const c = result.conflict;
+      die(`Stale in-session lease from ${c.host}/${c.session} since ${c.pickedUpAt} (>24h old).\nUse --takeover to claim.\n  ${repoPath}`);
+    }
+    if (oldStatus !== 'in-session') {
+      updateFrontmatter(filePath, { status: 'in-session', updated: today });
+    }
   }
 
   if (json) {
-    process.stdout.write(JSON.stringify({ path: repoPath, oldStatus, newStatus: 'in-session', title, body: body?.trim() ?? '' }, null, 2) + '\n');
+    process.stdout.write(JSON.stringify({
+      path: repoPath, oldStatus, newStatus: 'in-session', title,
+      reattached: leaseOutcome === 'reattached',
+      takenOver: leaseOutcome === 'taken-over',
+      body: body?.trim() ?? '',
+    }, null, 2) + '\n');
   } else {
-    process.stderr.write(`${green('▶ Picked up')}: ${repoPath} (${oldStatus} → in-session)\n\n`);
+    if (leaseOutcome === 'reattached') {
+      process.stderr.write(`${green('▶ Re-attached')}: ${repoPath}\n\n`);
+    } else if (leaseOutcome === 'taken-over') {
+      process.stderr.write(`${green('▶ Took over')}: ${repoPath} (was ${oldStatus ?? 'unset'} → in-session)\n\n`);
+    } else {
+      process.stderr.write(`${green('▶ Picked up')}: ${repoPath} (${oldStatus ?? 'unset'} → in-session)\n\n`);
+    }
     if (body?.trim()) process.stdout.write(body.trim() + '\n');
   }
 
   try { config.hooks.onPickup?.({ path: repoPath, oldStatus, newStatus: 'in-session' }); } catch (err) { warn(`Hook 'onPickup' threw: ${err.message}`); }
+}
+
+export async function runUnpickup(argv, config, opts = {}) {
+  const { dryRun } = opts;
+  const json = argv.includes('--json');
+  const all = argv.includes('--all');
+  const stale = argv.includes('--stale');
+  const force = argv.includes('--force');
+  const toIdx = argv.indexOf('--to');
+  const toStatus = toIdx >= 0 ? argv[toIdx + 1] : null;
+  const positional = argv.filter((a, i) => !a.startsWith('-') && argv[i - 1] !== '--to');
+  const fileArg = positional[0];
+
+  const session = currentSessionId();
+  const released = [];
+  const skipped = [];
+
+  // Decide which leases to act on
+  let targets = [];
+  const leases = readLeases(config);
+  if (fileArg) {
+    const filePath = resolveDocPath(fileArg, config);
+    if (!filePath) die(`File not found: ${fileArg}`);
+    const repoPath = toRepoPath(filePath, config.repoRoot);
+    if (leases[repoPath]) {
+      targets.push(leases[repoPath]);
+    } else {
+      // Manual-edit fallback: status may be in-session with no lease.
+      const raw = readFileSync(filePath, 'utf8');
+      const { frontmatter: fmRaw } = extractFrontmatter(raw);
+      const parsedFm = parseSimpleFrontmatter(fmRaw);
+      if (asString(parsedFm.status) === 'in-session') {
+        targets.push({ path: repoPath, oldStatus: null, session: null, pid: null, host: null, pickedUpAt: null, _orphan: true });
+      } else {
+        die(`Not in-session: ${repoPath}`);
+      }
+    }
+  } else if (all) {
+    targets = Object.values(leases);
+  } else if (stale) {
+    // releaseStale handled separately below — set a marker
+    targets = null;
+  } else {
+    // Default: release all owned by current session
+    targets = Object.values(leases).filter(l => l.session === session);
+  }
+
+  const targetStatus = (lease) => toStatus || lease.oldStatus || 'active';
+
+  function flipFrontmatter(repoPath, newStatus) {
+    const filePath = resolveDocPath(repoPath, config);
+    if (!filePath) {
+      warn(`Lease points at ${repoPath} but file not found — releasing lease without frontmatter update.`);
+      return;
+    }
+    try {
+      const raw = readFileSync(filePath, 'utf8');
+      const { frontmatter: fmRaw } = extractFrontmatter(raw);
+      const parsedFm = parseSimpleFrontmatter(fmRaw);
+      const cur = asString(parsedFm.status);
+      if (cur === 'in-session') {
+        const today = new Date().toISOString().slice(0, 10);
+        updateFrontmatter(filePath, { status: newStatus, updated: today });
+      }
+      // If frontmatter is no longer in-session (manual flip), leave it alone.
+    } catch (err) {
+      warn(`Could not update frontmatter for ${repoPath}: ${err.message}`);
+    }
+  }
+
+  if (targets === null) {
+    // --stale path
+    if (dryRun) {
+      const staleLeases = Object.values(leases).filter(l => {
+        const age = Date.now() - new Date(l.pickedUpAt).getTime();
+        return Number.isNaN(age) || age > 24 * 60 * 60 * 1000;
+      });
+      for (const l of staleLeases) {
+        process.stderr.write(`${dim('[dry-run]')} Would release stale: ${l.path} (${l.session})\n`);
+      }
+    } else {
+      const result = releaseStale(config);
+      for (const l of result.released) {
+        flipFrontmatter(l.path, targetStatus(l));
+        released.push({ path: l.path, oldStatus: l.oldStatus, newStatus: targetStatus(l), session: l.session, stale: true });
+        try { config.hooks.onUnpickup?.({ path: l.path, oldStatus: 'in-session', newStatus: targetStatus(l) }); } catch (err) { warn(`Hook 'onUnpickup' threw: ${err.message}`); }
+      }
+    }
+  } else {
+    if (targets.length === 0 && !json) {
+      process.stderr.write(`No leases to release${fileArg ? ` for ${fileArg}` : ` for session ${session}`}.\n`);
+    }
+    for (const lease of targets) {
+      const newStatus = targetStatus(lease);
+      if (dryRun) {
+        process.stderr.write(`${dim('[dry-run]')} Would release: ${lease.path} (${lease.oldStatus ?? '?'} → ${newStatus})\n`);
+        continue;
+      }
+      if (lease._orphan) {
+        // Manual-edit fallback: no lease entry, just flip frontmatter.
+        flipFrontmatter(lease.path, newStatus);
+        warn(`No lease found for ${lease.path}; flipped status manually.`);
+        released.push({ path: lease.path, oldStatus: 'in-session', newStatus, session: null, orphan: true });
+        try { config.hooks.onUnpickup?.({ path: lease.path, oldStatus: 'in-session', newStatus }); } catch (err) { warn(`Hook 'onUnpickup' threw: ${err.message}`); }
+        continue;
+      }
+      const isMine = lease.session === session;
+      if (!isMine && !force && !all && !stale) {
+        skipped.push({ path: lease.path, reason: 'not-yours', session: lease.session });
+        continue;
+      }
+      const r = releaseLease(config, lease.path, { force: true });
+      if (r.released) {
+        flipFrontmatter(lease.path, newStatus);
+        released.push({ path: lease.path, oldStatus: lease.oldStatus, newStatus, session: lease.session });
+        try { config.hooks.onUnpickup?.({ path: lease.path, oldStatus: 'in-session', newStatus }); } catch (err) { warn(`Hook 'onUnpickup' threw: ${err.message}`); }
+      }
+    }
+  }
+
+  if (json) {
+    process.stdout.write(JSON.stringify({ released, skipped }, null, 2) + '\n');
+  } else {
+    for (const r of released) {
+      const tag = r.stale ? ' (stale)' : (r.orphan ? ' (orphan)' : '');
+      process.stdout.write(`${green('↩ Unpicked')}: ${r.path} (in-session → ${r.newStatus})${tag}\n`);
+    }
+    for (const s of skipped) {
+      process.stderr.write(`${yellow('⚠ Skipped')}: ${s.path} (held by ${s.session}; use --force to override)\n`);
+    }
+  }
 }
 
 export async function runFinish(argv, config, opts = {}) {
@@ -228,6 +406,10 @@ export async function runFinish(argv, config, opts = {}) {
     process.stdout.write(JSON.stringify({ path: repoPath, oldStatus, newStatus: targetStatus }, null, 2) + '\n');
   } else {
     process.stdout.write(`${green('✓ Finished')}: ${repoPath} (in-session → ${targetStatus})\n`);
+  }
+
+  if (!dryRun) {
+    try { releaseLease(config, repoPath, { force: true }); } catch (err) { warn(`Could not release lease for ${repoPath}: ${err.message}`); }
   }
 
   try { config.hooks.onFinish?.({ path: repoPath, oldStatus, newStatus: targetStatus }); } catch (err) { warn(`Hook 'onFinish' threw: ${err.message}`); }
@@ -295,6 +477,8 @@ export function runArchive(argv, config, opts = {}) {
   if (selfRefsFixed) process.stdout.write('Updated references in archived file.\n');
   if (updatedRefCount > 0) process.stdout.write(`Updated references in ${updatedRefCount} file(s).\n`);
   if (config.indexPath) process.stdout.write('Index regenerated.\n');
+
+  try { releaseLease(config, oldRepoPath, { force: true }); } catch (err) { warn(`Could not release lease for ${oldRepoPath}: ${err.message}`); }
 
   try { config.hooks.onArchive?.({ path: newRepoPath, oldStatus }, { oldPath: oldRepoPath, newPath: newRepoPath }); } catch (err) { warn(`Hook 'onArchive' threw: ${err.message}`); }
 }
