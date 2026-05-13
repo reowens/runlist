@@ -146,7 +146,10 @@ dotmd plans                  List all plans
 dotmd stale                  List stale docs
 dotmd actionable             List docs with next steps
 dotmd index [--write]        Generate/update docs.md index block
-dotmd pickup <file>          Pick up a plan (in-session + print)
+dotmd hud                    Three-line actionable triage (silent when clean — ideal SessionStart hook)
+dotmd pickup <file>          Pick up a plan (in-session + print body or queued handoff)
+dotmd release [<file>]       Release in-session lease (alias: unpickup)
+dotmd handoff <file> [...]   Queue a resume-prompt sidecar + release
 dotmd finish <file>          Finish a plan (done or active)
 dotmd status <file> <status> Transition document status
 dotmd archive <file>         Archive (status + move + update refs)
@@ -397,12 +400,36 @@ dotmd bulk archive docs/old-*.md -n               # preview
 ### Pickup & Finish
 
 ```bash
-dotmd pickup docs/plans/my-plan.md       # set in-session + print content
+dotmd pickup docs/plans/my-plan.md       # set in-session + print body (or queued handoff)
 dotmd finish docs/plans/my-plan.md       # set done + bump date
 dotmd finish docs/plans/my-plan.md active  # back to active for more work
 ```
 
-### Session leases & unpickup
+### Handoff (resume-prompts attached to plans)
+
+When you're stopping mid-work and the next session will need to pick up where
+you left off, write a handoff sidecar instead of printing a resume prompt to
+chat for copy-paste:
+
+```bash
+dotmd handoff docs/plans/foo.md "continue from validate(); next: write tests"
+dotmd handoff docs/plans/foo.md - <<'EOF'   # heredoc-friendly for Claude
+…multi-line resume prompt…
+EOF
+dotmd handoff docs/plans/foo.md @/tmp/handoff.md   # from file
+```
+
+The handoff is written to `<repoRoot>/.dotmd/handoffs/<plan-path>` as a
+timestamped section (append mode by default; `--replace` to overwrite). The
+lease is released and the plan flips back to its prior status. The next
+`dotmd pickup` of that plan prints the handoff *instead of* the plan body
+and atomically unlinks the sidecar — single-claim, can't be consumed twice.
+
+The included `/handoff` slash command (scaffolded under
+`.claude/commands/handoff.md` by `dotmd init` / `dotmd doctor`) instructs
+Claude to synthesize and queue handoffs for every plan the session holds.
+
+### Session leases & release
 
 `dotmd pickup` records a lease at `<repoRoot>/.dotmd/in-session.json` that
 identifies which Claude session owns the plan. The lease enables three
@@ -416,15 +443,15 @@ distinct outcomes when a plan is already `in-session`:
 - **Stale lease.** If the holder's pid is dead (or the lease is >24h old),
   pickup refuses but suggests `--takeover`.
 
-Releasing leases:
+Releasing leases (both names work; `release` is the recommended verb):
 
 ```bash
-dotmd unpickup                    # release every lease owned by current session
-dotmd unpickup docs/plans/foo.md  # release that one (refuses cross-session)
-dotmd unpickup --to planned       # override target status (default: lease.oldStatus)
-dotmd unpickup --stale            # release leases with dead pid or >24h old
-dotmd unpickup --all              # release every lease (administrative)
-dotmd unpickup --json             # { released: [...], skipped: [...] }
+dotmd release                     # release every lease owned by current session
+dotmd release docs/plans/foo.md   # release that one (refuses cross-session)
+dotmd release --to planned        # override target status (default: lease.oldStatus)
+dotmd release --stale             # release leases with dead pid or >24h old
+dotmd release --all               # release every lease (administrative)
+dotmd release --json              # { released: [...], skipped: [...] }
 ```
 
 `finish`, `archive`, and `rename` auto-release / migrate the lease, so the
@@ -440,16 +467,23 @@ common closeout paths are covered without ceremony.
 The session id survives `/clear` and auto-compaction, so a re-attach after
 either is silent.
 
-**Auto-release on Claude Code session end** — add this to
-`~/.claude/settings.json` (or your project's `.claude/settings.json`):
+**Recommended Claude Code hooks** — add both to `~/.claude/settings.json`
+(or your project's `.claude/settings.json`):
 
 ```json
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "dotmd hud", "timeout": 5 }
+        ]
+      }
+    ],
     "SessionEnd": [
       {
         "hooks": [
-          { "type": "command", "command": "dotmd unpickup", "timeout": 10 }
+          { "type": "command", "command": "dotmd release", "timeout": 10 }
         ]
       }
     ]
@@ -457,16 +491,22 @@ either is silent.
 }
 ```
 
-When the Claude Code session ends, the hook runs `dotmd unpickup` with
-`$CLAUDE_CODE_SESSION_ID` in the environment, releasing every lease for
-that session and flipping plans back to their prior status.
+- **SessionStart** runs `dotmd hud`, which prints up to three actionable
+  lines (held leases, queued handoffs, stale leases) and stays silent when
+  nothing is queued. Use this instead of `dotmd briefing` for the hook role
+  — `briefing` dumps per-plan next_step prose that can run to many kilobytes
+  on large repos. `hud` is the zero-pollution surface.
+- **SessionEnd** runs `dotmd release` (the new name for `dotmd unpickup`;
+  both still work), which releases every lease owned by the ending session
+  and flips plans back to their prior status.
 
-> The double-`hooks` nesting is correct: `hooks.SessionEnd[*].hooks[*]`
-> is the schema Claude Code requires. `Bash(dotmd:*)` should be in your
-> `permissions.allow` list as well, otherwise the hook will be blocked.
+> The double-`hooks` nesting is correct: `hooks.<Event>[*].hooks[*]` is the
+> schema Claude Code requires. `Bash(dotmd:*)` should be in your
+> `permissions.allow` list as well, otherwise the hooks will be blocked.
 
-`dotmd briefing` surfaces a `Stuck in-session: N` line when stale leases
-exist, with a `dotmd unpickup --stale` suggestion.
+`dotmd hud` (and `dotmd briefing` for the verbose case) surface a
+`⚠ N stuck leases` line when stale leases exist, with a
+`dotmd release --stale` suggestion.
 
 ### Touch
 

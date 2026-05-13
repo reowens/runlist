@@ -35,17 +35,31 @@ To finish work, archive directly: `dotmd archive <plan-file>`. The legacy `done`
 ### Working with plans (for Claude instances)
 
 1. Get oriented: `dotmd briefing` (compact 5-10 line summary)
-2. Pick up a plan: `dotmd pickup <plan-file>` (sets in-session + prints content + writes session lease)
+2. Pick up a plan: `dotmd pickup <plan-file>` (sets in-session + prints content or queued handoff + writes session lease)
 3. When done — pick the right closure status:
    - Fully shipped → `dotmd archive <plan-file>` (auto-releases lease)
-   - Shipped + tail deferred (with successor plans referenced) → `dotmd status <plan-file> partial` then `dotmd unpickup`
-   - Need more work later → `dotmd unpickup` (flips back to prior status — usually `active`)
-   - Stuck on a human decision → `dotmd status <plan-file> awaiting` then `dotmd unpickup`
+   - Shipped + tail deferred (with successor plans referenced) → `dotmd status <plan-file> partial` then `dotmd release`
+   - Need more work later → `dotmd release` (flips back to prior status — usually `active`)
+   - Stuck on a human decision → `dotmd status <plan-file> awaiting` then `dotmd release`
 4. To see all plans: `dotmd plans`
 5. To see available plans: `dotmd plans --status active`
 6. To see what's in flight: `dotmd plans --status in-session`
 7. Picking up an `in-session` plan that you already own (e.g., after `/clear` or auto-compaction) silently re-attaches — no conflict. Picking up one held by another live session refuses; a stale lease (dead pid or >24h) suggests `--takeover`.
-8. If your Claude Code `~/.claude/settings.json` has the `SessionEnd` hook configured (`dotmd unpickup`), graceful session-end auto-releases your leases. Otherwise call `dotmd unpickup` before finishing the session.
+8. If your Claude Code `~/.claude/settings.json` has the `SessionEnd` hook configured (`dotmd release`), graceful session-end auto-releases your leases. Otherwise call `dotmd release` before finishing the session.
+
+### Handoffs (resume prompts attached to plans)
+
+When the user asks for a resume prompt — or when context is getting tight and you're about to stop mid-work — DO NOT print the resume text into chat for them to copy-paste. Write it as a handoff sidecar attached to the plan:
+
+```bash
+dotmd handoff <plan-file> - <<'EOF'
+…your resume prompt here: state, what's done, what's next, key files, gotchas…
+EOF
+```
+
+`dotmd handoff` writes `<repoRoot>/.dotmd/handoffs/<plan-path>` (timestamped section, append-mode) and then releases the lease + flips status back to the prior one (usually `active`). The next `dotmd pickup` of that plan prints the handoff *instead of* the plan body and atomically unlinks the sidecar — single-claim, can't be consumed twice. Pass `--replace` only when the prior chain is stale and should be discarded.
+
+Use `dotmd handoff` whenever you'd otherwise print a multi-line "here's how to resume" block. The user closes the window; the next session runs `claude "$(dotmd pickup <plan>)"` and lands in the right context with no copy-paste.
 
 ### Creating documents
 

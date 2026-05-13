@@ -14,8 +14,9 @@ const HELP = {
   _main: `dotmd v${pkg.version} — frontmatter markdown document manager
 
 View & Query:
+  hud [--json]                      Three-line actionable triage (held / handoffs / stuck) — silent when clean
   list [--verbose] [--json]         List docs grouped by status (default command)
-  briefing [--json]                 Compact summary for session start
+  briefing [--json]                 Full briefing with plan status counts + next steps
   context [--summarize] [--json]    Full briefing (LLM-oriented)
   focus [status] [--json]           Detailed view for one status group
   query [filters] [--json]          Filtered search (--status, --keyword, --stale, etc.)
@@ -41,8 +42,9 @@ Validate & Fix:
   fix-refs [--dry-run]              Auto-fix broken reference paths + body links
 
 Lifecycle:
-  pickup <file> [--takeover]        Pick up a plan (set in-session + print)
-  unpickup [<file>] [--to <s>]      Release in-session lease (default: all owned by current session)
+  pickup <file> [--takeover]        Pick up a plan (set in-session + print body or queued handoff)
+  release [<file>] [--to <s>]       Release in-session lease (alias: unpickup)
+  handoff <file> [text|-|@path]     Queue a resume-prompt sidecar + release (append-mode)
   finish <file> [done|active]       Finish a plan (set done or active)
   status <file> <status>            Transition document status
   archive <file>                    Archive (status + move + update refs)
@@ -116,9 +118,14 @@ Filters:
 
   pickup: `dotmd pickup <file> — pick up a plan and start working
 
-Sets the plan to in-session and prints its content. Writes a session
-lease to <repoRoot>/.dotmd/in-session.json so the same Claude session
-can re-attach silently after compaction or /clear.
+Sets the plan to in-session and prints its content (prefixed with a
+"[dotmd] holding <path>" line so the fresh session knows what it holds).
+Writes a session lease to <repoRoot>/.dotmd/in-session.json so the same
+Claude session can re-attach silently after compaction or /clear.
+
+If a handoff sidecar is queued for the plan (\`.dotmd/handoffs/<path>\`),
+pickup prints the handoff *instead of* the plan body and unlinks the
+sidecar atomically — single-claim, can't be consumed twice.
 
 If a plan is already in-session:
 - Same session → silent re-attach (prints body, no error).
@@ -130,7 +137,8 @@ Options:
   --json                 Output as JSON
   --dry-run, -n          Preview without writing
 
-If no file is given, prompts with a list of active plans.`,
+If no file is given, prompts with a list of active/planned plans plus
+any plan with a queued handoff (sorted to the top).`,
 
   unpickup: `dotmd unpickup [<file>] — release a plan from in-session
 
@@ -153,6 +161,44 @@ Options:
 
 Manual-edit fallback: if the plan's status is in-session but no lease
 exists, --to <status> flips it anyway with a warning.`,
+
+  release: `dotmd release [<file>] [--to <s>] — alias of dotmd unpickup
+
+Release the in-session lease(s) and flip frontmatter back to the prior
+status. With no file, releases every lease owned by the current session.
+Identical behavior to \`dotmd unpickup\`; both names route to the same
+implementation. See \`dotmd unpickup --help\` for full option list.`,
+
+  handoff: `dotmd handoff <file> [text | - | @path] — queue resume prompt + release
+
+Writes a handoff sidecar attached to the plan, then releases the lease
+and flips frontmatter back to the prior status. The next \`dotmd pickup\`
+of the plan prints the handoff (instead of the plan body) and atomically
+unlinks the sidecar — single-claim guaranteed.
+
+Sidecars live at <repoRoot>/.dotmd/handoffs/<plan-path> and accumulate
+timestamped sections on repeat writes. To replace the chain instead of
+appending, pass --replace.
+
+Sources for handoff text (pick one):
+  <text>                 Inline argument (best for short notes)
+  --message "<text>"     Explicit --message flag (equivalent to inline)
+  -                      Read from stdin (heredoc-friendly for Claude)
+  @path                  Read from a file
+
+Examples:
+  dotmd handoff plans/foo.md "continue from validate(); next: write tests"
+  dotmd handoff plans/foo.md - <<'EOF'
+  …multi-line handoff…
+  EOF
+  dotmd handoff plans/foo.md @/tmp/handoff.md
+
+Options:
+  --replace              Overwrite the sidecar chain instead of appending
+  --json                 Output as JSON
+  --dry-run, -n          Preview without writing
+
+Refuses if the plan is not currently held by this session.`,
 
   finish: `dotmd finish <file> [done|active] — finish working on a plan
 
@@ -212,6 +258,25 @@ Shows detailed info for all docs matching the given status (default: active).
 
 Options:
   --json                 Output as JSON`,
+
+  hud: `dotmd hud — three-line actionable triage
+
+Prints up to three lines, in order:
+  ▶ You hold N plans: <slugs>       (leases owned by current session)
+  ▶ N handoffs queued: <slugs>      (resume-prompt sidecars waiting)
+  ⚠ N stuck leases >24h             (suggest \`dotmd release --stale\`)
+
+Silent when all three are empty — designed for SessionStart hooks where
+zero noise is the right default. Distinct from \`dotmd briefing\`, which
+dumps the full plan-status pipeline and per-plan next_step bodies (kilobytes
+on large repos). Use hud for ergonomic session boot; use briefing for
+explicit "give me the full picture."
+
+Recommended SessionStart hook (in ~/.claude/settings.json):
+  "SessionStart": [{ "hooks": [{ "type": "command", "command": "dotmd hud", "timeout": 5 }] }]
+
+Options:
+  --json                 Output as JSON ({ owned, queued, stale })`,
 
   briefing: `dotmd briefing — compact summary for session start
 
@@ -635,8 +700,10 @@ async function main() {
   if (command === 'notion') { const { runNotion } = await import('../src/notion.mjs'); await runNotion(restArgs, config, { dryRun }); return; }
 
   // Lifecycle commands
+  if (command === 'hud') { const { runHud } = await import('../src/hud.mjs'); runHud(restArgs, config); return; }
   if (command === 'pickup') { const { runPickup } = await import('../src/lifecycle.mjs'); await runPickup(restArgs, config, { dryRun }); return; }
-  if (command === 'unpickup') { const { runUnpickup } = await import('../src/lifecycle.mjs'); await runUnpickup(restArgs, config, { dryRun }); return; }
+  if (command === 'unpickup' || command === 'release') { const { runUnpickup } = await import('../src/lifecycle.mjs'); await runUnpickup(restArgs, config, { dryRun }); return; }
+  if (command === 'handoff') { const { runHandoff } = await import('../src/lifecycle.mjs'); await runHandoff(restArgs, config, { dryRun }); return; }
   if (command === 'finish') { const { runFinish } = await import('../src/lifecycle.mjs'); await runFinish(restArgs, config, { dryRun }); return; }
   if (command === 'status') { const { runStatus } = await import('../src/lifecycle.mjs'); await runStatus(restArgs, config, { dryRun }); return; }
   if (command === 'archive') { const { runArchive } = await import('../src/lifecycle.mjs'); runArchive(restArgs, config, { dryRun }); return; }
@@ -895,8 +962,8 @@ async function main() {
 
   // Unknown command — suggest closest match
   const allCommands = [
-    'list', 'json', 'check', 'coverage', 'stats', 'graph', 'deps', 'briefing', 'context',
-    'focus', 'query', 'plans', 'stale', 'actionable', 'index', 'pickup', 'finish', 'status', 'archive', 'bulk', 'touch', 'doctor',
+    'list', 'json', 'check', 'coverage', 'stats', 'graph', 'deps', 'briefing', 'context', 'hud',
+    'focus', 'query', 'plans', 'stale', 'actionable', 'index', 'pickup', 'release', 'handoff', 'finish', 'status', 'archive', 'bulk', 'touch', 'doctor',
     'unblocks', 'health', 'glossary',
     'fix-refs', 'lint', 'rename', 'migrate', 'notion', 'export', 'summary',
     'watch', 'diff', 'new', 'init', 'completions', 'statuses',

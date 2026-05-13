@@ -16,6 +16,9 @@ function generatePlansCommand(config) {
   lines.push('');
   lines.push('Plan-specific commands:');
   lines.push('- `dotmd context` — briefing with active/paused/ready plans, age tags, next steps');
+  lines.push('- `dotmd pickup <file>` — pick up a plan (set in-session + print body or queued handoff)');
+  lines.push('- `dotmd release` — release current session\'s leases (alias: unpickup)');
+  lines.push('- `dotmd handoff <file> -` — queue a resume-prompt sidecar + release (see /handoff)');
   lines.push('- `dotmd health` — plan velocity, aging, checklist progress, pipeline view');
   lines.push('- `dotmd unblocks <file>` — what depends on / is blocked by a plan');
   lines.push('- `dotmd next` — ready plans with next steps (what to promote)');
@@ -36,6 +39,44 @@ function generatePlansCommand(config) {
   lines.push('If the user asks to archive a plan, use `dotmd archive <file>`.');
   lines.push('');
 
+  return lines.join('\n');
+}
+
+function generateHandoffCommand(config) {
+  const lines = [VERSION_MARKER, ''];
+  lines.push('Queue a resume-prompt sidecar for every plan this session is currently holding. Use this whenever the user asks for a "resume prompt" / "handoff" / "context dump", or when you are about to stop mid-work and the next session will need to pick up where you left off. NEVER print the resume prompt into chat for copy-paste — write it as a handoff sidecar so the next `dotmd pickup` can consume it cleanly.');
+  lines.push('');
+  lines.push('Steps:');
+  lines.push('');
+  lines.push('1. Identify which plans this session is holding by running:');
+  lines.push('   ```');
+  lines.push('   dotmd plans --status in-session --json');
+  lines.push('   ```');
+  lines.push('   Filter to leases owned by the current session (compare `lease.session` against `$CLAUDE_CODE_SESSION_ID` if needed). If the user passed a specific plan path as an argument, use only that one.');
+  lines.push('');
+  lines.push('2. For each held plan, synthesize a handoff prompt covering:');
+  lines.push('   - One-line summary of where the session got to');
+  lines.push('   - What is already done (and verified working)');
+  lines.push('   - What is in flight / partial / needs verification');
+  lines.push('   - Concrete next step the resuming session should take');
+  lines.push('   - Key files touched (with paths) and any non-obvious gotchas');
+  lines.push('   - Open questions or decisions deferred');
+  lines.push('');
+  lines.push('3. Write each handoff via Bash heredoc:');
+  lines.push('   ```bash');
+  lines.push('   dotmd handoff <plan-path> - <<\'EOF\'');
+  lines.push('   <synthesized handoff body>');
+  lines.push('   EOF');
+  lines.push('   ```');
+  lines.push('   Append-mode is the default. The sidecar accumulates timestamped sections, so a session that writes multiple handoffs over time builds up a chronicle the next session reads in order.');
+  lines.push('');
+  lines.push('4. Report back which plans got handoffs queued and where their sidecars live (the `▶ Handoff queued: <path>` output line). The user closes their window; the next session runs `claude "$(dotmd pickup <plan>)"` and lands seeded with the handoff content.');
+  lines.push('');
+  lines.push('Rules:');
+  lines.push('- If a plan is not held by this session, do not write a handoff for it (dotmd will refuse anyway).');
+  lines.push('- If `dotmd handoff` errors with a recoverable message (existing sidecar conflict, etc.), read the path it cites, merge mentally, then re-run with `--replace`.');
+  lines.push('- Never print the resume text into the conversation as a copy-paste block.');
+  lines.push('');
   return lines.join('\n');
 }
 
@@ -104,6 +145,7 @@ export function scaffoldClaudeCommands(cwd, config) {
   const files = [
     { name: 'plans.md', generate: () => generatePlansCommand(config) },
     { name: 'docs.md', generate: () => generateDocsCommand(config) },
+    { name: 'handoff.md', generate: () => generateHandoffCommand(config) },
   ];
 
   for (const { name, generate } of files) {
@@ -136,7 +178,7 @@ export function checkClaudeCommands(cwd) {
   if (!existsSync(commandsDir)) return [];
 
   const warnings = [];
-  for (const name of ['plans.md', 'docs.md']) {
+  for (const name of ['plans.md', 'docs.md', 'handoff.md']) {
     const filePath = path.join(commandsDir, name);
     const installedVersion = getInstalledVersion(filePath);
     if (installedVersion && installedVersion !== pkg.version) {

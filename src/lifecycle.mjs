@@ -16,6 +16,7 @@ import {
   currentSessionId,
   migrateLease,
 } from './lease.mjs';
+import { hasHandoff, consumeHandoff, appendHandoff, handoffPath, listQueuedHandoffs } from './handoff.mjs';
 
 function findFileRoot(filePath, config) {
   const roots = config.docsRoots || [config.docsRoot];
@@ -136,17 +137,22 @@ export async function runPickup(argv, config, opts = {}) {
   const takeover = argv.includes('--takeover');
   let input = argv.find(a => !a.startsWith('-'));
 
-  // Interactive: pick from active plans
+  // Interactive: pick from active/planned plans + anything with a queued handoff
   if (!input) {
     if (!isInteractive()) die('Usage: dotmd pickup <file>');
     const index = buildIndex(config);
-    const active = index.docs.filter(d => d.type === 'plan' && (d.status === 'active' || d.status === 'planned'));
-    if (active.length === 0) die('No active or planned plans to pick up.');
-    const choice = await promptChoice('Pick a plan:', active.map(d => `${d.title} (${d.status}) — ${d.path}`));
+    const queued = new Set(listQueuedHandoffs(config).map(h => h.repoPath));
+    const candidates = index.docs.filter(d =>
+      d.type === 'plan' && (d.status === 'active' || d.status === 'planned' || queued.has(d.path))
+    );
+    if (candidates.length === 0) die('No active/planned plans and no queued handoffs.');
+    candidates.sort((a, b) => Number(queued.has(b.path)) - Number(queued.has(a.path)));
+    const labelFor = (d) => `${queued.has(d.path) ? '▶ handoff queued · ' : ''}${d.title} (${d.status}) — ${d.path}`;
+    const choice = await promptChoice('Pick a plan:', candidates.map(labelFor));
     if (!choice) die('No plan selected.');
-    const idx = active.findIndex((_, i) => choice === `${active[i].title} (${active[i].status}) — ${active[i].path}`);
+    const idx = candidates.findIndex(d => choice === labelFor(d));
     if (idx === -1) die('No plan selected.');
-    input = active[idx].path;
+    input = candidates[idx].path;
   }
 
   const filePath = resolveDocPath(input, config);
@@ -175,8 +181,9 @@ export async function runPickup(argv, config, opts = {}) {
     }
   }
 
+  const handoffQueued = hasHandoff(config, repoPath);
   const pickupable = new Set(['active', 'planned', 'in-session']);
-  if (oldStatus && !pickupable.has(oldStatus)) die(`Cannot pick up a plan with status '${oldStatus}'. Must be active or planned.\n  ${repoPath}`);
+  if (oldStatus && !pickupable.has(oldStatus) && !handoffQueued) die(`Cannot pick up a plan with status '${oldStatus}'. Must be active or planned.\n  ${repoPath}`);
 
   const today = new Date().toISOString().slice(0, 10);
   const leaseOldStatus = oldStatus === 'in-session' ? 'active' : (oldStatus ?? 'active');
@@ -204,12 +211,18 @@ export async function runPickup(argv, config, opts = {}) {
     }
   }
 
+  let handoffBody = null;
+  if (handoffQueued && !dryRun) {
+    try { handoffBody = consumeHandoff(config, repoPath); } catch (err) { warn(`Could not consume handoff for ${repoPath}: ${err.message}`); }
+  }
+
   if (json) {
     process.stdout.write(JSON.stringify({
       path: repoPath, oldStatus, newStatus: 'in-session', title,
       reattached: leaseOutcome === 'reattached',
       takenOver: leaseOutcome === 'taken-over',
-      body: body?.trim() ?? '',
+      handoffConsumed: handoffBody !== null,
+      body: (handoffBody ?? body)?.trim() ?? '',
     }, null, 2) + '\n');
   } else {
     if (leaseOutcome === 'reattached') {
@@ -219,7 +232,12 @@ export async function runPickup(argv, config, opts = {}) {
     } else {
       process.stderr.write(`${green('▶ Picked up')}: ${repoPath} (${oldStatus ?? 'unset'} → in-session)\n\n`);
     }
-    if (body?.trim()) process.stdout.write(body.trim() + '\n');
+    const header = handoffBody
+      ? `[dotmd] holding ${repoPath} — consumed handoff. Release with: dotmd release ${repoPath}\n---\n`
+      : `[dotmd] holding ${repoPath} — release with: dotmd release ${repoPath}\n---\n`;
+    process.stdout.write(header);
+    const content = (handoffBody ?? body ?? '').trim();
+    if (content) process.stdout.write(content + '\n');
   }
 
   try { config.hooks.onPickup?.({ path: repoPath, oldStatus, newStatus: 'in-session' }); } catch (err) { warn(`Hook 'onPickup' threw: ${err.message}`); }
@@ -704,6 +722,108 @@ function countRefsToUpdate(oldPath, newPath, config) {
   }
 
   return count;
+}
+
+function readHandoffInput(source) {
+  if (source === '-') {
+    const chunks = [];
+    try { chunks.push(readFileSync(0, 'utf8')); } catch (err) { die(`Could not read handoff from stdin: ${err.message}`); }
+    return chunks.join('');
+  }
+  if (typeof source === 'string' && source.startsWith('@')) {
+    const file = source.slice(1);
+    if (!existsSync(file)) die(`Handoff file not found: ${file}`);
+    return readFileSync(file, 'utf8');
+  }
+  return source;
+}
+
+export async function runHandoff(argv, config, opts = {}) {
+  const { dryRun } = opts;
+  const json = argv.includes('--json');
+  const replace = argv.includes('--replace');
+  const messageIdx = argv.indexOf('--message');
+  const messageFlag = messageIdx >= 0 ? argv[messageIdx + 1] : null;
+  const positional = argv.filter((a, i) => !a.startsWith('--') && argv[i - 1] !== '--message');
+
+  let input = positional[0];
+  let text = messageFlag !== null ? messageFlag : positional[1];
+
+  // Interactive: pick from in-session plans owned by current session
+  if (!input) {
+    if (!isInteractive()) die('Usage: dotmd handoff <file> [text | - | @path]   (or --message "text")');
+    const leases = readLeases(config);
+    const session = currentSessionId();
+    const owned = Object.values(leases).filter(l => l.session === session);
+    if (owned.length === 0) die('No in-session plans owned by this session.');
+    if (owned.length === 1) {
+      input = owned[0].path;
+      process.stderr.write(`${dim(`Auto-selected: ${input}`)}\n`);
+    } else {
+      const choice = await promptChoice('Handoff which plan:', owned.map(l => l.path));
+      if (!choice) die('No plan selected.');
+      input = choice;
+    }
+  }
+
+  const filePath = resolveDocPath(input, config);
+  if (!filePath) die(`File not found: ${input}`);
+  const repoPath = toRepoPath(filePath, config.repoRoot);
+
+  // Resolve text: explicit arg/stdin/@file, else die (no $EDITOR fallback — sessions are non-interactive)
+  if (text === undefined || text === null) {
+    die('Missing handoff text. Pass inline, --message "text", - for stdin, or @path for a file.');
+  }
+  const body = readHandoffInput(text);
+  if (!body.trim()) die('Handoff text is empty.');
+
+  const raw = readFileSync(filePath, 'utf8');
+  const { frontmatter: fmRaw } = extractFrontmatter(raw);
+  const parsedFm = parseSimpleFrontmatter(fmRaw);
+  const oldStatus = asString(parsedFm.status);
+
+  // Must be holding this plan in current session
+  const leases = readLeases(config);
+  const lease = leases[repoPath];
+  const session = currentSessionId();
+  if (!lease || lease.session !== session) {
+    die(`Not held by this session: ${repoPath}\n  Run \`dotmd pickup ${repoPath}\` first.`);
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const targetStatus = lease.oldStatus || 'active';
+
+  if (dryRun) {
+    process.stderr.write(`${dim('[dry-run]')} Would ${replace ? 'replace' : 'append to'} ${toRepoPath(handoffPath(config, repoPath), config.repoRoot)}\n`);
+    process.stderr.write(`${dim('[dry-run]')} Would release lease and flip status: in-session → ${targetStatus}\n`);
+    if (json) process.stdout.write(JSON.stringify({ path: repoPath, handoff: toRepoPath(handoffPath(config, repoPath), config.repoRoot), bytes: body.length, replace, dryRun: true }, null, 2) + '\n');
+    return;
+  }
+
+  // Order: write handoff first, then release. A crash between leaves a queued
+  // handoff with a held lease (recoverable) instead of a released lease with
+  // no handoff (silently lost).
+  const written = appendHandoff(config, repoPath, body, { replace });
+
+  if (oldStatus === 'in-session') {
+    updateFrontmatter(filePath, { status: targetStatus, updated: today });
+  }
+  releaseLease(config, repoPath, { force: true });
+
+  if (json) {
+    process.stdout.write(JSON.stringify({
+      path: repoPath,
+      handoff: toRepoPath(written, config.repoRoot),
+      bytes: body.length,
+      replace,
+      newStatus: targetStatus,
+    }, null, 2) + '\n');
+  } else {
+    process.stdout.write(`${green('▶ Handoff queued')}: ${toRepoPath(written, config.repoRoot)} (${body.length} bytes${replace ? ', replaced' : ', appended'})\n`);
+    process.stdout.write(`${green('↩ Released')}: ${repoPath} (in-session → ${targetStatus})\n`);
+  }
+
+  try { config.hooks.onUnpickup?.({ path: repoPath, oldStatus: 'in-session', newStatus: targetStatus }); } catch (err) { warn(`Hook 'onUnpickup' threw: ${err.message}`); }
 }
 
 export function updateFrontmatter(filePath, updates) {
