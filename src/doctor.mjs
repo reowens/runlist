@@ -7,6 +7,7 @@ import { renderCheck } from './render.mjs';
 import { bold, dim, green, yellow } from './color.mjs';
 import { scaffoldClaudeCommands } from './claude-commands.mjs';
 import { runMigrateTemplate } from './migrate-template.mjs';
+import { runMigratePrompts } from './migrate-prompts.mjs';
 
 // Tunable thresholds for `dotmd doctor --statuses` conflation detection.
 // MIN_BUCKET_SIZE: only flag buckets with at least this many docs (small buckets aren't worth nagging).
@@ -44,6 +45,10 @@ export function runDoctor(argv, config, opts = {}) {
   }
   if (argv.includes('--migrate-template')) {
     runMigrateTemplate(argv, config, opts);
+    return;
+  }
+  if (argv.includes('--migrate-prompts')) {
+    runMigratePrompts(argv, config, opts);
     return;
   }
 

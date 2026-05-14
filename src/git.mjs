@@ -19,6 +19,16 @@ export function getGitLastModified(relPath, repoRoot) {
   return result.stdout.trim();
 }
 
+export function getGitFirstAdded(relPath, repoRoot) {
+  const result = spawnSync('git', ['log', '--diff-filter=A', '--follow', '--format=%aI', '--', relPath], {
+    cwd: repoRoot, encoding: 'utf8',
+  });
+  if (result.error || result.status !== 0 || !result.stdout.trim()) return null;
+  // `git log` returns newest-first; the file's add commit is the LAST entry.
+  const lines = result.stdout.trim().split('\n').filter(Boolean);
+  return lines[lines.length - 1] ?? null;
+}
+
 export function getGitLastModifiedBatch(repoRoot) {
   const result = spawnSync('git', [
     'log', '--format=commit %aI', '--name-only', '--diff-filter=ACDMR', 'HEAD',

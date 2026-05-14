@@ -6,7 +6,30 @@ import { computeDaysSinceUpdate, computeIsStale } from './validate.mjs';
 import { getGitLastModifiedBatch } from './git.mjs';
 import { extractFrontmatter } from './frontmatter.mjs';
 import { summarizeDocBody } from './ai.mjs';
-import { bold, dim, yellow, red } from './color.mjs';
+import { bold, dim, yellow, red, green, blue, magenta, cyan, brightYellow } from './color.mjs';
+
+const STATUS_COLORS = {
+  'in-session': (s) => bold(red(s)),
+  'active': green,
+  'planned': blue,
+  'blocked': yellow,
+  'partial': (s) => dim(green(s)),
+  'paused': magenta,
+  'awaiting': brightYellow,
+  'queued-after': (s) => dim(cyan(s)),
+  'archived': dim,
+  'pending': bold,
+  'claimed': dim,
+};
+
+function colorTag(status) {
+  const tag = `[${(status ?? 'unknown').toUpperCase()}]`;
+  const fn = STATUS_COLORS[status] ?? dim;
+  return fn(tag);
+}
+
+// Strip ANSI for length math
+function visibleLen(s) { return s.replace(/\x1b\[[0-9;]*m/g, '').length; }
 
 export function runFocus(index, argv, config) {
   // Find first positional arg, skipping flag-value pairs like --root <name>
@@ -64,8 +87,8 @@ export function runQuery(index, argv, config, opts = {}) {
     return;
   }
 
-  if (opts.preset === 'plans') {
-    renderPlansOutput(docs, filters, config);
+  if (opts.preset === 'plans' || opts.preset === 'prompts') {
+    renderPlansOutput(docs, filters, config, { noun: opts.preset });
     return;
   }
 
@@ -101,6 +124,8 @@ export function parseQueryArgs(argv) {
     if (arg === '--sort' && next) { filters.sort = next; i += 1; continue; }
     if (arg === '--group' && next) { filters.group = next; i += 1; continue; }
     if (arg === '--all') { filters.all = true; continue; }
+    if (arg === '--include-archived') { filters.includeArchived = true; continue; }
+    if (arg === '--exclude-archived') { filters.excludeArchived = true; continue; }
     if (arg === '--stale') { filters.stale = true; continue; }
     if (arg === '--has-next-step') { filters.hasNextStep = true; continue; }
     if (arg === '--has-blockers') { filters.hasBlockers = true; continue; }
@@ -120,6 +145,15 @@ export function filterDocs(docs, filters, config) {
 
   if (filters.types?.length) result = result.filter(d => filters.types.includes(d.type));
   if (filters.statuses?.length) result = result.filter(d => filters.statuses.includes(d.status));
+  // --exclude-archived strips terminal/archive statuses unless the caller
+  // explicitly opted back in with --include-archived.
+  if (filters.excludeArchived && !filters.includeArchived) {
+    const archived = new Set([
+      ...(config.lifecycle?.archiveStatuses ?? []),
+      ...(config.lifecycle?.terminalStatuses ?? []),
+    ]);
+    result = result.filter(d => !archived.has(d.status));
+  }
 
   if (filters.keyword) {
     const needle = filters.keyword.toLowerCase();
@@ -151,6 +185,15 @@ export function filterDocs(docs, filters, config) {
   if (filters.checklistOpen) result = result.filter(d => (d.checklist?.open ?? 0) > 0);
 
   result.sort(buildSorter(filters.sort, config));
+  // Stash pre-limit count and per-status breakdown on filters so renderers
+  // can show "N more" footers and accurate pipeline summaries even when the
+  // returned slice is limited.
+  filters._totalBeforeLimit = result.length;
+  filters._statusCounts = {};
+  for (const d of result) {
+    const s = d.status ?? 'unknown';
+    filters._statusCounts[s] = (filters._statusCounts[s] ?? 0) + 1;
+  }
   return filters.all ? result : result.slice(0, filters.limit);
 }
 
@@ -235,19 +278,28 @@ function compareUpdatedDesc(a, b) {
   return au !== bu ? bu.localeCompare(au) : 0;
 }
 
-function renderPlansOutput(docs, filters, config) {
+function renderPlansOutput(docs, filters, config, opts = {}) {
+  const noun = opts.noun ?? 'plans';
   if (docs.length === 0) {
-    process.stdout.write('No plans found.\n');
+    process.stdout.write(`No ${noun} found.\n`);
     return;
   }
 
-  // Summary line
-  const bySt = {};
-  for (const d of docs) { bySt[d.status] = (bySt[d.status] ?? 0) + 1; }
-  const counts = Object.entries(bySt).map(([s, n]) => `${n} ${s}`).join(', ');
-  process.stdout.write(`${bold('Plans')} ${dim(`(${docs.length})`)}  ${counts}\n`);
+  // Summary line: middle-dot separator, ALWAYS based on the full pre-limit
+  // pipeline so the top-of-page numbers stay honest when --limit is applied.
+  const totalShown = docs.length;
+  const totalAll = filters._totalBeforeLimit ?? totalShown;
+  const bySt = filters._statusCounts ?? (() => {
+    const counts = {};
+    for (const d of docs) { counts[d.status] = (counts[d.status] ?? 0) + 1; }
+    return counts;
+  })();
+  // Sort statuses by count desc for a stable visual.
+  const counts = Object.entries(bySt).sort((a, b) => b[1] - a[1]).map(([s, n]) => `${n} ${s}`).join(' · ');
+  const header = `${totalAll} ${noun}${counts ? ' · ' + counts : ''}`;
+  process.stdout.write(dim(header) + '\n');
 
-  // Active filter note (only if user applied extra filters beyond the preset defaults)
+  // Active filter note
   const activeFilters = [];
   if (filters.statuses?.length) activeFilters.push(`status: ${filters.statuses.join(', ')}`);
   if (filters.module) activeFilters.push(`module: ${filters.module}`);
@@ -260,29 +312,40 @@ function renderPlansOutput(docs, filters, config) {
   if (activeFilters.length) process.stdout.write(dim(`  filtered: ${activeFilters.join(' | ')}`) + '\n');
 
   const maxWidth = process.stdout.columns || 100;
+  const grouped = filters.sort === 'status' || filters.group;
 
-  // Group by module or status
   if (filters.group === 'module') {
+    process.stdout.write('\n');
     renderPlansByGroup(docs, d => d.modules?.length ? d.modules : ['(none)'], filters, maxWidth);
   } else if (filters.group === 'surface') {
+    process.stdout.write('\n');
     renderPlansByGroup(docs, d => d.surfaces?.length ? d.surfaces : ['(none)'], filters, maxWidth);
   } else if (filters.group === 'owner') {
+    process.stdout.write('\n');
     renderPlansByGroup(docs, d => [d.owner ?? '(none)'], filters, maxWidth);
-  } else {
-    // Default: group by status, ordered by config.statusOrder
+  } else if (grouped) {
+    // Pipeline view: group by status, ordered by config.statusOrder. Tag is implicit.
     const statusGroups = new Map();
     for (const d of docs) {
       const s = d.status ?? 'unknown';
       if (!statusGroups.has(s)) statusGroups.set(s, []);
       statusGroups.get(s).push(d);
     }
-
     const orderedStatuses = [...config.statusOrder.filter(s => statusGroups.has(s)), ...([...statusGroups.keys()].filter(s => !config.statusOrder.includes(s)))];
-
     for (const status of orderedStatuses) {
       const group = statusGroups.get(status);
       process.stdout.write(`\n${bold(`${capitalize(status)} (${group.length})`)}\n`);
-      renderPlanRows(group, filters, maxWidth);
+      renderPlanRows(group, filters, maxWidth, { showTag: false });
+    }
+  } else {
+    // Triage view: flat, sorted by recency, tag on right.
+    process.stdout.write('\n');
+    renderPlanRows(docs, filters, maxWidth, { showTag: true });
+    // Footer when the result was capped.
+    const hidden = totalAll - totalShown;
+    if (hidden > 0) {
+      process.stdout.write('\n');
+      process.stdout.write(dim(`  ${hidden} more ${noun}  ·  dotmd ${noun} --all  ·  dotmd ${noun} status\n`));
     }
   }
 
@@ -306,29 +369,53 @@ function renderPlansByGroup(docs, keyFn, filters, maxWidth) {
   }
 }
 
-function renderPlanRows(group, filters, maxWidth) {
+// Widest tag we render (status name in CAPS + brackets). Used to budget the
+// next-step column when right-aligning tags.
+const MAX_TAG_WIDTH = '[QUEUED-AFTER]'.length;
+
+function renderPlanRows(group, filters, maxWidth, opts = {}) {
+  const { showTag = false } = opts;
   const maxSlug = Math.min(30, Math.max(...group.map(d => toSlug(d).length)));
-  const showModule = !filters.module && filters.group !== 'module';
 
   for (const doc of group) {
     const slug = toSlug(doc).padEnd(maxSlug);
-    const age = doc.daysSinceUpdate != null ? `${doc.daysSinceUpdate}d` : ' —';
+    const age = doc.daysSinceUpdate != null ? `${doc.daysSinceUpdate}d` : '—';
     const ageStr = doc.daysSinceUpdate != null && doc.isStale ? red(age.padStart(4)) : dim(age.padStart(4));
-    const progress = renderProgressBar(doc.checklist);
 
-    const parts = [`  ${slug}  ${ageStr}`];
-    if (progress) parts.push(progress);
-    if (showModule && doc.modules?.length) parts.push(dim(`[${doc.modules.join(',')}]`));
-
-    if (doc.blockers?.length && (doc.status === 'blocked')) {
-      parts.push(yellow(`blockers: ${doc.blockers.join('; ')}`));
-    } else if (doc.nextStep) {
-      parts.push(`next: ${doc.nextStep}`);
-    } else {
-      parts.push(dim('(no next step)'));
+    // Compact percentage cell (always 5 chars: "100% " / " 99% " / "  5% " / "     ")
+    let pctCell = '     ';
+    if (doc.checklist?.total) {
+      const pct = Math.round((doc.checklist.completed / doc.checklist.total) * 100);
+      pctCell = `${pct.toString().padStart(3)}% `;
     }
 
-    const line = parts.join('  ');
-    process.stdout.write((line.length > maxWidth ? line.slice(0, maxWidth - 3) + '...' : line) + '\n');
+    const leftBlock = `  ${slug}  ${ageStr}  ${dim(pctCell)}`;
+    const leftLen = visibleLen(leftBlock);
+
+    // Next-step / blocker text. Budget = maxWidth - leftLen - separator - (tag column if shown).
+    let nextText = '';
+    if (doc.blockers?.length && doc.status === 'blocked') {
+      nextText = `blocked by ${doc.blockers.join('; ')}`;
+    } else if (doc.nextStep) {
+      nextText = doc.nextStep;
+    }
+
+    const tagBudget = showTag ? MAX_TAG_WIDTH + 2 : 0; // 2 = gap before tag
+    const nextBudget = Math.max(10, maxWidth - leftLen - 2 - tagBudget); // -2 for `  ` separator
+    let nextRendered = nextText;
+    if (nextText.length > nextBudget) nextRendered = nextText.slice(0, nextBudget - 3) + '...';
+
+    // Coloring for "blocked by" stays yellow.
+    if (doc.blockers?.length && doc.status === 'blocked') nextRendered = yellow(nextRendered);
+
+    let line = `${leftBlock}  ${nextRendered}`;
+    if (showTag) {
+      // Pad next column to push tag to the right column boundary.
+      const consumed = visibleLen(line);
+      const targetCol = maxWidth - MAX_TAG_WIDTH;
+      const padCount = Math.max(2, targetCol - consumed);
+      line = `${line}${' '.repeat(padCount)}${colorTag(doc.status)}`;
+    }
+    process.stdout.write(line + '\n');
   }
 }

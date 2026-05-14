@@ -20,7 +20,8 @@ View & Query:
   context [--summarize] [--json]    Full briefing (LLM-oriented)
   focus [status] [--json]           Detailed view for one status group
   query [filters] [--json]          Filtered search (--status, --keyword, --stale, etc.)
-  plans                             All plans (preset)
+  plans                             Live plans (excludes archived; --include-archived for all)
+  prompts                           Pending prompts in docs/prompts/
   stale                             Stale docs (preset)
   actionable                        Docs with next steps (preset)
 
@@ -352,6 +353,11 @@ Modes:
                          Skips non-plans. Per-file diff. Doesn't touch
                          long next_step/current_state or unmarked phase
                          headings (those need human input).
+  --migrate-prompts      Retrofit pre-existing markdown files under any docs
+                         root's prompts/ subdirectory with proper prompt
+                         frontmatter (type, status, created from git
+                         history, dotmd_version, context, related_plans).
+                         Skips files that already have frontmatter.
   --migrate-template <file>  Migrate just one plan.
   --migrate-template --include-archived
                          Also touch plans in the archive directory.
@@ -530,23 +536,39 @@ directory. Skips any files that already exist.
 If docs/ already contains .md files, auto-detects statuses, surfaces,
 modules, and reference fields to pre-populate the config.`,
 
-  plans: `dotmd plans — list all plans
+  plans: `dotmd plans — list live plans (excludes archived by default)
 
-Shows all documents with type: plan, sorted by status.
-Supports all query flags (--status, --module, --json, --sort, --group, etc.)
+Shows documents with type: plan, excluding terminal/archive statuses,
+sorted by status. Supports all query flags (--status, --module, --json,
+--sort, --group, etc.).
 
 Default plan statuses: in-session, active, planned, blocked, partial,
 paused, awaiting, queued-after, archived. Run \`dotmd status --help\` for
 the unstuck-action behind each one.
 
 Examples:
-  dotmd plans                          # all plans
+  dotmd plans                          # live plans (default)
+  dotmd plans --include-archived       # all plans including archived
   dotmd plans --status active          # active plans only
   dotmd plans --status awaiting        # plans waiting on a human decision
   dotmd plans --status partial,paused  # shipped-tail and parked plans
   dotmd plans --module auth            # plans for the auth module
-  dotmd plans --group module           # all plans grouped by module
+  dotmd plans --group module           # plans grouped by module
   dotmd plans --json                   # JSON output`,
+
+  prompts: `dotmd prompts — list saved prompts (excludes archived by default)
+
+Shows documents with type: prompt, typically saved under docs/prompts/.
+Prompts are created with \`dotmd new prompt <name> "<body>"\` and seed
+future Claude sessions via \`claude "$(cat docs/prompts/<name>.md)"\`.
+
+Default prompt statuses: pending, claimed, archived.
+
+Examples:
+  dotmd prompts                        # pending prompts (default)
+  dotmd prompts --include-archived     # all prompts including archived
+  dotmd prompts --status claimed       # already-consumed prompts
+  dotmd prompts --json                 # JSON output`,
 
   stale: `dotmd stale — list stale documents
 
@@ -718,12 +740,49 @@ async function main() {
     process.stderr.write(`Repo root: ${config.repoRoot}\n`);
   }
 
-  // Preset aliases
+  // Preset aliases (user config can override built-in commands below)
   if (config.presets[command]) {
     const { buildIndex } = await import('../src/index.mjs');
     const { runQuery } = await import('../src/query.mjs');
     const index = buildIndex(config);
     runQuery(index, [...config.presets[command], ...restArgs], config, { preset: command });
+    return;
+  }
+
+  // Built-in list commands — stable across projects regardless of preset config.
+  // Two views per type:
+  //   `dotmd plans`         triage — top 10 by recency, flat with right-aligned [TAG]
+  //   `dotmd plans status`  pipeline — grouped by status, no per-row tag, all plans
+  if (command === 'plans') {
+    const { buildIndex } = await import('../src/index.mjs');
+    const { runQuery } = await import('../src/query.mjs');
+    const index = buildIndex(config);
+    const sub = restArgs[0];
+    let defaults;
+    let extras = restArgs;
+    if (sub === 'status') {
+      defaults = ['--type', 'plan', '--exclude-archived', '--sort', 'status', '--all'];
+      extras = restArgs.slice(1);
+    } else {
+      defaults = ['--type', 'plan', '--exclude-archived', '--sort', 'updated', '--limit', '10'];
+    }
+    runQuery(index, [...defaults, ...extras], config, { preset: 'plans' });
+    return;
+  }
+  if (command === 'prompts') {
+    const { buildIndex } = await import('../src/index.mjs');
+    const { runQuery } = await import('../src/query.mjs');
+    const index = buildIndex(config);
+    const sub = restArgs[0];
+    let defaults;
+    let extras = restArgs;
+    if (sub === 'status') {
+      defaults = ['--type', 'prompt', '--exclude-archived', '--sort', 'status', '--all'];
+      extras = restArgs.slice(1);
+    } else {
+      defaults = ['--type', 'prompt', '--exclude-archived', '--sort', 'updated', '--limit', '10'];
+    }
+    runQuery(index, [...defaults, ...extras], config, { preset: 'prompts' });
     return;
   }
 
@@ -1001,7 +1060,7 @@ async function main() {
   // Unknown command — suggest closest match
   const allCommands = [
     'list', 'json', 'check', 'coverage', 'stats', 'graph', 'deps', 'briefing', 'context', 'hud',
-    'focus', 'query', 'plans', 'stale', 'actionable', 'index', 'pickup', 'release', 'handoff', 'finish', 'status', 'archive', 'bulk', 'touch', 'doctor',
+    'focus', 'query', 'plans', 'prompts', 'stale', 'actionable', 'index', 'pickup', 'release', 'handoff', 'finish', 'status', 'archive', 'bulk', 'touch', 'doctor',
     'unblocks', 'health', 'glossary',
     'fix-refs', 'lint', 'rename', 'migrate', 'notion', 'export', 'summary',
     'watch', 'diff', 'new', 'init', 'completions', 'statuses',

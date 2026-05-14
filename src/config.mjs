@@ -100,7 +100,6 @@ const DEFAULTS = {
   notion: null,
 
   presets: {
-    plans: ['--type', 'plan', '--sort', 'status', '--all'],
     stale: ['--status', 'active,ready,planned,blocked,scoping', '--stale', '--sort', 'updated', '--all'],
     actionable: ['--status', 'active,ready', '--has-next-step', '--sort', 'updated', '--all'],
   },
