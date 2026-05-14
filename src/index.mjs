@@ -3,7 +3,7 @@ import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { extractFirstHeading, extractSummary, extractStatusSnapshot, extractNextStep, extractChecklistCounts, extractBodyLinks } from './extractors.mjs';
 import { asString, normalizeStringList, normalizeBlockers, mergeUniqueStrings, toRepoPath, warn } from './util.mjs';
-import { validateDoc, checkBidirectionalReferences, checkGitStaleness, computeDaysSinceUpdate, computeIsStale, computeChecklistCompletionRate } from './validate.mjs';
+import { validateDoc, validatePlanShape, checkBidirectionalReferences, checkGitStaleness, computeDaysSinceUpdate, computeIsStale, computeChecklistCompletionRate } from './validate.mjs';
 import { checkIndex } from './index-file.mjs';
 import { checkClaudeCommands } from './claude-commands.mjs';
 
@@ -193,5 +193,6 @@ export function parseDocFile(filePath, config) {
   }
 
   validateDoc(doc, parsedFrontmatter, headingTitle, config);
+  validatePlanShape(doc, body, parsedFrontmatter, config);
   return doc;
 }

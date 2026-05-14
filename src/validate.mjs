@@ -174,6 +174,91 @@ export function checkGitStaleness(docs, config) {
   return warnings;
 }
 
+// Plan-shape lint: soft warnings on convention drift. Plan-only.
+// Body is the unparsed plan body (everything after the closing `---`).
+export function validatePlanShape(doc, body, frontmatter, config) {
+  if (doc.type !== 'plan') return;
+  // Skip plans in terminal/archive statuses (closed work shouldn't generate noise)
+  if (config.lifecycle.terminalStatuses.has(doc.status) || config.lifecycle.archiveStatuses.has(doc.status)) return;
+  if (config.lifecycle.skipWarningsFor.has(doc.status)) return;
+
+  // 1. next_step length cap (300 chars)
+  const nextStep = typeof frontmatter.next_step === 'string' ? frontmatter.next_step : '';
+  if (nextStep.length > 300) {
+    doc.warnings.push({
+      path: doc.path,
+      level: 'warning',
+      message: `\`next_step\` is ${nextStep.length} chars (cap: 300). Long prose belongs in the body — keep next_step as a 1-2 line pointer.`,
+    });
+  }
+
+  // 2. current_state length cap (500 chars)
+  const currentState = typeof frontmatter.current_state === 'string' ? frontmatter.current_state : '';
+  if (currentState.length > 500) {
+    doc.warnings.push({
+      path: doc.path,
+      level: 'warning',
+      message: `\`current_state\` is ${currentState.length} chars (cap: 500). Long prose belongs in the body.`,
+    });
+  }
+
+  // 3. surface AND surfaces both populated
+  if (frontmatter.surface && Array.isArray(frontmatter.surfaces) && frontmatter.surfaces.length > 0) {
+    doc.warnings.push({
+      path: doc.path,
+      level: 'warning',
+      message: 'Both `surface` (singular) and `surfaces` (array) are set. Pick one — prefer `surfaces` array form.',
+    });
+  }
+  if (frontmatter.module && Array.isArray(frontmatter.modules) && frontmatter.modules.length > 0) {
+    doc.warnings.push({
+      path: doc.path,
+      level: 'warning',
+      message: 'Both `module` (singular) and `modules` (array) are set. Pick one — prefer `modules` array form.',
+    });
+  }
+
+  if (!body) return;
+
+  // 4. Heading drift: case + name variants
+  const headingDrift = [
+    { wrong: /^##\s+Open questions\s*$/m, right: '## Open Questions' },
+    { wrong: /^##\s+(Non-goals|Out of scope|Out of Scope|out of scope)\s*$/m, right: '## Non-Goals' },
+    { wrong: /^##\s+open questions\s*$/m, right: '## Open Questions' },
+  ];
+  for (const { wrong, right } of headingDrift) {
+    const m = body.match(wrong);
+    if (m) {
+      doc.warnings.push({
+        path: doc.path,
+        level: 'warning',
+        message: `Heading drift: \`${m[0].trim()}\` → suggest \`${right}\`.`,
+      });
+    }
+  }
+
+  // 5. Phases section exists but no phase H3 has a status marker
+  const phasesIdx = body.search(/^## Phases\s*$/m);
+  if (phasesIdx >= 0) {
+    // Find the section's body (until next H2 or EOF)
+    const after = body.slice(phasesIdx);
+    const nextH2 = after.slice(8).search(/^## /m);
+    const phasesBody = nextH2 >= 0 ? after.slice(8, 8 + nextH2) : after.slice(8);
+    const phaseHeadings = [...phasesBody.matchAll(/^###\s+(.+?)\s*$/gm)].map(m => m[1]);
+    if (phaseHeadings.length > 0) {
+      const markerRe = /(✅|⏭|🟡|⬜|🚧|☑|✔|◻|☐|⬛|\bshipped\b|\bskip(?:ped)?\b|\bin[-_ ]?(?:progress|flight)\b|\bblocked\b|\btodo\b|\bnot[-_ ]?started\b|\bwip\b|\bdone\b|\bcomplete\b)/i;
+      const unmarked = phaseHeadings.filter(h => !markerRe.test(h));
+      if (unmarked.length > 0) {
+        doc.warnings.push({
+          path: doc.path,
+          level: 'warning',
+          message: `${unmarked.length} of ${phaseHeadings.length} phase heading(s) lack a status marker. Use one of ✅ shipped, ⏭ skipped, 🟡 in-progress, ⬜ todo, 🚧 blocked.`,
+        });
+      }
+    }
+  }
+}
+
 export function computeDaysSinceUpdate(updated) {
   if (!updated) return null;
   const parsed = new Date(updated);
