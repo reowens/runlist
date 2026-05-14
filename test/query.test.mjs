@@ -38,6 +38,37 @@ describe('parseQueryArgs', () => {
     strictEqual(filters.sort, 'title');
   });
 
+  it('collects positional terms (lowercased) as filter tokens', () => {
+    const filters = parseQueryArgs(['rls', '--sort', 'updated', 'Platform']);
+    deepStrictEqual(filters.positionalTerms, ['rls', 'platform']);
+  });
+
+  it('positional terms AND-match against slug + title', () => {
+    const docs = [
+      { path: 'docs/plans/rls-platform-rows.md', title: 'RLS Platform-Row Visibility', status: 'active' },
+      { path: 'docs/plans/rls-location-anchored.md', title: 'RLS Location-anchored', status: 'active' },
+      { path: 'docs/plans/pii-redesign.md', title: 'PII Redesign', status: 'active' },
+    ];
+    const config = { lifecycle: { archiveStatuses: new Set(), terminalStatuses: new Set() } };
+
+    // Single term
+    const single = filterDocs(docs, parseQueryArgs(['rls']), config);
+    strictEqual(single.length, 2);
+
+    // Multi-term AND
+    const multi = filterDocs(docs, parseQueryArgs(['rls', 'platform']), config);
+    strictEqual(multi.length, 1);
+    strictEqual(multi[0].path, 'docs/plans/rls-platform-rows.md');
+
+    // No matches
+    const none = filterDocs(docs, parseQueryArgs(['nonexistent']), config);
+    strictEqual(none.length, 0);
+
+    // Matches title too, not just slug
+    const titleMatch = filterDocs(docs, parseQueryArgs(['visibility']), config);
+    strictEqual(titleMatch.length, 1);
+  });
+
   it('parses multiple value flags', () => {
     const filters = parseQueryArgs(['--keyword', 'auth', '--module', 'catalog', '--owner', 'robert']);
     strictEqual(filters.keyword, 'auth');

@@ -104,6 +104,7 @@ export function parseQueryArgs(argv) {
     stale: false, hasNextStep: false, hasBlockers: false,
     checklistOpen: false, json: false, git: false,
     summarize: false, summarizeLimit: 5, model: undefined,
+    positionalTerms: [],
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -135,6 +136,14 @@ export function parseQueryArgs(argv) {
     if (arg === '--summarize') { filters.summarize = true; continue; }
     if (arg === '--summarize-limit' && next) { filters.summarizeLimit = Number.parseInt(next, 10) || 5; i += 1; continue; }
     if (arg === '--model' && next) { filters.model = next; i += 1; continue; }
+
+    // Positional terms: anything else that's not a flag becomes a substring
+    // filter token (AND-matched against slug + title). Lets users do:
+    //   dotmd plans rls          → matches rls-platform-rows, rls-location-anchored
+    //   dotmd plans pii redesign → AND match: pii-data-model-redesign
+    if (typeof arg === 'string' && !arg.startsWith('-')) {
+      filters.positionalTerms.push(arg.toLowerCase());
+    }
   }
 
   return filters;
@@ -158,6 +167,14 @@ export function filterDocs(docs, filters, config) {
   if (filters.keyword) {
     const needle = filters.keyword.toLowerCase();
     result = result.filter(d => [d.title, d.summary, d.currentState, d.nextStep, d.path, ...(d.blockers ?? [])].filter(Boolean).join(' ').toLowerCase().includes(needle));
+  }
+
+  // Positional substring filter: AND match against slug + title.
+  if (filters.positionalTerms?.length) {
+    result = result.filter(d => {
+      const haystack = [d.path, d.title].filter(Boolean).join(' ').toLowerCase();
+      return filters.positionalTerms.every(term => haystack.includes(term));
+    });
   }
 
   if (filters.owner) { const n = filters.owner.toLowerCase(); result = result.filter(d => (d.owner ?? '').toLowerCase().includes(n)); }
