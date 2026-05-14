@@ -8,7 +8,7 @@ import { bold, green, yellow, dim } from './color.mjs';
 const HEADING_RENAMES = [
   { from: /^##\s+Open questions\s*$/gm, to: '## Open Questions' },
   { from: /^##\s+open questions\s*$/gm, to: '## Open Questions' },
-  { from: /^##\s+Out of scope\s*$/gm, to: '## Non-Goals' },
+  { from: /^##\s+Out of [Ss]cope\s*$/gm, to: '## Non-Goals' },
   { from: /^##\s+out of scope\s*$/gm, to: '## Non-Goals' },
   { from: /^##\s+Non-goals\s*$/gm, to: '## Non-Goals' },
 ];

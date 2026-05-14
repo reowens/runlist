@@ -80,6 +80,14 @@ describe('migrateOne (pure)', () => {
     ok(/^## Non-Goals$/m.test(newRaw));
   });
 
+  it('renames ## Out of Scope (capital S) to ## Non-Goals', () => {
+    const raw = `---\ntype: plan\nstatus: active\nupdated: 2026-05-13\n---\n# P\n\n## Out of Scope\n\nstuff\n`;
+    const { changes, newRaw } = migrateOne(raw);
+    ok(changes.some(c => c.kind === 'rename-heading'), 'capital-S variant must be caught');
+    ok(/^## Non-Goals$/m.test(newRaw));
+    ok(!/^## Out of Scope$/m.test(newRaw));
+  });
+
   it('adds ## Version History section when missing', () => {
     const raw = `---\ntype: plan\nstatus: active\nupdated: 2026-05-13\n---\n# P\n\n## Problem\n\nstuff\n`;
     const { changes, newRaw } = migrateOne(raw);
