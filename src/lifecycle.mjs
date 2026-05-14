@@ -17,6 +17,7 @@ import {
   migrateLease,
 } from './lease.mjs';
 import { hasHandoff, consumeHandoff, appendHandoff, handoffPath, listQueuedHandoffs } from './handoff.mjs';
+import { buildCard, renderCard } from './pickup-card.mjs';
 
 function findFileRoot(filePath, config) {
   const roots = config.docsRoots || [config.docsRoot];
@@ -135,6 +136,7 @@ export async function runPickup(argv, config, opts = {}) {
   const { dryRun } = opts;
   const json = argv.includes('--json');
   const takeover = argv.includes('--takeover');
+  const fullBody = argv.includes('--full');
   let input = argv.find(a => !a.startsWith('-'));
 
   // Interactive: pick from active/planned plans + anything with a queued handoff
@@ -217,12 +219,14 @@ export async function runPickup(argv, config, opts = {}) {
   }
 
   if (json) {
+    const card = handoffBody ? null : buildCard(filePath, raw, config);
     process.stdout.write(JSON.stringify({
       path: repoPath, oldStatus, newStatus: 'in-session', title,
       reattached: leaseOutcome === 'reattached',
       takenOver: leaseOutcome === 'taken-over',
       handoffConsumed: handoffBody !== null,
       body: (handoffBody ?? body)?.trim() ?? '',
+      card,
     }, null, 2) + '\n');
   } else {
     if (leaseOutcome === 'reattached') {
@@ -232,12 +236,21 @@ export async function runPickup(argv, config, opts = {}) {
     } else {
       process.stderr.write(`${green('▶ Picked up')}: ${repoPath} (${oldStatus ?? 'unset'} → in-session)\n\n`);
     }
-    const header = handoffBody
-      ? `[dotmd] holding ${repoPath} — consumed handoff. Release with: dotmd release ${repoPath}\n---\n`
-      : `[dotmd] holding ${repoPath} — release with: dotmd release ${repoPath}\n---\n`;
-    process.stdout.write(header);
-    const content = (handoffBody ?? body ?? '').trim();
-    if (content) process.stdout.write(content + '\n');
+    if (handoffBody) {
+      const header = `[dotmd] holding ${repoPath} — consumed handoff. Release with: dotmd release ${repoPath}\n---\n`;
+      process.stdout.write(header);
+      const content = handoffBody.trim();
+      if (content) process.stdout.write(content + '\n');
+    } else if (fullBody) {
+      const header = `[dotmd] holding ${repoPath} — release with: dotmd release ${repoPath}\n---\n`;
+      process.stdout.write(header);
+      const content = (body ?? '').trim();
+      if (content) process.stdout.write(content + '\n');
+    } else {
+      // Default: card view
+      const card = buildCard(filePath, raw, config);
+      process.stdout.write(renderCard(card));
+    }
   }
 
   try { config.hooks.onPickup?.({ path: repoPath, oldStatus, newStatus: 'in-session' }); } catch (err) { warn(`Hook 'onPickup' threw: ${err.message}`); }
