@@ -18,6 +18,7 @@ import {
 } from './lease.mjs';
 import { hasHandoff, consumeHandoff, appendHandoff, handoffPath, listQueuedHandoffs } from './handoff.mjs';
 import { buildCard, renderCard } from './pickup-card.mjs';
+import { walkSections, findSection } from './section.mjs';
 
 function findFileRoot(filePath, config) {
   const roots = config.docsRoots || [config.docsRoot];
@@ -101,6 +102,7 @@ export async function runStatus(argv, config, opts = {}) {
   }
 
   updateFrontmatter(filePath, { status: newStatus, updated: today });
+  appendVersionHistory(filePath, `Status: ${oldStatus ?? 'unknown'} → ${newStatus}.`);
 
   if (isArchiving) {
     mkdirSync(archiveDir, { recursive: true });
@@ -211,6 +213,16 @@ export async function runPickup(argv, config, opts = {}) {
     if (oldStatus !== 'in-session') {
       updateFrontmatter(filePath, { status: 'in-session', updated: today });
     }
+    // VH append per lease outcome:
+    //   acquired   → `Picked up (<old> → in-session).`
+    //   taken-over → `Took over from <session>.`
+    //   reattached → no entry (same-session noise)
+    if (leaseOutcome === 'acquired') {
+      appendVersionHistory(filePath, `Picked up (${oldStatus ?? 'unknown'} → in-session).`);
+    } else if (leaseOutcome === 'taken-over') {
+      const fromSession = result.conflict?.session ?? 'unknown';
+      appendVersionHistory(filePath, `Took over from ${fromSession}.`);
+    }
   }
 
   let handoffBody = null;
@@ -317,6 +329,7 @@ export async function runUnpickup(argv, config, opts = {}) {
       if (cur === 'in-session') {
         const today = nowIso();
         updateFrontmatter(filePath, { status: newStatus, updated: today });
+        appendVersionHistory(filePath, `Released (in-session → ${newStatus}).`);
       }
       // If frontmatter is no longer in-session (manual flip), leave it alone.
     } catch (err) {
@@ -486,6 +499,7 @@ export function runArchive(argv, config, opts = {}) {
   }
 
   updateFrontmatter(filePath, { status: 'archived', updated: today });
+  appendVersionHistory(filePath, 'Archived.');
 
   mkdirSync(targetDir, { recursive: true });
   if (existsSync(targetPath)) { die(`Target already exists: ${toRepoPath(targetPath, config.repoRoot)}`); }
@@ -821,6 +835,7 @@ export async function runHandoff(argv, config, opts = {}) {
   if (oldStatus === 'in-session') {
     updateFrontmatter(filePath, { status: targetStatus, updated: today });
   }
+  appendVersionHistory(filePath, `Handoff queued (in-session → ${targetStatus}).`);
   releaseLease(config, repoPath, { force: true });
 
   if (json) {
@@ -837,6 +852,47 @@ export async function runHandoff(argv, config, opts = {}) {
   }
 
   try { config.hooks.onUnpickup?.({ path: repoPath, oldStatus: 'in-session', newStatus: targetStatus }); } catch (err) { warn(`Hook 'onUnpickup' threw: ${err.message}`); }
+}
+
+// Append a one-line dated bullet to the file's `## Version History` section.
+// Newest-first ordering: inserted at the top of the section, right after the
+// heading + blank-line gap. If the section is missing, this is a silent no-op
+// — never auto-creates the section (don't surprise users on old plans/docs).
+export function appendVersionHistory(filePath, entry) {
+  let raw;
+  try { raw = readFileSync(filePath, 'utf8'); } catch { return false; }
+  if (!raw.startsWith('---\n')) return false;
+
+  const endMarker = raw.indexOf('\n---\n', 4);
+  if (endMarker === -1) return false;
+  const frontmatter = raw.slice(4, endMarker);
+  const body = raw.slice(endMarker + 5);
+
+  const vh = findSection(walkSections(body), 'Version History');
+  if (!vh) return false;
+
+  const bullet = `- **${nowIso()}** ${entry}`;
+  const lines = body.split('\n');
+
+  // vh.lineStart is 1-indexed for the heading line. The line immediately
+  // after the heading is at 0-indexed `vh.lineStart`. Skip leading blanks
+  // to find the first content line (existing bullet or next heading).
+  let insertAt = vh.lineStart;
+  while (insertAt < lines.length && lines[insertAt].trim() === '') {
+    insertAt++;
+  }
+
+  // If we're inserting just before another heading (next H2), pad with a
+  // blank line after our bullet for readability. Otherwise just splice in.
+  const atSectionBoundary = insertAt >= lines.length || lines[insertAt].startsWith('#');
+  if (atSectionBoundary) {
+    lines.splice(insertAt, 0, bullet, '');
+  } else {
+    lines.splice(insertAt, 0, bullet);
+  }
+
+  writeFileSync(filePath, `---\n${frontmatter}\n---\n${lines.join('\n')}`, 'utf8');
+  return true;
 }
 
 export function updateFrontmatter(filePath, updates) {

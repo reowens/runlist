@@ -135,6 +135,71 @@ describe('parseSimpleFrontmatter', () => {
     const result = parseSimpleFrontmatter("title: '");
     strictEqual(result.title, "'");
   });
+
+  describe('block scalars (multiline values)', () => {
+    it('folded `>` joins lines with spaces', () => {
+      const result = parseSimpleFrontmatter(
+        'current_state: >\n  Phase 7 in flight.\n  pii:readers at 71.\n  Next: spot-check.'
+      );
+      strictEqual(result.current_state, 'Phase 7 in flight. pii:readers at 71. Next: spot-check.');
+    });
+
+    it('folded `>` preserves blank-line paragraph breaks', () => {
+      const result = parseSimpleFrontmatter(
+        'desc: >\n  First paragraph\n  continues.\n\n  Second paragraph.'
+      );
+      strictEqual(result.desc, 'First paragraph continues.\nSecond paragraph.');
+    });
+
+    it('literal `|` preserves line breaks', () => {
+      const result = parseSimpleFrontmatter(
+        'script: |\n  echo one\n  echo two\n  echo three'
+      );
+      strictEqual(result.script, 'echo one\necho two\necho three');
+    });
+
+    it('block scalar ends when a sibling key starts at column 0', () => {
+      const result = parseSimpleFrontmatter(
+        'current_state: >\n  Phase 7 in flight.\n  Next: tests.\nnext_step: Run tests'
+      );
+      strictEqual(result.current_state, 'Phase 7 in flight. Next: tests.');
+      strictEqual(result.next_step, 'Run tests');
+    });
+
+    it('chomping indicator `-` strips trailing newlines (folded)', () => {
+      const result = parseSimpleFrontmatter('desc: >-\n  One\n  Two\n');
+      strictEqual(result.desc, 'One Two');
+    });
+
+    it('chomping indicator `-` strips trailing newlines (literal)', () => {
+      const result = parseSimpleFrontmatter('script: |-\n  a\n  b\n');
+      strictEqual(result.script, 'a\nb');
+    });
+
+    it('chomping indicator `+` preserves trailing newline (literal)', () => {
+      const result = parseSimpleFrontmatter('script: |+\n  a\n  b');
+      strictEqual(result.script, 'a\nb\n');
+    });
+
+    it('handles block scalar at end of frontmatter (no following key)', () => {
+      const result = parseSimpleFrontmatter('current_state: >\n  Last value');
+      strictEqual(result.current_state, 'Last value');
+    });
+
+    it('empty block scalar yields empty string when no content follows', () => {
+      const result = parseSimpleFrontmatter('current_state: >\nnext: Phase 2');
+      strictEqual(result.current_state, '');
+      strictEqual(result.next, 'Phase 2');
+    });
+
+    it('block scalar after array key parses correctly', () => {
+      const result = parseSimpleFrontmatter(
+        'related_plans:\n  - foo.md\n  - bar.md\ncurrent_state: >\n  Phase 1 done.'
+      );
+      deepStrictEqual(result.related_plans, ['foo.md', 'bar.md']);
+      strictEqual(result.current_state, 'Phase 1 done.');
+    });
+  });
 });
 
 describe('replaceFrontmatter', () => {

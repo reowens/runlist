@@ -259,6 +259,31 @@ export function validatePlanShape(doc, body, frontmatter, config) {
   }
 }
 
+// Doc-shape lint: soft warnings on convention drift. Doc-only.
+// Mirrors validatePlanShape's structure.
+export function validateDocShape(doc, body, frontmatter, config) {
+  if (doc.type !== 'doc') return;
+  if (config.lifecycle.terminalStatuses.has(doc.status) || config.lifecycle.archiveStatuses.has(doc.status)) return;
+  if (config.lifecycle.skipWarningsFor.has(doc.status)) return;
+
+  if (!body) return;
+
+  // Heading drift for docs.
+  const headingDrift = [
+    { wrong: /^##\s+Related Documents\s*$/m, right: '## Related Documentation' },
+  ];
+  for (const { wrong, right } of headingDrift) {
+    const m = body.match(wrong);
+    if (m) {
+      doc.warnings.push({
+        path: doc.path,
+        level: 'warning',
+        message: `Heading drift: \`${m[0].trim()}\` → suggest \`${right}\`.`,
+      });
+    }
+  }
+}
+
 export function computeDaysSinceUpdate(updated) {
   if (!updated) return null;
   const parsed = new Date(updated);
