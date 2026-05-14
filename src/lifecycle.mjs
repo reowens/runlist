@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter, replaceFrontmatter } from './frontmatter.mjs';
-import { asString, toRepoPath, die, warn, resolveDocPath, escapeRegex } from './util.mjs';
+import { asString, toRepoPath, die, warn, resolveDocPath, escapeRegex, nowIso } from './util.mjs';
 import { gitMv, getGitLastModified, getGitLastModifiedBatch } from './git.mjs';
 import { buildIndex, collectDocFiles } from './index.mjs';
 import { renderIndexFile, writeIndex } from './index-file.mjs';
@@ -71,7 +71,7 @@ export async function runStatus(argv, config, opts = {}) {
     return;
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = nowIso();
   const archiveDir = path.join(fileRoot, config.archiveDir);
   const relFromRoot = path.relative(fileRoot, filePath);
   const inArchive = relFromRoot.startsWith(config.archiveDir + '/') || relFromRoot.startsWith(config.archiveDir + path.sep);
@@ -185,7 +185,7 @@ export async function runPickup(argv, config, opts = {}) {
   const pickupable = new Set(['active', 'planned', 'in-session']);
   if (oldStatus && !pickupable.has(oldStatus) && !handoffQueued) die(`Cannot pick up a plan with status '${oldStatus}'. Must be active or planned.\n  ${repoPath}`);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = nowIso();
   const leaseOldStatus = oldStatus === 'in-session' ? 'active' : (oldStatus ?? 'active');
   let leaseOutcome = 'acquired';
 
@@ -302,7 +302,7 @@ export async function runUnpickup(argv, config, opts = {}) {
       const parsedFm = parseSimpleFrontmatter(fmRaw);
       const cur = asString(parsedFm.status);
       if (cur === 'in-session') {
-        const today = new Date().toISOString().slice(0, 10);
+        const today = nowIso();
         updateFrontmatter(filePath, { status: newStatus, updated: today });
       }
       // If frontmatter is no longer in-session (manual flip), leave it alone.
@@ -412,7 +412,7 @@ export async function runFinish(argv, config, opts = {}) {
 
   if (oldStatus !== 'in-session') die(`Plan is not in-session (current: ${oldStatus}).\n  ${repoPath}`);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = nowIso();
 
   if (dryRun) {
     process.stderr.write(`${dim('[dry-run]')} Would update: status: in-session → ${targetStatus}, updated: ${today}\n`);
@@ -451,7 +451,7 @@ export function runArchive(argv, config, opts = {}) {
   const parsed = parseSimpleFrontmatter(frontmatter);
   const oldStatus = asString(parsed.status) ?? 'unknown';
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = nowIso();
   const targetDir = path.join(archiveFileRoot, config.archiveDir);
   const targetPath = path.join(targetDir, path.basename(filePath));
   const oldRepoPath = toRepoPath(filePath, config.repoRoot);
@@ -608,7 +608,7 @@ export function runTouch(argv, config, opts = {}) {
   const filePath = resolveDocPath(input, config);
   if (!filePath) { die(`File not found: ${input}\nSearched: ${toRepoPath(config.repoRoot, config.repoRoot) || '.'}, ${toRepoPath(config.docsRoot, config.repoRoot)}`); }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = nowIso();
 
   if (dryRun) {
     process.stdout.write(`${dim('[dry-run]')} Would touch: ${toRepoPath(filePath, config.repoRoot)} (updated → ${today})\n`);
@@ -790,7 +790,7 @@ export async function runHandoff(argv, config, opts = {}) {
     die(`Not held by this session: ${repoPath}\n  Run \`dotmd pickup ${repoPath}\` first.`);
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = nowIso();
   const targetStatus = lease.oldStatus || 'active';
 
   if (dryRun) {

@@ -117,16 +117,40 @@ describe('dotmd new', () => {
     ok(content.includes('owner:'), 'has owner field');
   });
 
-  it('--template plan creates plan scaffold', () => {
+  it('--template plan creates plan scaffold with build-up shape', () => {
     const docsDir = setupProject();
     const result = run(['new', 'my-plan', '--template', 'plan']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
 
     const content = readFileSync(path.join(docsDir, 'my-plan.md'), 'utf8');
-    ok(content.includes('## Implementation Plan'), 'has Implementation Plan section');
-    ok(content.includes('module:'), 'has module field');
-    ok(content.includes('surface:'), 'has surface field');
-    ok(content.includes('related_plans:'), 'has related_plans field');
+    // Frontmatter: array forms + new fields
+    ok(content.includes('surfaces: []'), 'has surfaces array');
+    ok(content.includes('modules: []'), 'has modules array');
+    ok(content.includes('related_plans: []'), 'has related_plans array');
+    ok(content.includes('parent_plan:'), 'has parent_plan field');
+    ok(content.includes('domain:'), 'has domain field');
+    ok(content.includes('audience: internal'), 'has audience field');
+    ok(content.includes('current_state:'), 'has current_state field');
+    ok(content.includes('next_step:'), 'has next_step field');
+    // Body sections — the build-up shape
+    ok(content.includes('## Problem'), 'has Problem section');
+    ok(content.includes('## Goals'), 'has Goals section');
+    ok(content.includes('## Non-Goals'), 'has Non-Goals section');
+    ok(content.includes('## What Exists Today'), 'has What Exists Today section');
+    ok(content.includes('## Constraints'), 'has Constraints section');
+    ok(content.includes('## Decisions'), 'has Decisions section');
+    ok(content.includes('## Open Questions'), 'has Open Questions section');
+    ok(content.includes('## Phases'), 'has Phases section');
+    ok(content.includes('### Phase 1'), 'has Phase 1 stub');
+    ok(content.includes('⬜'), 'Phase 1 carries the not-started marker');
+    ok(content.includes('## Deferred'), 'has Deferred section');
+    ok(content.includes('## Version History'), 'has Version History section');
+    ok(content.includes('## Closeout'), 'has Closeout section');
+    // Timestamps in ISO format (T...Z), not date-only
+    ok(/created: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/.test(content), 'created uses ISO timestamp');
+    ok(/updated: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/.test(content), 'updated uses ISO timestamp');
+    // First Version History entry references the create timestamp
+    ok(/\*\*\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\*\* Created\./.test(content), 'Version History has first entry');
   });
 
   it('--template audit creates audit scaffold', () => {

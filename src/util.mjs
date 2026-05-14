@@ -55,6 +55,10 @@ export function toRepoPath(absolutePath, repoRoot) {
   return path.relative(repoRoot, absolutePath).split(path.sep).join('/');
 }
 
+export function nowIso() {
+  return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
 export function warn(message) {
   process.stderr.write(`${dim(message)}\n`);
 }

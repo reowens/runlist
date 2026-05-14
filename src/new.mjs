@@ -1,6 +1,6 @@
 import { existsSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { toRepoPath, die, warn } from './util.mjs';
+import { toRepoPath, die, warn, nowIso } from './util.mjs';
 import { green, dim, bold } from './color.mjs';
 import { isInteractive, promptText } from './prompt.mjs';
 
@@ -11,9 +11,82 @@ const BUILTIN_TEMPLATES = {
     body: (t) => `\n# ${t}\n`,
   },
   plan: {
-    description: 'Execution plan with module, surface, and cross-references',
-    frontmatter: (s, d) => `type: plan\nstatus: ${s}\nupdated: ${d}\nsurface:\nmodule:\ncurrent_state:\nrelated_plans:`,
-    body: (t) => `\n# ${t}\n\n## Overview\n\n\n\n## Implementation Plan\n\n- [ ] \n\n## Open Questions\n\n\n`,
+    description: 'Execution plan — build-up shape (Problem → Phases → Closeout) with phase status markers and Version History',
+    frontmatter: (s, d) => [
+      'type: plan',
+      `status: ${s}`,
+      `created: ${d}`,
+      `updated: ${d}`,
+      'surfaces: []',
+      'modules: []',
+      'domain:',
+      'audience: internal',
+      'parent_plan:',
+      'related_plans: []',
+      'related_docs: []',
+      'current_state:',
+      'next_step:',
+    ].join('\n'),
+    body: (t, ctx) => `
+# ${t}
+
+> One-paragraph problem statement: what this plan is for, why now.
+
+## Problem
+
+
+
+## Goals
+
+
+
+## Non-Goals
+
+
+
+## What Exists Today
+
+
+
+## Constraints
+
+
+
+## Decisions
+
+
+
+## Open Questions
+
+
+
+## Phases
+
+<!--
+Status markers (put in heading text):
+  ⬜  not started
+  🟡  in progress (pickup targets this)
+  ✅  shipped (history; pickup skips)
+  ⏭  skipped (with reason in body)
+  🚧  blocked (link to blocker)
+-->
+
+### Phase 1 — <title> ⬜
+
+
+
+## Deferred
+
+
+
+## Version History
+
+- **${ctx?.today ?? ''}** Created.
+
+## Closeout
+
+<!-- Filled on archive: what shipped, key commits, deferrals dispositioned. -->
+`,
   },
   adr: {
     description: 'Architecture Decision Record',
@@ -115,7 +188,7 @@ export async function runNew(argv, config, opts = {}) {
     die(`File already exists: ${repoPath}`);
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = nowIso();
 
   // Generate content
   let content;
@@ -123,7 +196,7 @@ export async function runNew(argv, config, opts = {}) {
     content = template(name, { status, title: docTitle, today });
   } else {
     const fm = template.frontmatter(status, today);
-    const body = template.body(docTitle);
+    const body = template.body(docTitle, { today, status });
     content = `---\n${fm}\n---\n${body}`;
   }
 
