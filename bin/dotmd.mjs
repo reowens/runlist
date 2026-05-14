@@ -21,7 +21,8 @@ View & Query:
   focus [status] [--json]           Detailed view for one status group
   query [filters] [--json]          Filtered search (--status, --keyword, --stale, etc.)
   plans                             Live plans (excludes archived; --include-archived for all)
-  prompts                           Pending prompts in docs/prompts/
+  prompts [list|next|use|archive|new]
+                                    Manage saved prompts (default: list pending)
   stale                             Stale docs (preset)
   actionable                        Docs with next steps (preset)
 
@@ -260,24 +261,29 @@ Shows detailed info for all docs matching the given status (default: active).
 Options:
   --json                 Output as JSON`,
 
-  hud: `dotmd hud — three-line actionable triage
+  hud: `dotmd hud — actionable triage for session start
 
-Prints up to three lines, in order:
+Prints up to four lines, in order:
   ▶ You hold N plans: <slugs>       (leases owned by current session)
   ▶ N handoffs queued: <slugs>      (resume-prompt sidecars waiting)
+  ▶ N pending prompts: <slugs>      (saved prompts in docs/prompts/)
   ⚠ N stuck leases >24h             (suggest \`dotmd release --stale\`)
 
-Silent when all three are empty — designed for SessionStart hooks where
+Silent when all four are empty — designed for SessionStart hooks where
 zero noise is the right default. Distinct from \`dotmd briefing\`, which
 dumps the full plan-status pipeline and per-plan next_step bodies (kilobytes
 on large repos). Use hud for ergonomic session boot; use briefing for
 explicit "give me the full picture."
 
+The pending-prompts line tells Claude to consume them via
+\`dotmd prompts use <file>\` rather than reading/cat'ing — that atomically
+prints the body and archives the prompt so it cannot be double-consumed.
+
 Recommended SessionStart hook (in ~/.claude/settings.json):
   "SessionStart": [{ "hooks": [{ "type": "command", "command": "dotmd hud", "timeout": 5 }] }]
 
 Options:
-  --json                 Output as JSON ({ owned, queued, stale })`,
+  --json                 Output as JSON ({ owned, queued, prompts, stale })`,
 
   briefing: `dotmd briefing — compact summary for session start
 
@@ -555,19 +561,36 @@ Examples:
   dotmd plans --group module           # plans grouped by module
   dotmd plans --json                   # JSON output`,
 
-  prompts: `dotmd prompts — list saved prompts (excludes archived by default)
+  prompts: `dotmd prompts — manage saved prompts (subcommand namespace)
 
-Shows documents with type: prompt, typically saved under docs/prompts/.
-Prompts are created with \`dotmd new prompt <name> "<body>"\` and seed
-future Claude sessions via \`claude "$(cat docs/prompts/<name>.md)"\`.
+Prompts are documents with \`type: prompt\`, typically saved under
+docs/prompts/. They seed future Claude sessions; consuming a prompt
+prints its body to stdout and atomically archives it (one-shot).
+
+Subcommands:
+  list                       List pending prompts (default)
+  next                       Consume the oldest pending prompt:
+                             print body to stdout, flip status to archived
+  use <file>                 Consume a specific prompt (same as next, but
+                             targets <file> instead of picking oldest)
+  archive <file>             Archive a prompt without printing its body
+  new <slug> [body]          Create a new prompt (alias for
+                             \`dotmd new prompt <slug> [body]\`)
 
 Default prompt statuses: pending, claimed, archived.
 
 Examples:
   dotmd prompts                        # pending prompts (default)
-  dotmd prompts --include-archived     # all prompts including archived
-  dotmd prompts --status claimed       # already-consumed prompts
-  dotmd prompts --json                 # JSON output`,
+  dotmd prompts list --include-archived # all prompts including archived
+  dotmd prompts list --status claimed   # already-consumed prompts
+  dotmd prompts --json                 # JSON output
+
+  claude "$(dotmd prompts next)"       # consume oldest pending + run claude
+  claude "$(dotmd prompts use docs/prompts/foo.md)"
+
+  dotmd prompts next --dry-run         # preview without consuming
+  dotmd prompts archive docs/prompts/old.md
+  dotmd prompts new my-prompt "Body text here"`,
 
   stale: `dotmd stale — list stale documents
 
@@ -769,19 +792,8 @@ async function main() {
     return;
   }
   if (command === 'prompts') {
-    const { buildIndex } = await import('../src/index.mjs');
-    const { runQuery } = await import('../src/query.mjs');
-    const index = buildIndex(config);
-    const sub = restArgs[0];
-    let defaults;
-    let extras = restArgs;
-    if (sub === 'status') {
-      defaults = ['--type', 'prompt', '--exclude-archived', '--sort', 'status', '--all'];
-      extras = restArgs.slice(1);
-    } else {
-      defaults = ['--type', 'prompt', '--exclude-archived', '--sort', 'updated', '--limit', '10'];
-    }
-    runQuery(index, [...defaults, ...extras], config, { preset: 'prompts' });
+    const { runPrompts } = await import('../src/prompts.mjs');
+    await runPrompts(restArgs, config, { dryRun });
     return;
   }
 

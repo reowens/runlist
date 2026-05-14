@@ -460,7 +460,7 @@ export async function runFinish(argv, config, opts = {}) {
 }
 
 export function runArchive(argv, config, opts = {}) {
-  const { dryRun } = opts;
+  const { dryRun, out = process.stdout } = opts;
   const input = argv[0];
 
   if (!input) { die('Usage: dotmd archive <file>'); }
@@ -485,15 +485,15 @@ export function runArchive(argv, config, opts = {}) {
 
   if (dryRun) {
     const prefix = dim('[dry-run]');
-    process.stdout.write(`${prefix} Would update frontmatter: status: ${oldStatus} → archived, updated: ${today}\n`);
+    out.write(`${prefix} Would update frontmatter: status: ${oldStatus} → archived, updated: ${today}\n`);
     if (existsSync(targetPath)) { die(`Target already exists: ${toRepoPath(targetPath, config.repoRoot)}`); }
-    process.stdout.write(`${prefix} Would move: ${oldRepoPath} → ${newRepoPath}\n`);
-    if (config.indexPath) process.stdout.write(`${prefix} Would regenerate index\n`);
+    out.write(`${prefix} Would move: ${oldRepoPath} → ${newRepoPath}\n`);
+    if (config.indexPath) out.write(`${prefix} Would regenerate index\n`);
 
     // Preview reference updates
     const refCount = countRefsToUpdate(filePath, targetPath, config);
     if (refCount > 0) {
-      process.stdout.write(`${prefix} Would update references in ${refCount} file(s)\n`);
+      out.write(`${prefix} Would update references in ${refCount} file(s)\n`);
     }
     return;
   }
@@ -518,10 +518,10 @@ export function runArchive(argv, config, opts = {}) {
     writeIndex(renderIndexFile(index, config), config);
   }
 
-  process.stdout.write(`${green('Archived')}: ${oldRepoPath} → ${newRepoPath}\n`);
-  if (selfRefsFixed) process.stdout.write('Updated references in archived file.\n');
-  if (updatedRefCount > 0) process.stdout.write(`Updated references in ${updatedRefCount} file(s).\n`);
-  if (config.indexPath) process.stdout.write('Index regenerated.\n');
+  out.write(`${green('Archived')}: ${oldRepoPath} → ${newRepoPath}\n`);
+  if (selfRefsFixed) out.write('Updated references in archived file.\n');
+  if (updatedRefCount > 0) out.write(`Updated references in ${updatedRefCount} file(s).\n`);
+  if (config.indexPath) out.write('Index regenerated.\n');
 
   try { releaseLease(config, oldRepoPath, { force: true }); } catch (err) { warn(`Could not release lease for ${oldRepoPath}: ${err.message}`); }
 

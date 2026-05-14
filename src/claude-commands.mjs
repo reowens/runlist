@@ -23,7 +23,9 @@ function generatePlansCommand(config) {
   lines.push('- `dotmd unblocks <file>` — what depends on / is blocked by a plan');
   lines.push('- `dotmd next` — ready plans with next steps (what to promote)');
   lines.push('- `dotmd new plan <name>` — scaffold with full phase structure');
-  lines.push('- `dotmd new prompt <name> "<body>"` — save a resume-prompt to docs/prompts/');
+  lines.push('- `dotmd prompts new <name> "<body>"` — save a resume-prompt to docs/prompts/');
+  lines.push('- `dotmd prompts next` — consume oldest pending prompt (prints body, auto-archives)');
+  lines.push('- `dotmd prompts use <file>` — consume a specific prompt (prints body, auto-archives)');
   lines.push('- `dotmd archive <file>` — archive with auto ref-fixing (both directions)');
   lines.push('- `dotmd bulk archive <files>` — archive multiple at once');
   lines.push('- `dotmd status <file> <status>` — transition status');
@@ -38,6 +40,8 @@ function generatePlansCommand(config) {
   lines.push('');
   lines.push('If the user asks to change a plan\'s status, use `dotmd status <file> <status>`.');
   lines.push('If the user asks to archive a plan, use `dotmd archive <file>`.');
+  lines.push('');
+  lines.push('**Saved prompts (`docs/prompts/*.md`):** if the user references a file under `docs/prompts/` — e.g. "resume via docs/prompts/foo.md", "use this prompt", "load that one" — consume it with `dotmd prompts use <file>` (atomically prints the body and archives the prompt so it cannot be double-consumed). Do NOT `cat` it, read it with the file-reading tool, or copy its body into chat. To pick the oldest pending prompt without naming a file, use `dotmd prompts next`.');
   lines.push('');
 
   return lines.join('\n');
@@ -118,7 +122,9 @@ function generateDocsCommand(config) {
   lines.push('Lifecycle:');
   lines.push('- `dotmd new plan <name>` — scaffold new plan');
   lines.push('- `dotmd new doc <name>` — scaffold reference doc');
-  lines.push('- `dotmd new prompt <name> "<body>"` — save a resume-prompt');
+  lines.push('- `dotmd prompts new <name> "<body>"` — save a resume-prompt');
+  lines.push('- `dotmd prompts next` — consume oldest pending prompt (prints body, auto-archives)');
+  lines.push('- `dotmd prompts use <file>` — consume a specific prompt (prints body, auto-archives)');
   lines.push('- `dotmd status <file> <status>` — transition status');
   lines.push('- `dotmd archive <file>` — archive with auto ref-fixing');
   lines.push('- `dotmd bulk archive <files>` — archive multiple at once');
@@ -126,6 +132,8 @@ function generateDocsCommand(config) {
   lines.push('- `dotmd lint --fix` — auto-fix frontmatter issues');
   lines.push('- `dotmd fix-refs` — repair broken references and body links');
   lines.push('- `dotmd rename <old> <new>` — rename doc + update all references');
+  lines.push('');
+  lines.push('**Saved prompts (`docs/prompts/*.md`):** if the user references a file under `docs/prompts/` — e.g. "resume via docs/prompts/foo.md", "use this prompt" — consume it with `dotmd prompts use <file>` (prints the body and archives atomically). Do NOT `cat` it or read it with the file-reading tool. To pick the oldest pending prompt without naming a file, use `dotmd prompts next`.');
   lines.push('');
 
   return lines.join('\n');

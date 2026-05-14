@@ -124,3 +124,25 @@ describe('checkClaudeCommands', () => {
     strictEqual(warnings.length, 0);
   });
 });
+
+describe('generated content teaches prompt consumption', () => {
+  it('plans.md tells Claude to consume docs/prompts/ files via `dotmd prompts use`', async () => {
+    setup({ claude: true });
+    const config = await resolveConfig(tmpDir);
+    scaffoldClaudeCommands(tmpDir, config);
+    const content = readFileSync(path.join(tmpDir, '.claude', 'commands', 'plans.md'), 'utf8');
+    ok(content.includes('dotmd prompts use'), 'mentions `dotmd prompts use`');
+    ok(content.includes('dotmd prompts next'), 'mentions `dotmd prompts next`');
+    ok(content.includes('docs/prompts/'), 'mentions docs/prompts/ convention');
+    ok(/do not\s+`?cat`?/i.test(content), 'warns against cat/read');
+  });
+
+  it('docs.md mentions the prompts subcommands', async () => {
+    setup({ claude: true });
+    const config = await resolveConfig(tmpDir);
+    scaffoldClaudeCommands(tmpDir, config);
+    const content = readFileSync(path.join(tmpDir, '.claude', 'commands', 'docs.md'), 'utf8');
+    ok(content.includes('dotmd prompts use'), 'mentions `dotmd prompts use`');
+    ok(content.includes('dotmd prompts new'), 'mentions `dotmd prompts new`');
+  });
+});

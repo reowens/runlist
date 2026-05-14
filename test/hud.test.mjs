@@ -101,8 +101,31 @@ describe('dotmd hud', () => {
     ok(Array.isArray(parsed.owned), 'owned is array');
     ok(Array.isArray(parsed.queued), 'queued is array');
     ok(Array.isArray(parsed.stale), 'stale is array');
+    ok(Array.isArray(parsed.prompts), 'prompts is array');
     strictEqual(parsed.owned.length, 1);
     ok(parsed.owned[0].includes('plan-a'));
+  });
+
+  it('shows pending prompts with consume hint', () => {
+    const docsDir = setupProject();
+    mkdirSync(path.join(docsDir, 'prompts'), { recursive: true });
+    writeDoc(docsDir, 'prompts/resume-me.md', 'type: prompt\nstatus: pending\ncreated: 2025-01-01', 'body');
+
+    const r = runCli(['hud']);
+    strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
+    ok(r.stdout.includes('1 pending prompt'), `expected prompt line, got: ${r.stdout}`);
+    ok(r.stdout.includes('resume-me'), 'prompt slug present');
+    ok(r.stdout.includes('dotmd prompts use'), 'consume hint present');
+  });
+
+  it('does not list already-archived prompts', () => {
+    const docsDir = setupProject();
+    mkdirSync(path.join(docsDir, 'prompts'), { recursive: true });
+    writeDoc(docsDir, 'prompts/done.md', 'type: prompt\nstatus: archived\ncreated: 2025-01-01', 'body');
+
+    const r = runCli(['hud']);
+    strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
+    strictEqual(r.stdout, '', 'no prompt line when only archived prompts exist');
   });
 
   it('output stays under ~500 bytes when full of common signals', () => {

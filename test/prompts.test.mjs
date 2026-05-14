@@ -1,0 +1,211 @@
+import { describe, it, beforeEach, afterEach } from 'node:test';
+import { ok, strictEqual, match } from 'node:assert';
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync, rmSync } from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { spawnSync } from 'node:child_process';
+
+const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+
+let tmpDir;
+let docsDir;
+let promptsDir;
+let configPath;
+
+function setupProject() {
+  tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-prompts-'));
+  spawnSync('git', ['init', '-q'], { cwd: tmpDir });
+  spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir });
+  spawnSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
+
+  docsDir = path.join(tmpDir, 'docs');
+  promptsDir = path.join(docsDir, 'prompts');
+  mkdirSync(promptsDir, { recursive: true });
+  mkdirSync(path.join(docsDir, 'archived'), { recursive: true });
+
+  configPath = path.join(tmpDir, 'dotmd.config.mjs');
+  writeFileSync(configPath, `export const root = 'docs';\n`);
+}
+
+function writePrompt(name, { status = 'pending', created = '2025-01-01', body = 'do the thing' } = {}) {
+  const file = path.join(promptsDir, `${name}.md`);
+  const fm = [
+    'type: prompt',
+    `status: ${status}`,
+    `created: ${created}`,
+    'related_plans: []',
+  ].join('\n');
+  writeFileSync(file, `---\n${fm}\n---\n${body}\n`);
+  spawnSync('git', ['add', file], { cwd: tmpDir });
+  spawnSync('git', ['commit', '-qm', `add ${name}`], { cwd: tmpDir });
+  return file;
+}
+
+function run(args, env = {}) {
+  return spawnSync('node', [bin, ...args, '--config', configPath], {
+    cwd: tmpDir, encoding: 'utf8',
+    env: { ...process.env, ...env, NO_COLOR: '1' },
+  });
+}
+
+afterEach(() => {
+  if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
+});
+
+describe('dotmd prompts list', () => {
+  beforeEach(setupProject);
+
+  it('bare `prompts` lists pending prompts (default)', () => {
+    writePrompt('a-prompt', { status: 'pending' });
+    writePrompt('b-prompt', { status: 'archived' });
+    const r = run(['prompts']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(r.stdout.includes('a-prompt'), 'lists pending');
+    ok(!r.stdout.includes('b-prompt'), 'excludes archived');
+  });
+
+  it('`prompts list` works as alias', () => {
+    writePrompt('foo-prompt');
+    const r = run(['prompts', 'list']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(r.stdout.includes('foo-prompt'), `expected listing to include foo-prompt:\n${r.stdout}`);
+  });
+});
+
+describe('dotmd prompts next', () => {
+  beforeEach(setupProject);
+
+  it('picks oldest pending by created date', () => {
+    writePrompt('newer', { created: '2025-06-01', body: 'newer body' });
+    writePrompt('older', { created: '2025-01-01', body: 'older body' });
+
+    const r = run(['prompts', 'next']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(r.stdout.includes('older body'), 'emits oldest body');
+    ok(!r.stdout.includes('newer body'), 'does not emit newer body');
+    ok(r.stderr.includes('Archived'), 'archive status on stderr');
+    ok(r.stderr.includes('Consumed'), 'consume confirmation on stderr');
+  });
+
+  it('archives the file (moves to archived/, flips status)', () => {
+    const file = writePrompt('foo');
+    const r = run(['prompts', 'next']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(!existsSync(file), 'original file gone');
+    const archived = path.join(docsDir, 'archived', 'foo.md');
+    ok(existsSync(archived), 'moved to archived dir');
+    const content = readFileSync(archived, 'utf8');
+    ok(content.includes('status: archived'), 'status flipped');
+  });
+
+  it('errors when queue is empty', () => {
+    const r = run(['prompts', 'next']);
+    ok(r.status !== 0, 'non-zero exit');
+    ok(r.stderr.includes('No pending prompts'), 'clear error');
+    strictEqual(r.stdout, '', 'no stdout');
+  });
+
+  it('does not double-consume the same prompt', () => {
+    writePrompt('foo', { body: 'body' });
+    run(['prompts', 'next']);
+
+    const r2 = run(['prompts', 'next']);
+    ok(r2.status !== 0, 'second call fails');
+    ok(r2.stderr.includes('No pending prompts'), 'queue is empty after consume');
+  });
+
+  it('dry-run does not mutate', () => {
+    const file = writePrompt('foo', { body: 'body' });
+    const before = readFileSync(file, 'utf8');
+    const r = run(['prompts', 'next', '--dry-run']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(r.stderr.includes('[dry-run]'), 'dry-run prefix');
+    ok(existsSync(file), 'file still in place');
+    const after = readFileSync(file, 'utf8');
+    strictEqual(after, before, 'file unchanged');
+  });
+});
+
+describe('dotmd prompts use', () => {
+  beforeEach(setupProject);
+
+  it('consumes specific file regardless of queue order', () => {
+    writePrompt('older', { created: '2025-01-01', body: 'older body' });
+    const target = writePrompt('target', { created: '2025-06-01', body: 'target body' });
+
+    const r = run(['prompts', 'use', target]);
+    strictEqual(r.status, 0, r.stderr);
+    ok(r.stdout.includes('target body'));
+    ok(!r.stdout.includes('older body'));
+    ok(!existsSync(target), 'target archived');
+  });
+
+  it('refuses non-prompt files', () => {
+    const file = path.join(docsDir, 'plan.md');
+    writeFileSync(file, '---\ntype: plan\nstatus: active\n---\n# plan body\n');
+    spawnSync('git', ['add', file], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-qm', 'add plan'], { cwd: tmpDir });
+
+    const r = run(['prompts', 'use', file]);
+    ok(r.status !== 0, 'non-zero exit');
+    ok(r.stderr.includes('Not a prompt'), 'clear error');
+  });
+
+  it('refuses already-archived prompts', () => {
+    const file = writePrompt('done', { status: 'archived' });
+    const r = run(['prompts', 'use', file]);
+    ok(r.status !== 0);
+    ok(r.stderr.includes('Already consumed'));
+  });
+
+  it('errors when file argument missing', () => {
+    const r = run(['prompts', 'use']);
+    ok(r.status !== 0);
+    ok(r.stderr.includes('Usage'));
+  });
+});
+
+describe('dotmd prompts archive', () => {
+  beforeEach(setupProject);
+
+  it('archives without emitting body to stdout', () => {
+    const file = writePrompt('foo', { body: 'should-not-appear' });
+    const r = run(['prompts', 'archive', file]);
+    strictEqual(r.status, 0, r.stderr);
+    ok(!r.stdout.includes('should-not-appear'), 'body suppressed');
+    ok(!existsSync(file), 'archived');
+  });
+
+  it('refuses non-prompt files', () => {
+    const file = path.join(docsDir, 'plan.md');
+    writeFileSync(file, '---\ntype: plan\nstatus: active\n---\n');
+    spawnSync('git', ['add', file], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-qm', 'add plan'], { cwd: tmpDir });
+
+    const r = run(['prompts', 'archive', file]);
+    ok(r.status !== 0);
+    ok(r.stderr.includes('Not a prompt'));
+  });
+});
+
+describe('dotmd prompts new', () => {
+  beforeEach(setupProject);
+
+  it('creates a new prompt with given body', () => {
+    const r = run(['prompts', 'new', 'fresh-prompt', 'inline body content']);
+    strictEqual(r.status, 0, r.stderr);
+
+    const created = path.join(promptsDir, 'fresh-prompt.md');
+    ok(existsSync(created), 'file created');
+    const content = readFileSync(created, 'utf8');
+    ok(content.includes('type: prompt'));
+    ok(content.includes('status: pending'));
+    ok(content.includes('inline body content'));
+  });
+
+  it('errors without slug', () => {
+    const r = run(['prompts', 'new']);
+    ok(r.status !== 0);
+    ok(r.stderr.includes('Usage'));
+  });
+});
