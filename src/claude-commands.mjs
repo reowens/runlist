@@ -119,7 +119,6 @@ function generateDocsCommand(config) {
   lines.push('- `dotmd new plan <name>` — scaffold new plan');
   lines.push('- `dotmd new doc <name>` — scaffold reference doc');
   lines.push('- `dotmd new prompt <name> "<body>"` — save a resume-prompt');
-  lines.push('- `dotmd new research <name>` — scaffold an audit/investigation');
   lines.push('- `dotmd status <file> <status>` — transition status');
   lines.push('- `dotmd archive <file>` — archive with auto ref-fixing');
   lines.push('- `dotmd bulk archive <files>` — archive multiple at once');

@@ -35,11 +35,6 @@ const DEFAULTS = {
       context: { expanded: ['active'], listed: ['draft', 'review'], counted: ['reference', 'deprecated', 'archived'] },
       staleDays: { draft: 30, active: 14, review: 14 },
     },
-    research: {
-      statuses: ['active', 'reference', 'archived'],
-      context: { expanded: ['active'], listed: [], counted: ['reference', 'archived'] },
-      staleDays: { active: 30 },
-    },
     prompt: {
       statuses: ['pending', 'claimed', 'archived'],
       context: { expanded: ['pending'], listed: [], counted: ['claimed', 'archived'] },

@@ -32,21 +32,37 @@ afterEach(() => {
 
 describe('dotmd new — type-first CLI', () => {
   describe('type defaults', () => {
-    it('`dotmd new <name>` (no type) defaults to doc', () => {
+    it('`dotmd new <name>` (no type) defaults to doc with enriched template', () => {
       const docsDir = setupProject();
       const r = run(['new', 'my-feature']);
       strictEqual(r.status, 0, `stderr: ${r.stderr}`);
       const content = readFileSync(path.join(docsDir, 'my-feature.md'), 'utf8');
       ok(content.includes('type: doc'), 'type is doc');
       ok(content.includes('# My Feature'));
+      // Enriched frontmatter
+      ok(content.includes('modules: []'), 'has modules array');
+      ok(content.includes('surfaces: []'), 'has surfaces array');
+      ok(content.includes('domain:'), 'has domain');
+      ok(content.includes('audience: internal'), 'has audience');
+      ok(content.includes('related_plans: []'), 'has related_plans');
+      ok(content.includes('related_docs: []'), 'has related_docs');
+      // Body skeleton
+      ok(content.includes('> One-line summary'), 'has blurb placeholder');
+      ok(content.includes('## Overview'), 'has Overview');
+      ok(content.includes('## Version History'), 'has Version History');
+      ok(content.includes('## Related Documentation'), 'has Related Documentation');
+      // First Version History entry references the create timestamp
+      ok(/\*\*\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\*\* Created\./.test(content), 'VH seeded');
     });
 
-    it('`dotmd new doc <name>` explicit doc', () => {
+    it('`dotmd new doc <name>` explicit doc — same enriched shape', () => {
       const docsDir = setupProject();
       const r = run(['new', 'doc', 'auth-notes']);
       strictEqual(r.status, 0, `stderr: ${r.stderr}`);
       const content = readFileSync(path.join(docsDir, 'auth-notes.md'), 'utf8');
       ok(content.includes('type: doc'));
+      ok(content.includes('## Overview'));
+      ok(content.includes('## Version History'));
     });
 
     it('`dotmd new plan <name>` creates a plan under docs/plans/', () => {
@@ -63,14 +79,6 @@ describe('dotmd new — type-first CLI', () => {
       ok(/created: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/.test(content), 'ISO timestamp');
     });
 
-    it('`dotmd new research <name>` creates research', () => {
-      const docsDir = setupProject();
-      const r = run(['new', 'research', 'auth-investigation']);
-      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
-      const content = readFileSync(path.join(docsDir, 'auth-investigation.md'), 'utf8');
-      ok(content.includes('type: research'));
-      ok(content.includes('## Findings'));
-    });
   });
 
   describe('prompt type', () => {
@@ -196,7 +204,6 @@ describe('dotmd new — type-first CLI', () => {
       ok(r.stdout.includes('plan'));
       ok(r.stdout.includes('doc'));
       ok(r.stdout.includes('prompt'));
-      ok(r.stdout.includes('research'));
     });
 
     it('handles path input by creating in the specified directory', () => {

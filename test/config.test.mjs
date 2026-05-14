@@ -35,7 +35,8 @@ describe('resolveConfig', () => {
     ok(config.validStatuses.has('deprecated')); // doc-specific
     ok(config.validTypes.has('plan'));
     ok(config.validTypes.has('doc'));
-    ok(config.validTypes.has('research'));
+    ok(config.validTypes.has('prompt'));
+    ok(!config.validTypes.has('research'), 'research type was removed in 0.25 (unused)');
     strictEqual(config.archiveDir, 'archived');
     strictEqual(config.indexPath, null);
   });

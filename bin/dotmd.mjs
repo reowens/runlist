@@ -56,7 +56,7 @@ Lifecycle:
   migrate <field> <old> <new> [f...]Batch update a frontmatter field value (optional file filter)
 
 Create & Export:
-  new <type> <name> [body]          Create doc of given type (plan, doc, prompt, research)
+  new <type> <name> [body]          Create doc of given type (plan, doc, prompt)
   index [--write]                   Generate/update docs.md index block
   export [--format md|html|json]    Export docs as markdown, HTML, or JSON
   notion import|export|sync [db-id] Notion database integration
@@ -396,9 +396,8 @@ Use --dry-run (-n) with --write to preview without writing.`,
 
 Types and their default destinations:
   plan        docs/plans/<slug>.md     (build-up template: Problem → Phases → Closeout)
-  doc         docs/<slug>.md           (minimal reference doc)
+  doc         docs/<slug>.md           (build-up lite: Overview → Version History → Related)
   prompt      docs/prompts/<slug>.md   (saved prompt to seed a future session — body required)
-  research    docs/<slug>.md           (audit / investigation)
 
 \`<type>\` can be omitted; defaults to \`doc\`.
 \`<name>\` is slugified for the filename.

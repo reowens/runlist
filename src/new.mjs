@@ -10,10 +10,36 @@ const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 
 
 const BUILTIN_TEMPLATES = {
   doc: {
-    description: 'Reference doc, design note, glossary entry, etc.',
+    description: 'Reference doc, design note, module overview — build-up shape lite',
     defaultStatus: 'active',
-    frontmatter: (s, d) => `type: doc\nstatus: ${s}\ncreated: ${d}\nupdated: ${d}`,
-    body: (t) => `\n# ${t}\n`,
+    frontmatter: (s, d) => [
+      'type: doc',
+      `status: ${s}`,
+      `created: ${d}`,
+      `updated: ${d}`,
+      'modules: []',
+      'surfaces: []',
+      'domain:',
+      'audience: internal',
+      'related_plans: []',
+      'related_docs: []',
+    ].join('\n'),
+    body: (t, ctx) => `
+# ${t}
+
+> One-line summary of what this doc covers.
+
+## Overview
+
+
+
+## Version History
+
+- **${ctx?.today ?? ''}** Created.
+
+## Related Documentation
+
+`,
   },
   plan: {
     description: 'Execution plan — build-up shape (Problem → Phases → Closeout) with phase status markers and Version History',
@@ -94,22 +120,6 @@ Status markers (put in heading text):
 
 <!-- Filled on archive: what shipped, key commits, deferrals dispositioned. -->
 `,
-  },
-  research: {
-    description: 'Codebase audit or research investigation',
-    defaultStatus: 'active',
-    frontmatter: (s, d) => [
-      'type: research',
-      `status: ${s}`,
-      `created: ${d}`,
-      `updated: ${d}`,
-      `audited: ${d}`,
-      'audit_level: pass1',
-      'module:',
-      'source_of_truth: code',
-      'supports_plans: []',
-    ].join('\n'),
-    body: (t) => `\n# ${t}\n\n## Scope\n\n\n\n## Findings\n\n\n\n## Recommendations\n\n\n`,
   },
   prompt: {
     description: 'Saved prompt to seed a future Claude session — body is required',
