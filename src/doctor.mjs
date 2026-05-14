@@ -6,6 +6,7 @@ import { renderIndexFile, writeIndex } from './index-file.mjs';
 import { renderCheck } from './render.mjs';
 import { bold, dim, green, yellow } from './color.mjs';
 import { scaffoldClaudeCommands } from './claude-commands.mjs';
+import { runMigrateTemplate } from './migrate-template.mjs';
 
 // Tunable thresholds for `dotmd doctor --statuses` conflation detection.
 // MIN_BUCKET_SIZE: only flag buckets with at least this many docs (small buckets aren't worth nagging).
@@ -39,6 +40,10 @@ const CUE_LABELS = {
 export function runDoctor(argv, config, opts = {}) {
   if (argv.includes('--statuses')) {
     runDoctorStatuses(config, { json: argv.includes('--json') });
+    return;
+  }
+  if (argv.includes('--migrate-template')) {
+    runMigrateTemplate(argv, config, opts);
     return;
   }
 

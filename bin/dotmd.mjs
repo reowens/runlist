@@ -341,6 +341,24 @@ Modes:
                          paused / queued-after). Heuristic only — verify
                          before migrating.
   --statuses --json      Machine-readable suggestion shape for tooling.
+  --migrate-template     Plan-template migrator for plans created before
+                         v0.21. Auto-fixes:
+                           - drops singular \`surface:\` when \`surfaces:\`
+                             array is populated (same for \`module:\`/\`modules:\`)
+                           - renames \`## Open questions\` → \`## Open Questions\`,
+                             \`## Out of scope\` / \`## Non-goals\` → \`## Non-Goals\`
+                           - adds \`## Version History\` section if missing,
+                             seeded with the file's \`updated\` timestamp
+                         Skips non-plans. Per-file diff. Doesn't touch
+                         long next_step/current_state or unmarked phase
+                         headings (those need human input).
+  --migrate-template <file>  Migrate just one plan.
+  --migrate-template --include-archived
+                         Also touch plans in the archive directory.
+                         Default skips archived plans (they're closed
+                         history; a "Migrated to v0.21 template" entry
+                         in their Version History would be misleading).
+  --migrate-template --json  Machine-readable result.
 
 Use --dry-run (-n) to preview all changes without writing anything.`,
 
