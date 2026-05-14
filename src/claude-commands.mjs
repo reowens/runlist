@@ -22,7 +22,8 @@ function generatePlansCommand(config) {
   lines.push('- `dotmd health` — plan velocity, aging, checklist progress, pipeline view');
   lines.push('- `dotmd unblocks <file>` — what depends on / is blocked by a plan');
   lines.push('- `dotmd next` — ready plans with next steps (what to promote)');
-  lines.push('- `dotmd new <name> --template plan` — scaffold with full phase structure');
+  lines.push('- `dotmd new plan <name>` — scaffold with full phase structure');
+  lines.push('- `dotmd new prompt <name> "<body>"` — save a resume-prompt to docs/prompts/');
   lines.push('- `dotmd archive <file>` — archive with auto ref-fixing (both directions)');
   lines.push('- `dotmd bulk archive <files>` — archive multiple at once');
   lines.push('- `dotmd status <file> <status>` — transition status');
@@ -115,7 +116,10 @@ function generateDocsCommand(config) {
 
   lines.push('');
   lines.push('Lifecycle:');
-  lines.push('- `dotmd new <name> --template plan` — scaffold new plan');
+  lines.push('- `dotmd new plan <name>` — scaffold new plan');
+  lines.push('- `dotmd new doc <name>` — scaffold reference doc');
+  lines.push('- `dotmd new prompt <name> "<body>"` — save a resume-prompt');
+  lines.push('- `dotmd new research <name>` — scaffold an audit/investigation');
   lines.push('- `dotmd status <file> <status>` — transition status');
   lines.push('- `dotmd archive <file>` — archive with auto ref-fixing');
   lines.push('- `dotmd bulk archive <files>` — archive multiple at once');

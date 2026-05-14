@@ -1,17 +1,24 @@
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { toRepoPath, die, warn, nowIso } from './util.mjs';
 import { green, dim, bold } from './color.mjs';
 import { isInteractive, promptText } from './prompt.mjs';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+
 const BUILTIN_TEMPLATES = {
-  default: {
-    description: 'Minimal document with status and updated date',
-    frontmatter: (s, d) => `type: doc\nstatus: ${s}\nupdated: ${d}`,
+  doc: {
+    description: 'Reference doc, design note, glossary entry, etc.',
+    defaultStatus: 'active',
+    frontmatter: (s, d) => `type: doc\nstatus: ${s}\ncreated: ${d}\nupdated: ${d}`,
     body: (t) => `\n# ${t}\n`,
   },
   plan: {
     description: 'Execution plan — build-up shape (Problem → Phases → Closeout) with phase status markers and Version History',
+    dir: 'plans',
+    defaultStatus: 'active',
     frontmatter: (s, d) => [
       'type: plan',
       `status: ${s}`,
@@ -88,67 +95,127 @@ Status markers (put in heading text):
 <!-- Filled on archive: what shipped, key commits, deferrals dispositioned. -->
 `,
   },
-  adr: {
-    description: 'Architecture Decision Record',
-    frontmatter: (s, d) => `type: doc\nstatus: ${s}\nupdated: ${d}\ndecision_date:\ndeciders:`,
-    body: (t) => `\n# ${t}\n\n## Context\n\n\n\n## Decision\n\n\n\n## Consequences\n\n\n`,
-  },
-  rfc: {
-    description: 'Request for Comments',
-    frontmatter: (s, d) => `type: doc\nstatus: ${s}\nupdated: ${d}\nowner:\nreviewers:`,
-    body: (t) => `\n# ${t}\n\n## Summary\n\n\n\n## Motivation\n\n\n\n## Detailed Design\n\n\n\n## Alternatives\n\n\n\n## Open Questions\n\n\n`,
-  },
-  audit: {
+  research: {
     description: 'Codebase audit or research investigation',
-    frontmatter: (s, d) => `type: research\nstatus: ${s}\nupdated: ${d}\naudited: ${d}\naudit_level: pass1\nmodule:\nsource_of_truth: code\nsupports_plans:`,
+    defaultStatus: 'active',
+    frontmatter: (s, d) => [
+      'type: research',
+      `status: ${s}`,
+      `created: ${d}`,
+      `updated: ${d}`,
+      `audited: ${d}`,
+      'audit_level: pass1',
+      'module:',
+      'source_of_truth: code',
+      'supports_plans: []',
+    ].join('\n'),
     body: (t) => `\n# ${t}\n\n## Scope\n\n\n\n## Findings\n\n\n\n## Recommendations\n\n\n`,
   },
-  design: {
-    description: 'Design document with goals, non-goals, and implementation plan',
-    frontmatter: (s, d) => `type: doc\nstatus: ${s}\nupdated: ${d}\nowner:\nsurface:\nmodule:\nrelated_plans:`,
-    body: (t) => `\n# ${t}\n\n## Overview\n\n\n\n## Goals\n\n\n\n## Non-Goals\n\n\n\n## Design\n\n\n\n## Implementation Plan\n\n- [ ] \n`,
+  prompt: {
+    description: 'Saved prompt to seed a future Claude session — body is required',
+    dir: 'prompts',
+    defaultStatus: 'pending',
+    requiresBody: true,
+    frontmatter: (s, d, ctx) => [
+      'type: prompt',
+      `status: ${s}`,
+      `created: ${d}`,
+      `dotmd_version: ${pkg.version}`,
+      `context: ${ctx?.title ? `"${ctx.title.replace(/"/g, '\\"')}"` : ''}`,
+      'related_plans: []',
+    ].join('\n'),
+    body: (t, ctx) => `\n${ctx?.bodyInput ?? '<!-- prompt body -->'}\n`,
   },
 };
+
+function readBodyInput(source) {
+  if (source === '-') {
+    try { return readFileSync(0, 'utf8'); } catch (err) { die(`Could not read body from stdin: ${err.message}`); }
+  }
+  if (typeof source === 'string' && source.startsWith('@')) {
+    const file = source.slice(1);
+    if (!existsSync(file)) die(`Body file not found: ${file}`);
+    return readFileSync(file, 'utf8');
+  }
+  return source;
+}
 
 export async function runNew(argv, config, opts = {}) {
   const { dryRun } = opts;
 
-  // Parse args
+  // Parse args. Pull out flags first.
   const positional = [];
-  let status = 'active';
+  let status = null;
   let title = null;
-  let templateName = null;
   let rootName = opts.root ?? null;
+  let messageFlag = null;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--status' && argv[i + 1]) { status = argv[++i]; continue; }
     if (argv[i] === '--title' && argv[i + 1]) { title = argv[++i]; continue; }
-    if (argv[i] === '--template' && argv[i + 1]) { templateName = argv[++i]; continue; }
+    if (argv[i] === '--message' && argv[i + 1]) { messageFlag = argv[++i]; continue; }
     if (argv[i] === '--root' && argv[i + 1]) { rootName = argv[++i]; continue; }
     if (argv[i] === '--config') { i++; continue; }
-    if (argv[i] === '--list-templates') {
+    if (argv[i] === '--list-templates' || argv[i] === '--list-types') {
       listTemplates(config);
       return;
     }
-    if (!argv[i].startsWith('-')) positional.push(argv[i]);
+    // Treat `-` alone (stdin marker) as a positional, not a flag.
+    if (!argv[i].startsWith('-') || argv[i] === '-') positional.push(argv[i]);
   }
 
-  let name = positional[0];
+  // Resolve type vs name:
+  //   `dotmd new plan auth-revamp`     → type=plan, name=auth-revamp
+  //   `dotmd new auth-revamp`          → type=doc (default), name=auth-revamp
+  //   `dotmd new prompt foo "body"`    → type=prompt, name=foo, bodyArg="body"
+  const knownTypes = new Set(Object.keys(BUILTIN_TEMPLATES));
+  // Also include any custom templates from config
+  for (const k of Object.keys(config.raw?.templates ?? {})) knownTypes.add(k);
+
+  let typeName, name, bodyArg = null;
+  if (positional.length >= 1 && knownTypes.has(positional[0])) {
+    typeName = positional[0];
+    name = positional[1];
+    if (positional.length > 2) bodyArg = positional.slice(2).join(' ');
+  } else {
+    typeName = 'doc';
+    name = positional[0];
+    if (positional.length > 1) bodyArg = positional.slice(1).join(' ');
+  }
+
   if (!name) {
     if (isInteractive()) {
-      name = await promptText('Document name: ');
+      name = await promptText(`${typeName} name: `);
       if (!name) die('No name provided.');
     } else {
-      die('Usage: dotmd new <name> [--template <t>] [--status <s>] [--title <t>]\n       dotmd new --list-templates');
+      die(`Usage: dotmd new <type> <name> [body]\n       types: ${[...knownTypes].join(', ')}\n       body: inline text | "-" (stdin) | "@path" (file) | --message "..."`);
     }
   }
 
-  // Validate status
-  if (!config.validStatuses.has(status)) {
-    die(`Invalid status: ${status}\nValid: ${[...config.validStatuses].join(', ')}`);
+  // Resolve template (by type name, falls back to lookup)
+  const template = resolveTemplate(typeName, config);
+
+  // Validate status (template default first, then per-type list, then 'active')
+  if (!status) {
+    if (typeof template === 'object' && template.defaultStatus) {
+      status = template.defaultStatus;
+    } else {
+      const typeStatuses = config.typeStatuses?.get(typeName);
+      status = typeStatuses && typeStatuses.size > 0 ? [...typeStatuses][0] : 'active';
+    }
+  }
+  const effective = config.typeStatuses?.get(typeName) ?? config.validStatuses;
+  if (!effective.has(status)) {
+    die(`Invalid status \`${status}\` for type \`${typeName}\`\nValid: ${[...effective].join(', ')}`);
   }
 
-  // Resolve template
-  const template = resolveTemplate(templateName ?? 'default', config);
+  // Body input resolution: messageFlag > bodyArg > nothing
+  let bodyInput = null;
+  if (messageFlag !== null) bodyInput = readBodyInput(messageFlag);
+  else if (bodyArg !== null) bodyInput = readBodyInput(bodyArg);
+
+  if (template.requiresBody && (!bodyInput || !bodyInput.trim())) {
+    die(`\`${typeName}\` template requires a body. Pass inline, --message "...", - for stdin, or @path for a file.`);
+  }
 
   // If name contains path separators, split into directory prefix and basename
   let nameDir = null;
@@ -179,7 +246,12 @@ export async function runNew(argv, config, opts = {}) {
     targetRoot = match;
   }
 
-  // Path — if user provided a directory prefix, resolve relative to repoRoot
+  // Template-declared subdirectory (e.g., prompt → 'prompts')
+  if (typeof template === 'object' && template.dir && !nameDir) {
+    nameDir = path.join(path.relative(config.repoRoot, targetRoot), template.dir);
+  }
+
+  // Path — if user provided a directory prefix OR template declared one, resolve relative to repoRoot
   const baseDir = nameDir ? path.resolve(config.repoRoot, nameDir) : targetRoot;
   const filePath = path.join(baseDir, slug + '.md');
   const repoPath = toRepoPath(filePath, config.repoRoot);
@@ -192,26 +264,28 @@ export async function runNew(argv, config, opts = {}) {
 
   // Generate content
   let content;
+  const tmplCtx = { status, title: docTitle, today, bodyInput };
   if (typeof template === 'function') {
-    content = template(name, { status, title: docTitle, today });
+    content = template(name, tmplCtx);
   } else {
-    const fm = template.frontmatter(status, today);
-    const body = template.body(docTitle, { today, status });
+    const fm = template.frontmatter(status, today, tmplCtx);
+    const body = template.body(docTitle, tmplCtx);
     content = `---\n${fm}\n---\n${body}`;
   }
 
   if (dryRun) {
     process.stdout.write(`${dim('[dry-run]')} Would create: ${repoPath}\n`);
-    if (templateName) process.stdout.write(`${dim('[dry-run]')} Template: ${templateName}\n`);
+    process.stdout.write(`${dim('[dry-run]')} Type: ${typeName}\n`);
     return;
   }
 
-  writeFileSync(filePath, content, 'utf8');
-  process.stdout.write(`${green('Created')}: ${repoPath}`);
-  if (templateName) process.stdout.write(` ${dim(`(template: ${templateName})`)}`);
-  process.stdout.write('\n');
+  // Ensure parent dir exists (templates with `dir:` may target a new subdirectory)
+  mkdirSync(path.dirname(filePath), { recursive: true });
 
-  try { config.hooks.onNew?.({ path: repoPath, status, title: docTitle, template: templateName }); } catch (err) { warn(`Hook 'onNew' threw: ${err.message}`); }
+  writeFileSync(filePath, content, 'utf8');
+  process.stdout.write(`${green('Created')}: ${repoPath} ${dim(`(${typeName})`)}\n`);
+
+  try { config.hooks.onNew?.({ path: repoPath, status, title: docTitle, type: typeName }); } catch (err) { warn(`Hook 'onNew' threw: ${err.message}`); }
 }
 
 function resolveTemplate(name, config) {
@@ -221,7 +295,7 @@ function resolveTemplate(name, config) {
   if (BUILTIN_TEMPLATES[name]) return BUILTIN_TEMPLATES[name];
 
   const available = [...new Set([...Object.keys(BUILTIN_TEMPLATES), ...Object.keys(configTemplates)])];
-  die(`Unknown template: ${name}\nAvailable: ${available.join(', ')}`);
+  die(`Unknown type: ${name}\nAvailable: ${available.join(', ')}`);
 }
 
 function listTemplates(config) {
@@ -231,7 +305,7 @@ function listTemplates(config) {
     all[k] = v;
   }
 
-  process.stdout.write(bold('Available templates') + '\n\n');
+  process.stdout.write(bold('Available types') + '\n\n');
   for (const [name, tmpl] of Object.entries(all)) {
     const desc = typeof tmpl === 'function'
       ? '(custom function)'

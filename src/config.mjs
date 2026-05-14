@@ -40,6 +40,11 @@ const DEFAULTS = {
       context: { expanded: ['active'], listed: [], counted: ['reference', 'archived'] },
       staleDays: { active: 30 },
     },
+    prompt: {
+      statuses: ['pending', 'claimed', 'archived'],
+      context: { expanded: ['pending'], listed: [], counted: ['claimed', 'archived'] },
+      staleDays: { pending: 30 },
+    },
   },
 
   statuses: {

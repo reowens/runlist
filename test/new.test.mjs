@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, afterEach } from 'node:test';
+import { describe, it, afterEach } from 'node:test';
 import { strictEqual, ok } from 'node:assert';
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import path from 'node:path';
@@ -30,231 +30,202 @@ afterEach(() => {
   if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
 });
 
-describe('dotmd new', () => {
-  it('creates a document and verifies content', () => {
-    const docsDir = setupProject();
-    const result = run(['new', 'my-feature']);
-    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-    ok(result.stdout.includes('Created'), 'shows Created message');
+describe('dotmd new — type-first CLI', () => {
+  describe('type defaults', () => {
+    it('`dotmd new <name>` (no type) defaults to doc', () => {
+      const docsDir = setupProject();
+      const r = run(['new', 'my-feature']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'my-feature.md'), 'utf8');
+      ok(content.includes('type: doc'), 'type is doc');
+      ok(content.includes('# My Feature'));
+    });
 
-    const content = readFileSync(path.join(docsDir, 'my-feature.md'), 'utf8');
-    ok(content.includes('status: active'), 'has default status');
-    ok(content.includes('# My Feature'), 'has title');
-    ok(content.startsWith('---\n'), 'starts with frontmatter');
+    it('`dotmd new doc <name>` explicit doc', () => {
+      const docsDir = setupProject();
+      const r = run(['new', 'doc', 'auth-notes']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'auth-notes.md'), 'utf8');
+      ok(content.includes('type: doc'));
+    });
+
+    it('`dotmd new plan <name>` creates a plan under docs/plans/', () => {
+      const docsDir = setupProject();
+      const r = run(['new', 'plan', 'auth-revamp']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const planPath = path.join(docsDir, 'plans', 'auth-revamp.md');
+      ok(existsSync(planPath), 'saved under docs/plans/');
+      const content = readFileSync(planPath, 'utf8');
+      ok(content.includes('type: plan'));
+      ok(content.includes('status: active'), 'defaults to active (not in-session)');
+      ok(content.includes('## Phases'));
+      ok(content.includes('## Version History'));
+      ok(/created: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/.test(content), 'ISO timestamp');
+    });
+
+    it('`dotmd new research <name>` creates research', () => {
+      const docsDir = setupProject();
+      const r = run(['new', 'research', 'auth-investigation']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'auth-investigation.md'), 'utf8');
+      ok(content.includes('type: research'));
+      ok(content.includes('## Findings'));
+    });
   });
 
-  it('slugifies names with spaces and special chars', () => {
-    const docsDir = setupProject();
-    const result = run(['new', 'My Cool Feature!']);
-    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-    ok(existsSync(path.join(docsDir, 'my-cool-feature.md')), 'slugified filename');
+  describe('prompt type', () => {
+    it('`dotmd new prompt <name> "body"` creates prompt with inline body', () => {
+      const docsDir = setupProject();
+      const r = run(['new', 'prompt', 'quick-thought', 'look at X tomorrow']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      // Default destination is docs/prompts/<name>.md
+      const promptPath = path.join(docsDir, 'prompts', 'quick-thought.md');
+      ok(existsSync(promptPath), 'prompt saved under docs/prompts/');
+      const content = readFileSync(promptPath, 'utf8');
+      ok(content.includes('type: prompt'));
+      ok(content.includes('status: pending'));
+      ok(content.includes('dotmd_version:'), 'has dotmd_version stamp');
+      ok(content.includes('look at X tomorrow'), 'body content present');
+      ok(/created: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/.test(content), 'ISO timestamp');
+    });
+
+    it('refuses to create prompt without body', () => {
+      setupProject();
+      const r = run(['new', 'prompt', 'no-body']);
+      strictEqual(r.status, 1);
+      ok(r.stderr.includes('requires a body'), 'reports missing body');
+    });
+
+    it('accepts body via --message', () => {
+      const docsDir = setupProject();
+      const r = run(['new', 'prompt', 'flag-body', '--message', 'message-flag content']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'prompts', 'flag-body.md'), 'utf8');
+      ok(content.includes('message-flag content'));
+    });
+
+    it('accepts body via - (stdin)', () => {
+      const docsDir = setupProject();
+      const r = run(['new', 'prompt', 'stdin-body', '-'], { input: 'piped\nbody\n' });
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'prompts', 'stdin-body.md'), 'utf8');
+      ok(content.includes('piped'));
+      ok(content.includes('body'));
+    });
+
+    it('accepts body via @path', () => {
+      const docsDir = setupProject();
+      const srcPath = path.join(tmpDir, 'src-body.md');
+      writeFileSync(srcPath, 'from-file content\n');
+      const r = run(['new', 'prompt', 'file-body', `@${srcPath}`]);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'prompts', 'file-body.md'), 'utf8');
+      ok(content.includes('from-file content'));
+    });
+
+    it('prompts get pending status by default', () => {
+      const docsDir = setupProject();
+      run(['new', 'prompt', 'default-status', 'body']);
+      const content = readFileSync(path.join(docsDir, 'prompts', 'default-status.md'), 'utf8');
+      ok(content.includes('status: pending'));
+    });
   });
 
-  it('--status flag sets the status', () => {
-    const docsDir = setupProject();
-    const result = run(['new', 'planned-thing', '--status', 'planned']);
-    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+  describe('flags + edge cases', () => {
+    it('slugifies names with spaces and special chars', () => {
+      const docsDir = setupProject();
+      run(['new', 'doc', 'My Cool Feature!']);
+      ok(existsSync(path.join(docsDir, 'my-cool-feature.md')));
+    });
 
-    const content = readFileSync(path.join(docsDir, 'planned-thing.md'), 'utf8');
-    ok(content.includes('status: planned'), 'has planned status');
-  });
+    it('--status flag sets status (per-type valid value)', () => {
+      const docsDir = setupProject();
+      run(['new', 'doc', 'review-thing', '--status', 'review']);
+      const content = readFileSync(path.join(docsDir, 'review-thing.md'), 'utf8');
+      ok(content.includes('status: review'));
+    });
 
-  it('--title flag overrides the title', () => {
-    const docsDir = setupProject();
-    const result = run(['new', 'slug-name', '--title', 'Custom Title']);
-    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    it('rejects --status that is not valid for the type', () => {
+      setupProject();
+      const r = run(['new', 'doc', 'bad', '--status', 'planned']);
+      strictEqual(r.status, 1);
+      ok(r.stderr.includes('Invalid status'), 'reports type-specific rejection');
+    });
 
-    const content = readFileSync(path.join(docsDir, 'slug-name.md'), 'utf8');
-    ok(content.includes('# Custom Title'), 'has custom title');
-  });
+    it('--title overrides auto-derived title', () => {
+      const docsDir = setupProject();
+      run(['new', 'doc', 'slug-name', '--title', 'Custom Title']);
+      const content = readFileSync(path.join(docsDir, 'slug-name.md'), 'utf8');
+      ok(content.includes('# Custom Title'));
+    });
 
-  it('refuses to overwrite existing file', () => {
-    const docsDir = setupProject();
-    writeFileSync(path.join(docsDir, 'exists.md'), '---\nstatus: active\n---\n# Exists\n');
+    it('refuses to overwrite existing file', () => {
+      const docsDir = setupProject();
+      writeFileSync(path.join(docsDir, 'exists.md'), '---\nstatus: active\n---\n# Exists\n');
+      const r = run(['new', 'doc', 'exists']);
+      strictEqual(r.status, 1);
+      ok(r.stderr.includes('already exists'));
+    });
 
-    const result = run(['new', 'exists']);
-    strictEqual(result.status, 1);
-    ok(result.stderr.includes('already exists'), 'shows error');
-  });
+    it('--dry-run does not create file', () => {
+      const docsDir = setupProject();
+      const r = run(['new', 'doc', 'dry-test', '--dry-run']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      ok(r.stdout.includes('Would create'));
+      ok(!existsSync(path.join(docsDir, 'dry-test.md')));
+    });
 
-  it('--dry-run does not create file', () => {
-    const docsDir = setupProject();
-    const result = run(['new', 'dry-test', '--dry-run']);
-    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-    ok(result.stdout.includes('Would create'), 'shows dry-run message');
-    ok(!existsSync(path.join(docsDir, 'dry-test.md')), 'file not created');
-  });
+    it('rejects entirely unknown status', () => {
+      setupProject();
+      const r = run(['new', 'doc', 'bad-status', '--status', 'nonsense']);
+      strictEqual(r.status, 1);
+      ok(r.stderr.includes('Invalid status'));
+    });
 
-  it('rejects invalid status', () => {
-    setupProject();
-    const result = run(['new', 'bad-status', '--status', 'nonsense']);
-    strictEqual(result.status, 1);
-    ok(result.stderr.includes('Invalid status'), 'shows invalid status error');
-  });
+    it('rejects unknown type-name-shaped argument as the name fallback', () => {
+      // If the first positional isn't a known type, it's treated as the doc name.
+      const docsDir = setupProject();
+      run(['new', 'not-a-type']);
+      ok(existsSync(path.join(docsDir, 'not-a-type.md')));
+    });
 
-  it('--template adr creates ADR scaffold', () => {
-    const docsDir = setupProject();
-    const result = run(['new', 'my-decision', '--template', 'adr']);
-    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    it('--list-types shows registered types', () => {
+      setupProject();
+      const r = run(['new', '--list-types']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      ok(r.stdout.includes('plan'));
+      ok(r.stdout.includes('doc'));
+      ok(r.stdout.includes('prompt'));
+      ok(r.stdout.includes('research'));
+    });
 
-    const content = readFileSync(path.join(docsDir, 'my-decision.md'), 'utf8');
-    ok(content.includes('## Context'), 'has Context section');
-    ok(content.includes('## Decision'), 'has Decision section');
-    ok(content.includes('## Consequences'), 'has Consequences section');
-    ok(content.includes('decision_date:'), 'has decision_date field');
-  });
+    it('handles path input by creating in the specified directory', () => {
+      const docsDir = setupProject();
+      mkdirSync(path.join(docsDir, 'plans'), { recursive: true });
+      const r = run(['new', 'plan', 'docs/plans/feature']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      ok(existsSync(path.join(docsDir, 'plans', 'feature.md')));
+    });
 
-  it('--template rfc creates RFC scaffold', () => {
-    const docsDir = setupProject();
-    const result = run(['new', 'my-proposal', '--template', 'rfc']);
-    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-
-    const content = readFileSync(path.join(docsDir, 'my-proposal.md'), 'utf8');
-    ok(content.includes('## Summary'), 'has Summary section');
-    ok(content.includes('## Motivation'), 'has Motivation section');
-    ok(content.includes('## Detailed Design'), 'has Detailed Design section');
-    ok(content.includes('## Alternatives'), 'has Alternatives section');
-    ok(content.includes('owner:'), 'has owner field');
-  });
-
-  it('--template plan creates plan scaffold with build-up shape', () => {
-    const docsDir = setupProject();
-    const result = run(['new', 'my-plan', '--template', 'plan']);
-    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-
-    const content = readFileSync(path.join(docsDir, 'my-plan.md'), 'utf8');
-    // Frontmatter: array forms + new fields
-    ok(content.includes('surfaces: []'), 'has surfaces array');
-    ok(content.includes('modules: []'), 'has modules array');
-    ok(content.includes('related_plans: []'), 'has related_plans array');
-    ok(content.includes('parent_plan:'), 'has parent_plan field');
-    ok(content.includes('domain:'), 'has domain field');
-    ok(content.includes('audience: internal'), 'has audience field');
-    ok(content.includes('current_state:'), 'has current_state field');
-    ok(content.includes('next_step:'), 'has next_step field');
-    // Body sections — the build-up shape
-    ok(content.includes('## Problem'), 'has Problem section');
-    ok(content.includes('## Goals'), 'has Goals section');
-    ok(content.includes('## Non-Goals'), 'has Non-Goals section');
-    ok(content.includes('## What Exists Today'), 'has What Exists Today section');
-    ok(content.includes('## Constraints'), 'has Constraints section');
-    ok(content.includes('## Decisions'), 'has Decisions section');
-    ok(content.includes('## Open Questions'), 'has Open Questions section');
-    ok(content.includes('## Phases'), 'has Phases section');
-    ok(content.includes('### Phase 1'), 'has Phase 1 stub');
-    ok(content.includes('⬜'), 'Phase 1 carries the not-started marker');
-    ok(content.includes('## Deferred'), 'has Deferred section');
-    ok(content.includes('## Version History'), 'has Version History section');
-    ok(content.includes('## Closeout'), 'has Closeout section');
-    // Timestamps in ISO format (T...Z), not date-only
-    ok(/created: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/.test(content), 'created uses ISO timestamp');
-    ok(/updated: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/.test(content), 'updated uses ISO timestamp');
-    // First Version History entry references the create timestamp
-    ok(/\*\*\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\*\* Created\./.test(content), 'Version History has first entry');
-  });
-
-  it('--template audit creates audit scaffold', () => {
-    const docsDir = setupProject();
-    const result = run(['new', 'my-audit', '--template', 'audit']);
-    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-
-    const content = readFileSync(path.join(docsDir, 'my-audit.md'), 'utf8');
-    ok(content.includes('## Findings'), 'has Findings section');
-    ok(content.includes('audit_level:'), 'has audit_level field');
-    ok(content.includes('source_of_truth:'), 'has source_of_truth field');
-  });
-
-  it('--template design creates design doc scaffold', () => {
-    const docsDir = setupProject();
-    const result = run(['new', 'my-design', '--template', 'design']);
-    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-
-    const content = readFileSync(path.join(docsDir, 'my-design.md'), 'utf8');
-    ok(content.includes('## Goals'), 'has Goals section');
-    ok(content.includes('## Non-Goals'), 'has Non-Goals section');
-    ok(content.includes('## Design'), 'has Design section');
-  });
-
-  it('default template matches original behavior', () => {
-    const docsDir = setupProject();
-    run(['new', 'no-template']);
-    const content = readFileSync(path.join(docsDir, 'no-template.md'), 'utf8');
-    ok(content.includes('status: active'), 'has status');
-    ok(content.includes('# No Template'), 'has title');
-    ok(!content.includes('## Context'), 'no extra sections');
-  });
-
-  it('rejects unknown template', () => {
-    setupProject();
-    const result = run(['new', 'foo', '--template', 'nonexistent']);
-    strictEqual(result.status, 1);
-    ok(result.stderr.includes('Unknown template'), 'shows error');
-    ok(result.stderr.includes('Available'), 'lists available templates');
-  });
-
-  it('--list-templates shows available templates', () => {
-    setupProject();
-    const result = run(['new', '--list-templates']);
-    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-    ok(result.stdout.includes('default'), 'lists default');
-    ok(result.stdout.includes('adr'), 'lists adr');
-    ok(result.stdout.includes('rfc'), 'lists rfc');
-    ok(result.stdout.includes('plan'), 'lists plan');
-    ok(result.stdout.includes('audit'), 'lists audit');
-    ok(result.stdout.includes('design'), 'lists design');
-  });
-
-  it('--template with --status overrides status', () => {
-    const docsDir = setupProject();
-    run(['new', 'planned-rfc', '--template', 'rfc', '--status', 'planned']);
-    const content = readFileSync(path.join(docsDir, 'planned-rfc.md'), 'utf8');
-    ok(content.includes('status: planned'), 'status is planned');
-  });
-
-  it('handles path input by creating in the specified directory', () => {
-    const docsDir = setupProject();
-    mkdirSync(path.join(docsDir, 'plans'), { recursive: true });
-    const result = run(['new', 'docs/plans/group-folio-features', '--template', 'plan']);
-    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-    ok(existsSync(path.join(docsDir, 'plans', 'group-folio-features.md')), 'file created at correct path');
-    ok(!existsSync(path.join(docsDir, 'docsplansgroup-folio-features.md')), 'no mangled filename');
-  });
-
-  it('handles path input with .md extension', () => {
-    const docsDir = setupProject();
-    mkdirSync(path.join(docsDir, 'plans'), { recursive: true });
-    const result = run(['new', 'docs/plans/my-feature.md']);
-    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-    ok(existsSync(path.join(docsDir, 'plans', 'my-feature.md')), 'file created at correct path');
-  });
-
-  it('strips .md from bare name for slugification', () => {
-    const docsDir = setupProject();
-    const result = run(['new', 'my-feature.md']);
-    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-    ok(existsSync(path.join(docsDir, 'my-feature.md')), 'file created without double .md');
-    ok(!existsSync(path.join(docsDir, 'my-featuremd.md')), 'no mangled filename');
-  });
-
-  it('config templates override builtins', () => {
-    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-new-'));
-    mkdirSync(path.join(tmpDir, '.git'));
-    mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
-    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
-      export const root = 'docs';
-      export const templates = {
-        spike: {
-          description: 'Timeboxed investigation',
-          frontmatter: (s, d) => \`status: \${s}\\nupdated: \${d}\\ntimebox: 2d\`,
-          body: (t) => \`\\n# \${t}\\n\\n## Hypothesis\\n\\n\\n\`,
-        },
-      };
-    `);
-
-    const result = run(['new', 'my-spike', '--template', 'spike']);
-    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-    const content = readFileSync(path.join(tmpDir, 'docs', 'my-spike.md'), 'utf8');
-    ok(content.includes('timebox: 2d'), 'has custom field');
-    ok(content.includes('## Hypothesis'), 'has custom section');
+    it('config-registered custom types still work', () => {
+      tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-new-'));
+      mkdirSync(path.join(tmpDir, '.git'));
+      mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+      writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+        export const root = 'docs';
+        export const templates = {
+          spike: {
+            description: 'Timeboxed investigation',
+            frontmatter: (s, d) => \`type: doc\\nstatus: \${s}\\nupdated: \${d}\\ntimebox: 2d\`,
+            body: (t) => \`\\n# \${t}\\n\\n## Hypothesis\\n\\n\\n\`,
+          },
+        };
+      `);
+      const r = run(['new', 'spike', 'my-spike']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(tmpDir, 'docs', 'my-spike.md'), 'utf8');
+      ok(content.includes('timebox: 2d'));
+      ok(content.includes('## Hypothesis'));
+    });
   });
 });

@@ -55,7 +55,7 @@ Lifecycle:
   migrate <field> <old> <new> [f...]Batch update a frontmatter field value (optional file filter)
 
 Create & Export:
-  new <name> [--template <t>]       Create doc from template (plan, adr, rfc, audit, design)
+  new <type> <name> [body]          Create doc of given type (plan, doc, prompt, research)
   index [--write]                   Generate/update docs.md index block
   export [--format md|html|json]    Export docs as markdown, HTML, or JSON
   notion import|export|sync [db-id] Notion database integration
@@ -386,22 +386,42 @@ With --write, updates the configured index file in place.
 
 Use --dry-run (-n) with --write to preview without writing.`,
 
-  new: `dotmd new <name> — create a new document
+  new: `dotmd new <type> <name> [body] — create a new document
 
-Creates a new markdown document with frontmatter in the docs root.
+Types and their default destinations:
+  plan        docs/plans/<slug>.md     (build-up template: Problem → Phases → Closeout)
+  doc         docs/<slug>.md           (minimal reference doc)
+  prompt      docs/prompts/<slug>.md   (saved prompt to seed a future session — body required)
+  research    docs/<slug>.md           (audit / investigation)
 
-Options:
-  --template <name>    Use a template (default, plan, adr, rfc, audit, design)
-  --status <s>         Set initial status (default: active)
-  --title <t>          Override the document title
+\`<type>\` can be omitted; defaults to \`doc\`.
+\`<name>\` is slugified for the filename.
+
+Body input (prompt type only):
+  <text>                 Inline body as 3rd positional
+  --message "<text>"     Explicit inline body
+  -                      Read body from stdin (heredoc-friendly for agents)
+  @path                  Read body from a file
+
+Examples:
+  dotmd new plan auth-revamp
+  dotmd new prompt cleanup-tomorrow "look at remaining lint warnings"
+  dotmd new prompt resume-foo - <<'EOF'
+  multi-line
+  prompt body
+  EOF
+  dotmd new prompt from-file @/tmp/draft.md
+
+Other options:
+  --status <s>         Set initial status (defaults to first valid status for the type)
+  --title <t>          Override the auto-derived title
   --root <name>        Create in a specific docs root
-  --list-templates     Show available templates
+  --list-types         Show registered types (alias: --list-templates)
 
 For plans, the default status vocabulary is: in-session, active, planned,
-blocked, partial, paused, awaiting, queued-after, archived. Run
-\`dotmd status --help\` for what each one means.
+blocked, partial, paused, awaiting, queued-after, archived.
+For prompts: pending (default), claimed, archived.
 
-The filename is derived from <name> by slugifying it.
 Use --dry-run (-n) to preview without creating the file.`,
 
   watch: `dotmd watch [command] — re-run a command on file changes
