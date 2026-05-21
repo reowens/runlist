@@ -128,6 +128,7 @@ Status markers (put in heading text):
     targetRoot: 'prompts',
     defaultStatus: 'pending',
     requiresBody: true,
+    acceptsBody: true,
     frontmatter: (s, d, ctx) => [
       'type: prompt',
       `status: ${s}`,
@@ -222,11 +223,29 @@ export async function runNew(argv, config, opts = {}) {
 
   // Body input resolution: messageFlag > bodyArg > nothing
   let bodyInput = null;
-  if (messageFlag !== null) bodyInput = readBodyInput(messageFlag);
-  else if (bodyArg !== null) bodyInput = readBodyInput(bodyArg);
+  let bodyInputSource = null;
+  if (messageFlag !== null) { bodyInput = readBodyInput(messageFlag); bodyInputSource = '--message'; }
+  else if (bodyArg !== null) {
+    bodyInput = readBodyInput(bodyArg);
+    bodyInputSource = bodyArg === '-' ? 'stdin (`-`)' : (bodyArg.startsWith('@') ? `file (\`${bodyArg}\`)` : 'inline body argument');
+  }
 
   if (template.requiresBody && (!bodyInput || !bodyInput.trim())) {
     die(`\`${typeName}\` template requires a body. Pass inline, --message "...", - for stdin, or @path for a file.`);
+  }
+
+  // Fail-fast when the user passes body input to a template that doesn't
+  // consume it — silently discarding heredoc content is the worst UX.
+  // Templates opt in via `acceptsBody: true` or `requiresBody: true`. Built-in
+  // `prompt` is the only template that consumes body by default.
+  if (bodyInput !== null && !template.acceptsBody && !template.requiresBody) {
+    const accepting = Object.entries(BUILTIN_TEMPLATES)
+      .filter(([, t]) => t.acceptsBody || t.requiresBody)
+      .map(([n]) => n);
+    const hint = accepting.length > 0
+      ? ` Templates that accept body input: ${accepting.join(', ')}.`
+      : '';
+    die(`\`${typeName}\` template does not accept body input, but body was passed via ${bodyInputSource}.${hint}\nEither drop the body, switch to a template that accepts it, or set \`acceptsBody: true\` on your custom \`${typeName}\` template in dotmd.config.mjs.`);
   }
 
   // If name contains path separators, split into directory prefix and basename

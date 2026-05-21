@@ -318,4 +318,76 @@ describe('dotmd new — type-first CLI', () => {
       ok(existsSync(path.join(docsDir, 'prompts', 'std-config.md')));
     });
   });
+
+  describe('body-input on non-body templates fails fast (issue #9)', () => {
+    // The CLI accepts `-`, `@path`, and `--message` for any template, but
+    // built-in `plan` and `doc` ignore `ctx.bodyInput` in their body fn —
+    // so silent discard was the failure mode. New behavior: error.
+
+    it('rejects stdin body on `plan` (not on-prompt template)', () => {
+      setupProject();
+      const r = run(['new', 'plan', 'no-body-please', '-'], { input: 'heredoc content\n' });
+      strictEqual(r.status, 1, `should fail. stderr: ${r.stderr}`);
+      ok(r.stderr.includes('does not accept body input'), `expected fail-fast error, got: ${r.stderr}`);
+      ok(r.stderr.includes('stdin'), 'names the input source');
+      ok(r.stderr.includes('prompt'), 'mentions templates that DO accept body');
+    });
+
+    it('rejects --message body on `doc`', () => {
+      setupProject();
+      const r = run(['new', 'doc', 'no-body', '--message', 'lost content']);
+      strictEqual(r.status, 1, `should fail. stderr: ${r.stderr}`);
+      ok(r.stderr.includes('does not accept body input'));
+      ok(r.stderr.includes('--message'));
+    });
+
+    it('rejects @path body on `plan`', () => {
+      setupProject();
+      const srcPath = path.join(tmpDir, 'src.md');
+      writeFileSync(srcPath, 'file content\n');
+      const r = run(['new', 'plan', 'from-file', `@${srcPath}`]);
+      strictEqual(r.status, 1, `should fail. stderr: ${r.stderr}`);
+      ok(r.stderr.includes('does not accept body input'));
+      ok(r.stderr.includes(`@${srcPath}`));
+    });
+
+    it('rejects inline body argument on `doc`', () => {
+      setupProject();
+      // Third positional (after type + name) is inline body when present.
+      const r = run(['new', 'doc', 'inline-body', 'this body is lost']);
+      strictEqual(r.status, 1, `should fail. stderr: ${r.stderr}`);
+      ok(r.stderr.includes('does not accept body input'));
+      ok(r.stderr.includes('inline body argument'));
+    });
+
+    it('`prompt` still accepts body input (regression)', () => {
+      const docsDir = setupProject();
+      const r = run(['new', 'prompt', 'still-works', 'body content']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'prompts', 'still-works.md'), 'utf8');
+      ok(content.includes('body content'));
+    });
+
+    it('custom template with acceptsBody:true accepts body without error', () => {
+      tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-new-'));
+      mkdirSync(path.join(tmpDir, '.git'));
+      mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+      writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+        export const root = 'docs';
+        export const templates = {
+          note: {
+            description: 'Quick note that includes body',
+            defaultStatus: 'active',
+            acceptsBody: true,
+            frontmatter: (s, d) => \`type: doc\\nstatus: \${s}\\ncreated: \${d}\`,
+            body: (t, ctx) => \`\\n# \${t}\\n\\n\${ctx?.bodyInput ?? ''}\\n\`,
+          },
+        };
+      `);
+      const r = run(['new', 'note', 'with-body', '--message', 'note body']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(tmpDir, 'docs', 'with-body.md'), 'utf8');
+      ok(content.includes('note body'), `custom template should receive body: ${content}`);
+    });
+  });
 });

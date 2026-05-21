@@ -2,6 +2,16 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## 0.29.2 — 2026-05-21
+
+### Fixed
+
+- **`dotmd new` no longer silently discards body input on non-body templates ([#9](https://github.com/reowens/dotmd/issues/9)).** The CLI accepted `-` (stdin), `@path`, `--message`, and inline body args for any template, but only the built-in `prompt` template's `body(t, ctx)` actually consumed `ctx.bodyInput`. `plan`, `doc`, and any user template that didn't reference `ctx.bodyInput` silently threw the input away. `dotmd new plan my-plan - <<EOF ... EOF` produced a plan with the canned template and no trace of the heredoc.
+
+  Now: when body input is passed to a template that doesn't declare `acceptsBody: true` (or the existing `requiresBody: true`), `dotmd new` errors immediately, naming the input source (stdin / `--message` / `@path` / inline) and listing the built-in templates that accept body. The fast-fail surface makes the silent-discard footgun structurally impossible.
+
+  Custom user templates that consume `ctx.bodyInput` should set `acceptsBody: true` to opt in. Built-in `prompt` now declares both `acceptsBody` and `requiresBody` for symmetry.
+
 ## 0.29.1 — 2026-05-21
 
 ### Added
