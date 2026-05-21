@@ -226,6 +226,8 @@ export const templates = {
   spike: {
     description: 'Timeboxed investigation',
     defaultStatus: 'active',
+    targetRoot: 'spikes',  // in flat-array root configs, lands in the matching root
+    dir: 'spikes',          // in single-root configs, creates docs/spikes/<slug>.md
     frontmatter: (status, today) => `type: spike\nstatus: ${status}\nupdated: ${today}\ntimebox: 2d`,
     body: (title) => `\n# ${title}\n\n## Hypothesis\n\n\n\n## Findings\n\n\n`,
   },
@@ -233,6 +235,13 @@ export const templates = {
 ```
 
 Then `dotmd new spike my-spike` creates a doc from your template.
+
+**Routing your custom type to a directory.** Two knobs:
+
+- `targetRoot: '<name>'` — name (basename or suffix) of a root entry. In configs with `root: ['docs/plans', 'docs/spikes', ...]` (flat-array layout), the new doc lands in the matching root.
+- `dir: '<subdir>'` — subdirectory under `config.docsRoot`. Used as the fallback when `targetRoot` doesn't match anything (typical single-root layout).
+
+Set both for portability. The `--root` CLI flag overrides both. **Overrides do not inherit builtin properties** — if you override `templates.prompt`, re-declare `targetRoot`, `dir`, `defaultStatus`, `requiresBody`, etc. that you want preserved.
 
 ### Saved Prompts
 

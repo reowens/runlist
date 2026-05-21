@@ -175,6 +175,50 @@ export const presets = {
   mine: ['--owner', 'robert', '--status', 'active', '--all'],
 };
 
+// ─── Templates ───────────────────────────────────────────────────────────────
+// Define new types or override builtins. `dotmd new <type> <name>` looks here first.
+//
+// Properties:
+//   description:    string — shown in `dotmd new --list-types`
+//   defaultStatus:  string — initial status if `--status` not passed
+//   requiresBody:   boolean — error if no body input (see `prompt` builtin)
+//   targetRoot:     string — name (basename or suffix) of the root this type lives in.
+//                   In flat-array `root` configs (e.g. ['docs/plans', 'docs/prompts']),
+//                   the new doc lands in the matching root. Falls back to `config.docsRoot`
+//                   if no root matches. The `--root` CLI flag still overrides.
+//   dir:            string — subdirectory under `docsRoot` to use when `targetRoot` doesn't
+//                   match anything. Builtin `plan` and `prompt` set both for portability:
+//                   under `docsRoot='docs'`, `dir` puts files in `docs/plans/` and `docs/prompts/`;
+//                   under flat-array roots, `targetRoot` routes directly to the type-specific root.
+//   frontmatter:    (status, isoTime, ctx) => string
+//   body:           (title, ctx) => string
+//
+// Custom type example — adds a `spike` type that lives in the `spikes` root (or
+// under `docs/spikes/` in single-root layouts):
+// export const templates = {
+//   spike: {
+//     description: 'Timeboxed investigation',
+//     defaultStatus: 'active',
+//     targetRoot: 'spikes',  // for flat-array root configs
+//     dir: 'spikes',          // for single-root configs
+//     frontmatter: (s, d) => `type: spike\nstatus: ${s}\ncreated: ${d}\ntimebox: 2d`,
+//     body: (t) => `\n# ${t}\n\n## Hypothesis\n\n\n\n## Findings\n\n`,
+//   },
+//
+//   // Override a builtin (e.g. project-specific prompt frontmatter shape).
+//   // IMPORTANT: builtin properties are NOT inherited — re-declare `targetRoot`, `dir`,
+//   // `defaultStatus`, `requiresBody`, etc. that you want preserved.
+//   // prompt: {
+//   //   description: 'Project resume prompt',
+//   //   defaultStatus: 'pending',
+//   //   requiresBody: true,
+//   //   targetRoot: 'prompts',
+//   //   dir: 'prompts',
+//   //   frontmatter: (s, d, ctx) => `type: prompt\nstatus: ${s}\nproject_field: yes`,
+//   //   body: (t, ctx) => `\n${ctx?.bodyInput ?? ''}\n`,
+//   // },
+// };
+
 // ─── Notion ──────────────────────────────────────────────────────────────────
 // IMPORTANT: Use environment variables for tokens — never hardcode secrets in config files.
 // export const notion = {

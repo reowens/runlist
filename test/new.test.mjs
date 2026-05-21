@@ -235,4 +235,87 @@ describe('dotmd new — type-first CLI', () => {
       ok(content.includes('## Hypothesis'));
     });
   });
+
+  describe('flat-array root routing (issue #7)', () => {
+    function setupFlatArrayProject() {
+      tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-new-'));
+      mkdirSync(path.join(tmpDir, '.git'));
+      mkdirSync(path.join(tmpDir, 'docs', 'plans'), { recursive: true });
+      mkdirSync(path.join(tmpDir, 'docs', 'prompts'), { recursive: true });
+      mkdirSync(path.join(tmpDir, 'docs', 'modules'), { recursive: true });
+      writeFileSync(
+        path.join(tmpDir, 'dotmd.config.mjs'),
+        `export const root = ['docs/plans', 'docs/modules', 'docs/prompts'];`,
+      );
+    }
+
+    it('builtin `prompt` lands in the `prompts` root, not `docs/plans` (the first root)', () => {
+      setupFlatArrayProject();
+      const r = run(['new', 'prompt', 'resume-foo', 'body content']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      ok(
+        existsSync(path.join(tmpDir, 'docs', 'prompts', 'resume-foo.md')),
+        'lands in docs/prompts/',
+      );
+      ok(
+        !existsSync(path.join(tmpDir, 'docs', 'plans', 'resume-foo.md')),
+        'does not land in docs/plans/',
+      );
+      ok(
+        !existsSync(path.join(tmpDir, 'docs', 'plans', 'prompts', 'resume-foo.md')),
+        'does not nest as docs/plans/prompts/',
+      );
+    });
+
+    it('builtin `plan` lands in the `plans` root under flat-array config', () => {
+      setupFlatArrayProject();
+      const r = run(['new', 'plan', 'auth-revamp']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      ok(existsSync(path.join(tmpDir, 'docs', 'plans', 'auth-revamp.md')));
+      ok(!existsSync(path.join(tmpDir, 'docs', 'plans', 'plans', 'auth-revamp.md')), 'no double-nesting');
+    });
+
+    it('user override declaring `targetRoot` routes correctly under flat-array config', () => {
+      tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-new-'));
+      mkdirSync(path.join(tmpDir, '.git'));
+      mkdirSync(path.join(tmpDir, 'docs', 'plans'), { recursive: true });
+      mkdirSync(path.join(tmpDir, 'docs', 'prompts'), { recursive: true });
+      writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+        export const root = ['docs/plans', 'docs/prompts'];
+        export const templates = {
+          prompt: {
+            description: 'Project-shape prompt',
+            defaultStatus: 'pending',
+            requiresBody: true,
+            targetRoot: 'prompts',
+            frontmatter: (s, d) => \`type: prompt\\nstatus: \${s}\\ncreated: \${d}\\nproject_field: yes\`,
+            body: (t, ctx) => \`\\n\${ctx?.bodyInput ?? ''}\\n\`,
+          },
+        };
+      `);
+      const r = run(['new', 'prompt', 'override-test', 'body']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const promptPath = path.join(tmpDir, 'docs', 'prompts', 'override-test.md');
+      ok(existsSync(promptPath), 'override lands in docs/prompts/');
+      const content = readFileSync(promptPath, 'utf8');
+      ok(content.includes('project_field: yes'), 'override frontmatter applied');
+    });
+
+    it('--root CLI flag wins over template.targetRoot', () => {
+      setupFlatArrayProject();
+      const r = run(['new', 'prompt', 'override', 'body', '--root', 'modules']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      ok(existsSync(path.join(tmpDir, 'docs', 'modules', 'override.md')), 'CLI --root wins');
+      ok(!existsSync(path.join(tmpDir, 'docs', 'prompts', 'override.md')));
+    });
+
+    it('standard config (docsRoot=docs) unchanged — prompt still lands in docs/prompts/ via `dir`', () => {
+      // Regression check: no `prompts` root entry exists, so targetRoot misses and falls
+      // through to the existing `template.dir` join.
+      const docsDir = setupProject();
+      const r = run(['new', 'prompt', 'std-config', 'body']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      ok(existsSync(path.join(docsDir, 'prompts', 'std-config.md')));
+    });
+  });
 });

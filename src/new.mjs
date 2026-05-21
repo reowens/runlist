@@ -44,6 +44,7 @@ const BUILTIN_TEMPLATES = {
   plan: {
     description: 'Execution plan — build-up shape (Problem → Phases → Closeout) with phase status markers and Version History',
     dir: 'plans',
+    targetRoot: 'plans',
     defaultStatus: 'active',
     frontmatter: (s, d) => [
       'type: plan',
@@ -124,6 +125,7 @@ Status markers (put in heading text):
   prompt: {
     description: 'Saved prompt to seed a future Claude session — body is required',
     dir: 'prompts',
+    targetRoot: 'prompts',
     defaultStatus: 'pending',
     requiresBody: true,
     frontmatter: (s, d, ctx) => [
@@ -244,8 +246,11 @@ export async function runNew(argv, config, opts = {}) {
   // Title
   const docTitle = title ?? namePart.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
-  // Resolve target root
+  // Resolve target root. Precedence: CLI --root > template.targetRoot > config.docsRoot.
+  // When the chosen root is a first-class type-container (matched by --root or targetRoot),
+  // we skip the `template.dir` join — the root already points at the right directory.
   let targetRoot = config.docsRoot;
+  let routedToTypeRoot = false;
   if (rootName) {
     const roots = config.docsRoots || [config.docsRoot];
     const match = roots.find(r => r.endsWith(rootName) || path.basename(r) === rootName);
@@ -254,10 +259,19 @@ export async function runNew(argv, config, opts = {}) {
       die(`Unknown root: ${rootName}\nAvailable: ${available}`);
     }
     targetRoot = match;
+    routedToTypeRoot = true;
+  } else if (typeof template === 'object' && template.targetRoot) {
+    const roots = config.docsRoots || [config.docsRoot];
+    const match = roots.find(r => r.endsWith(template.targetRoot) || path.basename(r) === template.targetRoot);
+    if (match) {
+      targetRoot = match;
+      routedToTypeRoot = true;
+    }
   }
 
-  // Template-declared subdirectory (e.g., prompt → 'prompts')
-  if (typeof template === 'object' && template.dir && !nameDir) {
+  // Template-declared subdirectory (e.g., prompt → 'prompts') — only relevant when we
+  // didn't already land in a type-specific root via --root or targetRoot.
+  if (typeof template === 'object' && template.dir && !nameDir && !routedToTypeRoot) {
     nameDir = path.join(path.relative(config.repoRoot, targetRoot), template.dir);
   }
 
