@@ -169,7 +169,9 @@ export function runInit(cwd, config) {
     }
   }
 
-  process.stdout.write(`\nReady. Create your first doc:\n`);
-  process.stdout.write(`  dotmd new my-doc\n`);
-  process.stdout.write(`  dotmd list\n\n`);
+  process.stdout.write(`\nReady. A few starting points:\n`);
+  process.stdout.write(`  dotmd new doc my-doc            # scaffold a reference doc\n`);
+  process.stdout.write(`  dotmd new plan my-plan          # scaffold an execution plan\n`);
+  process.stdout.write(`  dotmd list                      # see what you've got\n`);
+  process.stdout.write(`  dotmd hud                       # session-start triage (ideal SessionStart hook)\n\n`);
 }

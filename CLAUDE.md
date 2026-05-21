@@ -13,8 +13,8 @@ Every document has a `type:` field in its frontmatter. Types determine which sta
 | type | purpose | statuses |
 |------|---------|----------|
 | `plan` | Execution plans that Claude sessions work on | `in-session`, `active`, `planned`, `blocked`, `partial`, `paused`, `awaiting`, `queued-after`, `archived` |
-| `doc` | Reference material, design docs, specs, ADRs, RFCs | `draft`, `active`, `review`, `reference`, `deprecated`, `archived` |
-| `research` | Investigations, audits, analysis | `active`, `reference`, `archived` |
+| `doc` | Reference material, design docs, specs, ADRs, RFCs, investigations | `draft`, `active`, `review`, `reference`, `deprecated`, `archived` |
+| `prompt` | Saved prompts that seed future sessions (body required) | `pending`, `claimed`, `archived` |
 
 ### Plan statuses explained
 
@@ -63,16 +63,29 @@ Use `dotmd handoff` whenever you'd otherwise print a multi-line "here's how to r
 
 ### Creating documents
 
-Templates automatically set the `type:` field:
+Signature: `dotmd new <type> <name> [body]`. `<type>` is required (defaults to `doc` if omitted).
 
 ```bash
-dotmd new my-plan --template plan          # type: plan
-dotmd new my-doc                           # type: doc (default template)
-dotmd new my-doc --template design         # type: doc
-dotmd new my-doc --template adr            # type: doc
-dotmd new my-doc --template rfc            # type: doc
-dotmd new my-investigation --template audit # type: research
+dotmd new plan auth-revamp                       # type: plan → docs/plans/auth-revamp.md
+dotmd new doc token-refresh-design               # type: doc → docs/token-refresh-design.md
+dotmd new prompt cleanup-tomorrow "..."          # type: prompt → docs/prompts/cleanup-tomorrow.md
+dotmd new my-doc                                 # implicit type: doc
 ```
+
+Built-in types: `plan`, `doc`, `prompt`. Add more via `templates` in config.
+
+### Queuing prompts for future sessions
+
+When you want to leave a self-addressed reminder ("look at X tomorrow," "resume payments refactor"), write a saved prompt instead of dropping a note in chat. `dotmd hud` surfaces pending prompts at session start, so the next session sees it without copy-paste:
+
+```bash
+dotmd new prompt cleanup "look at remaining lint warnings"
+dotmd new prompt resume-foo - <<'EOF'
+multi-line body
+EOF
+```
+
+Saved prompts have their own status vocab (`pending`, `claimed`, `archived`) and a dedicated command family (`dotmd prompts list|next|use|archive`). `dotmd prompts next` prints + claims the oldest pending prompt — useful when a session boots and needs an instruction.
 
 ### Querying by type
 
@@ -86,7 +99,7 @@ dotmd unblocks docs/plan-a.md              # impact analysis
 dotmd glossary "term"                      # domain term lookup
 dotmd bulk archive <files>                 # archive multiple at once
 dotmd query --type doc --status active     # active docs
-dotmd query --type research                # all research
+dotmd query --type prompt                  # all saved prompts
 dotmd context --type plan                  # briefing filtered to plans
 ```
 

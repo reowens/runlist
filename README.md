@@ -89,19 +89,19 @@ Every document can have a `type` field in its frontmatter. Types determine which
 | Type | Purpose | Valid Statuses |
 |------|---------|----------------|
 | `plan` | Execution plans | `in-session`, `active`, `planned`, `blocked`, `partial`, `paused`, `awaiting`, `queued-after`, `archived` |
-| `doc` | Design docs, specs, ADRs, RFCs | `draft`, `active`, `review`, `reference`, `deprecated`, `archived` |
-| `research` | Investigations, audits, analysis | `active`, `reference`, `archived` |
+| `doc` | Design docs, specs, ADRs, RFCs, reference material | `draft`, `active`, `review`, `reference`, `deprecated`, `archived` |
+| `prompt` | Saved prompts that seed future Claude sessions | `pending`, `claimed`, `archived` |
 
 Documents without a `type` field use the global `statuses.order` from config.
 
-Templates auto-set the type: `--template plan` sets `type: plan`, `--template adr` sets `type: doc`, `--template audit` sets `type: research`.
+`dotmd new <type> <name>` sets the `type:` field automatically (`plan`, `doc`, or `prompt`).
 
 Filter by type with `--type`:
 
 ```bash
 dotmd query --type plan --status active   # active plans
 dotmd list --type doc                     # all docs
-dotmd export --type research              # export research only
+dotmd export --type prompt                # export only saved prompts
 ```
 
 Customize types and their statuses in config with the `types` key. See [`dotmd.config.example.mjs`](dotmd.config.example.mjs).
@@ -150,7 +150,6 @@ dotmd hud                    Three-line actionable triage (silent when clean —
 dotmd pickup <file>          Pick up a plan (in-session + print body or queued handoff)
 dotmd release [<file>]       Release in-session lease (alias: unpickup)
 dotmd handoff <file> [...]   Queue a resume-prompt sidecar + release
-dotmd finish <file>          Finish a plan (done or active)
 dotmd status <file> <status> Transition document status
 dotmd archive <file>         Archive (status + move + update refs)
 dotmd bulk archive <files>   Archive multiple files at once
@@ -167,7 +166,8 @@ dotmd summary <file>         AI summary of a document
 dotmd glossary <term>        Look up domain terms + related docs
 dotmd watch [command]        Re-run a command on file changes
 dotmd diff [file]            Show changes since last updated date
-dotmd new <name>             Create a new document from template
+dotmd new <type> <name>      Create a new doc (type: doc, plan, or prompt)
+dotmd prompts [sub]          List, claim, or archive saved prompts
 dotmd init                   Create starter config + docs directory
 dotmd completions <shell>    Output shell completion script (bash, zsh)
 ```
@@ -197,31 +197,70 @@ dotmd query --status active --summarize --summarize-limit 3
 
 Flags: `--type`, `--status`, `--keyword`, `--module`, `--surface`, `--domain`, `--owner`, `--updated-since`, `--stale`, `--has-next-step`, `--has-blockers`, `--checklist-open`, `--sort`, `--limit`, `--all`, `--git`, `--json`, `--summarize`, `--summarize-limit`, `--model`.
 
-### Scaffold with Templates
+### Create Documents
+
+The signature is `dotmd new <type> <name> [body]`. `<type>` is one of the built-in types (`doc`, `plan`, `prompt`) or a custom type from your config. If you omit `<type>`, it defaults to `doc`.
 
 ```bash
-dotmd new my-feature                                  # default (status + title)
-dotmd new my-plan --template plan                     # plan with module, surface, refs
-dotmd new my-decision --template adr                  # ADR: Context, Decision, Consequences
-dotmd new my-proposal --template rfc                  # RFC: Summary, Motivation, Design
-dotmd new my-audit --template audit                   # Audit: Scope, Findings, Recommendations
-dotmd new my-design --template design                 # Design: Goals, Non-Goals, Design
-dotmd new my-feature --status planned --title "Title" # custom status and title
-dotmd new my-doc --root modules                       # create in a specific root
-dotmd new --list-templates                            # show all available templates
+dotmd new plan auth-revamp                    # type: plan → docs/plans/auth-revamp.md
+dotmd new doc token-refresh-design            # type: doc → docs/token-refresh-design.md
+dotmd new my-feature                          # implicit type: doc
+dotmd new plan auth --status planned          # initial status override
+dotmd new doc my-doc --title "Custom Title"   # title override
+dotmd new doc my-doc --root modules           # create in a specific root
+dotmd new --list-types                        # show registered types
 ```
 
-Built-in templates: `default`, `plan`, `adr`, `rfc`, `audit`, `design`. Add custom templates in your config:
+Each built-in type has a template baked in:
+
+| Type | Default destination | Shape |
+|------|---------------------|-------|
+| `plan` | `docs/plans/<slug>.md` | Problem → Phases → Closeout, with phase status markers and Version History |
+| `doc` | `docs/<slug>.md` | Overview → Version History → Related (build-up shape lite) |
+| `prompt` | `docs/prompts/<slug>.md` | Body is required (see [Saved Prompts](#saved-prompts)) |
+
+Add custom types via `templates` in your config:
 
 ```js
 export const templates = {
   spike: {
     description: 'Timeboxed investigation',
-    frontmatter: (status, today) => `status: ${status}\nupdated: ${today}\ntimebox: 2d`,
+    defaultStatus: 'active',
+    frontmatter: (status, today) => `type: spike\nstatus: ${status}\nupdated: ${today}\ntimebox: 2d`,
     body: (title) => `\n# ${title}\n\n## Hypothesis\n\n\n\n## Findings\n\n\n`,
   },
 };
 ```
+
+Then `dotmd new spike my-spike` creates a doc from your template.
+
+### Saved Prompts
+
+Saved prompts are `.md` files with `type: prompt` that capture a request meant to seed a future Claude session — "look at the remaining lint warnings tomorrow," "resume the payments refactor," "draft the on-call runbook." The body is the prompt; the frontmatter tracks status.
+
+```bash
+dotmd new prompt cleanup-tomorrow "look at remaining lint warnings"
+dotmd new prompt resume-foo - <<'EOF'
+multi-line
+prompt body
+EOF
+dotmd new prompt from-file @/tmp/draft.md
+```
+
+Manage them with the `prompts` command family:
+
+```bash
+dotmd prompts                     # list pending prompts (default)
+dotmd prompts list --all          # all statuses
+dotmd prompts next                # show + claim the oldest pending prompt (prints body)
+dotmd prompts use <file>          # claim a specific prompt (prints body, flips to claimed)
+dotmd prompts archive <file>      # archive a prompt
+dotmd prompts new <name> [body]   # alias for `dotmd new prompt`
+```
+
+`dotmd hud` surfaces pending prompts on session start (alongside held leases and queued handoffs), so a saved prompt acts as a self-addressed reminder: write it now, the next session sees it.
+
+Statuses: `pending` (drafted, awaiting a session), `claimed` (consumed by a session), `archived`.
 
 ### Check & Fix
 
@@ -397,13 +436,17 @@ dotmd bulk archive docs/old-a.md docs/old-b.md   # archive multiple
 dotmd bulk archive docs/old-*.md -n               # preview
 ```
 
-### Pickup & Finish
+### Pickup & Closeout
 
 ```bash
 dotmd pickup docs/plans/my-plan.md       # set in-session + print body (or queued handoff)
-dotmd finish docs/plans/my-plan.md       # set done + bump date
-dotmd finish docs/plans/my-plan.md active  # back to active for more work
+dotmd archive docs/plans/my-plan.md      # fully shipped: archive + auto-release lease
+dotmd release docs/plans/my-plan.md      # need more work: release lease, flip to prior status
+dotmd status docs/plans/my-plan.md partial   # shipped + tail deferred (reference successors in body)
+dotmd status docs/plans/my-plan.md awaiting  # stuck on a human decision
 ```
+
+`finish` is a legacy command that defaults to `status: done`, which is no longer in the default plan vocabulary as of 0.16. Use `archive` (fully shipped) or `release` + `status` (anything else). If you need it back, add `done` to `types.plan.statuses` in your config.
 
 ### Handoff (resume-prompts attached to plans)
 

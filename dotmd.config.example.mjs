@@ -14,7 +14,7 @@ export const archiveDir = 'archived';
 export const excludeDirs = ['evidence'];
 
 // Document types — each type has its own status vocabulary and context layout.
-// Defaults: plan, doc, research. Override to customize statuses per type.
+// Defaults: plan, doc, prompt. Override to customize statuses per type, or add new types.
 //
 // Statuses can be defined as an array (names only) or as an object (rich form).
 // The object form co-locates all behavioral properties with each status,
@@ -64,6 +64,15 @@ export const excludeDirs = ['evidence'];
 //       'reference':  { context: 'counted', skipStale: true },
 //       'deprecated': { context: 'counted', terminal: true, skipStale: true },
 //       'archived':   { context: 'counted', archive: true, terminal: true, quiet: true },
+//     },
+//   },
+//   prompt: {
+//     // Saved prompts that seed future Claude sessions. `dotmd hud` surfaces
+//     // pending prompts on session start; `dotmd prompts next` claims the oldest.
+//     statuses: {
+//       'pending':  { context: 'expanded', staleDays: 30 },
+//       'claimed':  { context: 'counted', quiet: true },
+//       'archived': { context: 'counted', archive: true, terminal: true, quiet: true },
 //     },
 //   },
 // };
