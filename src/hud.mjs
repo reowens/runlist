@@ -16,9 +16,23 @@ function previewList(items, max = MAX_PREVIEW) {
   return slugs.join(', ') + more;
 }
 
-function findPendingPrompts(config) {
+// Statuses that count as "actionable" for a prompt are derived from config:
+// types.prompt.context.expanded (the statuses the user wants prominently shown).
+// Falls back to ['pending'] when no prompt type is configured (defensive default
+// for stripped-down configs). This means a user who customizes
+// types.prompt.statuses to add e.g. `urgent: { context: 'expanded' }` gets that
+// status surfaced too, without needing a code change.
+export function actionablePromptStatuses(config) {
+  const promptCtx = config.typeContextConfig?.get('prompt');
+  const expanded = promptCtx?.expanded;
+  if (Array.isArray(expanded) && expanded.length > 0) return new Set(expanded);
+  return new Set(['pending']);
+}
+
+function findActionablePrompts(config) {
   const roots = config.docsRoots || (config.docsRoot ? [config.docsRoot] : []);
   const archiveDir = config.archiveDir || 'archived';
+  const actionable = actionablePromptStatuses(config);
   const found = [];
   const seen = new Set();
 
@@ -43,7 +57,7 @@ function findPendingPrompts(config) {
       if (!frontmatter) continue;
       const fm = parseSimpleFrontmatter(frontmatter);
       if (asString(fm.type) !== 'prompt') continue;
-      if (asString(fm.status) !== 'pending') continue;
+      if (!actionable.has(asString(fm.status))) continue;
       found.push(toRepoPath(filePath, config.repoRoot));
     }
   }
@@ -57,7 +71,7 @@ export function buildHud(config) {
   const owned = Object.values(leases).filter(l => l.session === session).map(l => l.path);
   const queued = listQueuedHandoffs(config).map(h => h.repoPath);
   const stale = findStaleLeases(config).map(l => l.path);
-  const prompts = findPendingPrompts(config);
+  const prompts = findActionablePrompts(config);
 
   return { owned, queued, stale, prompts };
 }

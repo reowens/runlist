@@ -6,10 +6,13 @@ import { toRepoPath } from './util.mjs';
 const NOW = new Date();
 
 function isValidStatus(status, root, config, type) {
-  // Union type-specific + root-specific statuses (a doc can satisfy either)
+  // When a doc declares a known type, that type's status set is authoritative.
+  // Falling through to the global union (across all types) would allow a
+  // `type: prompt` doc to carry `status: active` just because `active` is valid
+  // for plans — defeating the purpose of type-scoped vocabularies.
   if (type) {
     const typeSet = config.typeStatuses?.get(type);
-    if (typeSet && typeSet.has(status)) return true;
+    if (typeSet) return typeSet.has(status);
   }
   const rootSet = config.rootValidStatuses?.get(root);
   if (rootSet) return rootSet.has(status);
@@ -27,8 +30,11 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
   } else if (!isValidStatus(doc.status, doc.root, config, doc.type)) {
     const typeSet = doc.type && config.typeStatuses?.get(doc.type);
     const rootSet = config.rootValidStatuses?.get(doc.root);
-    const combined = new Set([...(typeSet ?? []), ...(rootSet ?? config.validStatuses)]);
-    const hint = `valid: ${[...combined].join(', ')}`;
+    // When the doc has a known type, scope the error hint to that type's vocab.
+    // Otherwise fall back to root-specific or global validStatuses.
+    const hint = typeSet
+      ? `valid for type \`${doc.type}\`: ${[...typeSet].join(', ')}`
+      : `valid: ${[...(rootSet ?? config.validStatuses)].join(', ')}`;
     doc.errors.push({ path: doc.path, level: 'error', message: `Unknown status \`${doc.status}\`; ${hint}.` });
   }
 

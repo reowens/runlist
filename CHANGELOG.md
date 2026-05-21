@@ -2,6 +2,35 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## 0.29.0 — 2026-05-21
+
+### Changed (potentially breaking)
+
+- **Type-scoped status validation is now strict.** When a doc declares a known `type:` (e.g., `prompt`, `plan`, `doc`), its `status:` must come from that type's `types.<type>.statuses` vocabulary. Previously the validator fell through to the global union of all types' statuses, which meant `type: prompt, status: active` silently passed because `active` was valid for plans. The whole point of type-scoped vocabularies was nullified by the lenient fallthrough.
+
+  After upgrade, `dotmd check` will newly-error on type-status mismatches. Common causes:
+
+  1. **Missing `archived` in `types.<doc|research>.statuses`.** If you use custom `types` config and `dotmd archive` on docs or research, `status: archived` may not be in the type's vocab. Fix: add `'archived': { context: 'counted', archive: true, terminal: true, quiet: true }` to each affected type.
+  2. **Mis-typed documents.** A reference doc with `type: plan` and `status: current` was previously accepted (because `current` is valid for `type: doc`). Fix the `type` to match the document's actual nature.
+  3. **Invented statuses.** Statuses that aren't in any vocabulary (e.g., `ready-to-archive`) previously slipped through if they coincidentally appeared in another type. Fix: migrate to a valid status with `dotmd migrate status <bad> <good> <file>`.
+
+  Untyped docs (no `type:` field) and docs with an unknown type still use the global validStatuses, unchanged. Only docs whose type IS configured get strict scoping.
+
+  Error message now names the type: `Unknown status 'active'; valid for type 'prompt': pending, claimed, archived` (was: `Unknown status 'active'; valid: <union of all types>`).
+
+- **`dotmd hud` prompt filter is now config-driven.** Previously hud hardcoded `status === 'pending'` as the "actionable prompt" filter. It now derives the actionable set from `types.prompt.context.expanded` in your config, falling back to `['pending']` when no prompt type is configured. This means custom prompt vocabularies (e.g., adding `urgent: { context: 'expanded' }`) just work — those statuses surface in hud alongside `pending` without a code change.
+
+  Default config behavior is unchanged: `types.prompt.context.expanded = ['pending']` in the defaults, so default-config consumers see the same hud output as before.
+
+  Internal rename: `findPendingPrompts` → `findActionablePrompts`. Public `actionablePromptStatuses(config)` helper exported from `src/hud.mjs` for downstream tooling.
+
+### Migration
+
+- Run `dotmd check` after upgrading. Each new error names the type and lists the valid statuses for that type. Two common fixes:
+  - **Per-file migration:** `dotmd migrate status <wrong> <right> <file>` rewrites just the named doc, leaving others alone.
+  - **Whole-bucket rename** (if many files share the same mis-status): `dotmd migrate status <wrong> <right>` without file args.
+- If your custom `types.doc.statuses` or `types.research.statuses` is missing `archived`, add it (see Common cause #1 above). The lenient validation previously hid this config gap.
+
 ## 0.28.0 — 2026-05-21
 
 ### Changed

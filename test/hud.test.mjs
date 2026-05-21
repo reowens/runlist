@@ -155,6 +155,59 @@ describe('dotmd hud', () => {
     strictEqual(r.stdout, '', 'no prompt line when only archived prompts exist');
   });
 
+  it('does not list claimed prompts (default counted)', () => {
+    const docsDir = setupProject();
+    mkdirSync(path.join(docsDir, 'prompts'), { recursive: true });
+    writeDoc(docsDir, 'prompts/in-progress.md', 'type: prompt\nstatus: claimed\ncreated: 2025-01-01', 'body');
+
+    const r = runCli(['hud']);
+    strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
+    strictEqual(r.stdout, '', 'no prompt line when only claimed prompts exist');
+  });
+
+  it('surfaces prompts in custom-expanded statuses (config-driven)', () => {
+    // User adds an `urgent` status to types.prompt.statuses with context: 'expanded'.
+    // hud should treat it as actionable alongside pending — no code change needed.
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-hud-'));
+    spawnSync('git', ['init'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
+    const promptsDir = path.join(tmpDir, 'docs', 'prompts');
+    mkdirSync(promptsDir, { recursive: true });
+    writeFileSync(
+      path.join(tmpDir, 'dotmd.config.mjs'),
+      `export const root = 'docs';
+export const types = {
+  prompt: {
+    statuses: {
+      'pending':  { context: 'expanded', staleDays: 30 },
+      'urgent':   { context: 'expanded' },
+      'claimed':  { context: 'counted', quiet: true },
+      'archived': { context: 'counted', archive: true, terminal: true, quiet: true },
+    },
+  },
+};
+`,
+    );
+    function write(name, fm) {
+      const p = path.join(promptsDir, name);
+      writeFileSync(p, `---\n${fm}\n---\nbody`);
+      spawnSync('git', ['add', p], { cwd: tmpDir });
+      spawnSync('git', ['commit', '-m', `add ${name}`], { cwd: tmpDir });
+    }
+    write('p1.md', 'type: prompt\nstatus: pending\ncreated: 2025-01-01');
+    write('p2.md', 'type: prompt\nstatus: urgent\ncreated: 2025-01-01');
+    write('p3.md', 'type: prompt\nstatus: claimed\ncreated: 2025-01-01');
+
+    const r = runCli(['hud', '--json']);
+    strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
+    const parsed = JSON.parse(r.stdout);
+    strictEqual(parsed.prompts.length, 2, `expected 2 actionable, got: ${JSON.stringify(parsed.prompts)}`);
+    ok(parsed.prompts.some(p => p.endsWith('p1.md')), 'pending surfaced');
+    ok(parsed.prompts.some(p => p.endsWith('p2.md')), 'urgent surfaced');
+    ok(!parsed.prompts.some(p => p.endsWith('p3.md')), 'claimed NOT surfaced');
+  });
+
   it('output stays under ~500 bytes when full of common signals', () => {
     const docsDir = setupProject();
     for (let i = 0; i < 5; i++) {

@@ -125,6 +125,80 @@ describe('body link validation', () => {
   });
 });
 
+describe('type-scoped status validation (strict)', () => {
+  // When a doc declares a known type, its status MUST come from that type's vocab.
+  // Falling through to the global union would let `type: prompt, status: active`
+  // pass just because `active` is valid for plans — defeating the purpose of
+  // type-scoped status vocabularies.
+
+  it('rejects type: prompt with status from another type (e.g. active)', () => {
+    const docsDir = setupProject();
+    mkdirSync(path.join(docsDir, 'prompts'), { recursive: true });
+    writeFileSync(path.join(docsDir, 'prompts', 'mis-statused.md'),
+      '---\ntype: prompt\nstatus: active\nupdated: 2025-01-01\n---\n# bad\n');
+
+    const result = run(['check']);
+    strictEqual(result.status, 1, `should fail. stderr: ${result.stderr}\nstdout: ${result.stdout}`);
+    ok(result.stdout.includes('Unknown status `active`'), 'flags the bad status');
+    ok(result.stdout.includes('type `prompt`'), 'error message names the type');
+    ok(result.stdout.includes('pending'), 'hint lists the type-scoped vocab');
+    ok(!result.stdout.includes('in-session'), 'hint does NOT include plan-only statuses');
+  });
+
+  it('rejects type: plan with status from prompt vocab (e.g. pending)', () => {
+    const docsDir = setupProject();
+    mkdirSync(path.join(docsDir, 'plans'), { recursive: true });
+    writeFileSync(path.join(docsDir, 'plans', 'wrong-vocab.md'),
+      '---\ntype: plan\nstatus: pending\nupdated: 2025-01-01\nmodule: foo\n---\n# bad\n');
+
+    const result = run(['check']);
+    strictEqual(result.status, 1, `should fail. stderr: ${result.stderr}\nstdout: ${result.stdout}`);
+    ok(result.stdout.includes('Unknown status `pending`'), 'flags the bad status');
+    ok(result.stdout.includes('type `plan`'), 'error message names the type');
+  });
+
+  it('accepts type: plan with a valid plan status (regression)', () => {
+    const docsDir = setupProject();
+    mkdirSync(path.join(docsDir, 'plans'), { recursive: true });
+    writeFileSync(path.join(docsDir, 'plans', 'good.md'),
+      '---\ntype: plan\nstatus: active\nupdated: 2025-01-01\nmodule: foo\n---\n# good\n');
+
+    const result = run(['check']);
+    strictEqual(result.status, 0, `should pass. stderr: ${result.stderr}\nstdout: ${result.stdout}`);
+  });
+
+  it('accepts type: prompt with status: pending (regression)', () => {
+    const docsDir = setupProject();
+    mkdirSync(path.join(docsDir, 'prompts'), { recursive: true });
+    writeFileSync(path.join(docsDir, 'prompts', 'good.md'),
+      '---\ntype: prompt\nstatus: pending\nupdated: 2025-01-01\n---\n# good\n');
+
+    const result = run(['check']);
+    strictEqual(result.status, 0, `should pass. stderr: ${result.stderr}\nstdout: ${result.stdout}`);
+  });
+
+  it('untyped doc uses global validStatuses (regression)', () => {
+    const docsDir = setupProject();
+    // No `type:` field. `status: active` should be accepted via the global union.
+    writeFileSync(path.join(docsDir, 'untyped.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\n---\n# untyped\n');
+
+    const result = run(['check']);
+    strictEqual(result.status, 0, `should pass. stderr: ${result.stderr}\nstdout: ${result.stdout}`);
+  });
+
+  it('unknown type falls through to global validStatuses', () => {
+    const docsDir = setupProject();
+    // `type: spike` isn't in defaults — no typeSet exists, so we fall through.
+    writeFileSync(path.join(docsDir, 'unknown-type.md'),
+      '---\ntype: spike\nstatus: active\nupdated: 2025-01-01\n---\n# unknown\n');
+
+    const result = run(['check']);
+    // Unknown-type warning fires, but the status itself is accepted via global.
+    ok(!result.stdout.includes('Unknown status'), `status should not error: ${result.stdout}`);
+  });
+});
+
 describe('reference path resolution', () => {
   function setupRefProject() {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-refresolve-'));
