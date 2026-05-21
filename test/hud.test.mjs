@@ -118,6 +118,33 @@ describe('dotmd hud', () => {
     ok(r.stdout.includes('dotmd prompts use'), 'consume hint present');
   });
 
+  it('finds prompts when the prompts/ dir is configured directly as a root (#6)', () => {
+    // Custom setup: root list points straight at docs/prompts rather than
+    // at docs/ as a parent containing a prompts/ subdir.
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-hud-'));
+    spawnSync('git', ['init'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
+    const promptsDir = path.join(tmpDir, 'docs', 'prompts');
+    mkdirSync(promptsDir, { recursive: true });
+    writeFileSync(
+      path.join(tmpDir, 'dotmd.config.mjs'),
+      `export const root = ['docs/prompts'];\n`,
+    );
+    const filePath = path.join(promptsDir, 'foo.md');
+    writeFileSync(filePath, '---\ntype: prompt\nstatus: pending\ncreated: 2025-01-01\n---\nbody');
+    spawnSync('git', ['add', filePath], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-m', 'add foo'], { cwd: tmpDir });
+
+    const r = runCli(['hud', '--json']);
+    strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
+    const parsed = JSON.parse(r.stdout);
+    ok(
+      parsed.prompts.some(p => p.endsWith('docs/prompts/foo.md')),
+      `expected docs/prompts/foo.md in prompts, got: ${JSON.stringify(parsed.prompts)}`,
+    );
+  });
+
   it('does not list already-archived prompts', () => {
     const docsDir = setupProject();
     mkdirSync(path.join(docsDir, 'prompts'), { recursive: true });

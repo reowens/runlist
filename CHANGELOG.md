@@ -2,6 +2,12 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## 0.27.1 — 2026-05-20
+
+### Fixed
+
+- **`dotmd hud` missed pending prompts when `prompts/` was a root itself ([#6](https://github.com/reowens/dotmd/issues/6)).** `findPendingPrompts` joined every `config.docsRoots` entry with `'prompts'`, which produced nonexistent paths (e.g. `docs/prompts/prompts`) when a consumer's `dotmd.config.mjs` listed `docs/prompts` directly as a root. HUD now detects roots whose basename is already `prompts` and scans them in place, so `dotmd hud --json` surfaces `type: prompt, status: pending` files under either layout.
+
 ## 0.17.1 — 2026-05-09
 
 ### Fixed

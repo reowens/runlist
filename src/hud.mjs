@@ -20,9 +20,14 @@ function findPendingPrompts(config) {
   const roots = config.docsRoots || (config.docsRoot ? [config.docsRoot] : []);
   const archiveDir = config.archiveDir || 'archived';
   const found = [];
+  const seen = new Set();
 
   for (const root of roots) {
-    const dir = path.join(root, 'prompts');
+    // A root may either contain a prompts/ subdir (the common case, e.g. root=docs)
+    // or be the prompts/ dir itself (e.g. root=docs/prompts — see #6).
+    const dir = path.basename(root) === 'prompts' ? root : path.join(root, 'prompts');
+    if (seen.has(dir)) continue;
+    seen.add(dir);
     if (!existsSync(dir)) continue;
     let entries;
     try { entries = readdirSync(dir, { withFileTypes: true }); } catch { continue; }
