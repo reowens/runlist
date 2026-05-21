@@ -199,6 +199,81 @@ describe('type-scoped status validation (strict)', () => {
   });
 });
 
+describe('archive drift (#8)', () => {
+  // A doc with status: archived whose path is a direct child of a configured
+  // root is misplaced — `dotmd archive` would have moved it under
+  // <root>/archived/. Without this check, default `dotmd plans` / `dotmd
+  // prompts` views silently drop it from sight.
+
+  it('flags status: archived prompt sitting as direct child of prompts root', () => {
+    const docsDir = setupProject();
+    mkdirSync(path.join(docsDir, 'prompts'), { recursive: true });
+    writeFileSync(path.join(docsDir, 'prompts', 'drift.md'),
+      '---\ntype: prompt\nstatus: archived\ncreated: 2025-01-01\n---\nbody\n');
+
+    const result = run(['check']);
+    strictEqual(result.status, 1, `should fail. stdout: ${result.stdout}`);
+    ok(result.stdout.includes('status: `archived`') || result.stdout.includes('`status: archived`'),
+       `error names the bad status: ${result.stdout}`);
+    ok(result.stdout.includes('dotmd archive'), 'suggests dotmd archive');
+    ok(result.stdout.includes('docs/prompts/drift.md'), 'mentions the file path');
+  });
+
+  it('flags status: archived plan sitting as direct child of plans root', () => {
+    const docsDir = setupProject();
+    mkdirSync(path.join(docsDir, 'plans'), { recursive: true });
+    writeFileSync(path.join(docsDir, 'plans', 'drift-plan.md'),
+      '---\ntype: plan\nstatus: archived\nupdated: 2025-01-01\nmodule: foo\n---\n# drift\n');
+
+    const result = run(['check']);
+    strictEqual(result.status, 1, `should fail. stdout: ${result.stdout}`);
+    ok(result.stdout.includes('docs/plans/drift-plan.md'), 'mentions the file path');
+    ok(result.stdout.includes('dotmd archive'), 'suggests dotmd archive');
+  });
+
+  it('does NOT flag status: archived in a nested non-archive subdir (e.g., audit/)', () => {
+    // Intentional pattern: topic-clustered legacy content lives in a non-archive
+    // subdir but is marked archived. Drift check should exempt this.
+    const docsDir = setupProject();
+    mkdirSync(path.join(docsDir, 'plans', 'audit'), { recursive: true });
+    writeFileSync(path.join(docsDir, 'plans', 'audit', 'catalog-audit.md'),
+      '---\ntype: plan\nstatus: archived\nupdated: 2025-01-01\nmodule: catalog\n---\n# audit\n');
+
+    const result = run(['check']);
+    // Should NOT trip the drift error (other validation may still fail, but not this).
+    ok(!result.stdout.includes('not in `docs/plans/archived/`'),
+       `nested subdir should be exempt: ${result.stdout}`);
+    ok(!result.stdout.includes('direct child'),
+       `error message not emitted for nested file: ${result.stdout}`);
+  });
+
+  it('does NOT flag properly-archived doc in archived/ subdir', () => {
+    const docsDir = setupProject();
+    mkdirSync(path.join(docsDir, 'prompts', 'archived'), { recursive: true });
+    writeFileSync(path.join(docsDir, 'prompts', 'archived', 'done.md'),
+      '---\ntype: prompt\nstatus: archived\ncreated: 2025-01-01\n---\nbody\n');
+
+    const result = run(['check']);
+    // No drift error for correctly-placed archived files.
+    ok(!result.stdout.includes('direct child'),
+       `properly archived file should not trip drift: ${result.stdout}`);
+  });
+
+  it('does NOT flag a status: pending file directly under prompts root', () => {
+    // Regression — only archive-flagged statuses trigger drift.
+    const docsDir = setupProject();
+    mkdirSync(path.join(docsDir, 'prompts'), { recursive: true });
+    writeFileSync(path.join(docsDir, 'prompts', 'live.md'),
+      '---\ntype: prompt\nstatus: pending\ncreated: 2025-01-01\nupdated: 2025-01-01\n---\n# live\n\n> blurb\n\nbody\n');
+
+    const result = run(['check']);
+    // Only assert the drift error specifically — other validation warnings/errors
+    // are out of scope for this test.
+    ok(!result.stdout.includes('direct child'),
+       `drift error should not fire for live status: ${result.stdout}`);
+  });
+});
+
 describe('reference path resolution', () => {
   function setupRefProject() {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-refresolve-'));

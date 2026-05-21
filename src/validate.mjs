@@ -5,6 +5,44 @@ import { toRepoPath } from './util.mjs';
 
 const NOW = new Date();
 
+// Type-conventional dirs are the directories where `dotmd new <type>` lands
+// live (non-archive) docs of that type. Built-ins use `dir` ('plans'/'prompts')
+// and `targetRoot`. In flat-array root configs (e.g. root: ['docs/plans',
+// 'docs/prompts']), the root itself is a type-conventional dir; in default
+// single-root configs (root: 'docs'), the type-conventional dirs are
+// '<root>/plans' and '<root>/prompts'. This helper builds the union so the
+// archive-drift check works for both layouts. Custom user templates with
+// their own `dir` would extend this; we hard-code the built-in dir names.
+const BUILTIN_TYPE_DIR_NAMES = ['plans', 'prompts'];
+
+function liveTypeDirsForRoots(config) {
+  const set = new Set();
+  const roots = config.docsRoots || (config.docsRoot ? [config.docsRoot] : []);
+  for (const root of roots) {
+    const rootRel = path.relative(config.repoRoot, root).split(path.sep).join('/');
+    // The root itself is a live dir (covers flat-array layouts where the
+    // root IS the type-container).
+    set.add(rootRel);
+    // Each builtin type-dir joined to the root (covers single-root layouts
+    // where 'docs' contains 'docs/plans' and 'docs/prompts' subdirs).
+    for (const dirName of BUILTIN_TYPE_DIR_NAMES) {
+      // Skip if root already ends in this name (no double-nesting like
+      // 'docs/prompts/prompts').
+      if (path.basename(rootRel) === dirName) continue;
+      set.add(rootRel ? `${rootRel}/${dirName}` : dirName);
+    }
+    // User template dirs from config (extend the set with whatever live
+    // dirs custom types declare).
+    for (const tmpl of Object.values(config.raw?.templates ?? {})) {
+      if (!tmpl || typeof tmpl !== 'object') continue;
+      if (tmpl.dir && path.basename(rootRel) !== tmpl.dir) {
+        set.add(rootRel ? `${rootRel}/${tmpl.dir}` : tmpl.dir);
+      }
+    }
+  }
+  return set;
+}
+
 function isValidStatus(status, root, config, type) {
   // When a doc declares a known type, that type's status set is authoritative.
   // Falling through to the global union (across all types) would allow a
@@ -99,6 +137,26 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
   // Archived plans must have a ## Closeout section
   if (config.lifecycle.archiveStatuses.has(doc.status) && doc.type === 'plan' && !doc.hasCloseout) {
     doc.warnings.push({ path: doc.path, level: 'warning', message: 'Archived plan missing `## Closeout` section.' });
+  }
+
+  // Archive drift: a doc with an archive-flagged status (`status: archived` by
+  // default) whose parent dir is a "live" type-conventional location is
+  // misplaced — `dotmd archive` would have moved it under `<that>/archiveDir/`.
+  // Without this check, default `dotmd plans` / `dotmd prompts` views silently
+  // drop the file (because they exclude archived paths), and the user gets no
+  // signal it exists but is invisible. Nested intentional content (e.g.,
+  // `docs/plans/audit/<file>.md`) is in a non-conventional subdir and exempt.
+  if (config.lifecycle.archiveStatuses.has(doc.status)) {
+    const parentDir = path.dirname(doc.path);
+    const liveDirs = liveTypeDirsForRoots(config);
+    if (liveDirs.has(parentDir)) {
+      const expected = `${parentDir}/${config.archiveDir}/${path.basename(doc.path)}`;
+      doc.errors.push({
+        path: doc.path,
+        level: 'error',
+        message: `\`status: ${doc.status}\` but file is a direct child of \`${parentDir}/\`, not \`${parentDir}/${config.archiveDir}/\`. Run \`dotmd archive ${doc.path}\` to relocate to \`${expected}\`, or change the status.`,
+      });
+    }
   }
 
   // Validate reference fields resolve to existing files

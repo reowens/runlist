@@ -2,6 +2,20 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## 0.29.1 — 2026-05-21
+
+### Added
+
+- **`dotmd check` flags archive drift ([#8](https://github.com/reowens/dotmd/issues/8)).** A doc with an archive-flagged `status:` (default: `archived`) whose path is a direct child of a configured root — or a direct child of `<root>/plans/` or `<root>/prompts/` under a single-root config — now errors. Without this check, the file was invisible to default `dotmd plans` / `dotmd prompts` views (both filters exclude archive paths), so the user saw N files on disk but only M < N in the index with no signal about the gap.
+
+  Error message names both the wrong location and the expected one, plus the exact `dotmd archive <path>` command to relocate. Nested non-archive subdirs (e.g. `docs/plans/audit/catalog-audit.md`) are exempt — that's an intentional clustering pattern the check shouldn't punish.
+
+  The "live type-conventional dirs" set is built from each configured root plus the built-in template dirs (`plans`, `prompts`) joined to each root. Custom `templates.<type>.dir` values from your config extend the set, so user-added types are covered too.
+
+### Migration
+
+- Run `dotmd check` after upgrading. For each new drift error, run the `dotmd archive <path>` command in the error message — it relocates the file under `<root>/<archiveDir>/` atomically. If the destination already exists (a true duplicate), pick the version you want to keep and resolve by hand.
+
 ## 0.29.0 — 2026-05-21
 
 ### Changed (potentially breaking)
