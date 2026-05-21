@@ -29,7 +29,8 @@ export function replaceFrontmatter(raw, newFrontmatter) {
 //
 // Supports:
 //   inline scalars         `key: value`
-//   arrays                 `key:\n  - item\n  - item`
+//   inline flow arrays     `key: []` / `key: [a, b, "c, d"]`
+//   block arrays           `key:\n  - item\n  - item`
 //   folded block scalar    `key: >\n  one line\n  continues`         → "one line continues"
 //   literal block scalar   `key: |\n  one\n  two`                    → "one\ntwo"
 //   chomping indicators    `>-`, `|-` (strip), `>+`, `|+` (keep), default (clip to one trailing \n)
@@ -73,10 +74,18 @@ export function parseSimpleFrontmatter(text, warnings) {
       if (!trimmedValue) {
         data[key] = [];
         currentArrayKey = key;
-      } else {
-        data[key] = parseScalar(trimmedValue);
-        currentArrayKey = null;
+        continue;
       }
+
+      const flowArray = parseFlowArray(trimmedValue);
+      if (flowArray !== null) {
+        data[key] = flowArray;
+        currentArrayKey = null;
+        continue;
+      }
+
+      data[key] = parseScalar(trimmedValue);
+      currentArrayKey = null;
       continue;
     }
 
@@ -167,6 +176,41 @@ function collectBlockScalar(lines, startIdx, style, chomp) {
   }
 
   return { value, consumed: i - startIdx };
+}
+
+// Parses a YAML flow sequence like `[]`, `[a, b]`, `[a, "b, c", 'd']`.
+// Returns an array on success, or null if the value isn't a well-formed
+// `[…]` flow sequence (caller falls back to scalar parsing).
+function parseFlowArray(value) {
+  if (!value.startsWith('[') || !value.endsWith(']')) return null;
+  const inner = value.slice(1, -1);
+  if (!inner.trim()) return [];
+
+  const items = [];
+  let current = '';
+  let quote = null;
+  for (let i = 0; i < inner.length; i++) {
+    const c = inner[i];
+    if (quote) {
+      current += c;
+      if (c === quote) quote = null;
+      continue;
+    }
+    if (c === "'" || c === '"') {
+      quote = c;
+      current += c;
+      continue;
+    }
+    if (c === ',') {
+      items.push(parseScalar(current.trim()));
+      current = '';
+      continue;
+    }
+    current += c;
+  }
+  if (quote !== null) return null; // unterminated quote — not a valid flow array
+  items.push(parseScalar(current.trim()));
+  return items;
 }
 
 function parseScalar(value) {

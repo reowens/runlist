@@ -39,13 +39,13 @@ describe('dotmd new — type-first CLI', () => {
       const content = readFileSync(path.join(docsDir, 'my-feature.md'), 'utf8');
       ok(content.includes('type: doc'), 'type is doc');
       ok(content.includes('# My Feature'));
-      // Enriched frontmatter
-      ok(content.includes('modules: []'), 'has modules array');
-      ok(content.includes('surfaces: []'), 'has surfaces array');
+      // Enriched frontmatter (block-form empty lists — parser treats bare key as [])
+      ok(/^modules:\s*$/m.test(content), 'has modules');
+      ok(/^surfaces:\s*$/m.test(content), 'has surfaces');
       ok(content.includes('domain:'), 'has domain');
       ok(content.includes('audience: internal'), 'has audience');
-      ok(content.includes('related_plans: []'), 'has related_plans');
-      ok(content.includes('related_docs: []'), 'has related_docs');
+      ok(/^related_plans:\s*$/m.test(content), 'has related_plans');
+      ok(/^related_docs:\s*$/m.test(content), 'has related_docs');
       // Body skeleton
       ok(content.includes('> One-line summary'), 'has blurb placeholder');
       ok(content.includes('## Overview'), 'has Overview');

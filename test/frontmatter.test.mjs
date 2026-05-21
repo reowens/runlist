@@ -65,6 +65,31 @@ describe('parseSimpleFrontmatter', () => {
     deepStrictEqual(result, { blockers: [], status: 'active' });
   });
 
+  it('parses inline empty flow array `[]` as empty list', () => {
+    const result = parseSimpleFrontmatter('related_plans: []\nstatus: active');
+    deepStrictEqual(result, { related_plans: [], status: 'active' });
+  });
+
+  it('parses inline flow array with items', () => {
+    const result = parseSimpleFrontmatter('related_plans: [a.md, b.md]');
+    deepStrictEqual(result.related_plans, ['a.md', 'b.md']);
+  });
+
+  it('parses inline flow array with quoted items containing commas', () => {
+    const result = parseSimpleFrontmatter('tags: ["a, b", \'c\', d]');
+    deepStrictEqual(result.tags, ['a, b', 'c', 'd']);
+  });
+
+  it('trims whitespace around inline flow array items', () => {
+    const result = parseSimpleFrontmatter('modules: [ catalog ,  ledger , roster ]');
+    deepStrictEqual(result.modules, ['catalog', 'ledger', 'roster']);
+  });
+
+  it('falls back to scalar when flow array is malformed (unterminated quote)', () => {
+    const result = parseSimpleFrontmatter('title: [unterminated, "open]');
+    strictEqual(result.title, '[unterminated, "open]');
+  });
+
   it('handles mixed scalars and lists', () => {
     const result = parseSimpleFrontmatter('status: active\nsurfaces:\n  - web\n  - ios\nmodule: catalog');
     deepStrictEqual(result, { status: 'active', surfaces: ['web', 'ios'], module: 'catalog' });
