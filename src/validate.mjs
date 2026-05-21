@@ -29,7 +29,7 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
     const rootSet = config.rootValidStatuses?.get(doc.root);
     const combined = new Set([...(typeSet ?? []), ...(rootSet ?? config.validStatuses)]);
     const hint = `valid: ${[...combined].join(', ')}`;
-    doc.warnings.push({ path: doc.path, level: 'warning', message: `Unknown status \`${doc.status}\`; ${hint}.` });
+    doc.errors.push({ path: doc.path, level: 'error', message: `Unknown status \`${doc.status}\`; ${hint}.` });
   }
 
   const knownStatus = isValidStatus(doc.status, doc.root, config, doc.type);

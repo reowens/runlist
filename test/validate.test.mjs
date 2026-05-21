@@ -81,13 +81,15 @@ describe('body link validation', () => {
     ok(!result.stdout.includes('body link'), 'no warning for link inside code block');
   });
 
-  it('unknown status without updated is not an error', () => {
+  it('unknown status does not also trigger missing-updated error', () => {
     const docsDir = setupProject();
     writeFileSync(path.join(docsDir, 'a.md'),
       '---\nstatus: implemented\n---\n# A\n');
 
     const result = run(['check']);
-    strictEqual(result.status, 0, `should not fail. stderr: ${result.stderr}`);
+    // Unknown status itself is now an error, so exit 1 — but the missing-updated
+    // check is gated on knownStatus, so we should NOT see that error compound on top.
+    strictEqual(result.status, 1, `should fail on unknown status. stderr: ${result.stderr}`);
     ok(!result.stdout.includes('Missing frontmatter `updated`'), 'no updated error for unknown status');
   });
 
@@ -101,14 +103,14 @@ describe('body link validation', () => {
     ok(result.stdout.includes('Missing frontmatter `updated`'), 'shows updated error');
   });
 
-  it('unknown status is warning not error', () => {
+  it('unknown status is an error', () => {
     const docsDir = setupProject();
     writeFileSync(path.join(docsDir, 'a.md'),
       '---\nstatus: implemented\nupdated: 2025-01-01\n---\n# A\n');
 
     const result = run(['check']);
-    strictEqual(result.status, 0, `should not fail for unknown status. stderr: ${result.stderr}`);
-    ok(result.stdout.includes('Unknown status'), 'shows warning about unknown status');
+    strictEqual(result.status, 1, `should fail for unknown status. stderr: ${result.stderr}`);
+    ok(result.stdout.includes('Unknown status'), 'shows error about unknown status');
   });
 
   it('body link issues are warnings not errors', () => {
