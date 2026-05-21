@@ -571,11 +571,15 @@ Subcommands:
   list                       List pending prompts (default)
   next                       Consume the oldest pending prompt:
                              print body to stdout, flip status to archived
-  use <file>                 Consume a specific prompt (same as next, but
-                             targets <file> instead of picking oldest)
-  archive <file>             Archive a prompt without printing its body
+  use <file-or-slug>         Consume a specific prompt (same as next, but
+                             targets the named prompt instead of picking oldest)
+  archive <file-or-slug>     Archive a prompt without printing its body
   new <slug> [body]          Create a new prompt (alias for
                              \`dotmd new prompt <slug> [body]\`)
+
+\`<file-or-slug>\` accepts: an exact path (with or without .md), a bare
+slug matching a prompt basename, or a unique substring of a prompt
+path. Ambiguous substrings error with the candidate list.
 
 Default prompt statuses: pending, claimed, archived.
 
@@ -586,10 +590,11 @@ Examples:
   dotmd prompts --json                 # JSON output
 
   claude "$(dotmd prompts next)"       # consume oldest pending + run claude
-  claude "$(dotmd prompts use docs/prompts/foo.md)"
+  claude "$(dotmd prompts use resume-foo)"           # by slug
+  claude "$(dotmd prompts use docs/prompts/foo.md)"  # by path
 
   dotmd prompts next --dry-run         # preview without consuming
-  dotmd prompts archive docs/prompts/old.md
+  dotmd prompts archive old-thing
   dotmd prompts new my-prompt "Body text here"`,
 
   stale: `dotmd stale — list stale documents

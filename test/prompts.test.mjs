@@ -163,6 +163,84 @@ describe('dotmd prompts use', () => {
     ok(r.status !== 0);
     ok(r.stderr.includes('Usage'));
   });
+
+  it('accepts a bare slug (no .md, no path) matching a prompt basename', () => {
+    writePrompt('resume-ios-comms-color-tokens', { body: 'resume body' });
+    const r = run(['prompts', 'use', 'resume-ios-comms-color-tokens']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(r.stdout.includes('resume body'));
+    ok(!existsSync(path.join(promptsDir, 'resume-ios-comms-color-tokens.md')), 'archived');
+  });
+
+  it('accepts slug with .md suffix', () => {
+    writePrompt('with-ext', { body: 'ext body' });
+    const r = run(['prompts', 'use', 'with-ext.md']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(r.stdout.includes('ext body'));
+  });
+
+  it('falls back to substring match when no exact basename match', () => {
+    writePrompt('resume-payments-final-phase', { body: 'substr body' });
+    const r = run(['prompts', 'use', 'payments-final']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(r.stdout.includes('substr body'));
+  });
+
+  it('errors with candidate list when substring matches multiple prompts', () => {
+    writePrompt('resume-a-foo', { body: 'a' });
+    writePrompt('resume-b-foo', { body: 'b' });
+    const r = run(['prompts', 'use', 'foo']);
+    ok(r.status !== 0);
+    ok(r.stderr.includes('Multiple prompts'), `expected ambiguity error:\n${r.stderr}`);
+    ok(r.stderr.includes('resume-a-foo'));
+    ok(r.stderr.includes('resume-b-foo'));
+  });
+
+  it('errors clearly when slug matches nothing', () => {
+    writePrompt('exists', { body: 'x' });
+    const r = run(['prompts', 'use', 'does-not-exist']);
+    ok(r.status !== 0);
+    ok(r.stderr.includes('No prompt found'), `expected no-match error:\n${r.stderr}`);
+  });
+
+  // "It should be very pasteable" — every common form a user might paste
+  // into the terminal must resolve to the same prompt. Don't let this drift.
+  describe('pasteable input forms', () => {
+    it('accepts `docs/prompts/<slug>` (repo-relative path, no .md)', () => {
+      writePrompt('path-no-ext', { body: 'path-no-ext body' });
+      const r = run(['prompts', 'use', 'docs/prompts/path-no-ext']);
+      strictEqual(r.status, 0, r.stderr);
+      ok(r.stdout.includes('path-no-ext body'));
+    });
+
+    it('accepts `docs/prompts/<slug>.md` (repo-relative path with .md)', () => {
+      writePrompt('full-path', { body: 'full-path body' });
+      const r = run(['prompts', 'use', 'docs/prompts/full-path.md']);
+      strictEqual(r.status, 0, r.stderr);
+      ok(r.stdout.includes('full-path body'));
+    });
+
+    it('accepts `prompts/<slug>.md` (docsRoot-relative)', () => {
+      writePrompt('docsroot-rel', { body: 'docsroot-rel body' });
+      const r = run(['prompts', 'use', 'prompts/docsroot-rel.md']);
+      strictEqual(r.status, 0, r.stderr);
+      ok(r.stdout.includes('docsroot-rel body'));
+    });
+
+    it('accepts `./docs/prompts/<slug>.md` (./ prefix)', () => {
+      writePrompt('dot-prefix', { body: 'dot-prefix body' });
+      const r = run(['prompts', 'use', './docs/prompts/dot-prefix.md']);
+      strictEqual(r.status, 0, r.stderr);
+      ok(r.stdout.includes('dot-prefix body'));
+    });
+
+    it('accepts an absolute path', () => {
+      const target = writePrompt('abs-path', { body: 'abs-path body' });
+      const r = run(['prompts', 'use', target]);
+      strictEqual(r.status, 0, r.stderr);
+      ok(r.stdout.includes('abs-path body'));
+    });
+  });
 });
 
 describe('dotmd prompts archive', () => {
@@ -185,6 +263,13 @@ describe('dotmd prompts archive', () => {
     const r = run(['prompts', 'archive', file]);
     ok(r.status !== 0);
     ok(r.stderr.includes('Not a prompt'));
+  });
+
+  it('accepts a bare slug', () => {
+    writePrompt('cleanup-todo', { body: 'should-not-appear' });
+    const r = run(['prompts', 'archive', 'cleanup-todo']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(!existsSync(path.join(promptsDir, 'cleanup-todo.md')), 'archived by slug');
   });
 });
 

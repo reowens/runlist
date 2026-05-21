@@ -1,4 +1,5 @@
 import { readFileSync, statSync } from 'node:fs';
+import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { asString, toRepoPath, die, resolveDocPath } from './util.mjs';
 import { buildIndex } from './index.mjs';
@@ -74,11 +75,46 @@ function runPromptsNext(argv, config, opts = {}) {
   consumePrompt(head.abs, config, opts);
 }
 
+// Resolve user input to a prompt path. Tries (in order): exact path,
+// path + '.md', exact basename match across type: prompt docs, substring
+// match across type: prompt docs. Returns the absolute path or dies with a
+// helpful message (no match / ambiguous match).
+function resolvePromptInput(input, config) {
+  const direct = resolveDocPath(input, config);
+  if (direct) return direct;
+
+  if (!input.endsWith('.md')) {
+    const withExt = resolveDocPath(input + '.md', config);
+    if (withExt) return withExt;
+  }
+
+  const index = buildIndex(config);
+  const prompts = index.docs.filter(d => d.type === 'prompt');
+  if (prompts.length === 0) die(`No prompts in the index.`);
+
+  const slug = input.replace(/\.md$/, '');
+
+  const byBasename = prompts.filter(d => path.basename(d.path, '.md') === slug);
+  if (byBasename.length === 1) return path.resolve(config.repoRoot, byBasename[0].path);
+  if (byBasename.length > 1) {
+    die(`Multiple prompts match "${input}" by basename:\n${byBasename.map(d => '  ' + d.path).join('\n')}`);
+  }
+
+  const bySubstring = prompts.filter(d =>
+    d.path.includes(slug) || path.basename(d.path).includes(slug),
+  );
+  if (bySubstring.length === 1) return path.resolve(config.repoRoot, bySubstring[0].path);
+  if (bySubstring.length > 1) {
+    die(`Multiple prompts match "${input}":\n${bySubstring.map(d => '  ' + d.path).join('\n')}`);
+  }
+
+  die(`No prompt found matching: ${input}`);
+}
+
 function runPromptsUse(argv, config, opts = {}) {
   const input = argv.find(a => !a.startsWith('-'));
-  if (!input) die('Usage: dotmd prompts use <file>');
-  const filePath = resolveDocPath(input, config);
-  if (!filePath) die(`File not found: ${input}`);
+  if (!input) die('Usage: dotmd prompts use <file-or-slug>');
+  const filePath = resolvePromptInput(input, config);
   consumePrompt(filePath, config, opts);
 }
 
@@ -113,9 +149,8 @@ function consumePrompt(filePath, config, opts) {
 
 function runPromptsArchive(argv, config, opts = {}) {
   const input = argv.find(a => !a.startsWith('-'));
-  if (!input) die('Usage: dotmd prompts archive <file>');
-  const filePath = resolveDocPath(input, config);
-  if (!filePath) die(`File not found: ${input}`);
+  if (!input) die('Usage: dotmd prompts archive <file-or-slug>');
+  const filePath = resolvePromptInput(input, config);
 
   const raw = readFileSync(filePath, 'utf8');
   const { frontmatter } = extractFrontmatter(raw);
