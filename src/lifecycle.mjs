@@ -25,6 +25,29 @@ function findFileRoot(filePath, config) {
   return roots.find(r => filePath.startsWith(r + '/')) ?? config.docsRoot;
 }
 
+// Pick an archive destination that won't clobber an existing record. If
+// `<dir>/<basename>` is free, returns it unchanged; otherwise appends a UTC
+// timestamp (and a counter on the vanishingly rare same-second collision) so
+// both the prior archive and the current one survive.
+function uniqueArchiveTarget(targetDir, basename) {
+  const base = path.join(targetDir, basename);
+  if (!existsSync(base)) return base;
+
+  const ext = path.extname(basename);
+  const stem = basename.slice(0, -ext.length);
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const stamp = `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`;
+
+  let target = path.join(targetDir, `${stem}-${stamp}${ext}`);
+  let n = 2;
+  while (existsSync(target)) {
+    target = path.join(targetDir, `${stem}-${stamp}-${n}${ext}`);
+    n++;
+  }
+  return target;
+}
+
 export async function runStatus(argv, config, opts = {}) {
   const { dryRun } = opts;
   const input = argv[0];
@@ -85,7 +108,7 @@ export async function runStatus(argv, config, opts = {}) {
     const prefix = dim('[dry-run]');
     process.stdout.write(`${prefix} Would update frontmatter: status: ${oldStatus ?? 'unknown'} → ${newStatus}, updated: ${today}\n`);
     if (isArchiving) {
-      const targetPath = path.join(archiveDir, path.basename(filePath));
+      const targetPath = uniqueArchiveTarget(archiveDir, path.basename(filePath));
       process.stdout.write(`${prefix} Would move: ${toRepoPath(filePath, config.repoRoot)} → ${toRepoPath(targetPath, config.repoRoot)}\n`);
       finalPath = targetPath;
     }
@@ -106,8 +129,7 @@ export async function runStatus(argv, config, opts = {}) {
 
   if (isArchiving) {
     mkdirSync(archiveDir, { recursive: true });
-    const targetPath = path.join(archiveDir, path.basename(filePath));
-    if (existsSync(targetPath)) { die(`Target already exists: ${toRepoPath(targetPath, config.repoRoot)}`); }
+    const targetPath = uniqueArchiveTarget(archiveDir, path.basename(filePath));
     const result = gitMv(filePath, targetPath, config.repoRoot);
     if (result.status !== 0) { die(result.stderr || 'git mv failed.'); }
     finalPath = targetPath;
@@ -479,14 +501,13 @@ export function runArchive(argv, config, opts = {}) {
 
   const today = nowIso();
   const targetDir = path.join(archiveFileRoot, config.archiveDir);
-  const targetPath = path.join(targetDir, path.basename(filePath));
+  const targetPath = uniqueArchiveTarget(targetDir, path.basename(filePath));
   const oldRepoPath = toRepoPath(filePath, config.repoRoot);
   const newRepoPath = toRepoPath(targetPath, config.repoRoot);
 
   if (dryRun) {
     const prefix = dim('[dry-run]');
     out.write(`${prefix} Would update frontmatter: status: ${oldStatus} → archived, updated: ${today}\n`);
-    if (existsSync(targetPath)) { die(`Target already exists: ${toRepoPath(targetPath, config.repoRoot)}`); }
     out.write(`${prefix} Would move: ${oldRepoPath} → ${newRepoPath}\n`);
     if (config.indexPath) out.write(`${prefix} Would regenerate index\n`);
 
@@ -502,7 +523,6 @@ export function runArchive(argv, config, opts = {}) {
   appendVersionHistory(filePath, 'Archived.');
 
   mkdirSync(targetDir, { recursive: true });
-  if (existsSync(targetPath)) { die(`Target already exists: ${toRepoPath(targetPath, config.repoRoot)}`); }
 
   const result = gitMv(filePath, targetPath, config.repoRoot);
   if (result.status !== 0) { die(result.stderr || 'git mv failed.'); }

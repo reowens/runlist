@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import { strictEqual, ok, match } from 'node:assert';
-import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, readdirSync, mkdirSync, existsSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -264,6 +264,40 @@ describe('archive path boundary', () => {
     // Clean up parent
     rmSync(parentDir, { recursive: true, force: true });
     tmpDir = null;
+  });
+});
+
+describe('archive collision (same basename twice)', () => {
+  it('keeps the prior archive and suffixes the new one with a UTC timestamp', () => {
+    const docsDir = setupProject();
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const cfg = path.join(tmpDir, 'dotmd.config.mjs');
+
+    // Archive #1: docs/foo.md → docs/archived/foo.md
+    writeDoc(docsDir, 'foo.md', 'status: active\nupdated: 2025-01-01', '# First\n');
+    const r1 = spawnSync('node', [bin, 'archive', path.join(docsDir, 'foo.md'), '--config', cfg], { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(r1.status, 0, `first archive failed: ${r1.stderr}`);
+    ok(existsSync(path.join(docsDir, 'archived', 'foo.md')), 'first archive landed at archived/foo.md');
+
+    // Archive #2: another docs/foo.md → should NOT clobber, should suffix
+    writeDoc(docsDir, 'foo.md', 'status: active\nupdated: 2026-05-21', '# Refresh\n');
+    const r2 = spawnSync('node', [bin, 'archive', path.join(docsDir, 'foo.md'), '--config', cfg], { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(r2.status, 0, `second archive failed: ${r2.stderr}`);
+
+    // Original archive untouched
+    const original = readFileSync(path.join(docsDir, 'archived', 'foo.md'), 'utf8');
+    ok(original.includes('# First'), 'prior archive body preserved');
+
+    // A second file landed in archived/ with a timestamp-suffixed name
+    const entries = readdirSync(path.join(docsDir, 'archived'));
+    const suffixed = entries.filter(f => f !== 'foo.md' && /^foo-\d{8}T\d{6}Z\.md$/.test(f));
+    strictEqual(suffixed.length, 1, `expected one timestamp-suffixed sibling, got entries: ${entries.join(', ')}`);
+
+    const refreshed = readFileSync(path.join(docsDir, 'archived', suffixed[0]), 'utf8');
+    ok(refreshed.includes('# Refresh'), 'second archive contains the refreshed body');
+
+    // The CLI output should reference the suffixed path so the user can see the rename
+    ok(r2.stdout.includes(suffixed[0]), `expected stdout to mention ${suffixed[0]}, got: ${r2.stdout}`);
   });
 });
 
