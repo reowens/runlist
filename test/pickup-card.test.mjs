@@ -199,6 +199,37 @@ just a pointer to its line range.
     ok(r.stdout.includes('Open Questions: 40'));
   });
 
+  it('resolves same-dir related_plans basename refs', () => {
+    // Pre-fix: pickup-card used `resolveDocPath`, which only tries repo-root
+    // and docsRoots-relative paths — never doc-relative. A bare-basename ref
+    // like `sibling.md` inside `docs/plans/foo.md`'s `related_plans:` always
+    // rendered `(missing)`, even though graph + validate resolve the same ref
+    // fine via `resolveRefPath` (which tries doc-relative first). Now matched.
+    const docsDir = setupProject();
+    mkdirSync(path.join(docsDir, 'plans'), { recursive: true });
+    // Sibling first — present so pickup can resolve and read its status.
+    const siblingPath = writeDoc(docsDir, 'plans/sibling.md',
+      'type: plan\nstatus: planned\nupdated: 2025-01-01', '# Sibling\n');
+    // Main plan refs the sibling by bare basename (the natural shorthand).
+    const planPath = writeDoc(docsDir, 'plans/foo.md',
+      'type: plan\nstatus: active\nupdated: 2025-01-01\nrelated_plans:\n  - sibling.md',
+      '# Foo\n');
+
+    const r = runCli(['pickup', planPath]);
+    strictEqual(r.status, 0, `pickup failed: ${r.stderr}`);
+    ok(r.stdout.includes('Related:'), `expected Related: section, got: ${r.stdout}`);
+    ok(!r.stdout.includes('(missing)'),
+      `sibling.md should resolve, not show (missing). stdout: ${r.stdout}`);
+    // The resolver should also pick up the sibling's status from its frontmatter.
+    ok(r.stdout.includes('planned'),
+      `Related: line should include sibling status 'planned'. stdout: ${r.stdout}`);
+    // Sanity: the ref path printed should be the resolved repo path, not the bare basename.
+    ok(r.stdout.includes('docs/plans/sibling.md'),
+      `Related: line should show full repo path. stdout: ${r.stdout}`);
+    // Keep `siblingPath` used so linters don't drop the write.
+    ok(siblingPath.endsWith('sibling.md'));
+  });
+
   it('JSON output includes both card and full body', () => {
     const docsDir = setupProject();
     const planPath = writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', `# Plan\n\n## Phases\n\n### Phase 1 — active 🟡\n\nbody\n`);

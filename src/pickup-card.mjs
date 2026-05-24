@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
-import { asString, toRepoPath, resolveDocPath } from './util.mjs';
+import { asString, toRepoPath, resolveDocPath, resolveRefPath } from './util.mjs';
 import { walkSections, findSection, findActivePhase, summarizePhases, isPhaseHeading, detectMarker } from './section.mjs';
 import { dim, green } from './color.mjs';
 
@@ -29,7 +29,14 @@ function statusSummary(counts) {
   return order.filter(k => counts[k]).map(k => `${counts[k]}${icons[k]}`).join(' ');
 }
 
-function readRelatedSummary(rawList, config) {
+// `docDir` is the directory of the doc whose frontmatter we're reading.
+// Pre-fix: this used `resolveDocPath` which only tries repo-root and docsRoots-
+// relative, NOT doc-relative — so a bare basename like `sibling-plan.md` written
+// in `docs/plans/foo.md`'s `related_plans:` always showed `(missing)`, even
+// though graph/validate resolve the same ref fine via `resolveRefPath`. Now
+// matches graph's resolver semantics: doc-relative first, then repo-relative;
+// docsRoots-relative is kept as a final fallback for legacy refs.
+function readRelatedSummary(rawList, config, docDir) {
   const list = Array.isArray(rawList) ? rawList : (typeof rawList === 'string' && rawList.trim() ? [rawList] : []);
   const out = [];
   for (const ref of list) {
@@ -37,7 +44,10 @@ function readRelatedSummary(rawList, config) {
     const refStr = String(ref).trim();
     if (!refStr) continue;
     let abs = null;
-    try { abs = resolveDocPath(refStr, config); } catch { abs = null; }
+    try {
+      abs = resolveRefPath(refStr, docDir, config.repoRoot)
+        ?? resolveDocPath(refStr, config);
+    } catch { abs = null; }
     if (!abs || !existsSync(abs)) {
       out.push({ ref: refStr, status: null, missing: true });
       continue;
@@ -96,10 +106,13 @@ export function buildCard(filePath, raw, config) {
   const currentState = truncate(cleanInline(fm.current_state), CAPS.currentState);
   const nextStep = truncate(cleanInline(fm.next_step), CAPS.nextStep);
 
-  // Related plans (compressed: slug + status only — show all, don't cap count)
+  // Related plans (compressed: slug + status only — show all, don't cap count).
+  // docDir lets the resolver try same-dir basenames first — graph/validate do this
+  // already; pickup-card now matches.
+  const docDir = path.dirname(filePath);
   const related = [
-    ...readRelatedSummary(fm.parent_plan, config).map(r => ({ ...r, kind: 'parent' })),
-    ...readRelatedSummary(fm.related_plans, config).map(r => ({ ...r, kind: 'related' })),
+    ...readRelatedSummary(fm.parent_plan, config, docDir).map(r => ({ ...r, kind: 'parent' })),
+    ...readRelatedSummary(fm.related_plans, config, docDir).map(r => ({ ...r, kind: 'related' })),
   ];
 
   // Phases summary + active phase (pointer only, no body)
