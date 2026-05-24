@@ -125,7 +125,18 @@ export function parseDocFile(filePath, config) {
   const headingTitle = extractFirstHeading(body);
   const title = asString(parsedFrontmatter.title) ?? headingTitle ?? path.basename(filePath, '.md');
   const summary = asString(parsedFrontmatter.summary) ?? extractSummary(body) ?? null;
-  const currentState = asString(parsedFrontmatter.current_state) ?? extractStatusSnapshot(body) ?? 'No current_state set';
+  // For terminal-status docs (archived / reference / deprecated by default),
+  // skip the body-scrape and the "No current_state set" fallback when the user
+  // didn't set `current_state:` in frontmatter explicitly. Body text on a
+  // settled doc often contains stale "in progress" / "FIXED (uncommitted)"
+  // snapshots from when the doc was live; surfacing those in the index lies
+  // about current state. Frontmatter still wins if explicit — the audit's
+  // criterion: "should defer to frontmatter when status is terminal."
+  const fmCurrentState = asString(parsedFrontmatter.current_state);
+  const docStatus = asString(parsedFrontmatter.status);
+  const isTerminalDoc = docStatus && config.lifecycle?.terminalStatuses?.has?.(docStatus);
+  const currentState = fmCurrentState
+    ?? (isTerminalDoc ? null : (extractStatusSnapshot(body) ?? 'No current_state set'));
   const nextStep = asString(parsedFrontmatter.next_step) ?? extractNextStep(body) ?? null;
   const blockers = normalizeBlockers(parsedFrontmatter.blockers);
   const surface = asString(parsedFrontmatter.surface) ?? null;

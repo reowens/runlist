@@ -99,7 +99,10 @@ export function renderVerboseList(index, config) {
 
     lines.push(`${capitalize(status)} (${docs.length})`);
     for (const doc of docs) {
-      const parts = [`- ${doc.title}`, `${capitalize(status)}: ${doc.currentState}`, `(${doc.path})`];
+      const stateLabel = doc.currentState
+        ? `${capitalize(status)}: ${doc.currentState}`
+        : capitalize(status);
+      const parts = [`- ${doc.title}`, stateLabel, `(${doc.path})`];
       if (doc.nextStep) {
         parts.push(`next: ${doc.nextStep}`);
       }
@@ -117,7 +120,10 @@ export function renderVerboseList(index, config) {
 
     lines.push(`${capitalize(status)} (${docs.length})`);
     for (const doc of docs) {
-      const parts = [`- ${doc.title}`, `${capitalize(status)}: ${doc.currentState}`, `(${doc.path})`];
+      const stateLabel = doc.currentState
+        ? `${capitalize(status)}: ${doc.currentState}`
+        : capitalize(status);
+      const parts = [`- ${doc.title}`, stateLabel, `(${doc.path})`];
       if (doc.nextStep) {
         parts.push(`next: ${doc.nextStep}`);
       }
@@ -443,14 +449,16 @@ export function formatSnapshot(doc, config) {
 }
 
 function _formatSnapshot(doc, config) {
-  // For terminal/skip-warnings statuses (archived, reference, deprecated, etc.)
-  // a missing `current_state` is fine — these are settled docs, no one's expected
-  // to be tracking what they're "currently doing." Pre-fix, the bare-status
-  // fallback rendered as `Reference: No current_state set` everywhere, which
-  // looked like a noisy hint to add a field that the templates never scaffolded.
+  // For terminal statuses (archived, reference, deprecated, etc.) a missing
+  // `current_state` is fine — these are settled docs, no one's expected to be
+  // tracking what they're "currently doing." Pre-fix, the bare-status fallback
+  // rendered as `Reference: No current_state set` everywhere, which looked
+  // like a noisy hint to add a field that the templates never scaffolded.
   // Now: bare-status line when terminal AND no current_state.
-  const skipWarnings = config?.lifecycle?.skipWarningsFor;
-  const isTerminal = doc.status && skipWarnings && skipWarnings.has(doc.status);
+  // Paired with src/index.mjs's body-scrape suppression for terminal docs —
+  // both layers drop body-derived state when frontmatter is silent.
+  const terminal = config?.lifecycle?.terminalStatuses;
+  const isTerminal = doc.status && terminal && terminal.has(doc.status);
   if (isTerminal && !doc.currentState) {
     return capitalize(doc.status);
   }

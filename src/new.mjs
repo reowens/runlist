@@ -13,6 +13,10 @@ const BUILTIN_TEMPLATES = {
   doc: {
     description: 'Reference doc, design note, module overview — build-up shape lite',
     defaultStatus: 'active',
+    // Body input optional. When passed (inline / --message / @file / stdin),
+    // it lands in the Overview section. Without it, Overview is left blank
+    // and the user fills it in.
+    acceptsBody: true,
     frontmatter: (s, d) => [
       'type: doc',
       `status: ${s}`,
@@ -32,7 +36,7 @@ const BUILTIN_TEMPLATES = {
 
 ## Overview
 
-
+${ctx?.bodyInput?.trim() ?? ''}
 
 ## Version History
 

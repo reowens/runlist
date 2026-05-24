@@ -143,6 +143,42 @@ describe('parseDocFile', () => {
     strictEqual(doc.title, 'my-doc');
   });
 
+  it('suppresses body-scraped currentState on terminal-status docs', async () => {
+    // gmax audit #3: After tagging archive docs with `status: archived`, the
+    // generated index still showed body-scraped phrases like "FIXED
+    // (uncommitted)" because extractStatusSnapshot ran regardless of status.
+    // For terminal statuses (archived/reference/deprecated by default), body
+    // scrape and the "No current_state set" fallback are both dropped — only
+    // an explicit frontmatter `current_state:` is honored.
+    const docsDir = setup();
+    writeDoc(docsDir, 'a.md', 'status: archived', '# A\n\n**Status:** FIXED (uncommitted)');
+    const config = await resolveConfig(tmpDir);
+    const doc = parseDocFile(path.join(docsDir, 'a.md'), config);
+    strictEqual(doc.currentState, null,
+      `terminal doc should have null currentState (got: ${doc.currentState})`);
+  });
+
+  it('still honors explicit frontmatter current_state on terminal docs', async () => {
+    // Frontmatter wins — the suppression is only for body-scrape and fallback.
+    const docsDir = setup();
+    writeDoc(docsDir, 'a.md',
+      'status: archived\ncurrent_state: "settled in commit abc123"',
+      '# A\n\n**Status:** stale body claim');
+    const config = await resolveConfig(tmpDir);
+    const doc = parseDocFile(path.join(docsDir, 'a.md'), config);
+    strictEqual(doc.currentState, 'settled in commit abc123',
+      'explicit frontmatter current_state should survive');
+  });
+
+  it('still body-scrapes for non-terminal-status docs (regression)', async () => {
+    const docsDir = setup();
+    writeDoc(docsDir, 'a.md', 'status: active', '# A\n\n**Status:** Phase 2 underway');
+    const config = await resolveConfig(tmpDir);
+    const doc = parseDocFile(path.join(docsDir, 'a.md'), config);
+    strictEqual(doc.currentState, 'Phase 2 underway',
+      'non-terminal status should still get the body scrape');
+  });
+
   it('extracts status, owner, surface, module', async () => {
     const docsDir = setup();
     writeDoc(docsDir, 'a.md', 'status: active\nowner: alice\nsurface: web\nmodule: auth', '# A');

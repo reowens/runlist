@@ -336,8 +336,15 @@ describe('dotmd new — type-first CLI', () => {
 
   describe('body-input on non-body templates fails fast (issue #9)', () => {
     // The CLI accepts `-`, `@path`, and `--message` for any template, but
-    // built-in `plan` and `doc` ignore `ctx.bodyInput` in their body fn —
-    // so silent discard was the failure mode. New behavior: error.
+    // built-in `plan` ignores `ctx.bodyInput` in its body fn — so silent
+    // discard was the failure mode. Plan's behavior: error.
+    //
+    // `doc` USED to be in this rejecting set, but per the gmax audit it was
+    // the easy on-ramp — `dotmd new doc x "quick note"` is the natural shape,
+    // and the error pointed at "set acceptsBody on your custom template" advice
+    // that didn't apply since init scaffolds no custom doc template. `doc` now
+    // accepts body and lands it in the Overview section (see "doc accepts
+    // body" tests below).
 
     it('rejects stdin body on `plan` (not on-prompt template)', () => {
       setupProject();
@@ -346,14 +353,6 @@ describe('dotmd new — type-first CLI', () => {
       ok(r.stderr.includes('does not accept body input'), `expected fail-fast error, got: ${r.stderr}`);
       ok(r.stderr.includes('stdin'), 'names the input source');
       ok(r.stderr.includes('prompt'), 'mentions templates that DO accept body');
-    });
-
-    it('rejects --message body on `doc`', () => {
-      setupProject();
-      const r = run(['new', 'doc', 'no-body', '--message', 'lost content']);
-      strictEqual(r.status, 1, `should fail. stderr: ${r.stderr}`);
-      ok(r.stderr.includes('does not accept body input'));
-      ok(r.stderr.includes('--message'));
     });
 
     it('rejects @path body on `plan`', () => {
@@ -366,13 +365,37 @@ describe('dotmd new — type-first CLI', () => {
       ok(r.stderr.includes(`@${srcPath}`));
     });
 
-    it('rejects inline body argument on `doc`', () => {
-      setupProject();
-      // Third positional (after type + name) is inline body when present.
-      const r = run(['new', 'doc', 'inline-body', 'this body is lost']);
-      strictEqual(r.status, 1, `should fail. stderr: ${r.stderr}`);
-      ok(r.stderr.includes('does not accept body input'));
-      ok(r.stderr.includes('inline body argument'));
+    it('`doc` accepts inline body and lands it in Overview', () => {
+      // gmax audit #7: `dotmd new doc x "body"` errored with advice to set
+      // acceptsBody on a custom template — but init scaffolds none. The easy
+      // on-ramp now just works: body goes into the Overview section.
+      const docsDir = setupProject();
+      const r = run(['new', 'doc', 'easy-onramp', 'quick note about X']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'easy-onramp.md'), 'utf8');
+      ok(content.includes('quick note about X'), `body should be in doc: ${content}`);
+      ok(/## Overview\s*\n\s*quick note about X/.test(content),
+        `body should land under Overview: ${content}`);
+    });
+
+    it('`doc` accepts --message body', () => {
+      const docsDir = setupProject();
+      const r = run(['new', 'doc', 'from-msg', '--message', 'flag-passed body']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'from-msg.md'), 'utf8');
+      ok(content.includes('flag-passed body'));
+    });
+
+    it('`doc` without body leaves Overview blank (regression)', () => {
+      // Inverse: no body input → Overview empty, no `undefined` or `null`
+      // leaking into the file.
+      const docsDir = setupProject();
+      const r = run(['new', 'doc', 'no-body-here']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'no-body-here.md'), 'utf8');
+      ok(!content.includes('undefined'), 'no undefined leak in body');
+      ok(!content.includes('null'), 'no null leak in body');
+      ok(content.includes('## Overview'), 'Overview heading still present');
     });
 
     it('`prompt` still accepts body input (regression)', () => {

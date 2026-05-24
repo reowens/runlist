@@ -59,7 +59,7 @@ export function runFocus(index, argv, config) {
   for (const doc of docs) {
     process.stdout.write(`- ${doc.title}\n`);
     process.stdout.write(`  path: ${doc.path}\n`);
-    process.stdout.write(`  state: ${doc.currentState}\n`);
+    if (doc.currentState) process.stdout.write(`  state: ${doc.currentState}\n`);
     if (doc.nextStep) {
       process.stdout.write(`  next: ${doc.nextStep}\n`);
     }
@@ -259,7 +259,7 @@ function renderQueryResults(docs, filters, config) {
     if (doc.daysSinceUpdate != null) process.stdout.write(`  days-since-update: ${doc.daysSinceUpdate}\n`);
     process.stdout.write(`  stale: ${doc.isStale ? 'yes' : 'no'}\n`);
     process.stdout.write(`  path: ${doc.path}\n`);
-    process.stdout.write(`  state: ${doc.currentState}\n`);
+    if (doc.currentState) process.stdout.write(`  state: ${doc.currentState}\n`);
     if (doc.nextStep) process.stdout.write(`  next: ${doc.nextStep}\n`);
     if (doc.owner) process.stdout.write(`  owner: ${doc.owner}\n`);
     if (doc.surfaces?.length) process.stdout.write(`  surfaces: ${doc.surfaces.join(', ')}\n`);
