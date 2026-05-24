@@ -4,6 +4,7 @@ import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { green, dim, yellow } from './color.mjs';
 import { warn } from './util.mjs';
 import { scaffoldClaudeCommands } from './claude-commands.mjs';
+import { resolveConfig } from './config.mjs';
 
 // Subdirectories scaffolded under docsRoot and tracked separately during scans.
 // Each maps to a builtin type (plan, prompt). New types added here should also
@@ -151,7 +152,7 @@ function generateDetectedConfig(scan, rootPath) {
   return lines.join('\n');
 }
 
-export function runInit(cwd, config, opts = {}) {
+export async function runInit(cwd, config, opts = {}) {
   const { dryRun = false } = opts;
   const configPath = path.join(cwd, 'dotmd.config.mjs');
   const docsDir = path.join(cwd, 'docs');
@@ -260,11 +261,20 @@ export function runInit(cwd, config, opts = {}) {
   }
 
   // Claude Code integration — auto-detect .claude/ directory.
+  // Re-resolve config so the scaffold sees whatever we (may have) just written.
+  // Pre-fix: the dispatcher passed `null` to runInit on a fresh repo because
+  // resolveConfig was called before init wrote the starter, so the `if (config)`
+  // gate below silently skipped slash-command scaffolding entirely on first init.
+  // Re-resolving picks up STARTER_CONFIG (or any pre-existing config) in the
+  // real-run path; in dry-run with no on-disk config, it returns the merged
+  // DEFAULTS, which is enough for the preview line (`would create…`).
+  //
   // Reports all four scaffold outcomes so the user can't be surprised by
   // either a silent regenerate (pre-fix: `updated` was unreported) or by
   // dotmd skipping a user-managed file (pre-fix: `skipped` was unreported).
-  if (config) {
-    const results = scaffoldClaudeCommands(cwd, config, { dryRun });
+  const scaffoldConfig = await resolveConfig(cwd);
+  if (scaffoldConfig) {
+    const results = scaffoldClaudeCommands(cwd, scaffoldConfig, { dryRun });
     for (const r of results) {
       const filename = `.claude/commands/${r.name}`;
       if (r.action === 'created') {

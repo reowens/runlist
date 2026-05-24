@@ -340,12 +340,35 @@ describe('init root-level siblings', () => {
 });
 
 describe('init Claude integration', () => {
+  it('scaffolds .claude/commands on fresh init with no pre-existing config', () => {
+    // Pre-fix: the dispatcher resolved config BEFORE runInit ran, so on a
+    // brand-new repo (no dotmd.config.mjs yet) it passed `null` to runInit.
+    // runInit's slash-command block was gated on `if (config)` and silently
+    // skipped — first init never scaffolded .claude/commands/, only a second
+    // init (after the config already existed) did. runInit now re-resolves
+    // from disk after writing STARTER_CONFIG, so first init works too.
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, '.claude'));
+    // NOTE: no pre-existing dotmd.config.mjs — that's the whole point.
+    const result = run(['init']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(existsSync(path.join(tmpDir, 'dotmd.config.mjs')), 'STARTER_CONFIG should be written');
+    ok(existsSync(path.join(tmpDir, '.claude', 'commands', 'plans.md')),
+      'plans.md should be scaffolded on first init');
+    ok(existsSync(path.join(tmpDir, '.claude', 'commands', 'docs.md')),
+      'docs.md should be scaffolded on first init');
+    // And the scaffold should reflect STARTER_CONFIG (root: 'docs'), not the
+    // pre-init DEFAULTS (root: '.'). Re-resolving from disk is what makes this work.
+    const docs = readFileSync(path.join(tmpDir, '.claude', 'commands', 'docs.md'), 'utf8');
+    ok(docs.includes('docs'), `generated docs.md should reference 'docs' root: ${docs}`);
+  });
+
   it('scaffolds .claude/commands when .claude/ exists and config found', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
     mkdirSync(path.join(tmpDir, '.git'));
     mkdirSync(path.join(tmpDir, '.claude'));
     mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
-    // Config must exist before init so config is passed to scaffoldClaudeCommands
     writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';`);
     const result = run(['init']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);

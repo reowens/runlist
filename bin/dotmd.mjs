@@ -690,10 +690,11 @@ async function main() {
 
   const config = await resolveConfig(process.cwd(), explicitConfig);
 
-  // Init — now has access to config for Claude command generation
+  // Init — runInit re-resolves the config from disk internally (after any
+  // starter-config write), so we don't need to pre-pass it.
   if (command === 'init') {
     const { runInit } = await import('../src/init.mjs');
-    runInit(process.cwd(), config.configFound ? config : null, { dryRun });
+    await runInit(process.cwd(), config, { dryRun });
     return;
   }
 
