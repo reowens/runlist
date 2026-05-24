@@ -333,6 +333,75 @@ describe('reference path resolution', () => {
   });
 });
 
+// Regression for audit-example-project F2: three validators (Unknown surface,
+// body link does not resolve, ref-field error) were ignoring
+// `skipWarningsFor` and `terminalStatuses` — firing for archived plans whose
+// quiet: true should have suppressed them. Example project hit 46 archived-noise
+// warnings out of 279 total.
+describe('archived/terminal status suppresses noise validators', () => {
+  function setupArchivedProject() {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-archnoise-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, 'docs', 'archived'), { recursive: true });
+    // Use a config that mirrors custom shape: archived status has quiet:true
+    // (sugar for skipStale + skipWarnings), and a surfaces taxonomy is set.
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const root = 'docs';
+      export const taxonomy = { surfaces: ['frontend', 'backend'] };
+      export const referenceFields = { bidirectional: ['related_plans'], unidirectional: [] };
+    `);
+    return tmpDir;
+  }
+
+  it('does NOT warn about Unknown surface for archived docs', () => {
+    const root = setupArchivedProject();
+    // Archived plan with a surface that's NOT in the taxonomy.
+    writeFileSync(path.join(root, 'docs', 'archived', 'old.md'),
+      '---\ntype: plan\nstatus: archived\nupdated: 2025-01-01\nsurface: legacy-thing\n---\n# Old\n');
+    const result = run(['check']);
+    ok(!result.stdout.includes('Unknown surface'),
+      `archived plan with unknown surface should not warn. stdout: ${result.stdout}`);
+  });
+
+  it('still warns about Unknown surface for live docs', () => {
+    const root = setupArchivedProject();
+    writeFileSync(path.join(root, 'docs', 'live.md'),
+      '---\ntype: plan\nstatus: active\nupdated: 2025-01-01\nmodule: foo\nsurface: legacy-thing\ncurrent_state: x\nnext_step: y\n---\n# Live\n');
+    const result = run(['check']);
+    ok(result.stdout.includes('Unknown surface'),
+      `live plan with unknown surface should warn. stdout: ${result.stdout}`);
+  });
+
+  it('does NOT flag broken body links in archived docs', () => {
+    const root = setupArchivedProject();
+    writeFileSync(path.join(root, 'docs', 'archived', 'old.md'),
+      '---\ntype: plan\nstatus: archived\nupdated: 2025-01-01\n---\n# Old\n\nSee [gone](./deleted.md).\n');
+    const result = run(['check']);
+    ok(!result.stdout.includes('body link'),
+      `archived doc body link to deleted target should not warn. stdout: ${result.stdout}`);
+  });
+
+  it('does NOT error on unresolved ref-field entries in archived docs', () => {
+    const root = setupArchivedProject();
+    writeFileSync(path.join(root, 'docs', 'archived', 'old.md'),
+      '---\ntype: plan\nstatus: archived\nupdated: 2025-01-01\nrelated_plans:\n  - ./gone-forever.md\n---\n# Old\n');
+    const result = run(['check']);
+    ok(!result.stdout.includes('does not resolve'),
+      `archived doc ref-field to deleted target should not error. stdout: ${result.stdout}`);
+    // And exit code should reflect zero errors.
+    strictEqual(result.status, 0, `check should pass for archived-only noise: ${result.stderr}`);
+  });
+
+  it('still errors on unresolved ref-field entries in live docs', () => {
+    const root = setupArchivedProject();
+    writeFileSync(path.join(root, 'docs', 'live.md'),
+      '---\ntype: plan\nstatus: active\nupdated: 2025-01-01\nmodule: foo\ncurrent_state: x\nnext_step: y\nrelated_plans:\n  - ./missing.md\n---\n# Live\n');
+    const result = run(['check']);
+    ok(result.stdout.includes('does not resolve'),
+      `live doc with missing ref-field target should error. stdout: ${result.stdout}`);
+  });
+});
+
 describe('rootStatuses validation', () => {
   function setupMultiRootProject() {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-rootstatus-'));

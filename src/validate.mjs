@@ -106,7 +106,7 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
     doc.errors.push({ path: doc.path, level: 'error', message: '`module` is required for active/ready/planned/blocked docs; use a real module, `platform`, or `none`. Accepts singular `module:` or plural `modules:` list.' });
   }
 
-  if (config.validSurfaces) {
+  if (config.validSurfaces && !config.lifecycle.skipWarningsFor.has(doc.status)) {
     for (const surface of doc.surfaces) {
       if (!config.validSurfaces.has(surface)) {
         doc.warnings.push({ path: doc.path, level: 'warning', message: `Unknown surface \`${surface}\`; expected a known surface taxonomy value.` });
@@ -164,21 +164,28 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
     }
   }
 
-  // Validate reference fields resolve to existing files
+  // Validate reference fields resolve to existing files. Terminal statuses
+  // (archived, deprecated, etc.) document historical state — their refs may
+  // legitimately point at moved/deleted targets and shouldn't gate the
+  // exit code with a hard error.
   const docDir = path.dirname(path.join(config.repoRoot, doc.path));
   const allRefFields = [...(config.referenceFields.bidirectional || []), ...(config.referenceFields.unidirectional || [])];
-  for (const field of allRefFields) {
-    for (const relPath of (doc.refFields[field] || [])) {
-      if (!resolveRefPath(relPath, docDir, config.repoRoot)) {
-        doc.errors.push({ path: doc.path, level: 'error', message: `${field} entry \`${relPath}\` does not resolve to an existing file.` });
+  const skipRefValidation = config.lifecycle.terminalStatuses.has(doc.status)
+    || config.lifecycle.skipWarningsFor.has(doc.status);
+  if (!skipRefValidation) {
+    for (const field of allRefFields) {
+      for (const relPath of (doc.refFields[field] || [])) {
+        if (!resolveRefPath(relPath, docDir, config.repoRoot)) {
+          doc.errors.push({ path: doc.path, level: 'error', message: `${field} entry \`${relPath}\` does not resolve to an existing file.` });
+        }
       }
     }
-  }
 
-  // Validate body links resolve to existing files
-  for (const link of (doc.bodyLinks || [])) {
-    if (!resolveRefPath(link.href, docDir, config.repoRoot)) {
-      doc.warnings.push({ path: doc.path, level: 'warning', message: `body link \`${link.href}\` does not resolve to an existing file.` });
+    // Validate body links resolve to existing files
+    for (const link of (doc.bodyLinks || [])) {
+      if (!resolveRefPath(link.href, docDir, config.repoRoot)) {
+        doc.warnings.push({ path: doc.path, level: 'warning', message: `body link \`${link.href}\` does not resolve to an existing file.` });
+      }
     }
   }
 }
