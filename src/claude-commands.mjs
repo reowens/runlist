@@ -107,7 +107,8 @@ function getInstalledVersion(filePath) {
   return match ? match[1] : null;
 }
 
-export function scaffoldClaudeCommands(cwd, config) {
+export function scaffoldClaudeCommands(cwd, config, opts = {}) {
+  const { dryRun = false } = opts;
   const claudeDir = path.join(cwd, '.claude');
   if (!existsSync(claudeDir)) return [];
 
@@ -127,13 +128,17 @@ export function scaffoldClaudeCommands(cwd, config) {
       results.push({ name, action: 'current' });
     } else if (installedVersion) {
       // Outdated — regenerate
-      mkdirSync(commandsDir, { recursive: true });
-      writeFileSync(filePath, generate(), 'utf8');
+      if (!dryRun) {
+        mkdirSync(commandsDir, { recursive: true });
+        writeFileSync(filePath, generate(), 'utf8');
+      }
       results.push({ name, action: 'updated', from: installedVersion, to: pkg.version });
     } else if (!existsSync(filePath)) {
       // New — create
-      mkdirSync(commandsDir, { recursive: true });
-      writeFileSync(filePath, generate(), 'utf8');
+      if (!dryRun) {
+        mkdirSync(commandsDir, { recursive: true });
+        writeFileSync(filePath, generate(), 'utf8');
+      }
       results.push({ name, action: 'created' });
     } else {
       // File exists but no version marker — user-managed, don't touch

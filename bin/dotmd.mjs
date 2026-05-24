@@ -693,7 +693,7 @@ async function main() {
   // Init — now has access to config for Claude command generation
   if (command === 'init') {
     const { runInit } = await import('../src/init.mjs');
-    runInit(process.cwd(), config.configFound ? config : null);
+    runInit(process.cwd(), config.configFound ? config : null, { dryRun });
     return;
   }
 

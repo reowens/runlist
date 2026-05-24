@@ -151,32 +151,38 @@ function generateDetectedConfig(scan, rootPath) {
   return lines.join('\n');
 }
 
-export function runInit(cwd, config) {
+export function runInit(cwd, config, opts = {}) {
+  const { dryRun = false } = opts;
   const configPath = path.join(cwd, 'dotmd.config.mjs');
   const docsDir = path.join(cwd, 'docs');
   const indexPath = path.join(docsDir, 'docs.md');
+
+  // Prefix every reported line during dry-run so the user can't mistake the
+  // preview for a real run. Without this, every write below would silently
+  // execute — runInit previously ignored the `--dry-run` flag entirely.
+  const dryTag = dryRun ? `${dim('[dry-run]')} ` : '';
 
   process.stdout.write('\n');
 
   const scan = existsSync(docsDir) ? scanExistingDocs(docsDir) : null;
 
   if (existsSync(configPath)) {
-    process.stdout.write(`  ${dim('exists')}  dotmd.config.mjs\n`);
+    process.stdout.write(`  ${dryTag}${dim('exists')}  dotmd.config.mjs\n`);
   } else {
     if (scan && scan.docCount > 0) {
-      writeFileSync(configPath, generateDetectedConfig(scan, 'docs'), 'utf8');
-      process.stdout.write(`  ${green('create')}  dotmd.config.mjs (detected ${scan.docCount} docs)\n`);
+      if (!dryRun) writeFileSync(configPath, generateDetectedConfig(scan, 'docs'), 'utf8');
+      process.stdout.write(`  ${dryTag}${green('create')}  dotmd.config.mjs (detected ${scan.docCount} docs)\n`);
     } else {
-      writeFileSync(configPath, STARTER_CONFIG, 'utf8');
-      process.stdout.write(`  ${green('create')}  dotmd.config.mjs\n`);
+      if (!dryRun) writeFileSync(configPath, STARTER_CONFIG, 'utf8');
+      process.stdout.write(`  ${dryTag}${green('create')}  dotmd.config.mjs\n`);
     }
   }
 
   if (existsSync(docsDir)) {
-    process.stdout.write(`  ${dim('exists')}  docs/\n`);
+    process.stdout.write(`  ${dryTag}${dim('exists')}  docs/\n`);
   } else {
-    mkdirSync(docsDir, { recursive: true });
-    process.stdout.write(`  ${green('create')}  docs/\n`);
+    if (!dryRun) mkdirSync(docsDir, { recursive: true });
+    process.stdout.write(`  ${dryTag}${green('create')}  docs/\n`);
   }
 
   // Inspect root-level siblings (e.g. ./plans/, ./prompts/) before scaffolding.
@@ -200,25 +206,25 @@ export function runInit(cwd, config) {
     const counts = scan?.subdirCounts?.[sub];
     const total = counts ? counts.withFrontmatter + counts.withoutFrontmatter : 0;
     if (siblingSet.has(sub) && !existsSync(subPath)) {
-      process.stdout.write(`  ${yellow('skip')}    docs/${sub}/ (root-level ./${sub}/ already holds content)\n`);
+      process.stdout.write(`  ${dryTag}${yellow('skip')}    docs/${sub}/ (root-level ./${sub}/ already holds content)\n`);
       continue;
     }
     if (existsSync(subPath)) {
       const detail = total > 0
         ? ` (${counts.withFrontmatter} dotmd-tracked, ${counts.withoutFrontmatter} plain .md)`
         : '';
-      process.stdout.write(`  ${dim('exists')}  docs/${sub}/${detail}\n`);
+      process.stdout.write(`  ${dryTag}${dim('exists')}  docs/${sub}/${detail}\n`);
     } else {
-      mkdirSync(subPath, { recursive: true });
-      process.stdout.write(`  ${green('create')}  docs/${sub}/\n`);
+      if (!dryRun) mkdirSync(subPath, { recursive: true });
+      process.stdout.write(`  ${dryTag}${green('create')}  docs/${sub}/\n`);
     }
   }
 
   if (existsSync(indexPath)) {
-    process.stdout.write(`  ${dim('exists')}  docs/docs.md\n`);
+    process.stdout.write(`  ${dryTag}${dim('exists')}  docs/docs.md\n`);
   } else {
-    writeFileSync(indexPath, STARTER_INDEX, 'utf8');
-    process.stdout.write(`  ${green('create')}  docs/docs.md\n`);
+    if (!dryRun) writeFileSync(indexPath, STARTER_INDEX, 'utf8');
+    process.stdout.write(`  ${dryTag}${green('create')}  docs/docs.md\n`);
   }
 
   if (siblingsWithContent.length > 0) {
@@ -243,24 +249,32 @@ export function runInit(cwd, config) {
     const has = current.split('\n').some(l => l.trim() === ignoreLine || l.trim() === '.dotmd');
     if (!has) {
       const sep = current.endsWith('\n') ? '' : '\n';
-      writeFileSync(gitignorePath, `${current}${sep}${ignoreLine}\n`, 'utf8');
-      process.stdout.write(`  ${green('update')}  .gitignore (+${ignoreLine})\n`);
+      if (!dryRun) writeFileSync(gitignorePath, `${current}${sep}${ignoreLine}\n`, 'utf8');
+      process.stdout.write(`  ${dryTag}${green('update')}  .gitignore (+${ignoreLine})\n`);
     } else {
-      process.stdout.write(`  ${dim('exists')}  .gitignore\n`);
+      process.stdout.write(`  ${dryTag}${dim('exists')}  .gitignore\n`);
     }
   } else {
-    writeFileSync(gitignorePath, `${ignoreLine}\n`, 'utf8');
-    process.stdout.write(`  ${green('create')}  .gitignore\n`);
+    if (!dryRun) writeFileSync(gitignorePath, `${ignoreLine}\n`, 'utf8');
+    process.stdout.write(`  ${dryTag}${green('create')}  .gitignore\n`);
   }
 
-  // Claude Code integration — auto-detect .claude/ directory
+  // Claude Code integration — auto-detect .claude/ directory.
+  // Reports all four scaffold outcomes so the user can't be surprised by
+  // either a silent regenerate (pre-fix: `updated` was unreported) or by
+  // dotmd skipping a user-managed file (pre-fix: `skipped` was unreported).
   if (config) {
-    const results = scaffoldClaudeCommands(cwd, config);
+    const results = scaffoldClaudeCommands(cwd, config, { dryRun });
     for (const r of results) {
+      const filename = `.claude/commands/${r.name}`;
       if (r.action === 'created') {
-        process.stdout.write(`  ${green('create')}  .claude/commands/${r.name}\n`);
+        process.stdout.write(`  ${dryTag}${green('create')}  ${filename}\n`);
+      } else if (r.action === 'updated') {
+        process.stdout.write(`  ${dryTag}${green('update')}  ${filename} (v${r.from} → v${r.to})\n`);
       } else if (r.action === 'current') {
-        process.stdout.write(`  ${dim('current')} .claude/commands/${r.name}\n`);
+        process.stdout.write(`  ${dryTag}${dim('exists')}  ${filename}\n`);
+      } else if (r.action === 'skipped') {
+        process.stdout.write(`  ${dryTag}${yellow('skip')}    ${filename} (no version marker — user-managed)\n`);
       }
     }
   }

@@ -46,6 +46,68 @@ describe('init basic', () => {
     ok(content.includes('GENERATED:dotmd:end'));
   });
 
+  it('--dry-run does not actually write anything', () => {
+    // Pre-fix: runInit took no dryRun param and ignored the global --dry-run
+    // flag. `dotmd init -n` would *write* the config, docs/, gitignore, and
+    // .claude/commands/* — a silent footgun for anyone running -n to preview.
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, '.claude')); // trigger slash-command scaffold path
+    const r = run(['init', '--dry-run']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+
+    // Output should announce intent with a [dry-run] tag on every line.
+    ok(r.stdout.includes('[dry-run]'), `dry-run output should be tagged; got: ${r.stdout}`);
+
+    // Nothing should have actually been created.
+    ok(!existsSync(path.join(tmpDir, 'dotmd.config.mjs')), 'config not written in dry-run');
+    ok(!existsSync(path.join(tmpDir, 'docs')), 'docs/ not created in dry-run');
+    ok(!existsSync(path.join(tmpDir, '.claude', 'commands')), '.claude/commands/ not created in dry-run');
+  });
+
+  it('reports `update` when refreshing a stale slash command', () => {
+    // Pre-fix: runInit's report loop only handled `created` and `current`.
+    // `updated` (regen from older version banner) was silently dropped — the
+    // user saw nothing about a slash-command file rewrite that did happen.
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, '.claude', 'commands'), { recursive: true });
+    // Seed config so the dispatcher passes a non-null config to runInit
+    // (the slash-command scaffold path is gated on `if (config)`).
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';\n`);
+    // Plant a stale slash-command file with an old version banner.
+    writeFileSync(
+      path.join(tmpDir, '.claude', 'commands', 'plans.md'),
+      '<!-- dotmd-generated: 0.0.1 -->\n\nold content\n',
+    );
+    const r = run(['init']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    ok(/update\s+\.claude\/commands\/plans\.md/.test(r.stdout),
+      `output should report an update line for plans.md; got: ${r.stdout}`);
+    ok(/v0\.0\.1\s*→/.test(r.stdout),
+      `update line should show the version transition; got: ${r.stdout}`);
+    // And the actual file should be refreshed.
+    const content = readFileSync(path.join(tmpDir, '.claude', 'commands', 'plans.md'), 'utf8');
+    ok(!content.includes('dotmd-generated: 0.0.1 '), 'stale marker should be gone');
+  });
+
+  it('reports `skip` for slash-command files without a version marker', () => {
+    // Pre-fix: `skipped` (user-managed file) was unreported. Now the user
+    // sees that dotmd intentionally left it alone.
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, '.claude', 'commands'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';\n`);
+    writeFileSync(
+      path.join(tmpDir, '.claude', 'commands', 'plans.md'),
+      '# my custom plans command, no dotmd marker\n',
+    );
+    const r = run(['init']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    ok(/skip\s+\.claude\/commands\/plans\.md/.test(r.stdout),
+      `output should report a skip line for the user-managed plans.md; got: ${r.stdout}`);
+  });
+
   it('status transitions within the active range regen the index', () => {
     // Pre-fix: only archive-crossing transitions regen'd. A pure
     // `active → planned` left the per-status sections in `docs/docs.md` out
