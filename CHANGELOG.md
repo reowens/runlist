@@ -2,6 +2,20 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## 0.31.3 — 2026-05-23
+
+Closes the self-dogfood audit started in 0.31.1. Four remaining findings shipped; all eleven audit findings are now resolved.
+
+### Fixed
+
+- **Fresh `dotmd init` scaffolds `.claude/commands/*` on first run.** The dispatcher resolved config BEFORE `runInit` ran, so on a brand-new repo (no `dotmd.config.mjs` yet) it passed `null` to `runInit`. `runInit`'s slash-command block was gated on `if (config)` and silently skipped — `.claude/commands/*` only appeared on a second `dotmd init`, after the starter config already existed. `runInit` is now async and re-resolves the config from disk after the file-write phase, so STARTER_CONFIG (just written this run) or any pre-existing config is picked up uniformly. The dispatcher's `config.configFound ? config : null` ternary is gone. Dry-run path also now correctly previews the `.claude/commands/*` lines that were silently missing before. (Audit finding #11.)
+
+- **`pickup`'s `Related:` resolver finds same-dir sibling refs.** `readRelatedSummary` in `src/pickup-card.mjs` used `resolveDocPath`, which only tries repo-root and docsRoots-relative paths — never doc-relative. So a bare-basename ref like `sibling.md` written in `docs/plans/foo.md`'s `related_plans:` always rendered `(missing)`, even though `graph` and `validate` resolved the same ref fine via `resolveRefPath` (doc-relative first, then repo-relative). Two resolvers, two semantics, one silently wrong from inside a doc. Now matches graph/validate semantics: `resolveRefPath(refStr, docDir, repoRoot) ?? resolveDocPath(refStr, config)` so doc-relative wins, with docsRoots-relative kept as a final fallback for legacy refs. (Audit finding #9.)
+
+- **`dotmd doctor` numbered steps are contiguous `1–6`.** Pre-fix, step 5's heading (Claude Code commands) was conditional on having `updated`/`created` results to print, so output went `1, 2, 3, 4, 6` whenever there was nothing to refresh — and looked like a numbering bug. Step 4 (Regenerate index) had the same shape of bug, conditional on `config.indexPath` (would silently produce `1, 2, 3, 5, 6` on configs without an index). Both headings now always print, with a status body line (`No index path configured (skip).` / `Nothing to refresh.`) so the body still says something useful when there's nothing to do. (Audit finding #10.)
+
+- **`dotmd briefing` Errors count now hints at `dotmd check`.** `Errors: 1` with no detail forced the user to know to run `dotmd check` separately to see what or where. The line now renders `Errors: 1 (run \`dotmd check\` to see)` (dimmed) when the count is non-zero. The zero-error case stays terse — no point hinting at empty output. (Audit finding #8.)
+
 ## 0.31.2 — 2026-05-23
 
 This release is the back half of the self-dogfood audit started in 0.31.1. Six discrete fixes; all surfaced by running every dotmd command against the dotmd repo and tracking down the first thing that went wrong.
