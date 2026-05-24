@@ -114,11 +114,16 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
     }
   }
 
-  if (!headingTitle && !asString(frontmatter.title)) {
+  // Prompts are intentionally body-only one-shot artifacts: the slug names the
+  // prompt, the body IS the payload. Forcing a `title` or blockquote `summary`
+  // is friction the prompt format was designed around.
+  const skipTitleSummary = doc.type === 'prompt';
+
+  if (!skipTitleSummary && !headingTitle && !asString(frontmatter.title)) {
     doc.warnings.push({ path: doc.path, level: 'warning', message: 'Missing `title` and no H1 found for fallback.' });
   }
 
-  if (!config.lifecycle.skipWarningsFor.has(doc.status) && !asString(frontmatter.summary) && !doc.summary) {
+  if (!skipTitleSummary && !config.lifecycle.skipWarningsFor.has(doc.status) && !asString(frontmatter.summary) && !doc.summary) {
     doc.warnings.push({ path: doc.path, level: 'warning', message: 'Missing `summary` and no blockquote fallback found.' });
   }
 

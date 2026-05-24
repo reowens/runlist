@@ -137,6 +137,21 @@ describe('dotmd new — type-first CLI', () => {
       const content = readFileSync(path.join(docsDir, 'prompts', 'default-status.md'), 'utf8');
       ok(content.includes('status: pending'));
     });
+
+    it('freshly-created prompts pass `dotmd check` cleanly', () => {
+      // Pre-fix: `new prompt` produced a doc with 1 error (missing `updated`)
+      // and 2 warnings (missing `title`, missing `summary`). The tool's own
+      // outputs failed its own validators. Template now sets `updated` and
+      // the validator exempts `type: prompt` from title/summary checks.
+      setupProject();
+      const r = run(['new', 'prompt', 'fresh-prompt', 'body content']);
+      strictEqual(r.status, 0, `new failed: ${r.stderr}`);
+      const check = run(['check']);
+      strictEqual(check.status, 0, `check failed: stdout=${check.stdout}\nstderr=${check.stderr}`);
+      ok(!check.stdout.includes('Missing frontmatter `updated`'), 'no updated error');
+      ok(!check.stdout.includes('Missing `title`'), 'no title warning');
+      ok(!check.stdout.includes('Missing `summary`'), 'no summary warning');
+    });
   });
 
   describe('flags + edge cases', () => {
