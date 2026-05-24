@@ -33,9 +33,43 @@ eval "$(dotmd completions bash)"    # add to ~/.bashrc
 eval "$(dotmd completions zsh)"     # add to ~/.zshrc
 ```
 
+## Auto-Detected From Your Markdown
+
+dotmd reads what's already in your `.md` files — you don't have to migrate everything into frontmatter to get useful output.
+
+Add `- [ ]` checkboxes anywhere in the body:
+
+```markdown
+## Polish
+
+- [x] Index regen on every mutation
+- [x] Auto-checklist progress bars
+- [x] Untagged docs surfaced in `list`
+- [ ] SessionStart hook auto-wired by init
+- [ ] Bulk-tag prompt for brownfield repos
+```
+
+`dotmd list` picks them up — zero config, no extra field:
+
+```
+Polish-Pass                   2d  ██████░░░░ 3/5
+```
+
+Same story for these signals, each picked up from body text when the matching frontmatter field is missing:
+
+| Field | Falls back to | Example body |
+|-------|---------------|--------------|
+| `title` | first `# H1` heading | `# Auth Token Refresh` |
+| `summary` | first `> blockquote` line (skipping `Status note` lines) | `> One-line summary of what this doc covers.` |
+| `current_state` | `**Status:** ...`, `- Status: ...`, or `> Status note (...): ...` lines (skipped on terminal docs to avoid stale claims) | `**Status:** Phase 2 underway` |
+| `next_step` | first bullet under a `## Next Step` (or `## Suggested Next Step`) H2 section | `## Next Step`<br>`- wire token refresh into middleware` |
+| Body links | inline `[text](path.md)` references | validated as ref edges by `check` |
+
+Explicit frontmatter always wins. Body extraction is a cushion for partially-tagged docs, not a replacement for it.
+
 ## What It Does
 
-- **Index** — group docs by status, show progress bars, next steps
+- **Index** — group docs by status, with auto-detected progress bars (from `- [ ]` checklists) and next steps
 - **Query** — filter by status, keyword, module, surface, owner, staleness
 - **Validate** — check for missing fields, broken references, broken body links, stale dates
 - **Stats** — health dashboard with staleness, completeness, audit coverage
