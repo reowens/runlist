@@ -1,6 +1,6 @@
 import { describe, it, afterEach } from 'node:test';
 import { strictEqual, ok } from 'node:assert';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, realpathSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, realpathSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -69,6 +69,48 @@ describe('gitMv', () => {
     const result = gitMv('does-not-exist.md', 'target.md', tmpDir);
     ok(result.status !== 0, 'should fail with non-zero exit');
     ok(result.stderr.length > 0, 'should have stderr output');
+  });
+
+  it('falls back to fs.renameSync for an untracked source', () => {
+    setupRepo();
+    // One commit so the repo is valid, then a scratch file we never `git add`.
+    commitFile(path.join(tmpDir, 'init.txt'), 'init\n');
+    const sourcePath = path.join(tmpDir, 'untracked.md');
+    writeFileSync(sourcePath, '# Untracked\n');
+
+    const targetPath = path.join(tmpDir, 'archived', 'untracked.md');
+    mkdirSync(path.dirname(targetPath), { recursive: true });
+    const result = gitMv(sourcePath, targetPath, tmpDir);
+
+    strictEqual(result.status, 0, `should succeed via fs fallback; stderr: ${result.stderr}`);
+    ok(existsSync(targetPath), 'target should exist after fallback rename');
+    ok(!existsSync(sourcePath), 'source should be gone after move');
+  });
+
+  it('works with absolute paths for both tracked and untracked sources', () => {
+    setupRepo();
+    const trackedPath = path.join(tmpDir, 'tracked.md');
+    commitFile(trackedPath, '# Tracked\n');
+    const trackedTarget = path.join(tmpDir, 'tracked-moved.md');
+    const trackedResult = gitMv(trackedPath, trackedTarget, tmpDir);
+    strictEqual(trackedResult.status, 0, `tracked move should succeed; stderr: ${trackedResult.stderr}`);
+    ok(existsSync(trackedTarget), 'tracked target should exist');
+  });
+
+  it('moves an untracked file even outside any git repo', () => {
+    // No git init — just a plain temp dir. gitMv should still move the file
+    // because `ls-files` reports "not tracked" and the fs fallback kicks in.
+    const plainDir = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'dotmd-plain-')));
+    try {
+      const sourcePath = path.join(plainDir, 'orphan.md');
+      writeFileSync(sourcePath, '# Orphan\n');
+      const targetPath = path.join(plainDir, 'moved.md');
+      const result = gitMv(sourcePath, targetPath, plainDir);
+      strictEqual(result.status, 0, `should succeed in non-repo; stderr: ${result.stderr}`);
+      ok(existsSync(targetPath), 'target should exist');
+    } finally {
+      rmSync(plainDir, { recursive: true, force: true });
+    }
   });
 });
 

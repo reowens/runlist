@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process';
+import { renameSync } from 'node:fs';
+import path from 'node:path';
 
 let gitChecked = false;
 function ensureGit() {
@@ -49,11 +51,34 @@ export function getGitLastModifiedBatch(repoRoot) {
 
 export function gitMv(source, target, repoRoot) {
   ensureGit();
+  // Source is untracked (scaffolded this session, never committed; or repoRoot
+  // is not a git repo at all): a plain rename is the only correct move. `git mv`
+  // would error with `fatal: not under version control` and the user can't act
+  // on that — the file is genuinely a doc, just not yet staged.
+  if (!isTracked(source, repoRoot)) {
+    const absSource = path.isAbsolute(source) ? source : path.join(repoRoot, source);
+    const absTarget = path.isAbsolute(target) ? target : path.join(repoRoot, target);
+    try {
+      renameSync(absSource, absTarget);
+      return { status: 0, stderr: '' };
+    } catch (err) {
+      return { status: 1, stderr: err.message };
+    }
+  }
   const result = spawnSync('git', ['mv', source, target], {
     cwd: repoRoot,
     encoding: 'utf8',
   });
   return { status: result.status, stderr: result.stderr };
+}
+
+function isTracked(source, repoRoot) {
+  const relSource = path.isAbsolute(source) ? path.relative(repoRoot, source) : source;
+  const result = spawnSync('git', ['ls-files', '--error-unmatch', '--', relSource], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+  });
+  return result.status === 0;
 }
 
 export function gitDiffSince(relPath, sinceDate, repoRoot, opts = {}) {
