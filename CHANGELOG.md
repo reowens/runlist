@@ -2,6 +2,18 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## 0.32.1 — 2026-05-24
+
+Three correctness fixes for repositories with multiple document roots and customized configurations. No API changes.
+
+### Fixed
+
+- **`dotmd graph` and lifecycle ref-rewrite resolve repo-relative refs correctly.** Graph, archive and rename now use the shared `resolveRefPath` resolver before falling back to document-relative resolution, avoiding doubled roots and missed reference rewrites.
+
+- **`Unknown surface`, `body link does not resolve`, and ref-field "does not resolve" validators honor `skipWarningsFor` and `terminalStatuses`.** Quiet statuses suppress the relevant warnings; terminal records may retain references to documents that no longer exist.
+
+- **Conflicting singular/plural metadata warns only when values diverge.** A singular `module` or `surface` already present in its plural array is consistent and does not warn. Compatibility merging is unchanged.
+
 ## 0.32.0 — 2026-05-24
 
 Closes the four remaining gmax-audit enhancements (B, D, E, A) — design choices that the 0.31.4 bug-fix sweep deliberately deferred. Headlined by the new `dotmd bulk-tag` command, which closes the brownfield onboarding gap that 0.31.4's "Untagged" surfacing exposed but didn't solve.
