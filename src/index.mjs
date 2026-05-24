@@ -135,8 +135,27 @@ export function parseDocFile(filePath, config) {
   const fmCurrentState = asString(parsedFrontmatter.current_state);
   const docStatus = asString(parsedFrontmatter.status);
   const isTerminalDoc = docStatus && config.lifecycle?.terminalStatuses?.has?.(docStatus);
-  const currentState = fmCurrentState
-    ?? (isTerminalDoc ? null : (extractStatusSnapshot(body) ?? 'No current_state set'));
+  // Track where currentState came from so renderers can prefix `(auto)` on
+  // body-scraped values. Frontmatter wins silently; body-scraped values flag
+  // their origin so the user knows the string was inferred (and that adding
+  // `current_state:` to frontmatter would override). The placeholder
+  // `'No current_state set'` is neither — origin stays null.
+  let currentState;
+  let currentStateOrigin = null;
+  if (fmCurrentState) {
+    currentState = fmCurrentState;
+    currentStateOrigin = 'frontmatter';
+  } else if (isTerminalDoc) {
+    currentState = null;
+  } else {
+    const scraped = extractStatusSnapshot(body);
+    if (scraped) {
+      currentState = scraped;
+      currentStateOrigin = 'body';
+    } else {
+      currentState = 'No current_state set';
+    }
+  }
   const nextStep = asString(parsedFrontmatter.next_step) ?? extractNextStep(body) ?? null;
   const blockers = normalizeBlockers(parsedFrontmatter.blockers);
   const surface = asString(parsedFrontmatter.surface) ?? null;
@@ -179,6 +198,7 @@ export function parseDocFile(filePath, config) {
     title,
     summary,
     currentState,
+    currentStateOrigin,
     nextStep,
     blockers,
     updated: asString(parsedFrontmatter.updated) ?? null,

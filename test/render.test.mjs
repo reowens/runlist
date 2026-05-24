@@ -198,6 +198,33 @@ describe('formatSnapshot', () => {
     const result = formatSnapshot(doc, config);
     strictEqual(result, 'Active: No current_state set');
   });
+
+  it('prefixes body-scraped currentState with (auto)', () => {
+    // gmax audit enhancement D: the body-scrape happens silently on
+    // non-terminal docs; the user has no way to tell at a glance whether
+    // the snapshot string came from frontmatter (canonical) or from
+    // extractStatusSnapshot reading the body (best-effort, easily stale).
+    // The `(auto)` prefix labels the inferred case so readers know the
+    // string is overridable by adding `current_state:` to frontmatter.
+    const doc = makeDoc({
+      status: 'active',
+      currentState: 'Phase 2 underway',
+      currentStateOrigin: 'body',
+    });
+    const result = formatSnapshot(doc, makeConfig());
+    strictEqual(result, 'Active: (auto) Phase 2 underway');
+  });
+
+  it('does NOT prefix (auto) when currentState came from frontmatter', () => {
+    // Inverse of the above — explicit frontmatter is canonical, no annotation.
+    const doc = makeDoc({
+      status: 'active',
+      currentState: 'Phase 2 underway',
+      currentStateOrigin: 'frontmatter',
+    });
+    const result = formatSnapshot(doc, makeConfig());
+    strictEqual(result, 'Active: Phase 2 underway');
+  });
 });
 
 describe('renderCheck', () => {

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { capitalize, toSlug, truncate, warn } from './util.mjs';
-import { renderProgressBar } from './render.mjs';
+import { renderProgressBar, formatCurrentState } from './render.mjs';
 import { computeDaysSinceUpdate, computeIsStale } from './validate.mjs';
 import { getGitLastModifiedBatch } from './git.mjs';
 import { extractFrontmatter } from './frontmatter.mjs';
@@ -59,7 +59,8 @@ export function runFocus(index, argv, config) {
   for (const doc of docs) {
     process.stdout.write(`- ${doc.title}\n`);
     process.stdout.write(`  path: ${doc.path}\n`);
-    if (doc.currentState) process.stdout.write(`  state: ${doc.currentState}\n`);
+    const stateValue = formatCurrentState(doc);
+    if (stateValue) process.stdout.write(`  state: ${stateValue}\n`);
     if (doc.nextStep) {
       process.stdout.write(`  next: ${doc.nextStep}\n`);
     }
@@ -259,7 +260,8 @@ function renderQueryResults(docs, filters, config) {
     if (doc.daysSinceUpdate != null) process.stdout.write(`  days-since-update: ${doc.daysSinceUpdate}\n`);
     process.stdout.write(`  stale: ${doc.isStale ? 'yes' : 'no'}\n`);
     process.stdout.write(`  path: ${doc.path}\n`);
-    if (doc.currentState) process.stdout.write(`  state: ${doc.currentState}\n`);
+    const stateValue = formatCurrentState(doc);
+    if (stateValue) process.stdout.write(`  state: ${stateValue}\n`);
     if (doc.nextStep) process.stdout.write(`  next: ${doc.nextStep}\n`);
     if (doc.owner) process.stdout.write(`  owner: ${doc.owner}\n`);
     if (doc.surfaces?.length) process.stdout.write(`  surfaces: ${doc.surfaces.join(', ')}\n`);

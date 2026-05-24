@@ -6,6 +6,17 @@ import { summarizeDocBody } from './ai.mjs';
 import { bold, red, yellow, green, dim } from './color.mjs';
 import { findStaleLeases } from './lease.mjs';
 
+// Render `currentState` with an `(auto)` prefix when the value was body-scraped
+// rather than read from frontmatter. Lets a reader see at a glance which docs
+// have an explicit `current_state:` line versus a string inferred from the body
+// — and that overriding it is as simple as adding the field to frontmatter.
+export function formatCurrentState(doc) {
+  if (!doc.currentState) return null;
+  return doc.currentStateOrigin === 'body'
+    ? `(auto) ${doc.currentState}`
+    : doc.currentState;
+}
+
 export function renderCompactList(index, config) {
   const defaultRenderer = (idx) => _renderCompactList(idx, config);
   if (config.hooks.renderCompactList) {
@@ -99,8 +110,9 @@ export function renderVerboseList(index, config) {
 
     lines.push(`${capitalize(status)} (${docs.length})`);
     for (const doc of docs) {
-      const stateLabel = doc.currentState
-        ? `${capitalize(status)}: ${doc.currentState}`
+      const stateValue = formatCurrentState(doc);
+      const stateLabel = stateValue
+        ? `${capitalize(status)}: ${stateValue}`
         : capitalize(status);
       const parts = [`- ${doc.title}`, stateLabel, `(${doc.path})`];
       if (doc.nextStep) {
@@ -120,8 +132,9 @@ export function renderVerboseList(index, config) {
 
     lines.push(`${capitalize(status)} (${docs.length})`);
     for (const doc of docs) {
-      const stateLabel = doc.currentState
-        ? `${capitalize(status)}: ${doc.currentState}`
+      const stateValue = formatCurrentState(doc);
+      const stateLabel = stateValue
+        ? `${capitalize(status)}: ${stateValue}`
         : capitalize(status);
       const parts = [`- ${doc.title}`, stateLabel, `(${doc.path})`];
       if (doc.nextStep) {
@@ -462,7 +475,7 @@ function _formatSnapshot(doc, config) {
   if (isTerminal && !doc.currentState) {
     return capitalize(doc.status);
   }
-  const state = doc.currentState ?? 'No current_state set';
+  const state = formatCurrentState(doc) ?? 'No current_state set';
   if (/^active:|^ready:|^planned:|^scoping:|^blocked:|^archived:/i.test(state)) {
     return state;
   }

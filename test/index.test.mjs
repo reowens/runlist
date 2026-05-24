@@ -156,6 +156,8 @@ describe('parseDocFile', () => {
     const doc = parseDocFile(path.join(docsDir, 'a.md'), config);
     strictEqual(doc.currentState, null,
       `terminal doc should have null currentState (got: ${doc.currentState})`);
+    strictEqual(doc.currentStateOrigin, null,
+      'terminal doc with no currentState should have null origin');
   });
 
   it('still honors explicit frontmatter current_state on terminal docs', async () => {
@@ -168,6 +170,8 @@ describe('parseDocFile', () => {
     const doc = parseDocFile(path.join(docsDir, 'a.md'), config);
     strictEqual(doc.currentState, 'settled in commit abc123',
       'explicit frontmatter current_state should survive');
+    strictEqual(doc.currentStateOrigin, 'frontmatter',
+      'frontmatter-sourced state should be flagged as such');
   });
 
   it('still body-scrapes for non-terminal-status docs (regression)', async () => {
@@ -177,6 +181,23 @@ describe('parseDocFile', () => {
     const doc = parseDocFile(path.join(docsDir, 'a.md'), config);
     strictEqual(doc.currentState, 'Phase 2 underway',
       'non-terminal status should still get the body scrape');
+    strictEqual(doc.currentStateOrigin, 'body',
+      'body-scraped state should be flagged so renderers can mark it (auto)');
+  });
+
+  it('leaves currentStateOrigin null on the placeholder fallback', async () => {
+    // gmax audit enhancement D: only frontmatter and body-scrape get an
+    // explicit origin. The 'No current_state set' nag is a UI placeholder,
+    // not data from any source — origin stays null so renderers don't claim
+    // the placeholder string was scraped from anywhere.
+    const docsDir = setup();
+    writeDoc(docsDir, 'a.md', 'status: active', '# A\n\nJust some body prose, no status snapshot.');
+    const config = await resolveConfig(tmpDir);
+    const doc = parseDocFile(path.join(docsDir, 'a.md'), config);
+    strictEqual(doc.currentState, 'No current_state set',
+      'placeholder fallback should still be present for non-terminal docs');
+    strictEqual(doc.currentStateOrigin, null,
+      'placeholder is not body-scraped — origin must stay null');
   });
 
   it('extracts status, owner, surface, module', async () => {
