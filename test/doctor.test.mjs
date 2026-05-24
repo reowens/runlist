@@ -80,6 +80,76 @@ describe('doctor command', () => {
     ok(result.stdout.includes('dotmd doctor'), 'shows heading');
   });
 
+  it('numbered steps are contiguous (1,2,3,4,5,6 — no skipped 5)', () => {
+    // Pre-fix: step 5's heading was conditional on having Claude command
+    // changes to report. On a repo with no `.claude/` dir (or already-current
+    // commands), `5.` was silently skipped — output went `1, 2, 3, 4, 6` and
+    // looked like a bug. Always-print fix: heading always shows; body says
+    // "Nothing to refresh." when there's nothing to do.
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-doctor-'));
+    spawnSync('git', ['init'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
+    mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';`);
+    writeFileSync(path.join(tmpDir, 'docs', 'a.md'), '---\nstatus: active\nupdated: 2025-01-01\n---\n# A\n');
+    spawnSync('git', ['add', '.'], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-m', 'init'], { cwd: tmpDir });
+
+    const result = run(['doctor']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    // Verify all six step headings appear in order.
+    const steps = ['1.', '2.', '3.', '4.', '5.', '6.'];
+    let lastIdx = -1;
+    for (const step of steps) {
+      const idx = result.stdout.indexOf(step);
+      ok(idx > lastIdx, `step ${step} should appear in order; got: ${result.stdout}`);
+      lastIdx = idx;
+    }
+    ok(result.stdout.includes('5. Claude Code commands'),
+      `step 5 heading should print even with no .claude/ dir; got: ${result.stdout}`);
+  });
+
+  it('briefing Errors line hints at `dotmd check` when errors exist', () => {
+    // Pre-fix: `Errors: 1` with no detail — user had to guess what or where.
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-doctor-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';`);
+    // A doc that will fail validation: status not in the configured set.
+    writeFileSync(
+      path.join(tmpDir, 'docs', 'bad.md'),
+      '---\ntype: plan\nstatus: nonsense-status\nupdated: 2025-01-01\n---\n# Bad\n',
+    );
+
+    const result = run(['briefing']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    // When errors exist, the hint should be inline.
+    ok(/Errors:\s*[1-9]/.test(result.stdout),
+      `expected non-zero error count in briefing; got: ${result.stdout}`);
+    ok(result.stdout.includes('run `dotmd check` to see'),
+      'expected dotmd check hint inline; got: ' + result.stdout);
+  });
+
+  it('briefing Errors line stays terse when there are no errors', () => {
+    // No hint when there's nothing to see — keeps the clean-state line clean.
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-doctor-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';`);
+    writeFileSync(
+      path.join(tmpDir, 'docs', 'ok.md'),
+      '---\ntype: plan\nstatus: active\nupdated: 2025-01-01\ntitle: OK\nsummary: fine\n---\n# OK\n',
+    );
+
+    const result = run(['briefing']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(/Errors:\s*0/.test(result.stdout),
+      `expected zero error count; got: ${result.stdout}`);
+    ok(!result.stdout.includes('run `dotmd check` to see'),
+      `should not show hint when zero errors; got: ${result.stdout}`);
+  });
+
   it('--help shows doctor help', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-doctor-'));
     mkdirSync(path.join(tmpDir, '.git'));

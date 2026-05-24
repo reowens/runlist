@@ -67,27 +67,39 @@ export function runDoctor(argv, config, opts = {}) {
   process.stdout.write('\n' + bold('3. Syncing dates from git...') + '\n');
   runTouch(['--git'], config, { dryRun });
 
-  // Step 4: Regenerate index
-  if (config.indexPath) {
-    process.stdout.write('\n' + bold('4. Regenerating index...') + '\n');
-    if (!dryRun) {
-      const index = buildIndex(config);
-      writeIndex(renderIndexFile(index, config), config);
-      process.stdout.write('Index updated.\n');
-    } else {
-      process.stdout.write('[dry-run] Would regenerate index.\n');
-    }
+  // Step 4: Regenerate index. Heading always prints so the numbering stays
+  // `1,2,3,4,5,6` even when `index.path` isn't configured — pre-fix this was
+  // gated on `config.indexPath`, producing `1,2,3,5,6` on repos with no index.
+  process.stdout.write('\n' + bold('4. Regenerating index...') + '\n');
+  if (!config.indexPath) {
+    process.stdout.write('No index path configured (skip).\n');
+  } else if (dryRun) {
+    process.stdout.write('[dry-run] Would regenerate index.\n');
+  } else {
+    const index = buildIndex(config);
+    writeIndex(renderIndexFile(index, config), config);
+    process.stdout.write('Index updated.\n');
   }
 
-  // Step 5: Refresh Claude Code commands
-  const claudeResults = dryRun ? [] : scaffoldClaudeCommands(config.repoRoot, config);
-  if (claudeResults.some(r => r.action !== 'current' && r.action !== 'skipped')) {
-    process.stdout.write('\n' + bold('5. Claude Code commands:') + '\n');
-    for (const r of claudeResults) {
-      if (r.action === 'updated') {
-        process.stdout.write(`${green('Updated')} .claude/commands/${r.name} (v${r.from} → v${r.to})\n`);
-      } else if (r.action === 'created') {
-        process.stdout.write(`${green('Created')} .claude/commands/${r.name}\n`);
+  // Step 5: Refresh Claude Code commands. Always print the heading so the
+  // numbering stays `1,2,3,4,5,6` — pre-fix it was conditional, so a doctor
+  // run where everything was already current printed `1,2,3,4,6` with `5.`
+  // silently missing.
+  process.stdout.write('\n' + bold('5. Claude Code commands:') + '\n');
+  if (dryRun) {
+    process.stdout.write('[dry-run] Would refresh .claude/commands/ if outdated.\n');
+  } else {
+    const claudeResults = scaffoldClaudeCommands(config.repoRoot, config);
+    const changes = claudeResults.filter(r => r.action === 'updated' || r.action === 'created');
+    if (changes.length === 0) {
+      process.stdout.write('Nothing to refresh.\n');
+    } else {
+      for (const r of changes) {
+        if (r.action === 'updated') {
+          process.stdout.write(`${green('Updated')} .claude/commands/${r.name} (v${r.from} → v${r.to})\n`);
+        } else if (r.action === 'created') {
+          process.stdout.write(`${green('Created')} .claude/commands/${r.name}\n`);
+        }
       }
     }
   }

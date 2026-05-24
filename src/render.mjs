@@ -297,7 +297,13 @@ export function renderBriefing(index, config) {
   if (parts.length) lines.push(parts.join(' | '));
 
   const stale = index.docs.filter(d => d.isStale && !config.lifecycle.skipStaleFor.has(d.status)).length;
-  lines.push(`Stale: ${stale} | Errors: ${index.errors.length} | Warnings: ${index.warnings.length}`);
+  // Append a hint when errors are present — otherwise the user sees `Errors: 1`
+  // with no clue what or where. `dotmd check` is the canonical detail view.
+  const errorCount = index.errors.length;
+  const errorPart = errorCount > 0
+    ? `Errors: ${errorCount} ${dim('(run `dotmd check` to see)')}`
+    : `Errors: ${errorCount}`;
+  lines.push(`Stale: ${stale} | ${errorPart} | Warnings: ${index.warnings.length}`);
 
   try {
     const staleLeases = findStaleLeases(config);
