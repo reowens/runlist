@@ -29,3 +29,4 @@ Thumbs.db
 # Lockfiles from other package managers (this is an npm project)
 pnpm-lock.yaml
 yarn.lock
+.dotmd/

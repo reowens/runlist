@@ -1,8 +1,8 @@
-<!-- dotmd-generated: 0.11.0 -->
+<!-- dotmd-generated: 0.31.0 -->
 
-All documentation in this repo is managed by **dotmd** (v0.11.0). Docs across 1 root: .. Config at `dotmd.config.mjs`.
+All documentation in this repo is managed by **dotmd** (v0.31.0). Docs across 1 root: docs. Config at `dotmd.config.mjs`.
 
-Document types: `plan`, `doc`, `research`.
+Document types: `plan`, `doc`, `prompt`.
 
 Commands for working with docs:
 - `dotmd context` — LLM-oriented briefing across all types
@@ -19,7 +19,11 @@ Commands for working with docs:
 - `dotmd focus <status>` — detailed view for one status group
 
 Lifecycle:
-- `dotmd new <name> --template plan` — scaffold new plan
+- `dotmd new plan <name>` — scaffold new plan
+- `dotmd new doc <name>` — scaffold reference doc
+- `dotmd prompts new <name> "<body>"` — save a resume-prompt
+- `dotmd prompts next` — consume oldest pending prompt (prints body, auto-archives)
+- `dotmd prompts use <file>` — consume a specific prompt (prints body, auto-archives)
 - `dotmd status <file> <status>` — transition status
 - `dotmd archive <file>` — archive with auto ref-fixing
 - `dotmd bulk archive <files>` — archive multiple at once
@@ -27,3 +31,5 @@ Lifecycle:
 - `dotmd lint --fix` — auto-fix frontmatter issues
 - `dotmd fix-refs` — repair broken references and body links
 - `dotmd rename <old> <new>` — rename doc + update all references
+
+**Saved prompts (`docs/prompts/*.md`):** if the user references a file under `docs/prompts/` — e.g. "resume via docs/prompts/foo.md", "use this prompt" — consume it with `dotmd prompts use <file>` (prints the body and archives atomically). Do NOT `cat` it or read it with the file-reading tool. To pick the oldest pending prompt without naming a file, use `dotmd prompts next`.
