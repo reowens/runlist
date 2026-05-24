@@ -2,6 +2,24 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## 0.31.2 — 2026-05-23
+
+This release is the back half of the self-dogfood audit started in 0.31.1. Six discrete fixes; all surfaced by running every dotmd command against the dotmd repo and tracking down the first thing that went wrong.
+
+### Fixed
+
+- **Out-of-box `referenceFields` defaults.** Fresh `dotmd init` scaffolded a config with no `referenceFields`, so `graph`, `deps`, `unblocks`, and `pickup`'s `Related:` resolver were dead on arrival on every new repo even though the built-in `plan` and `doc` templates were already writing `related_plans:`, `related_docs:`, and `parent_plan:`. `DEFAULTS.referenceFields` in `src/config.mjs` now ships with `bidirectional: ['related_plans', 'related_docs']` and `unidirectional: ['parent_plan']`, so every config that omits `referenceFields` inherits the matching defaults (including all v0.31.1-and-earlier configs once they upgrade). `STARTER_CONFIG` writes the same block explicitly so users see the wiring in their own config file. (Audit finding #2.)
+
+- **Freshly-created prompts pass `dotmd check` cleanly.** `dotmd new prompt` (and `dotmd prompts new`) produced a file that immediately failed `check` with one error and two warnings: missing `updated:`, missing `title`, missing `summary`. The canonical "save a prompt for the next session" flow consistently put new files into an error state. Two changes: the prompt template now writes `updated: ${d}` alongside `created:` (matching plan and doc templates), and the validator exempts `type: prompt` from the title and summary warnings because prompts are intentionally body-only one-shot artifacts — the slug names them, the body IS the payload. (Audit finding #3.)
+
+- **`dotmd new` regenerates the index after writing.** A `dotmd new` of any type wrote the file and stopped, leaving `docs/docs.md`'s generated block stale and causing the next `dotmd check` to error on a failure the user couldn't have caused. `runNew` now regenerates the index block after the write (mirroring what `archive` and `status` already did on archive crossings). Wrapped in try/catch so an index failure can't undo a successful create. (Audit finding #4, primary.)
+
+- **Every status, lifecycle, and rename mutation regenerates the index.** The drift surface was broader than `new`. Pre-fix, only archive-crossing transitions regen'd the index. A pure `active → planned` left the per-status sections out of date; `pickup` / `release` / `finish` didn't regen at all (so `## In-session` was always wrong); `rename` left the index links pointing at the old basename. Introduces a `regenIndex(config)` helper in `src/lifecycle.mjs`, called from every doc-set or status mutation. `new` and `rename` import the same helper. (Audit finding #4, broader.)
+
+- **Generated `.claude/commands/plans.md` references real commands only.** The slash-command template had listed `dotmd next` since its initial introduction in March 2026. The command never existed in the dispatcher — agents reading the slash command doc hit `Unknown command: next. Did you mean dotmd new?`. Replaced with `dotmd actionable` (the existing preset filtering to `status: active,ready` AND `has-next-step` — exactly the original "ready plans, what to promote" intent). To prevent the next phantom-command bug, extracted `KNOWN_COMMANDS` from `bin/dotmd.mjs` into `src/commands.mjs` and added a regression test that parses every backtick `dotmd <verb>` from both generated templates and asserts each verb resolves. (Audit finding #6.)
+
+- **`dotmd init` respects `--dry-run` and reports every slash-command outcome.** Two bugs hiding each other. `runInit` took no `dryRun` param and ignored the global `--dry-run` flag entirely — `dotmd init -n` actually wrote the config, docs/, gitignore line, and `.claude/commands/*`. `scaffoldClaudeCommands` had the same gap. Both now accept `{ dryRun }`, every write is gated, every output line is prefixed `[dry-run]` when previewing. Separately, the init report loop only handled the `created` and `current` slash-command outcomes — `updated` (regen from older banner) was silently dropped even though the regen really happened, and `skipped` (user-managed file, no banner) was also unreported. Now all four outcomes print with unified verbs (`create` / `update` / `exists` / `skip`). (Audit finding #7.)
+
 ## 0.31.1 — 2026-05-23
 
 ### Fixed
