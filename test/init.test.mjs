@@ -145,6 +145,58 @@ describe('init scanning', () => {
   });
 });
 
+describe('init type subdirs', () => {
+  it('scaffolds docs/plans/ and docs/prompts/ on fresh init', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    const result = run(['init']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(existsSync(path.join(tmpDir, 'docs', 'plans')));
+    ok(existsSync(path.join(tmpDir, 'docs', 'prompts')));
+  });
+
+  it('reports counts for existing docs/plans/ files including plain markdown', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, 'docs', 'plans'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'docs', 'plans', 'with-fm.md'), '---\nstatus: active\n---\n# A');
+    writeFileSync(path.join(tmpDir, 'docs', 'plans', 'plain.md'), '# Just markdown, no frontmatter');
+    const result = run(['init']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('docs/plans/'));
+    ok(result.stdout.includes('1 dotmd-tracked'), `expected count summary in stdout: ${result.stdout}`);
+    ok(result.stdout.includes('1 plain .md'), `expected plain-md count: ${result.stdout}`);
+  });
+});
+
+describe('init root-level siblings', () => {
+  it('warns about root-level plans/ and skips scaffolding docs/plans/', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, 'plans'));
+    writeFileSync(path.join(tmpDir, 'plans', 'my-plan.md'), '# My plan');
+    const result = run(['init']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('notice'), `expected notice in stdout: ${result.stdout}`);
+    ok(result.stdout.includes('plans/'), 'expected plans/ in notice');
+    ok(result.stdout.includes('mv ./plans/'), 'expected mv hint');
+    ok(result.stdout.includes("export const root = ['plans'"), 'expected flat-root hint');
+    ok(!existsSync(path.join(tmpDir, 'docs', 'plans')), 'should NOT scaffold docs/plans when root sibling has content');
+    // docs/prompts/ has no sibling, so it should still be scaffolded
+    ok(existsSync(path.join(tmpDir, 'docs', 'prompts')));
+  });
+
+  it('ignores empty root-level plans/ directory', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, 'plans'));
+    const result = run(['init']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(!result.stdout.includes('notice'), 'empty root plans/ should not trigger notice');
+    ok(existsSync(path.join(tmpDir, 'docs', 'plans')), 'docs/plans should be scaffolded when sibling is empty');
+  });
+});
+
 describe('init Claude integration', () => {
   it('scaffolds .claude/commands when .claude/ exists and config found', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));

@@ -2,6 +2,14 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## 0.30.0 — 2026-05-23
+
+### Added
+
+- **`dotmd init` now scaffolds and detects `docs/plans/` and `docs/prompts/`.** Previously `init` only created `docs/` and `docs/docs.md` — the canonical subdirs for the built-in `plan` and `prompt` templates were left for the user to discover via the first failing `dotmd new plan`. Now `init` creates them up-front, and the scan reports per-subdir counts split into dotmd-tracked (frontmatter-bearing) vs. plain-markdown files so files without frontmatter aren't invisible.
+
+- **`dotmd init` warns about root-level `plans/` and `prompts/` siblings.** When `./plans/` or `./prompts/` exist at the repo root with `.md` content, `init` skips scaffolding the matching `docs/<sub>/` (avoiding a parallel-tree footgun) and prints a `notice` block with two concrete remediations: a `mv` command to move the files under `docs/`, or the `export const root = ['plans', 'prompts']` snippet for a flat layout. Empty root-level siblings are ignored.
+
 ## 0.29.2 — 2026-05-21
 
 ### Fixed

@@ -1,9 +1,14 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
-import { green, dim } from './color.mjs';
+import { green, dim, yellow } from './color.mjs';
 import { warn } from './util.mjs';
 import { scaffoldClaudeCommands } from './claude-commands.mjs';
+
+// Subdirectories scaffolded under docsRoot and tracked separately during scans.
+// Each maps to a builtin type (plan, prompt). New types added here should also
+// have a matching builtin template so `dotmd new <type>` lands files correctly.
+const TYPE_SUBDIRS = ['plans', 'prompts'];
 
 const STARTER_CONFIG = `// dotmd.config.mjs — document management configuration
 // All exports are optional. See dotmd.config.example.mjs for full reference.
@@ -33,17 +38,33 @@ function scanExistingDocs(dir) {
   const modules = new Set();
   const refFieldNames = new Set();
   let docCount = 0;
+  // Track files per top-level subdir under `dir` (e.g. plans/, prompts/, "")
+  // so callers can report what's already there — including files without frontmatter,
+  // which are otherwise invisible to detection.
+  const subdirCounts = {};
 
-  function walk(d) {
+  function bump(subdir, hasFrontmatter) {
+    if (!subdirCounts[subdir]) subdirCounts[subdir] = { withFrontmatter: 0, withoutFrontmatter: 0 };
+    if (hasFrontmatter) subdirCounts[subdir].withFrontmatter++;
+    else subdirCounts[subdir].withoutFrontmatter++;
+  }
+
+  function walk(d, topSubdir) {
     let entries;
     try { entries = readdirSync(d, { withFileTypes: true }); } catch (err) { warn(`Could not read ${d}: ${err.message}`); return; }
     for (const entry of entries) {
-      if (entry.isDirectory()) { walk(path.join(d, entry.name)); continue; }
+      if (entry.isDirectory()) {
+        const nextTop = topSubdir === null ? entry.name : topSubdir;
+        walk(path.join(d, entry.name), nextTop);
+        continue;
+      }
       if (!entry.name.endsWith('.md')) continue;
       let raw;
       try { raw = readFileSync(path.join(d, entry.name), 'utf8'); } catch (err) { warn(`Could not read ${entry.name}: ${err.message}`); continue; }
       const { frontmatter } = extractFrontmatter(raw);
-      if (!frontmatter) continue;
+      const subdir = topSubdir ?? '';
+      if (!frontmatter) { bump(subdir, false); continue; }
+      bump(subdir, true);
       const parsed = parseSimpleFrontmatter(frontmatter);
       docCount++;
       if (parsed.status) statuses.add(String(parsed.status).toLowerCase());
@@ -59,8 +80,25 @@ function scanExistingDocs(dir) {
     }
   }
 
-  walk(dir);
-  return { docCount, statuses, surfaces, modules, refFieldNames };
+  walk(dir, null);
+  return { docCount, statuses, surfaces, modules, refFieldNames, subdirCounts };
+}
+
+// Count .md files (regardless of frontmatter) directly inside a single directory.
+// Used to detect root-level plans/ or prompts/ siblings that aren't under docsRoot.
+function countMarkdownFiles(dir) {
+  let withFrontmatter = 0;
+  let withoutFrontmatter = 0;
+  let entries;
+  try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return { withFrontmatter, withoutFrontmatter }; }
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
+    let raw;
+    try { raw = readFileSync(path.join(dir, entry.name), 'utf8'); } catch { continue; }
+    const { frontmatter } = extractFrontmatter(raw);
+    if (frontmatter) withFrontmatter++; else withoutFrontmatter++;
+  }
+  return { withFrontmatter, withoutFrontmatter };
 }
 
 function generateDetectedConfig(scan, rootPath) {
@@ -112,10 +150,11 @@ export function runInit(cwd, config) {
 
   process.stdout.write('\n');
 
+  const scan = existsSync(docsDir) ? scanExistingDocs(docsDir) : null;
+
   if (existsSync(configPath)) {
     process.stdout.write(`  ${dim('exists')}  dotmd.config.mjs\n`);
   } else {
-    const scan = existsSync(docsDir) ? scanExistingDocs(docsDir) : null;
     if (scan && scan.docCount > 0) {
       writeFileSync(configPath, generateDetectedConfig(scan, 'docs'), 'utf8');
       process.stdout.write(`  ${green('create')}  dotmd.config.mjs (detected ${scan.docCount} docs)\n`);
@@ -132,11 +171,60 @@ export function runInit(cwd, config) {
     process.stdout.write(`  ${green('create')}  docs/\n`);
   }
 
+  // Inspect root-level siblings (e.g. ./plans/, ./prompts/) before scaffolding.
+  // If a sibling already holds content, skip creating the matching docs/<sub>/
+  // so we don't quietly create a parallel dir the user has to reconcile.
+  const siblingsWithContent = [];
+  for (const sub of TYPE_SUBDIRS) {
+    const siblingPath = path.join(cwd, sub);
+    if (!existsSync(siblingPath)) continue;
+    const c = countMarkdownFiles(siblingPath);
+    const total = c.withFrontmatter + c.withoutFrontmatter;
+    if (total > 0) siblingsWithContent.push({ sub, total });
+  }
+  const siblingSet = new Set(siblingsWithContent.map(s => s.sub));
+
+  // Scaffold the canonical type subdirs (docs/plans/, docs/prompts/) so the
+  // builtin `dotmd new plan` / `dotmd new prompt` templates land somewhere
+  // sensible without extra config.
+  for (const sub of TYPE_SUBDIRS) {
+    const subPath = path.join(docsDir, sub);
+    const counts = scan?.subdirCounts?.[sub];
+    const total = counts ? counts.withFrontmatter + counts.withoutFrontmatter : 0;
+    if (siblingSet.has(sub) && !existsSync(subPath)) {
+      process.stdout.write(`  ${yellow('skip')}    docs/${sub}/ (root-level ./${sub}/ already holds content)\n`);
+      continue;
+    }
+    if (existsSync(subPath)) {
+      const detail = total > 0
+        ? ` (${counts.withFrontmatter} dotmd-tracked, ${counts.withoutFrontmatter} plain .md)`
+        : '';
+      process.stdout.write(`  ${dim('exists')}  docs/${sub}/${detail}\n`);
+    } else {
+      mkdirSync(subPath, { recursive: true });
+      process.stdout.write(`  ${green('create')}  docs/${sub}/\n`);
+    }
+  }
+
   if (existsSync(indexPath)) {
     process.stdout.write(`  ${dim('exists')}  docs/docs.md\n`);
   } else {
     writeFileSync(indexPath, STARTER_INDEX, 'utf8');
     process.stdout.write(`  ${green('create')}  docs/docs.md\n`);
+  }
+
+  if (siblingsWithContent.length > 0) {
+    const list = siblingsWithContent
+      .map(({ sub, total }) => `${sub}/ (${total} .md file${total === 1 ? '' : 's'})`)
+      .join(', ');
+    const subs = siblingsWithContent.map(s => s.sub);
+    process.stdout.write(`\n  ${yellow('notice')}  found at repo root: ${list}\n`);
+    process.stdout.write(`           these are NOT under docs/ and won't be tracked by the default config. Either:\n`);
+    for (const sub of subs) {
+      process.stdout.write(`             • move into docs/: mv ./${sub}/* docs/${sub}/ && rmdir ./${sub}\n`);
+    }
+    process.stdout.write(`             • or use a flat layout — set in dotmd.config.mjs:\n`);
+    process.stdout.write(`                 export const root = [${subs.map(s => `'${s}'`).join(', ')}];\n`);
   }
 
   // .gitignore: ensure .dotmd/ is ignored (session leases live there)
