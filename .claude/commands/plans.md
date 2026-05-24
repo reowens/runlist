@@ -1,8 +1,8 @@
-<!-- dotmd-generated: 0.31.2 -->
+<!-- dotmd-generated: 0.31.4 -->
 
 Run `dotmd context` to get the current plans briefing, then use it to orient yourself.
 
-Plans are managed by **dotmd** (v0.31.2). Config at `dotmd.config.mjs`. Always use `dotmd` directly.
+Plans are managed by **dotmd** (v0.31.4). Config at `dotmd.config.mjs`. Always use `dotmd` directly.
 
 Plan-specific commands:
 - `dotmd context` — briefing with active/paused/ready plans, age tags, next steps
