@@ -5,7 +5,6 @@ import { extractFrontmatter } from './frontmatter.mjs';
 import { summarizeDocBody } from './ai.mjs';
 import { bold, red, yellow, green, dim } from './color.mjs';
 import { findStaleLeases } from './lease.mjs';
-import { listQueuedHandoffs } from './handoff.mjs';
 
 export function renderCompactList(index, config) {
   const defaultRenderer = (idx) => _renderCompactList(idx, config);
@@ -266,16 +265,6 @@ function _renderContext(index, config, opts = {}) {
 
 export function renderBriefing(index, config) {
   const lines = [];
-
-  try {
-    const queued = listQueuedHandoffs(config);
-    if (queued.length > 0) {
-      const preview = queued.slice(0, 3).map(h => path.basename(h.repoPath, '.md')).join(', ');
-      const more = queued.length > 3 ? `, +${queued.length - 3} more` : '';
-      lines.push(green(`▶ ${queued.length} handoff${queued.length === 1 ? '' : 's'} queued: ${preview}${more}`));
-      lines.push(dim(`  Resume: claude "$(dotmd pickup <plan>)"  or just: dotmd pickup`));
-    }
-  } catch {}
 
   const plans = index.docs.filter(d => d.type === 'plan');
   const docs = index.docs.filter(d => d.type === 'doc');

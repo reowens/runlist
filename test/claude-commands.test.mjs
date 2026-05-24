@@ -29,17 +29,15 @@ describe('scaffoldClaudeCommands', () => {
     strictEqual(results.length, 0);
   });
 
-  it('creates plans.md, docs.md, and handoff.md when .claude/ exists', async () => {
+  it('creates plans.md and docs.md when .claude/ exists', async () => {
     setup({ claude: true });
     const config = await resolveConfig(tmpDir);
     const results = scaffoldClaudeCommands(tmpDir, config);
-    strictEqual(results.length, 3);
+    strictEqual(results.length, 2);
     ok(results.some(r => r.name === 'plans.md'));
     ok(results.some(r => r.name === 'docs.md'));
-    ok(results.some(r => r.name === 'handoff.md'));
     ok(existsSync(path.join(tmpDir, '.claude', 'commands', 'plans.md')));
     ok(existsSync(path.join(tmpDir, '.claude', 'commands', 'docs.md')));
-    ok(existsSync(path.join(tmpDir, '.claude', 'commands', 'handoff.md')));
   });
 
   it('includes version marker in generated files', async () => {
@@ -74,7 +72,6 @@ describe('scaffoldClaudeCommands', () => {
     mkdirSync(path.join(tmpDir, '.claude', 'commands'), { recursive: true });
     writeFileSync(path.join(tmpDir, '.claude', 'commands', 'plans.md'), '<!-- dotmd-generated: 0.0.1 -->\nold content');
     writeFileSync(path.join(tmpDir, '.claude', 'commands', 'docs.md'), '<!-- dotmd-generated: 0.0.1 -->\nold content');
-    writeFileSync(path.join(tmpDir, '.claude', 'commands', 'handoff.md'), '<!-- dotmd-generated: 0.0.1 -->\nold content');
     const results = scaffoldClaudeCommands(tmpDir, config);
     ok(results.every(r => r.action === 'updated'));
     ok(results[0].from === '0.0.1');
@@ -86,7 +83,6 @@ describe('scaffoldClaudeCommands', () => {
     mkdirSync(path.join(tmpDir, '.claude', 'commands'), { recursive: true });
     writeFileSync(path.join(tmpDir, '.claude', 'commands', 'plans.md'), '# My custom plans command');
     writeFileSync(path.join(tmpDir, '.claude', 'commands', 'docs.md'), '# My custom docs command');
-    writeFileSync(path.join(tmpDir, '.claude', 'commands', 'handoff.md'), '# My custom handoff command');
     const results = scaffoldClaudeCommands(tmpDir, config);
     ok(results.every(r => r.action === 'skipped'));
   });

@@ -2,6 +2,32 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## 0.31.0 — 2026-05-23
+
+### Removed (BREAKING)
+
+- **`dotmd handoff` command removed.** It overlapped with `dotmd prompts` — both surfaces answered "leave a note for a future session" but with different storage (gitignored sidecar vs. tracked prompt file), different consumption semantics (atomic unlink vs. status transition), and parallel CLIs. Real-world usage stayed on prompts; handoff sat unused. Running `dotmd handoff` now errors with a pointer to `dotmd prompts new`.
+
+- **`.dotmd/handoffs/` sidecar mechanism removed.** Pickup no longer reads or unlinks sidecars; the directory is now ignored. The `listQueuedHandoffs`, `hasHandoff`, `consumeHandoff`, `appendHandoff`, and `handoffPath` helpers (and `src/handoff.mjs` itself) are gone.
+
+- **`/handoff` slash command no longer scaffolded.** `dotmd init` and `dotmd doctor` only install `plans.md` and `docs.md` under `.claude/commands/`. Existing `.claude/commands/handoff.md` files are left untouched (user-managed or stale-marker).
+
+- **`dotmd hud` dropped the "N handoffs queued" line.** Output now has at most three lines (held leases / pending prompts / stale leases) instead of four. `--json` output no longer contains `queued`.
+
+- **`dotmd pickup --json` dropped `handoffConsumed`.** Picking up a plan never reads a sidecar anymore, so the flag has no meaning.
+
+### Migration
+
+If you have queued sidecars under `.dotmd/handoffs/`, they will be silently ignored by 0.31.0. To convert one to a prompt before upgrading (or by hand after):
+
+```bash
+# Replace <name> and <body-path> with the sidecar's plan slug and file.
+dotmd prompts new <name> @<.dotmd/handoffs/path/to/sidecar.md>
+rm <.dotmd/handoffs/path/to/sidecar.md>
+```
+
+Or just delete `.dotmd/handoffs/` if the queued state is no longer needed.
+
 ## 0.30.0 — 2026-05-23
 
 ### Added

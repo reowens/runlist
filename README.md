@@ -146,10 +146,9 @@ dotmd plans                  List all plans
 dotmd stale                  List stale docs
 dotmd actionable             List docs with next steps
 dotmd index [--write]        Generate/update docs.md index block
-dotmd hud                    Three-line actionable triage (silent when clean — ideal SessionStart hook)
-dotmd pickup <file>          Pick up a plan (in-session + print body or queued handoff)
+dotmd hud                    Actionable triage (silent when clean — ideal SessionStart hook)
+dotmd pickup <file>          Pick up a plan (in-session + print body)
 dotmd release [<file>]       Release in-session lease (alias: unpickup)
-dotmd handoff <file> [...]   Queue a resume-prompt sidecar + release
 dotmd status <file> <status> Transition document status
 dotmd archive <file>         Archive (status + move + update refs)
 dotmd bulk archive <files>   Archive multiple files at once
@@ -267,7 +266,7 @@ dotmd prompts archive <file>      # archive a prompt
 dotmd prompts new <name> [body]   # alias for `dotmd new prompt`
 ```
 
-`dotmd hud` surfaces pending prompts on session start (alongside held leases and queued handoffs), so a saved prompt acts as a self-addressed reminder: write it now, the next session sees it.
+`dotmd hud` surfaces pending prompts on session start (alongside held leases), so a saved prompt acts as a self-addressed reminder: write it now, the next session sees it.
 
 Statuses: `pending` (drafted, awaiting a session), `claimed` (consumed by a session), `archived`.
 
@@ -448,7 +447,7 @@ dotmd bulk archive docs/old-*.md -n               # preview
 ### Pickup & Closeout
 
 ```bash
-dotmd pickup docs/plans/my-plan.md       # set in-session + print body (or queued handoff)
+dotmd pickup docs/plans/my-plan.md       # set in-session + print body
 dotmd archive docs/plans/my-plan.md      # fully shipped: archive + auto-release lease
 dotmd release docs/plans/my-plan.md      # need more work: release lease, flip to prior status
 dotmd status docs/plans/my-plan.md partial   # shipped + tail deferred (reference successors in body)
@@ -456,30 +455,6 @@ dotmd status docs/plans/my-plan.md awaiting  # stuck on a human decision
 ```
 
 `finish` is a legacy command that defaults to `status: done`, which is no longer in the default plan vocabulary as of 0.16. Use `archive` (fully shipped) or `release` + `status` (anything else). If you need it back, add `done` to `types.plan.statuses` in your config.
-
-### Handoff (resume-prompts attached to plans)
-
-When you're stopping mid-work and the next session will need to pick up where
-you left off, write a handoff sidecar instead of printing a resume prompt to
-chat for copy-paste:
-
-```bash
-dotmd handoff docs/plans/foo.md "continue from validate(); next: write tests"
-dotmd handoff docs/plans/foo.md - <<'EOF'   # heredoc-friendly for Claude
-…multi-line resume prompt…
-EOF
-dotmd handoff docs/plans/foo.md @/tmp/handoff.md   # from file
-```
-
-The handoff is written to `<repoRoot>/.dotmd/handoffs/<plan-path>` as a
-timestamped section (append mode by default; `--replace` to overwrite). The
-lease is released and the plan flips back to its prior status. The next
-`dotmd pickup` of that plan prints the handoff *instead of* the plan body
-and atomically unlinks the sidecar — single-claim, can't be consumed twice.
-
-The included `/handoff` slash command (scaffolded under
-`.claude/commands/handoff.md` by `dotmd init` / `dotmd doctor`) instructs
-Claude to synthesize and queue handoffs for every plan the session holds.
 
 ### Session leases & release
 
@@ -544,7 +519,7 @@ either is silent.
 ```
 
 - **SessionStart** runs `dotmd hud`, which prints up to three actionable
-  lines (held leases, queued handoffs, stale leases) and stays silent when
+  lines (held leases, pending prompts, stale leases) and stays silent when
   nothing is queued. Use this instead of `dotmd briefing` for the hook role
   — `briefing` dumps per-plan next_step prose that can run to many kilobytes
   on large repos. `hud` is the zero-pollution surface.

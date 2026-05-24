@@ -60,36 +60,6 @@ describe('dotmd hud', () => {
     ok(r.stdout.includes('plan-a'), 'plan slug present');
   });
 
-  it('shows queued handoffs', () => {
-    const docsDir = setupProject();
-    const planPath = writeDoc(docsDir, 'plan-a.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# A\n');
-    runCli(['pickup', planPath], { session: 'sess-A' });
-    runCli(['handoff', planPath, 'resume note'], { session: 'sess-A' });
-
-    // Run hud in a different session so we don't see the (now-released) lease, just the handoff
-    const r = runCli(['hud'], { session: 'sess-B' });
-    strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
-    ok(r.stdout.includes('1 handoff queued'), `expected handoff line, got: ${r.stdout}`);
-    ok(r.stdout.includes('plan-a'), 'slug present');
-    ok(r.stdout.includes('resume:'), 'resume hint present');
-  });
-
-  it('shows held + queued together when both apply', () => {
-    const docsDir = setupProject();
-    const planA = writeDoc(docsDir, 'plan-a.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# A\n');
-    const planB = writeDoc(docsDir, 'plan-b.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# B\n');
-
-    runCli(['pickup', planA], { session: 'sess-X' });
-    runCli(['handoff', planA, 'note for next'], { session: 'sess-X' });
-    runCli(['pickup', planB], { session: 'sess-Y' });
-
-    const r = runCli(['hud'], { session: 'sess-Y' });
-    ok(r.stdout.includes('You hold 1 plan'), 'lease line present');
-    ok(r.stdout.includes('plan-b'), 'held plan slug present');
-    ok(r.stdout.includes('1 handoff queued'), 'handoff line present');
-    ok(r.stdout.includes('plan-a'), 'handoff slug present');
-  });
-
   it('--json returns structured output', () => {
     const docsDir = setupProject();
     const planPath = writeDoc(docsDir, 'plan-a.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# A\n');
@@ -99,7 +69,6 @@ describe('dotmd hud', () => {
     strictEqual(r.status, 0, `hud --json failed: ${r.stderr}`);
     const parsed = JSON.parse(r.stdout);
     ok(Array.isArray(parsed.owned), 'owned is array');
-    ok(Array.isArray(parsed.queued), 'queued is array');
     ok(Array.isArray(parsed.stale), 'stale is array');
     ok(Array.isArray(parsed.prompts), 'prompts is array');
     strictEqual(parsed.owned.length, 1);
@@ -214,10 +183,9 @@ export const types = {
       writeDoc(docsDir, `held-${i}.md`, 'type: plan\nstatus: active\nupdated: 2025-01-01', '# held\n');
       runCli(['pickup', `held-${i}.md`]);
     }
+    mkdirSync(path.join(docsDir, 'prompts'), { recursive: true });
     for (let i = 0; i < 5; i++) {
-      const planPath = writeDoc(docsDir, `queued-${i}.md`, 'type: plan\nstatus: active\nupdated: 2025-01-01', '# queued\n');
-      runCli(['pickup', planPath], { session: 'other' });
-      runCli(['handoff', planPath, 'note'], { session: 'other' });
+      writeDoc(docsDir, `prompts/p-${i}.md`, 'type: prompt\nstatus: pending\ncreated: 2025-01-01', 'body\n');
     }
 
     const r = runCli(['hud']);

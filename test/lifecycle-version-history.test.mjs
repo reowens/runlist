@@ -79,18 +79,6 @@ describe('auto Version History on lifecycle commands', () => {
     ok(after.indexOf('Released') < after.indexOf('Picked up'), 'release entry is newer (above pickup)');
   });
 
-  it('runHandoff appends "Handoff queued (in-session → <new>)." entry', () => {
-    const docsDir = setupProject();
-    const planPath = writePlan(docsDir, 'plan.md', 'type: plan\nstatus: active\nupdated: 2026-05-13T00:00:00Z', baseBody);
-
-    runCli(['pickup', planPath]);
-    const r = runCli(['handoff', planPath, 'note for next session']);
-    strictEqual(r.status, 0, `handoff failed: ${r.stderr}`);
-
-    const after = readFileSync(planPath, 'utf8');
-    match(after, /Handoff queued \(in-session → active\)\./);
-  });
-
   it('runArchive appends "Archived." entry', () => {
     const docsDir = setupProject();
     const planPath = writePlan(docsDir, 'plan.md', 'type: plan\nstatus: active\nupdated: 2026-05-13T00:00:00Z', baseBody);
