@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import os from 'node:os';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { green, dim, yellow } from './color.mjs';
@@ -11,6 +12,40 @@ import { resolveConfig } from './config.mjs';
 // Each maps to a builtin type (plan, prompt). New types added here should also
 // have a matching builtin template so `dotmd new <type>` lands files correctly.
 const TYPE_SUBDIRS = ['plans', 'prompts'];
+
+// Look for a `dotmd hud` SessionStart hook already wired in either the project
+// (.claude/settings{,.local}.json) or the user-global config (~/.claude/
+// settings.json). User-global counts because Claude Code merges global hooks
+// into every project — if the user has it wired globally, this project gets it
+// for free and the init snippet would be noise. We only inspect — we do NOT
+// mutate any file. Settings-merge logic is hostile to do silently (clobbering
+// an existing SessionStart entry would surprise the user), so init just prints
+// a paste-ready snippet when the hook isn't found.
+function detectSessionStartHook(cwd) {
+  const candidates = [
+    path.join(cwd, '.claude', 'settings.json'),
+    path.join(cwd, '.claude', 'settings.local.json'),
+    path.join(os.homedir(), '.claude', 'settings.json'),
+  ];
+  for (const file of candidates) {
+    if (!existsSync(file)) continue;
+    let parsed;
+    try { parsed = JSON.parse(readFileSync(file, 'utf8')); }
+    catch { continue; }
+    const sessionStart = parsed?.hooks?.SessionStart;
+    if (!Array.isArray(sessionStart)) continue;
+    for (const entry of sessionStart) {
+      const inner = Array.isArray(entry?.hooks) ? entry.hooks : [];
+      for (const hook of inner) {
+        if (typeof hook?.command === 'string' && /\bdotmd\s+hud\b/.test(hook.command)) {
+          const rel = file.startsWith(cwd) ? path.relative(cwd, file) : file;
+          return { wired: true, file: rel };
+        }
+      }
+    }
+  }
+  return { wired: false };
+}
 
 const STARTER_CONFIG = `// dotmd.config.mjs — document management configuration
 // All exports are optional. See dotmd.config.example.mjs for full reference.
@@ -308,9 +343,30 @@ export async function runInit(cwd, config, opts = {}) {
     }
   }
 
+  // SessionStart hook hint — only when .claude/ exists. Print-only; users with
+  // existing settings.json need to merge by hand because auto-merging hook
+  // arrays would silently mutate user-managed files.
+  if (existsSync(path.join(cwd, '.claude'))) {
+    const sessionStart = detectSessionStartHook(cwd);
+    if (sessionStart.wired) {
+      process.stdout.write(`  ${dim('exists')}  ${sessionStart.file} (SessionStart hook for \`dotmd hud\` already wired)\n`);
+    } else {
+      process.stdout.write(`\n  ${yellow('hint')}    wire \`dotmd hud\` to run at SessionStart — add to .claude/settings.json:\n\n`);
+      process.stdout.write(`            {\n`);
+      process.stdout.write(`              "hooks": {\n`);
+      process.stdout.write(`                "SessionStart": [\n`);
+      process.stdout.write(`                  { "hooks": [{ "type": "command", "command": "dotmd hud" }] }\n`);
+      process.stdout.write(`                ]\n`);
+      process.stdout.write(`              }\n`);
+      process.stdout.write(`            }\n\n`);
+      process.stdout.write(`            If .claude/settings.json already exists, merge into the existing\n`);
+      process.stdout.write(`            \`hooks.SessionStart\` array rather than replacing the file.\n`);
+    }
+  }
+
   process.stdout.write(`\nReady. A few starting points:\n`);
   process.stdout.write(`  dotmd new doc my-doc            # scaffold a reference doc\n`);
   process.stdout.write(`  dotmd new plan my-plan          # scaffold an execution plan\n`);
   process.stdout.write(`  dotmd list                      # see what you've got\n`);
-  process.stdout.write(`  dotmd hud                       # session-start triage (ideal SessionStart hook)\n\n`);
+  process.stdout.write(`  dotmd hud                       # session-start triage\n\n`);
 }

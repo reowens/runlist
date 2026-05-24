@@ -8,9 +8,21 @@ import { spawnSync } from 'node:child_process';
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
 let tmpDir;
 
-function run(args, cwd) {
+function run(args, cwd, opts = {}) {
+  // Override HOME so SessionStart-hook detection (which reads ~/.claude/
+  // settings.json as a fallback) sees an isolated empty home instead of the
+  // dev's real one. Without this, a developer who has `dotmd hud` wired
+  // globally would see init's "already wired" branch fire in tests that
+  // expected the "print snippet" branch.
+  //
+  // By default HOME == cwd (a single tmpDir is fine; its `.claude/` would
+  // serve as both project and global path, but tests that need to distinguish
+  // the two can pass `opts.home` for a separate fake home dir.
+  const runCwd = cwd ?? tmpDir;
+  const homeDir = opts.home ?? runCwd;
   return spawnSync('node', [BIN, ...args], {
-    cwd: cwd ?? tmpDir, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' },
+    cwd: runCwd, encoding: 'utf8',
+    env: { ...process.env, NO_COLOR: '1', HOME: homeDir },
   });
 }
 
@@ -413,5 +425,95 @@ describe('init Claude integration', () => {
     const result = run(['init']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(!existsSync(path.join(tmpDir, '.claude', 'commands')));
+  });
+
+  it('prints paste-ready SessionStart hook snippet when .claude/ exists and hook is unwired', () => {
+    // gmax audit enhancement E: init already called `dotmd hud` "the ideal
+    // SessionStart hook" but didn't help the user wire it. Now: when .claude/
+    // exists and no SessionStart hook running `dotmd hud` is found in either
+    // settings.json or settings.local.json, print a paste-ready JSON snippet
+    // plus a merge note so users with existing settings don't blow them away.
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, '.claude'));
+    const result = run(['init']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('SessionStart'),
+      `expected SessionStart snippet; got: ${result.stdout}`);
+    ok(result.stdout.includes('"command": "dotmd hud"'),
+      `expected paste-ready hook command; got: ${result.stdout}`);
+    ok(result.stdout.includes('merge into the existing'),
+      `expected merge guidance for existing settings.json; got: ${result.stdout}`);
+  });
+
+  it('skips SessionStart hint when hook is already wired in settings.json', () => {
+    // Inverse of the above — quiet when already configured. Otherwise a user
+    // who's correctly set up the hook would see the same snippet on every
+    // `dotmd init` re-run.
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, '.claude'));
+    writeFileSync(
+      path.join(tmpDir, '.claude', 'settings.json'),
+      JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'dotmd hud' }] }] } }),
+    );
+    const result = run(['init']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(!result.stdout.includes('"command": "dotmd hud"'),
+      `should not print snippet when hook already wired; got: ${result.stdout}`);
+    ok(result.stdout.includes('already wired'),
+      `expected confirmation that hook is wired; got: ${result.stdout}`);
+  });
+
+  it('detects SessionStart hook in settings.local.json too', () => {
+    // settings.local.json is the per-machine variant — users often put hooks
+    // there to keep them out of version control. Detection should find it.
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, '.claude'));
+    writeFileSync(
+      path.join(tmpDir, '.claude', 'settings.local.json'),
+      JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'dotmd hud' }] }] } }),
+    );
+    const result = run(['init']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('already wired'),
+      `should detect hook in settings.local.json; got: ${result.stdout}`);
+  });
+
+  it('detects SessionStart hook in user-global ~/.claude/settings.json', () => {
+    // Claude Code merges global hooks into every project. If the user has
+    // `dotmd hud` wired globally, this project gets it for free — the snippet
+    // would be noise. Detection looks at $HOME/.claude/settings.json too.
+    // Uses a separate fake HOME (distinct from cwd) to exercise the global
+    // path specifically — without this, HOME==cwd would make the global path
+    // and the project's .claude/settings.json the same file.
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    const fakeHome = mkdtempSync(path.join(os.tmpdir(), 'dotmd-fake-home-'));
+    try {
+      mkdirSync(path.join(tmpDir, '.git'));
+      mkdirSync(path.join(tmpDir, '.claude'));  // project .claude/ exists but is empty
+      mkdirSync(path.join(fakeHome, '.claude'));
+      writeFileSync(
+        path.join(fakeHome, '.claude', 'settings.json'),
+        JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'dotmd hud' }] }] } }),
+      );
+      const result = run(['init'], undefined, { home: fakeHome });
+      strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+      ok(result.stdout.includes('already wired'),
+        `should detect global hook; got: ${result.stdout}`);
+    } finally {
+      rmSync(fakeHome, { recursive: true, force: true });
+    }
+  });
+
+  it('skips SessionStart hint entirely when .claude/ does not exist', () => {
+    // No .claude/ → user is not using Claude Code; the hint would be noise.
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    const result = run(['init']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(!result.stdout.includes('SessionStart'),
+      `should stay silent about SessionStart when .claude/ is absent; got: ${result.stdout}`);
   });
 });
