@@ -83,6 +83,10 @@ function scanExistingDocs(dir) {
   const modules = new Set();
   const refFieldNames = new Set();
   let docCount = 0;
+  // Files without a frontmatter block, OR with a block that's missing `type:`
+  // or `status:`. Surfaced by the init "bulk-tag hint" to point users at the
+  // command that can fix them all in one shot.
+  let untaggedCount = 0;
   // Track files per top-level subdir under `dir` (e.g. plans/, prompts/, "")
   // so callers can report what's already there — including files without frontmatter,
   // which are otherwise invisible to detection.
@@ -108,10 +112,13 @@ function scanExistingDocs(dir) {
       try { raw = readFileSync(path.join(d, entry.name), 'utf8'); } catch (err) { warn(`Could not read ${entry.name}: ${err.message}`); continue; }
       const { frontmatter } = extractFrontmatter(raw);
       const subdir = topSubdir ?? '';
-      if (!frontmatter) { bump(subdir, false); continue; }
+      if (!frontmatter) { bump(subdir, false); untaggedCount++; continue; }
       bump(subdir, true);
       const parsed = parseSimpleFrontmatter(frontmatter);
       docCount++;
+      const hasType = typeof parsed.type === 'string' && parsed.type.length > 0;
+      const hasStatus = typeof parsed.status === 'string' && parsed.status.length > 0;
+      if (!hasType || !hasStatus) untaggedCount++;
       if (parsed.status) statuses.add(String(parsed.status).toLowerCase());
       if (parsed.surface) surfaces.add(String(parsed.surface));
       if (Array.isArray(parsed.surfaces)) parsed.surfaces.forEach(s => surfaces.add(String(s)));
@@ -126,7 +133,7 @@ function scanExistingDocs(dir) {
   }
 
   walk(dir, null);
-  return { docCount, statuses, surfaces, modules, refFieldNames, subdirCounts };
+  return { docCount, statuses, surfaces, modules, refFieldNames, subdirCounts, untaggedCount };
 }
 
 // Count .md files (regardless of frontmatter) directly inside a single directory.
@@ -312,6 +319,15 @@ export async function runInit(cwd, config, opts = {}) {
       process.stdout.write(`             !docs/\n`);
       process.stdout.write(`           Or run: echo '!docs/' >> .gitignore\n`);
     }
+  }
+
+  // Bulk-tag hint — when init found pre-existing .md files without
+  // type/status, point at the command that can tag them in one shot. Init's
+  // job here is discovery; the per-file detail lives in `bulk-tag --dry-run`.
+  if (scan?.untaggedCount > 0) {
+    const n = scan.untaggedCount;
+    const noun = n === 1 ? 'file' : 'files';
+    process.stdout.write(`\n  ${yellow('hint')}    ${n} untagged .md ${noun} found — run \`dotmd bulk-tag --dry-run\` to preview tagging.\n`);
   }
 
   // Claude Code integration — auto-detect .claude/ directory.

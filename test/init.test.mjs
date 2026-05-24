@@ -382,6 +382,51 @@ describe('init root-level siblings', () => {
   });
 });
 
+describe('init bulk-tag hint', () => {
+  it('prints hint when untagged .md files exist in docs/', () => {
+    // The brownfield-onboarding gap: init counts pre-existing markdown but
+    // historically did nothing about it. Now it points the user at
+    // `dotmd bulk-tag --dry-run` so they can tag them all in one shot.
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, 'docs', 'plans'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'docs', 'plans', 'plain.md'), '# Just markdown, no frontmatter');
+    writeFileSync(path.join(tmpDir, 'docs', 'partial.md'), '---\ntype: doc\n---\n# Missing status');
+    const result = run(['init']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('2 untagged .md files found'),
+      `expected count + plural; got: ${result.stdout}`);
+    ok(result.stdout.includes('dotmd bulk-tag --dry-run'),
+      `expected command reference in hint; got: ${result.stdout}`);
+  });
+
+  it('stays quiet when every existing doc is fully tagged', () => {
+    // Inverse — the hint should only fire when there's something actionable.
+    // A repo where every file has both `type:` and `status:` should see no
+    // hint, otherwise re-running init on a clean repo would nag forever.
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'docs', 'fine.md'),
+      '---\ntype: doc\nstatus: active\n---\n# Fine\n');
+    const result = run(['init']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(!result.stdout.includes('untagged'),
+      `expected no bulk-tag hint on clean repo; got: ${result.stdout}`);
+  });
+
+  it('uses singular form when exactly 1 untagged file', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'docs', 'lonely.md'), '# Just one untagged');
+    const result = run(['init']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('1 untagged .md file found'),
+      `expected singular form; got: ${result.stdout}`);
+  });
+});
+
 describe('init Claude integration', () => {
   it('scaffolds .claude/commands on fresh init with no pre-existing config', () => {
     // Pre-fix: the dispatcher resolved config BEFORE runInit ran, so on a
