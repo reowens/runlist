@@ -10,7 +10,7 @@ Plan-specific commands:
 - `dotmd release` — release current session's leases (alias: unpickup)
 - `dotmd health` — plan velocity, aging, checklist progress, pipeline view
 - `dotmd unblocks <file>` — what depends on / is blocked by a plan
-- `dotmd next` — ready plans with next steps (what to promote)
+- `dotmd actionable` — ready plans with next steps (what to promote)
 - `dotmd new plan <name>` — scaffold with full phase structure
 - `dotmd prompts new <name> "<body>"` — save a resume-prompt to docs/prompts/
 - `dotmd prompts next` — consume oldest pending prompt (prints body, auto-archives)

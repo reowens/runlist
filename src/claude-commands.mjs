@@ -20,7 +20,7 @@ function generatePlansCommand(config) {
   lines.push('- `dotmd release` — release current session\'s leases (alias: unpickup)');
   lines.push('- `dotmd health` — plan velocity, aging, checklist progress, pipeline view');
   lines.push('- `dotmd unblocks <file>` — what depends on / is blocked by a plan');
-  lines.push('- `dotmd next` — ready plans with next steps (what to promote)');
+  lines.push('- `dotmd actionable` — ready plans with next steps (what to promote)');
   lines.push('- `dotmd new plan <name>` — scaffold with full phase structure');
   lines.push('- `dotmd prompts new <name> "<body>"` — save a resume-prompt to docs/prompts/');
   lines.push('- `dotmd prompts next` — consume oldest pending prompt (prints body, auto-archives)');

@@ -5,6 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { scaffoldClaudeCommands, checkClaudeCommands } from '../src/claude-commands.mjs';
 import { resolveConfig } from '../src/config.mjs';
+import { KNOWN_COMMANDS } from '../src/commands.mjs';
 
 let tmpDir;
 
@@ -140,5 +141,30 @@ describe('generated content teaches prompt consumption', () => {
     const content = readFileSync(path.join(tmpDir, '.claude', 'commands', 'docs.md'), 'utf8');
     ok(content.includes('dotmd prompts use'), 'mentions `dotmd prompts use`');
     ok(content.includes('dotmd prompts new'), 'mentions `dotmd prompts new`');
+  });
+
+  it('every `dotmd <verb>` in generated templates points at a real command', async () => {
+    // Pre-fix: the generated plans.md listed `dotmd next` — a phantom command
+    // that has never existed in the dispatcher. Agents reading the slash
+    // command doc hit `Unknown command: next`. This test parses every backtick
+    // `dotmd <verb>` from both generated templates and asserts each verb is
+    // in the canonical KNOWN_COMMANDS list. Prevents future template drift.
+    setup({ claude: true });
+    const config = await resolveConfig(tmpDir);
+    scaffoldClaudeCommands(tmpDir, config);
+
+    const known = new Set(KNOWN_COMMANDS);
+    const referenced = new Set();
+    for (const name of ['plans.md', 'docs.md']) {
+      const content = readFileSync(path.join(tmpDir, '.claude', 'commands', name), 'utf8');
+      // Match the first verb after `dotmd `: word chars, may contain `-`.
+      for (const match of content.matchAll(/`dotmd ([a-z][a-z0-9-]*)/g)) {
+        referenced.add(match[1]);
+      }
+    }
+
+    ok(referenced.size > 0, 'sanity: should find at least one referenced command');
+    const unknown = [...referenced].filter(v => !known.has(v));
+    strictEqual(unknown.length, 0, `templates reference unknown commands: ${unknown.join(', ')}`);
   });
 });

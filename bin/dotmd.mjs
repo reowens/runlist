@@ -1036,14 +1036,8 @@ async function main() {
   }
 
   // Unknown command — suggest closest match
-  const allCommands = [
-    'list', 'json', 'check', 'coverage', 'stats', 'graph', 'deps', 'briefing', 'context', 'hud',
-    'focus', 'query', 'plans', 'prompts', 'stale', 'actionable', 'index', 'pickup', 'release', 'finish', 'status', 'archive', 'bulk', 'touch', 'doctor',
-    'unblocks', 'health', 'glossary',
-    'fix-refs', 'lint', 'rename', 'migrate', 'notion', 'export', 'summary',
-    'watch', 'diff', 'new', 'init', 'completions', 'statuses',
-  ];
-  const matches = allCommands
+  const { KNOWN_COMMANDS } = await import('../src/commands.mjs');
+  const matches = KNOWN_COMMANDS
     .map(c => ({ cmd: c, dist: levenshtein(command, c) }))
     .sort((a, b) => a.dist - b.dist);
   if (matches[0] && matches[0].dist <= 3) {
