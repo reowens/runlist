@@ -2,6 +2,22 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## 0.31.4 — 2026-05-24
+
+Six fixes from the gmax-repo audit — a different shape than the dotmd self-audit because gmax is a brownfield repo with pre-existing markdown that `dotmd init` had to ingest. Findings ordered by severity, not commit order.
+
+### Fixed
+
+- **`dotmd list` surfaces untagged docs.** Every status section filtered by `d.status === ...`, so docs without a `status:` in frontmatter (or no frontmatter at all) were silently dropped. On a freshly-init'd repo with N pre-existing markdown files, `dotmd list` printed just "Index" — looked like the tool didn't see them. Both `_renderCompactList` and `_renderVerboseList` now append an "Untagged (N) — missing \`status:\` in frontmatter" section listing the paths so users can find and tag them. (gmax audit #1.)
+
+- **`dotmd hud` surfaces validation errors.** Documented as "silent when clean" but stayed silent even when there were N validation errors. A SessionStart hook firing hud therefore left the agent with no signal that `check` was failing. `buildHud` now runs `buildIndex(config)` and includes an `errors` count in its return shape; `runHud` renders a red `✗ N validation errors  (run: dotmd check)` line when > 0. Both text and `--json` output include the new field. (gmax audit #5.)
+
+- **Terminal-status snapshots no longer claim stale "in progress" body text.** Body-scraped `currentState` was clobbering archive docs with claims like `Archived: FIXED (uncommitted)` or `Archived: In progress` — diagnostic snapshots from when the doc was live, now misleading on docs explicitly tagged terminal. For statuses in `lifecycle.terminalStatuses` (archived/reference/deprecated by default), the body-scrape AND the "No current_state set" fallback are both dropped at the index layer when frontmatter has no explicit `current_state:`. Explicit frontmatter still wins. Render layer aligned: terminal docs without currentState render as bare-status (`Reference`, not `Reference: No current_state set` or `Reference: <stale body claim>`). Verbose-list and `dotmd query` got null guards so they don't print `: null` for terminal docs. (gmax audit #3, #4, D.)
+
+- **`dotmd new doc <name> "body"` accepts body and lands it in Overview.** Pre-fix the doc template rejected body input with advice to set `acceptsBody: true` on a custom template — but init scaffolds no custom doc template, so the fix advice was a dead-end. `doc` now declares `acceptsBody: true` and consumes `ctx.bodyInput` in its body fn, placing inline / `--message` / `@path` / stdin body under the `## Overview` heading. Plan stays rejecting (highly structured, no obvious slot). (gmax audit #7.)
+
+- **`dotmd init` warns when `docs/` is gitignored.** Pre-fix, init silently scaffolded `docs/` into repos where `docs/` was already in `.gitignore`, so every doc dotmd managed was untracked. The user only found out via `git ls-files docs/`. Init now runs `git check-ignore -q docs/` after the .gitignore write-or-skip block and emits a yellow notice with the concrete remediation hint (`!docs/`) when the dir is ignored. Only runs inside git repos. (gmax audit #2.)
+
 ## 0.31.3 — 2026-05-23
 
 Closes the self-dogfood audit started in 0.31.1. Four remaining findings shipped; all eleven audit findings are now resolved.
