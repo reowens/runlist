@@ -84,8 +84,12 @@ const DEFAULTS = {
   },
 
   referenceFields: {
-    bidirectional: [],
-    unidirectional: [],
+    // Defaults match the fields the built-in `plan`, `doc`, and `prompt`
+    // templates scaffold, so graph / deps / unblocks / pickup's Related:
+    // resolver work without config. Override by setting `referenceFields`
+    // in your config — your value fully replaces (no per-field merge).
+    bidirectional: ['related_plans', 'related_docs'],
+    unidirectional: ['parent_plan'],
   },
 
   templates: {},

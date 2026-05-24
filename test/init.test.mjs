@@ -45,6 +45,39 @@ describe('init basic', () => {
     ok(content.includes('GENERATED:dotmd:start'));
     ok(content.includes('GENERATED:dotmd:end'));
   });
+
+  it('fresh init wires referenceFields for built-in templates', () => {
+    // Out-of-box, the default plan template writes `related_plans:`,
+    // `related_docs:`, `parent_plan:`. If init scaffolds a config without
+    // matching referenceFields, graph/deps/unblocks/pickup-Related: are dead
+    // on arrival. Verify the config wires them, and that graph actually sees
+    // an edge once two plans cross-reference.
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    run(['init']);
+
+    const config = readFileSync(path.join(tmpDir, 'dotmd.config.mjs'), 'utf8');
+    ok(config.includes('referenceFields'), 'STARTER_CONFIG should declare referenceFields');
+    ok(config.includes('related_plans'), 'should track related_plans by default');
+    ok(config.includes('related_docs'), 'should track related_docs by default');
+    ok(config.includes('parent_plan'), 'should track parent_plan by default');
+
+    run(['new', 'plan', 'alpha']);
+    run(['new', 'plan', 'beta']);
+
+    // Wire alpha → beta via related_plans (matches what users would do).
+    const alphaPath = path.join(tmpDir, 'docs', 'plans', 'alpha.md');
+    const alpha = readFileSync(alphaPath, 'utf8')
+      .replace('related_plans:\n', 'related_plans:\n  - beta.md\n');
+    writeFileSync(alphaPath, alpha);
+
+    const graph = run(['graph', '--json']);
+    strictEqual(graph.status, 0, `graph stderr: ${graph.stderr}`);
+    const parsed = JSON.parse(graph.stdout);
+    ok(parsed.edges.length >= 1, `expected at least one edge, got: ${JSON.stringify(parsed.edges)}`);
+    const edge = parsed.edges.find(e => e.field === 'related_plans');
+    ok(edge, `expected a related_plans edge in: ${JSON.stringify(parsed.edges)}`);
+  });
 });
 
 describe('init idempotency', () => {
