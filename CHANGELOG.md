@@ -2,6 +2,18 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## 0.31.1 — 2026-05-23
+
+### Fixed
+
+- **`dotmd archive` (and `prompts use`, `prompts archive`, `rename`, `status` → archived/unarchived) no longer fails on uncommitted files.** All of these went through `gitMv`, which shelled out to `git mv` unconditionally. On a file that had never been `git add`-ed — the common case of scaffolding a doc and archiving it in the same session — `git mv` errors with `fatal: not under version control`, and the user has no recourse since the file is genuinely a doc, just not yet staged. `dotmd prompts use` was especially affected because the canonical "queue a prompt for the next session" workflow creates a prompt that is consumed before any commit happens.
+
+  `gitMv` now checks `git ls-files --error-unmatch` first. Tracked sources still use `git mv` (preserving rename history). Untracked sources — and sources in directories that aren't git repos at all — fall back to `fs.renameSync`. Behavior is otherwise identical; return shape is unchanged. Tests in `test/git.test.mjs` cover the tracked path, the untracked path, and the no-repo path.
+
+- **`dotmd stats`, `dotmd coverage`, `dotmd check`'s module-required validator, and `dotmd export` (markdown + html) now read the canonical `surfaces:` / `modules:` plural arrays.** The default plan template writes the plural list form, and `src/index.mjs` merges any singular `surface:` / `module:` value into the plural array so plural is the source of truth. But four readers still consulted only the singular field, so a plan with `surfaces: [cli]` and `modules: [init, doctor]` showed up as "missing surface" / "missing module" in coverage and stats, and was rejected by the module-required validator for active/ready/planned/blocked docs. `dotmd list --json` made the gap visible — `"surface": null` and `"surfaces": ["cli"]` side by side, with downstream readers consulting the null.
+
+  After the fix, plural-only and singular-only and mixed forms all count identically. `dotmd graph --json` now emits both `module`/`surface` and `modules`/`surfaces` for forward compat. Regression tests cover plural-only docs in `test/stats.test.mjs` and `test/render.test.mjs`.
+
 ## 0.31.0 — 2026-05-23
 
 ### Removed (BREAKING)
