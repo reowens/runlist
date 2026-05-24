@@ -832,3 +832,18 @@ export function updateFrontmatter(filePath, updates) {
 
   writeFileSync(filePath, `---\n${frontmatter}\n---\n${body}`, 'utf8');
 }
+
+// Prepend a fresh `---\n…\n---\n` block to a file that has no frontmatter yet.
+// Sibling to updateFrontmatter() for the bulk-tag flow, which needs to tag
+// pre-existing markdown files that never had a frontmatter block. Delegates
+// to updateFrontmatter when a block already exists so callers can hand it any
+// file without pre-checking — the result is the same shape either way.
+export function writeFrontmatter(filePath, fields) {
+  const raw = readFileSync(filePath, 'utf8');
+  if (raw.startsWith('---\n')) {
+    updateFrontmatter(filePath, fields);
+    return;
+  }
+  const lines = Object.entries(fields).map(([k, v]) => `${k}: ${v}`).join('\n');
+  writeFileSync(filePath, `---\n${lines}\n---\n${raw}`, 'utf8');
+}

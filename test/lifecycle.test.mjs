@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { resolveConfig } from '../src/config.mjs';
-import { updateFrontmatter } from '../src/lifecycle.mjs';
+import { updateFrontmatter, writeFrontmatter } from '../src/lifecycle.mjs';
 
 let tmpDir;
 
@@ -79,6 +79,43 @@ describe('updateFrontmatter', () => {
       threw = true;
     }
     ok(threw);
+  });
+});
+
+describe('writeFrontmatter', () => {
+  it('prepends a fresh frontmatter block to a file without one', () => {
+    // The bulk-tag flow needs to tag pre-existing markdown that never had
+    // a frontmatter block. updateFrontmatter throws on that case; this
+    // helper creates the block instead.
+    const docsDir = setupProject();
+    const filePath = path.join(docsDir, 'untagged.md');
+    writeFileSync(filePath, '# Legacy doc\n\nSome body content.\n');
+
+    writeFrontmatter(filePath, { type: 'doc', status: 'draft' });
+
+    const content = readFileSync(filePath, 'utf8');
+    ok(content.startsWith('---\n'), `expected leading frontmatter block; got:\n${content}`);
+    ok(content.includes('type: doc'), 'type field written');
+    ok(content.includes('status: draft'), 'status field written');
+    ok(content.includes('# Legacy doc'), 'body preserved');
+    ok(content.includes('Some body content.'), 'full body preserved');
+  });
+
+  it('delegates to updateFrontmatter when block already exists', () => {
+    // Callers should be able to hand any file to writeFrontmatter without
+    // pre-checking — when a block exists, behavior matches updateFrontmatter
+    // (append-or-replace key by key).
+    const docsDir = setupProject();
+    const filePath = writeDoc(docsDir, 'tagged.md', 'type: doc', '# Already tagged\n');
+
+    writeFrontmatter(filePath, { status: 'active' });
+
+    const content = readFileSync(filePath, 'utf8');
+    ok(content.includes('type: doc'), 'existing field preserved');
+    ok(content.includes('status: active'), 'new field appended');
+    // Should NOT double up the frontmatter block.
+    const blockCount = (content.match(/^---$/gm) || []).length;
+    strictEqual(blockCount, 2, `expected exactly 2 block markers (open + close); got ${blockCount}`);
   });
 });
 
