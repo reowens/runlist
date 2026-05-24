@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { toRepoPath, die, warn, nowIso } from './util.mjs';
 import { green, dim, bold } from './color.mjs';
 import { isInteractive, promptText } from './prompt.mjs';
+import { buildIndex } from './index.mjs';
+import { renderIndexFile, writeIndex } from './index-file.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
@@ -328,6 +330,19 @@ export async function runNew(argv, config, opts = {}) {
 
   writeFileSync(filePath, content, 'utf8');
   process.stdout.write(`${green('Created')}: ${repoPath} ${dim(`(${typeName})`)}\n`);
+
+  // Mirror what archive/status do on doc-set mutations: regen the generated
+  // index block so the very next `check` passes instead of erroring on a
+  // stale index the user can't have caused. Best-effort — index rebuild
+  // failures shouldn't undo the successful create.
+  if (config.indexPath) {
+    try {
+      const index = buildIndex(config);
+      writeIndex(renderIndexFile(index, config), config);
+    } catch (err) {
+      warn(`Could not regenerate index after create (run \`dotmd index --write\`): ${err.message}`);
+    }
+  }
 
   try { config.hooks.onNew?.({ path: repoPath, status, title: docTitle, type: typeName }); } catch (err) { warn(`Hook 'onNew' threw: ${err.message}`); }
 }

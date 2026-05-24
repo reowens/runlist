@@ -46,6 +46,29 @@ describe('init basic', () => {
     ok(content.includes('GENERATED:dotmd:end'));
   });
 
+  it('init + new plan does not leave a stale index', () => {
+    // Pre-fix: `dotmd new` wrote the doc but didn't regen `docs/docs.md`'s
+    // generated block, so the very next `dotmd check` failed with
+    // "Generated index block is stale" on a brand-new repo the user
+    // couldn't have srostered up. Mirror archive/status behavior: regen on
+    // any doc-set mutation.
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    run(['init']);
+    const newR = run(['new', 'plan', 'alpha']);
+    strictEqual(newR.status, 0, `new failed: ${newR.stderr}`);
+
+    const check = run(['check']);
+    ok(
+      !check.stdout.includes('Generated index block is stale'),
+      `check should not flag stale index after new; got: ${check.stdout}`,
+    );
+
+    // Belt-and-suspenders: docs.md should mention the new plan by slug.
+    const indexContent = readFileSync(path.join(tmpDir, 'docs', 'docs.md'), 'utf8');
+    ok(indexContent.includes('alpha'), `index should list the new plan; got: ${indexContent}`);
+  });
+
   it('fresh init wires referenceFields for built-in templates', () => {
     // Out-of-box, the default plan template writes `related_plans:`,
     // `related_docs:`, `parent_plan:`. If init scaffolds a config without
