@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { green, dim, yellow } from './color.mjs';
@@ -258,6 +259,23 @@ export async function runInit(cwd, config, opts = {}) {
   } else {
     if (!dryRun) writeFileSync(gitignorePath, `${ignoreLine}\n`, 'utf8');
     process.stdout.write(`  ${dryTag}${green('create')}  .gitignore\n`);
+  }
+
+  // Warn when docs/ is gitignored — silently scaffolding into an ignored dir
+  // means every doc we manage falls outside git, which a doc-management tool
+  // should not leave the user guessing about. Three of gmax's six docs were
+  // force-added; the other three were untracked and the user had no way to
+  // know without `git ls-files docs/`.
+  if (existsSync(path.join(cwd, '.git'))) {
+    const probe = spawnSync('git', ['check-ignore', '-q', 'docs/'], {
+      cwd, encoding: 'utf8',
+    });
+    // Exit 0 → ignored. Exit 1 → not ignored. Exit 128 → not in repo / git error.
+    if (probe.status === 0) {
+      process.stdout.write(`\n  ${yellow('notice')}  docs/ is gitignored — files dotmd manages will NOT be tracked.\n`);
+      process.stdout.write(`           Add an exception to .gitignore so docs/ is tracked:\n`);
+      process.stdout.write(`             !docs/\n`);
+    }
   }
 
   // Claude Code integration — auto-detect .claude/ directory.

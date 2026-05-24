@@ -3,7 +3,8 @@ import path from 'node:path';
 import { readLeases, findStaleLeases, currentSessionId } from './lease.mjs';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { asString, toRepoPath } from './util.mjs';
-import { green, yellow, dim } from './color.mjs';
+import { green, yellow, red, dim } from './color.mjs';
+import { buildIndex } from './index.mjs';
 
 const MAX_PREVIEW = 5;
 
@@ -71,7 +72,17 @@ export function buildHud(config) {
   const stale = findStaleLeases(config).map(l => l.path);
   const prompts = findActionablePrompts(config);
 
-  return { owned, stale, prompts };
+  // Validation error count — hud's "silent when clean" contract should treat
+  // `check` errors as not-clean. Without this, a SessionStart hook firing hud
+  // can leave the agent with no visible signal that a check is failing.
+  // buildIndex wraps the same scan every other read command does; cost is fine.
+  let errors = 0;
+  try {
+    const index = buildIndex(config);
+    errors = index.errors.length;
+  } catch { /* swallow — bad config shouldn't break the SessionStart hook */ }
+
+  return { owned, stale, prompts, errors };
 }
 
 export function runHud(argv, config) {
@@ -92,6 +103,9 @@ export function runHud(argv, config) {
   }
   if (hud.stale.length > 0) {
     lines.push(yellow(`⚠ ${hud.stale.length} stuck lease${hud.stale.length === 1 ? '' : 's'} >24h  ${dim('(run: dotmd release --stale)')}`));
+  }
+  if (hud.errors > 0) {
+    lines.push(red(`✗ ${hud.errors} validation error${hud.errors === 1 ? '' : 's'}  ${dim('(run: dotmd check)')}`));
   }
 
   if (lines.length === 0) return; // silent when clean

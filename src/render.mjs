@@ -70,6 +70,21 @@ function _renderCompactList(index, config) {
     lines.push('');
   }
 
+  // Surface docs without a status (untagged — either no frontmatter at all,
+  // or frontmatter present but no `status:` key). Pre-fix these were silently
+  // dropped because every section filtered by status, so `dotmd list` on a
+  // freshly-init'd brownfield repo with N existing .md files showed just
+  // "Index" and looked like the tool didn't see them. Now they get their own
+  // section with the path so the user can find them and add frontmatter.
+  const untagged = index.docs.filter(d => !d.status);
+  if (untagged.length > 0) {
+    lines.push(bold(`Untagged (${untagged.length})  ${dim('— missing `status:` in frontmatter')}`));
+    for (const doc of untagged) {
+      lines.push(`  ${doc.path}`);
+    }
+    lines.push('');
+  }
+
   return `${lines.join('\n').trimEnd()}\n`;
 }
 
@@ -107,6 +122,17 @@ export function renderVerboseList(index, config) {
         parts.push(`next: ${doc.nextStep}`);
       }
       lines.push(parts.join(' — '));
+    }
+    lines.push('');
+  }
+
+  // Surface untagged docs (no `status:` in frontmatter, or no frontmatter at
+  // all) — see _renderCompactList for the why.
+  const untagged = index.docs.filter(d => !d.status);
+  if (untagged.length > 0) {
+    lines.push(`Untagged (${untagged.length}) — missing \`status:\` in frontmatter`);
+    for (const doc of untagged) {
+      lines.push(`- ${doc.title} — (${doc.path})`);
     }
     lines.push('');
   }
@@ -408,7 +434,7 @@ export function renderProgressBar(checklist) {
 }
 
 export function formatSnapshot(doc, config) {
-  const defaultFormatter = (d) => _formatSnapshot(d);
+  const defaultFormatter = (d) => _formatSnapshot(d, config);
   if (config.hooks.formatSnapshot) {
     try { return config.hooks.formatSnapshot(doc, defaultFormatter); }
     catch (err) { warn(`Hook 'formatSnapshot' threw: ${err.message}`); }
@@ -416,7 +442,18 @@ export function formatSnapshot(doc, config) {
   return defaultFormatter(doc);
 }
 
-function _formatSnapshot(doc) {
+function _formatSnapshot(doc, config) {
+  // For terminal/skip-warnings statuses (archived, reference, deprecated, etc.)
+  // a missing `current_state` is fine — these are settled docs, no one's expected
+  // to be tracking what they're "currently doing." Pre-fix, the bare-status
+  // fallback rendered as `Reference: No current_state set` everywhere, which
+  // looked like a noisy hint to add a field that the templates never scaffolded.
+  // Now: bare-status line when terminal AND no current_state.
+  const skipWarnings = config?.lifecycle?.skipWarningsFor;
+  const isTerminal = doc.status && skipWarnings && skipWarnings.has(doc.status);
+  if (isTerminal && !doc.currentState) {
+    return capitalize(doc.status);
+  }
   const state = doc.currentState ?? 'No current_state set';
   if (/^active:|^ready:|^planned:|^scoping:|^blocked:|^archived:/i.test(state)) {
     return state;

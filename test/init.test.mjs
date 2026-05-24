@@ -311,6 +311,35 @@ describe('init type subdirs', () => {
   });
 });
 
+describe('init gitignore detection', () => {
+  it('warns when docs/ is already gitignored', () => {
+    // Pre-fix: init silently scaffolded docs/ into a repo where docs/ was
+    // already in .gitignore, so every doc dotmd managed was untracked. The
+    // user only found out via `git ls-files docs/`. Now: a yellow notice
+    // with the `!docs/` exception hint.
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    // Need a real git repo for `git check-ignore` to work.
+    spawnSync('git', ['init'], { cwd: tmpDir });
+    writeFileSync(path.join(tmpDir, '.gitignore'), 'docs/\n');
+    const result = run(['init']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('docs/ is gitignored'),
+      `expected gitignore notice; got: ${result.stdout}`);
+    ok(result.stdout.includes('!docs/'),
+      `expected !docs/ exception hint; got: ${result.stdout}`);
+  });
+
+  it('stays quiet when docs/ is NOT gitignored', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    spawnSync('git', ['init'], { cwd: tmpDir });
+    const result = run(['init']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(!result.stdout.includes('docs/ is gitignored'),
+      `should not warn when docs/ is tracked; got: ${result.stdout}`);
+  });
+});
+
 describe('init root-level siblings', () => {
   it('warns about root-level plans/ and skips scaffolding docs/plans/', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));

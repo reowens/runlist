@@ -116,8 +116,9 @@ describe('dotmd hud', () => {
 
   it('does not list already-archived prompts', () => {
     const docsDir = setupProject();
-    mkdirSync(path.join(docsDir, 'prompts'), { recursive: true });
-    writeDoc(docsDir, 'prompts/done.md', 'type: prompt\nstatus: archived\ncreated: 2025-01-01', 'body');
+    // Archived prompts live under prompts/archived/ (validator enforces this).
+    mkdirSync(path.join(docsDir, 'prompts', 'archived'), { recursive: true });
+    writeDoc(docsDir, 'prompts/archived/done.md', 'type: prompt\nstatus: archived\ncreated: 2025-01-01\nupdated: 2025-01-01', 'body');
 
     const r = runCli(['hud']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
@@ -127,7 +128,7 @@ describe('dotmd hud', () => {
   it('does not list claimed prompts (default counted)', () => {
     const docsDir = setupProject();
     mkdirSync(path.join(docsDir, 'prompts'), { recursive: true });
-    writeDoc(docsDir, 'prompts/in-progress.md', 'type: prompt\nstatus: claimed\ncreated: 2025-01-01', 'body');
+    writeDoc(docsDir, 'prompts/in-progress.md', 'type: prompt\nstatus: claimed\ncreated: 2025-01-01\nupdated: 2025-01-01', 'body');
 
     const r = runCli(['hud']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
@@ -166,7 +167,7 @@ export const types = {
     }
     write('p1.md', 'type: prompt\nstatus: pending\ncreated: 2025-01-01');
     write('p2.md', 'type: prompt\nstatus: urgent\ncreated: 2025-01-01');
-    write('p3.md', 'type: prompt\nstatus: claimed\ncreated: 2025-01-01');
+    write('p3.md', 'type: prompt\nstatus: claimed\ncreated: 2025-01-01\nupdated: 2025-01-01');
 
     const r = runCli(['hud', '--json']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
@@ -175,6 +176,36 @@ export const types = {
     ok(parsed.prompts.some(p => p.endsWith('p1.md')), 'pending surfaced');
     ok(parsed.prompts.some(p => p.endsWith('p2.md')), 'urgent surfaced');
     ok(!parsed.prompts.some(p => p.endsWith('p3.md')), 'claimed NOT surfaced');
+  });
+
+  it('surfaces validation errors (not silent when check is failing)', () => {
+    // Pre-fix: hud was documented as "silent when clean" but stayed silent
+    // even when there were N validation errors. SessionStart hook firing hud
+    // therefore left the agent with no signal that a doc was broken. Now an
+    // error count gets a red line with the `dotmd check` hint.
+    const docsDir = setupProject();
+    // A doc that will fail validation: archive status but wrong location.
+    writeDoc(docsDir, 'broken.md',
+      'type: plan\nstatus: archived\nupdated: 2025-01-01', '# Broken\n');
+
+    const r = runCli(['hud']);
+    strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
+    ok(/validation error/.test(r.stdout),
+      `hud should surface validation error count; got: ${r.stdout}`);
+    ok(r.stdout.includes('dotmd check'),
+      `hud error line should hint at dotmd check; got: ${r.stdout}`);
+  });
+
+  it('--json includes errors count', () => {
+    const docsDir = setupProject();
+    writeDoc(docsDir, 'broken.md',
+      'type: plan\nstatus: archived\nupdated: 2025-01-01', '# Broken\n');
+
+    const r = runCli(['hud', '--json']);
+    strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
+    const parsed = JSON.parse(r.stdout);
+    strictEqual(typeof parsed.errors, 'number', 'errors is a number in JSON output');
+    ok(parsed.errors >= 1, `expected at least 1 error; got: ${parsed.errors}`);
   });
 
   it('output stays under ~500 bytes when full of common signals', () => {

@@ -88,6 +88,25 @@ describe('renderCompactList', () => {
     const result = renderCompactList(index, makeConfig());
     ok(result.includes('My Great Plan'), 'includes the doc title');
   });
+
+  it('surfaces untagged docs in an Untagged section', () => {
+    // Pre-fix: docs without `status:` (no frontmatter at all, or frontmatter
+    // present but no status key) were silently filtered out of every section,
+    // so `dotmd list` on a brownfield repo with N pre-existing markdown files
+    // showed just "Index" and looked like the tool didn't see them. They now
+    // get an Untagged section with their path so users can find and tag them.
+    const index = {
+      docs: [
+        makeDoc({ title: 'Tagged', status: 'active' }),
+        makeDoc({ title: 'Loose', status: null, path: 'docs/loose.md' }),
+        makeDoc({ title: 'Also loose', status: null, path: 'docs/also.md' }),
+      ],
+    };
+    const result = renderCompactList(index, makeConfig());
+    ok(/Untagged \(2\)/.test(result), `expected Untagged (2) section; got: ${result}`);
+    ok(result.includes('docs/loose.md'), 'lists first untagged path');
+    ok(result.includes('docs/also.md'), 'lists second untagged path');
+  });
 });
 
 describe('renderProgressBar', () => {
@@ -142,6 +161,42 @@ describe('formatSnapshot', () => {
     const doc = makeDoc({ status: 'blocked', currentState: 'Blocked: waiting on API' });
     const result = formatSnapshot(doc, makeConfig());
     strictEqual(result, 'Blocked: waiting on API');
+  });
+
+  it('suppresses "No current_state set" fallback on terminal statuses', () => {
+    // Pre-fix: a reference doc with no current_state rendered as
+    // `Reference: No current_state set` — looked like a noisy hint to fill in
+    // a field the templates never scaffolded. Terminal/skipWarnings statuses
+    // (archived, reference, deprecated) are settled docs; there's no
+    // current-work to track. Now: bare-status label, no nag.
+    const config = makeConfig({
+      lifecycle: {
+        skipStaleFor: new Set(),
+        skipWarningsFor: new Set(['reference', 'archived', 'deprecated']),
+        archiveStatuses: new Set(['archived']),
+        terminalStatuses: new Set(['archived', 'reference', 'deprecated']),
+      },
+    });
+    const doc = makeDoc({ status: 'reference', currentState: null });
+    const result = formatSnapshot(doc, config);
+    strictEqual(result, 'Reference', 'no "No current_state set" tail on terminal status');
+  });
+
+  it('keeps the fallback nag on non-terminal statuses', () => {
+    // Inverse of the above — active/ready/planned/etc. SHOULD nag, because
+    // current_state really is the canonical "what's happening" field for
+    // work-in-flight docs.
+    const config = makeConfig({
+      lifecycle: {
+        skipStaleFor: new Set(),
+        skipWarningsFor: new Set(['reference']),
+        archiveStatuses: new Set(['archived']),
+        terminalStatuses: new Set(['archived', 'reference']),
+      },
+    });
+    const doc = makeDoc({ status: 'active', currentState: null });
+    const result = formatSnapshot(doc, config);
+    strictEqual(result, 'Active: No current_state set');
   });
 });
 
