@@ -275,6 +275,7 @@ export async function runInit(cwd, config, opts = {}) {
       process.stdout.write(`\n  ${yellow('notice')}  docs/ is gitignored — files dotmd manages will NOT be tracked.\n`);
       process.stdout.write(`           Add an exception to .gitignore so docs/ is tracked:\n`);
       process.stdout.write(`             !docs/\n`);
+      process.stdout.write(`           Or run: echo '!docs/' >> .gitignore\n`);
     }
   }
 

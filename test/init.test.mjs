@@ -328,6 +328,8 @@ describe('init gitignore detection', () => {
       `expected gitignore notice; got: ${result.stdout}`);
     ok(result.stdout.includes('!docs/'),
       `expected !docs/ exception hint; got: ${result.stdout}`);
+    ok(result.stdout.includes(`echo '!docs/' >> .gitignore`),
+      `expected copy-pasteable command hint; got: ${result.stdout}`);
   });
 
   it('stays quiet when docs/ is NOT gitignored', () => {
