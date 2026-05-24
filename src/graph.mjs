@@ -43,7 +43,9 @@ export function buildGraph(index, config, filters = {}) {
     title: d.title,
     status: d.status,
     module: d.module,
+    modules: d.modules,
     surface: d.surface,
+    surfaces: d.surfaces,
     edgeCount: 0,
   }));
   const nodeMap = new Map(nodes.map(n => [n.id, n]));

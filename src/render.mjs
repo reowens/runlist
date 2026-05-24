@@ -379,10 +379,10 @@ export function renderCoverage(index, config) {
 export function buildCoverage(index, config) {
   const scope = [...new Set(index.docs.map(d => d.status).filter(s => s && !config.lifecycle.terminalStatuses.has(s)))];
   const scoped = index.docs.filter(doc => doc.status && !config.lifecycle.terminalStatuses.has(doc.status));
-  const missingSurface = scoped.filter(doc => !doc.surface);
-  const missingModule = scoped.filter(doc => !doc.module);
-  const modulePlatform = scoped.filter(doc => doc.module === 'platform');
-  const moduleNone = scoped.filter(doc => doc.module === 'none');
+  const missingSurface = scoped.filter(doc => !doc.surfaces?.length);
+  const missingModule = scoped.filter(doc => !doc.modules?.length);
+  const modulePlatform = scoped.filter(doc => doc.modules?.includes('platform'));
+  const moduleNone = scoped.filter(doc => doc.modules?.includes('none'));
   const auditLevelNone = scoped.filter(doc => doc.auditLevel === 'none');
   const audited = scoped.filter(doc => ['pass1', 'pass2', 'deep'].includes(doc.auditLevel));
 

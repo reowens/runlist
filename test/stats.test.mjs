@@ -18,15 +18,19 @@ function makeConfig(overrides = {}) {
 }
 
 function makeDoc(overrides = {}) {
-  return {
+  const base = {
     path: 'docs/test.md', title: 'Test', status: 'active',
-    owner: null, surface: null, module: null, surfaces: [], modules: [],
+    owner: null, surface: null, module: null,
     daysSinceUpdate: 5, isStale: false, hasNextStep: false, hasBlockers: false,
     checklist: { completed: 0, open: 0, total: 0 }, checklistCompletionRate: null,
     auditLevel: null, audited: null, bodyLinks: [], refFields: {},
     errors: [], warnings: [],
     ...overrides,
   };
+  // Mirror src/index.mjs:162-164 — readers consume the plural arrays.
+  if (base.surfaces === undefined) base.surfaces = base.surface ? [base.surface] : [];
+  if (base.modules === undefined) base.modules = base.module ? [base.module] : [];
+  return base;
 }
 
 function makeIndex(docs, errors = [], warnings = []) {
@@ -144,6 +148,21 @@ describe('buildStats', () => {
     strictEqual(stats.completeness.hasSurface, 1);
     strictEqual(stats.completeness.hasModule, 1);
     strictEqual(stats.completeness.hasNextStep, 1);
+  });
+
+  it('counts plural-only surfaces/modules in completeness', () => {
+    // Default plan template writes the plural form. Before the fix, hasSurface
+    // and hasModule only checked the singular field, so plural-only docs were
+    // miscounted as missing.
+    const config = makeConfig();
+    const index = makeIndex([
+      makeDoc({ status: 'active', surface: null, surfaces: ['cli'], module: null, modules: ['init'] }),
+      makeDoc({ status: 'active', surface: null, surfaces: [], module: null, modules: [] }),
+    ]);
+    const stats = buildStats(index, config);
+    strictEqual(stats.completeness.scoped, 2);
+    strictEqual(stats.completeness.hasSurface, 1, 'plural-only surfaces must count as present');
+    strictEqual(stats.completeness.hasModule, 1, 'plural-only modules must count as present');
   });
 
   it('computes checklist metrics', () => {

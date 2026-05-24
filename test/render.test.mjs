@@ -33,7 +33,7 @@ function makeConfig(overrides = {}) {
 }
 
 function makeDoc(overrides = {}) {
-  return {
+  const base = {
     title: 'Test Doc',
     status: 'active',
     path: 'docs/test-doc.md',
@@ -49,6 +49,11 @@ function makeDoc(overrides = {}) {
     warnings: [],
     ...overrides,
   };
+  // Mirror src/index.mjs:162-164 — readers consume the plural arrays, which
+  // always contain the singular value. Tests can still set singular only.
+  if (base.surfaces === undefined) base.surfaces = base.surface ? [base.surface] : [];
+  if (base.modules === undefined) base.modules = base.module ? [base.module] : [];
+  return base;
 }
 
 describe('renderCompactList', () => {
@@ -232,6 +237,24 @@ describe('buildCoverage', () => {
     const coverage = buildCoverage(index, makeConfig());
     strictEqual(coverage.totals.modulePlatform, 1);
     strictEqual(coverage.totals.moduleNone, 1);
+  });
+
+  it('counts plural-only surfaces/modules (no singular field)', () => {
+    // The default plan template writes `surfaces:`/`modules:` (plural).
+    // Before the fix, coverage filtered on singular only — plural-only docs
+    // showed up as "missing" even when populated.
+    const index = {
+      docs: [
+        makeDoc({ status: 'active', surface: null, surfaces: ['cli'], module: null, modules: ['init', 'doctor'] }),
+        makeDoc({ status: 'active', surface: null, surfaces: ['cli'], module: null, modules: ['platform'] }),
+        makeDoc({ status: 'active', surface: null, surfaces: [], module: null, modules: [] }),
+      ],
+    };
+    const coverage = buildCoverage(index, makeConfig());
+    strictEqual(coverage.totals.scopedDocs, 3);
+    strictEqual(coverage.totals.missingSurface, 1, 'plural-only surfaces must not count as missing');
+    strictEqual(coverage.totals.missingModule, 1, 'plural-only modules must not count as missing');
+    strictEqual(coverage.totals.modulePlatform, 1, 'module:platform inside plural array must count');
   });
 
   it('counts audited docs (pass1/pass2/deep)', () => {

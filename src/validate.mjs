@@ -102,8 +102,8 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
     doc.errors.push({ path: doc.path, level: 'error', message: '`modules` must be a YAML list when present.' });
   }
 
-  if (config.moduleRequiredStatuses.has(doc.status) && !doc.module) {
-    doc.errors.push({ path: doc.path, level: 'error', message: '`module` is required for active/ready/planned/blocked docs; use a real module, `platform`, or `none`.' });
+  if (config.moduleRequiredStatuses.has(doc.status) && !doc.modules?.length) {
+    doc.errors.push({ path: doc.path, level: 'error', message: '`module` is required for active/ready/planned/blocked docs; use a real module, `platform`, or `none`. Accepts singular `module:` or plural `modules:` list.' });
   }
 
   if (config.validSurfaces) {

@@ -151,8 +151,8 @@ function exportMarkdown(docs, config) {
       lines.push(`### ${doc.title}`);
       const meta = [`Status: ${doc.status}`];
       if (doc.updated) meta.push(`Updated: ${doc.updated}`);
-      if (doc.module) meta.push(`Module: ${doc.module}`);
-      if (doc.surface) meta.push(`Surface: ${doc.surface}`);
+      if (doc.modules?.length) meta.push(`Module: ${doc.modules.join(', ')}`);
+      if (doc.surfaces?.length) meta.push(`Surface: ${doc.surfaces.join(', ')}`);
       if (doc.owner) meta.push(`Owner: ${doc.owner}`);
       lines.push(`> ${meta.join(' | ')}`, '');
       if (doc.body.trim()) lines.push(doc.body.trim());
@@ -292,8 +292,8 @@ function buildDocPage(doc) {
   let meta = `<table class="meta">`;
   meta += `<tr><td>Status</td><td><span class="badge ${badgeClass}">${doc.status ?? 'unknown'}</span></td></tr>`;
   if (doc.updated) meta += `<tr><td>Updated</td><td>${escHtml(doc.updated)}</td></tr>`;
-  if (doc.module) meta += `<tr><td>Module</td><td>${escHtml(doc.module)}</td></tr>`;
-  if (doc.surface) meta += `<tr><td>Surface</td><td>${escHtml(doc.surface)}</td></tr>`;
+  if (doc.modules?.length) meta += `<tr><td>Module</td><td>${escHtml(doc.modules.join(', '))}</td></tr>`;
+  if (doc.surfaces?.length) meta += `<tr><td>Surface</td><td>${escHtml(doc.surfaces.join(', '))}</td></tr>`;
   if (doc.owner) meta += `<tr><td>Owner</td><td>${escHtml(doc.owner)}</td></tr>`;
   meta += `<tr><td>Path</td><td><code>${escHtml(doc.path)}</code></td></tr>`;
   meta += `</table>`;

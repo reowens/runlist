@@ -64,8 +64,8 @@ export function buildStats(index, config) {
     completeness: {
       scoped: scoped.length,
       hasOwner: scoped.filter(d => d.owner).length,
-      hasSurface: scoped.filter(d => d.surface).length,
-      hasModule: scoped.filter(d => d.module).length,
+      hasSurface: scoped.filter(d => d.surfaces?.length).length,
+      hasModule: scoped.filter(d => d.modules?.length).length,
       hasNextStep: scoped.filter(d => d.hasNextStep).length,
     },
     checklists: {
