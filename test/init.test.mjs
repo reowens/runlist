@@ -46,6 +46,30 @@ describe('init basic', () => {
     ok(content.includes('GENERATED:dotmd:end'));
   });
 
+  it('status transitions within the active range regen the index', () => {
+    // Pre-fix: only archive-crossing transitions regen'd. A pure
+    // `active → planned` left the per-status sections in `docs/docs.md` out
+    // of date and the next `dotmd check` errored on stale index, even
+    // though the user did nothing wrong.
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    run(['init']);
+    run(['new', 'plan', 'alpha']);
+
+    const flip = run(['status', 'docs/plans/alpha.md', 'planned']);
+    strictEqual(flip.status, 0, `status flip failed: ${flip.stderr}`);
+
+    const check = run(['check']);
+    ok(
+      !check.stdout.includes('Generated index block is stale'),
+      `check should not flag stale index after within-status transition; got: ${check.stdout}`,
+    );
+
+    const indexContent = readFileSync(path.join(tmpDir, 'docs', 'docs.md'), 'utf8');
+    ok(indexContent.includes('## Planned'), `index should now list a Planned section; got: ${indexContent}`);
+    ok(!indexContent.includes('## Active'), `index should no longer list an Active section; got: ${indexContent}`);
+  });
+
   it('init + new plan does not leave a stale index', () => {
     // Pre-fix: `dotmd new` wrote the doc but didn't regen `docs/docs.md`'s
     // generated block, so the very next `dotmd check` failed with

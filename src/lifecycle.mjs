@@ -24,6 +24,21 @@ function findFileRoot(filePath, config) {
   return roots.find(r => filePath.startsWith(r + '/')) ?? config.docsRoot;
 }
 
+// Best-effort index regen for any doc-set or doc-status mutation. The
+// generated block groups by status and embeds per-doc snapshots, so any
+// change that affects what would render leaves the index stale. Wrapped
+// in try/catch — a regen failure shouldn't undo the successful mutation,
+// only warn with the recovery command.
+export function regenIndex(config) {
+  if (!config.indexPath) return;
+  try {
+    const index = buildIndex(config);
+    writeIndex(renderIndexFile(index, config), config);
+  } catch (err) {
+    warn(`Could not regenerate index (run \`dotmd index --write\`): ${err.message}`);
+  }
+}
+
 // Pick an archive destination that won't clobber an existing record. If
 // `<dir>/<basename>` is free, returns it unchanged; otherwise appends a UTC
 // timestamp (and a counter on the vanishingly rare same-second collision) so
@@ -142,10 +157,10 @@ export async function runStatus(argv, config, opts = {}) {
     finalPath = targetPath;
   }
 
-  if ((isArchiving || isUnarchiving) && config.indexPath) {
-    const index = buildIndex(config);
-    writeIndex(renderIndexFile(index, config), config);
-  }
+  // Regen the index on every status change — `active → planned` etc. drift
+  // the per-status sections just as much as archive crossings. Archive paths
+  // also benefit (replaces the previously-gated regen).
+  regenIndex(config);
 
   process.stdout.write(`${green(toRepoPath(finalPath, config.repoRoot))}: ${oldStatus ?? 'unknown'} → ${newStatus}\n`);
 
@@ -230,6 +245,7 @@ export async function runPickup(argv, config, opts = {}) {
     }
     if (oldStatus !== 'in-session') {
       updateFrontmatter(filePath, { status: 'in-session', updated: today });
+      regenIndex(config);
     }
     // VH append per lease outcome:
     //   acquired   → `Picked up (<old> → in-session).`
@@ -336,6 +352,7 @@ export async function runUnpickup(argv, config, opts = {}) {
         const today = nowIso();
         updateFrontmatter(filePath, { status: newStatus, updated: today });
         appendVersionHistory(filePath, `Released (in-session → ${newStatus}).`);
+        regenIndex(config);
       }
       // If frontmatter is no longer in-session (manual flip), leave it alone.
     } catch (err) {
@@ -450,6 +467,7 @@ export async function runFinish(argv, config, opts = {}) {
     process.stderr.write(`${dim('[dry-run]')} Would update: status: in-session → ${targetStatus}, updated: ${today}\n`);
   } else {
     updateFrontmatter(filePath, { status: targetStatus, updated: today });
+    regenIndex(config);
   }
 
   if (json) {
@@ -517,10 +535,7 @@ export function runArchive(argv, config, opts = {}) {
   // Auto-update references in other docs
   const updatedRefCount = updateRefsAfterMove(filePath, targetPath, config);
 
-  if (config.indexPath) {
-    const index = buildIndex(config);
-    writeIndex(renderIndexFile(index, config), config);
-  }
+  regenIndex(config);
 
   out.write(`${green('Archived')}: ${oldRepoPath} → ${newRepoPath}\n`);
   if (selfRefsFixed) out.write('Updated references in archived file.\n');
