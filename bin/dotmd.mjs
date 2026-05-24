@@ -50,6 +50,7 @@ Lifecycle:
   status <file> <status>            Transition document status
   archive <file>                    Archive (status + move + update refs)
   bulk archive <f1> <f2> ...        Archive multiple files at once
+  bulk-tag [files...]               Tag pre-existing untagged .md files
   touch <file>                      Bump updated date
   touch --git                       Bulk-sync dates from git history
   rename <old> <new>                Rename doc and update all references
@@ -647,6 +648,29 @@ Archives each file: sets status to archived, moves to archive
 directory, updates references, and regenerates the index.
 
 Use --dry-run (-n) to preview changes without writing anything.`,
+
+  'bulk-tag': `dotmd bulk-tag [files...] — fill in type/status frontmatter on pre-existing markdown
+
+Scans the docs tree for files that are missing either \`type:\` or \`status:\`
+(or have no frontmatter block at all) and writes minimal frontmatter so they
+appear in \`dotmd list\`, \`query\`, and \`briefing\`.
+
+Type is inferred from the file's subdir under docsRoot:
+  docs/plans/foo.md    → type: plan,   status: planned
+  docs/prompts/bar.md  → type: prompt, status: pending
+  docs/baz.md          → type: doc,    status: draft
+
+Already-tagged files (both \`type:\` and \`status:\` set) are skipped. Files
+under the archive directory are excluded.
+
+Flags:
+  --type <t>       Override inferred type for every candidate.
+  --status <s>     Override the per-type default status.
+  --json           Emit a structured candidate list.
+  --dry-run (-n)   Preview without writing.
+
+Pass file paths as positional args to scope to those files only; otherwise
+the whole docs tree is scanned.`,
 };
 
 async function main() {
@@ -784,6 +808,8 @@ async function main() {
   if (command === 'status') { const { runStatus } = await import('../src/lifecycle.mjs'); await runStatus(restArgs, config, { dryRun }); return; }
   if (command === 'archive') { const { runArchive } = await import('../src/lifecycle.mjs'); runArchive(restArgs, config, { dryRun }); return; }
   if (command === 'bulk' && restArgs[0] === 'archive') { const { runBulkArchive } = await import('../src/lifecycle.mjs'); runBulkArchive(restArgs.slice(1), config, { dryRun }); return; }
+  if (command === 'bulk' && restArgs[0] === 'tag') { const { runBulkTag } = await import('../src/bulk-tag.mjs'); runBulkTag(restArgs.slice(1), config, { dryRun }); return; }
+  if (command === 'bulk-tag') { const { runBulkTag } = await import('../src/bulk-tag.mjs'); runBulkTag(restArgs, config, { dryRun }); return; }
   if (command === 'touch') { const { runTouch } = await import('../src/lifecycle.mjs'); runTouch(restArgs, config, { dryRun }); return; }
   if (command === 'new') { const { runNew } = await import('../src/new.mjs'); await runNew(restArgs, config, { dryRun, root: rootArg }); return; }
   if (command === 'lint') { const { runLint } = await import('../src/lint.mjs'); runLint(restArgs, config, { dryRun }); return; }

@@ -4,7 +4,7 @@
 // templates points at a real command.
 export const KNOWN_COMMANDS = [
   'list', 'json', 'check', 'coverage', 'stats', 'graph', 'deps', 'briefing', 'context', 'hud',
-  'focus', 'query', 'plans', 'prompts', 'stale', 'actionable', 'index', 'pickup', 'release', 'finish', 'status', 'archive', 'bulk', 'touch', 'doctor',
+  'focus', 'query', 'plans', 'prompts', 'stale', 'actionable', 'index', 'pickup', 'release', 'finish', 'status', 'archive', 'bulk', 'bulk-tag', 'touch', 'doctor',
   'unblocks', 'health', 'glossary',
   'fix-refs', 'lint', 'rename', 'migrate', 'notion', 'export', 'summary',
   'watch', 'diff', 'new', 'init', 'completions', 'statuses',
