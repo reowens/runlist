@@ -58,22 +58,40 @@ describe('plan-shape lint', () => {
     ok(w.message.includes('700'));
   });
 
-  it('warns when surface AND surfaces are both populated', () => {
+  it('warns when surface and surfaces array diverge (singular not in array)', () => {
+    const docsDir = setupProject();
+    writeDoc(docsDir, 'plan.md', `type: plan\nstatus: active\nupdated: 2026-05-13\nsurface: web\nsurfaces:\n  - backend\n  - api`);
+
+    const idx = checkJson();
+    const w = idx.warnings.find(x => x.message.includes('surface') && x.message.includes('surfaces'));
+    ok(w, 'expected surface/surfaces warning when values diverge');
+  });
+
+  it('does NOT warn when surface is already a member of the surfaces array', () => {
     const docsDir = setupProject();
     writeDoc(docsDir, 'plan.md', `type: plan\nstatus: active\nupdated: 2026-05-13\nsurface: web\nsurfaces:\n  - web\n  - api`);
 
     const idx = checkJson();
     const w = idx.warnings.find(x => x.message.includes('surface') && x.message.includes('surfaces'));
-    ok(w, 'expected surface/surfaces warning');
+    ok(!w, 'no warning when singular ∈ plural (index.mjs merges them transparently)');
   });
 
-  it('warns when module AND modules are both populated', () => {
+  it('warns when module and modules array diverge (singular not in array)', () => {
+    const docsDir = setupProject();
+    writeDoc(docsDir, 'plan.md', `type: plan\nstatus: active\nupdated: 2026-05-13\nmodule: auth\nmodules:\n  - identity\n  - billing`);
+
+    const idx = checkJson();
+    const w = idx.warnings.find(x => x.message.includes('module') && x.message.includes('modules'));
+    ok(w, 'expected module/modules warning when values diverge');
+  });
+
+  it('does NOT warn when module is already a member of the modules array', () => {
     const docsDir = setupProject();
     writeDoc(docsDir, 'plan.md', `type: plan\nstatus: active\nupdated: 2026-05-13\nmodule: auth\nmodules:\n  - auth\n  - identity`);
 
     const idx = checkJson();
     const w = idx.warnings.find(x => x.message.includes('module') && x.message.includes('modules'));
-    ok(w, 'expected module/modules warning');
+    ok(!w, 'no warning when singular ∈ plural (index.mjs merges them transparently)');
   });
 
   it('warns on lowercase ## Open questions heading drift', () => {

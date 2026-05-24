@@ -278,19 +278,24 @@ export function validatePlanShape(doc, body, frontmatter, config) {
     });
   }
 
-  // 3. surface AND surfaces both populated
-  if (frontmatter.surface && Array.isArray(frontmatter.surfaces) && frontmatter.surfaces.length > 0) {
+  // 3. surface AND surfaces both populated with DIVERGENT values. When the
+  // singular value is already a member of the plural array, src/index.mjs
+  // merges them transparently — warning would be noise. Only divergence
+  // actually risks data loss when readers consult one form vs. the other.
+  if (frontmatter.surface && Array.isArray(frontmatter.surfaces) && frontmatter.surfaces.length > 0
+      && !frontmatter.surfaces.includes(frontmatter.surface)) {
     doc.warnings.push({
       path: doc.path,
       level: 'warning',
-      message: 'Both `surface` (singular) and `surfaces` (array) are set. Pick one — prefer `surfaces` array form.',
+      message: `Both \`surface\` (singular: \`${frontmatter.surface}\`) and \`surfaces\` (array) are set with different values. Pick one — prefer \`surfaces\` array form.`,
     });
   }
-  if (frontmatter.module && Array.isArray(frontmatter.modules) && frontmatter.modules.length > 0) {
+  if (frontmatter.module && Array.isArray(frontmatter.modules) && frontmatter.modules.length > 0
+      && !frontmatter.modules.includes(frontmatter.module)) {
     doc.warnings.push({
       path: doc.path,
       level: 'warning',
-      message: 'Both `module` (singular) and `modules` (array) are set. Pick one — prefer `modules` array form.',
+      message: `Both \`module\` (singular: \`${frontmatter.module}\`) and \`modules\` (array) are set with different values. Pick one — prefer \`modules\` array form.`,
     });
   }
 
