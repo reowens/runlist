@@ -304,6 +304,76 @@ describe('archive path boundary', () => {
   });
 });
 
+// Regression for audit-example-project F1 (sites B+C): updateRefsFromMovedFile
+// resolved refs only doc-relative. Repo-relative refs like `docs/foo/bar.md`
+// got joined to the source's old dir, the resulting absolute didn't exist, and
+// the rewrite silently skipped — leaving the moved file pointing at an
+// incorrect relative path. Verify both ref-field and body-link rewrites work
+// for repo-relative refs.
+describe('archive ref rewriting for repo-relative refs', () => {
+  // Source nested in docs/plans/, ref target lives in docs/journeys/ — pre-fix,
+  // path.resolve(oldDir, 'docs/journeys/target.md') produced
+  // docs/plans/docs/journeys/target.md (doubled), existsSync failed, rewrite
+  // silently skipped. setupProject's single-root config archives docs/plans/X
+  // to docs/archived/X, so the rewrite has to walk up to keep the ref valid.
+  it('rewrites repo-relative ref-field entries when source moves across dirs', () => {
+    const docsDir = setupProject();
+    mkdirSync(path.join(docsDir, 'plans'), { recursive: true });
+    mkdirSync(path.join(docsDir, 'journeys'), { recursive: true });
+
+    writeDoc(docsDir, 'journeys/target.md', 'status: active\nupdated: 2025-01-01');
+    writeDoc(docsDir, 'plans/source.md',
+      'status: active\nupdated: 2025-01-01\nrelated_plans:\n  - docs/journeys/target.md',
+      '# Source\n');
+
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const result = spawnSync('node', [bin, 'archive', path.join(docsDir, 'plans/source.md'),
+      '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir, encoding: 'utf8',
+    });
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+
+    // Find the archived file (single-root config → docs/archived/).
+    const archivedPath = path.join(docsDir, 'archived', 'source.md');
+    ok(existsSync(archivedPath), `archived file should exist at ${archivedPath}. stdout: ${result.stdout}`);
+    const archivedContent = readFileSync(archivedPath, 'utf8');
+    const refMatch = archivedContent.match(/related_plans:\n\s+-\s+(\S+)/);
+    ok(refMatch, `expected ref-field entry in archived file:\n${archivedContent}`);
+    const archivedDir = path.dirname(archivedPath);
+    const resolved = path.resolve(archivedDir, refMatch[1]);
+    ok(existsSync(resolved),
+      `rewritten ref \`${refMatch[1]}\` must resolve from new dir to existing target. Resolved to: ${resolved}`);
+  });
+
+  it('rewrites repo-relative body links when source moves across dirs', () => {
+    const docsDir = setupProject();
+    mkdirSync(path.join(docsDir, 'plans'), { recursive: true });
+    mkdirSync(path.join(docsDir, 'journeys'), { recursive: true });
+
+    writeDoc(docsDir, 'journeys/target.md', 'status: active\nupdated: 2025-01-01');
+    writeDoc(docsDir, 'plans/source.md',
+      'status: active\nupdated: 2025-01-01',
+      '# Source\n\nSee [target](docs/journeys/target.md) for details.\n');
+
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const result = spawnSync('node', [bin, 'archive', path.join(docsDir, 'plans/source.md'),
+      '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir, encoding: 'utf8',
+    });
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+
+    const archivedPath = path.join(docsDir, 'archived', 'source.md');
+    ok(existsSync(archivedPath), `archived file should exist at ${archivedPath}. stdout: ${result.stdout}`);
+    const archivedContent = readFileSync(archivedPath, 'utf8');
+    const linkMatch = archivedContent.match(/\[target\]\(([^)]+)\)/);
+    ok(linkMatch, `expected body link in archived file:\n${archivedContent}`);
+    const archivedDir = path.dirname(archivedPath);
+    const resolved = path.resolve(archivedDir, linkMatch[1]);
+    ok(existsSync(resolved),
+      `rewritten body link \`${linkMatch[1]}\` must resolve. Resolved to: ${resolved}`);
+  });
+});
+
 describe('archive collision (same basename twice)', () => {
   it('keeps the prior archive and suffixes the new one with a UTC timestamp', () => {
     const docsDir = setupProject();

@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { toSlug, toRepoPath, warn } from './util.mjs';
+import { toSlug, toRepoPath, warn, resolveRefPath } from './util.mjs';
 import { bold, red, green, dim } from './color.mjs';
 
 const STATUS_COLORS = {
@@ -60,7 +60,7 @@ export function buildGraph(index, config, filters = {}) {
 
     for (const field of allRefFields) {
       for (const relPath of (doc.refFields[field] || [])) {
-        const resolved = path.resolve(docDir, relPath);
+        const resolved = resolveRefPath(relPath, docDir, config.repoRoot) ?? path.resolve(docDir, relPath);
         const targetPath = toRepoPath(resolved, config.repoRoot);
         const edgeKey = `${doc.path}|${targetPath}|${field}`;
         if (edgeKeys.has(edgeKey)) continue;

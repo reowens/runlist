@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter, replaceFrontmatter } from './frontmatter.mjs';
-import { asString, toRepoPath, die, warn, resolveDocPath, escapeRegex, nowIso } from './util.mjs';
+import { asString, toRepoPath, die, warn, resolveDocPath, resolveRefPath, escapeRegex, nowIso } from './util.mjs';
 import { gitMv, getGitLastModified, getGitLastModifiedBatch } from './git.mjs';
 import { buildIndex, collectDocFiles } from './index.mjs';
 import { renderIndexFile, writeIndex } from './index-file.mjs';
@@ -717,12 +717,17 @@ function updateRefsFromMovedFile(oldPath, newPath, config) {
   let raw = readFileSync(newPath, 'utf8');
   const { frontmatter, body } = extractFrontmatter(raw);
 
-  // Fix frontmatter ref fields (YAML list items like  - ./path.md)
+  // Fix frontmatter ref fields (YAML list items like  - ./path.md).
+  // Resolve doc-relative first, then repo-root-relative — so a ref like
+  // `docs/foo/bar.md` written from any nesting level gets rewritten correctly
+  // when the source moves. Without the repo-root fallback, repo-relative refs
+  // silently skipped rewriting (existsSync on the doubled doc-relative path
+  // returned false).
   let newFm = frontmatter;
   const refRegex = /^(\s+-\s+)(\S+\.md)$/gm;
   newFm = newFm.replace(refRegex, (match, prefix, refPath) => {
-    const absTarget = path.resolve(oldDir, refPath);
-    if (!existsSync(absTarget)) return match;
+    const absTarget = resolveRefPath(refPath, oldDir, config.repoRoot);
+    if (!absTarget) return match;
     const newRelPath = path.relative(newDir, absTarget).split(path.sep).join('/');
     return `${prefix}${newRelPath}`;
   });
@@ -732,8 +737,8 @@ function updateRefsFromMovedFile(oldPath, newPath, config) {
   const linkRegex = /(\[[^\]]*\]\()([^)]+\.md)(\))/g;
   newBody = newBody.replace(linkRegex, (match, pre, href, post) => {
     if (href.startsWith('http')) return match;
-    const absTarget = path.resolve(oldDir, href);
-    if (!existsSync(absTarget)) return match;
+    const absTarget = resolveRefPath(href, oldDir, config.repoRoot);
+    if (!absTarget) return match;
     const newHref = path.relative(newDir, absTarget).split(path.sep).join('/');
     return `${pre}${newHref}${post}`;
   });

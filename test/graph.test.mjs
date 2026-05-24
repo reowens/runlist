@@ -364,4 +364,29 @@ describe('graph CLI', () => {
     const json = JSON.parse(result.stdout);
     strictEqual(json.stats.nodeCount, 1);
   });
+
+  // Regression for audit-example-project F1: repo-relative refs (e.g.
+  // `docs/foo/bar.md` written from a doc nested in `docs/plans/`) were being
+  // joined to the source's docDir, producing a doubled path like
+  // `docs/plans/docs/foo/bar.md` that didn't exist — marked broken. Graph
+  // should use resolveRefPath (doc-relative then repo-root) like validate.mjs.
+  it('resolves repo-relative refs against repo root, not source docDir', () => {
+    const docsDir = setupProject();
+    mkdirSync(path.join(docsDir, 'plans'), { recursive: true });
+    mkdirSync(path.join(docsDir, 'journeys'), { recursive: true });
+    // Source doc lives in docs/plans/; ref string is repo-relative.
+    writeFileSync(path.join(docsDir, 'plans', 'a.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\nrelated_plans:\n  - docs/journeys/b.md\n---\n# A\n');
+    writeFileSync(path.join(docsDir, 'journeys', 'b.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\n---\n# B\n');
+
+    const result = run(['graph', '--json']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    const json = JSON.parse(result.stdout);
+    strictEqual(json.stats.brokenEdgeCount, 0, 'repo-relative ref should resolve, not be broken');
+    const edge = json.edges.find(e => e.source === 'docs/plans/a.md');
+    ok(edge, 'edge from docs/plans/a.md present');
+    strictEqual(edge.target, 'docs/journeys/b.md', 'target is repo-relative path, not doubled');
+    strictEqual(edge.broken, false);
+  });
 });
