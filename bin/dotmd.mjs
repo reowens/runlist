@@ -58,7 +58,7 @@ Lifecycle:
 
 Create & Export:
   new <type> <name> [body]          Create doc of given type (plan, doc, prompt)
-  index [--write]                   Generate/update docs.md index block
+  index [--print]                   Generate/update docs.md index block
   export [--format md|html|json]    Export docs as markdown, HTML, or JSON
   notion import|export|sync [db-id] Notion database integration
 
@@ -354,12 +354,12 @@ date to match the last git commit date, fixing date drift warnings.
 
 Use --dry-run (-n) to preview changes without writing anything.`,
 
-  index: `dotmd index [--write] — generate/update docs.md index
+  index: `dotmd index [--print] — generate/update docs.md index
 
-Without --write, prints the generated content to stdout.
-With --write, updates the configured index file in place.
+Updates the configured index file in place (writes by default as of 0.34.0).
+Use --print to dump the regenerated content to stdout without writing.
 
-Use --dry-run (-n) with --write to preview without writing.`,
+Use --dry-run (-n) to preview without writing.`,
 
   new: `dotmd new <type> <name> [body] — create a new document
 
@@ -954,16 +954,16 @@ async function main() {
     if (!config.indexPath) {
       die('Index generation is not configured. Add an `index` section to your dotmd.config.mjs.');
     }
-    const write = args.includes('--write');
+    const print = args.includes('--print');
     const { renderIndexFile, writeIndex } = await import('../src/index-file.mjs');
     const rendered = renderIndexFile(index, config);
-    if (write && !dryRun) {
-      writeIndex(rendered, config);
-      process.stdout.write(`Updated ${config.indexPath}\n`);
-    } else if (write && dryRun) {
+    if (print) {
+      process.stdout.write(rendered);
+    } else if (dryRun) {
       process.stdout.write(`[dry-run] Would update ${config.indexPath}\n`);
     } else {
-      process.stdout.write(rendered);
+      writeIndex(rendered, config);
+      process.stdout.write(`Updated ${config.indexPath}\n`);
     }
     return;
   }

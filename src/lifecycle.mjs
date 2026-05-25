@@ -35,7 +35,7 @@ export function regenIndex(config) {
     const index = buildIndex(config);
     writeIndex(renderIndexFile(index, config), config);
   } catch (err) {
-    warn(`Could not regenerate index (run \`dotmd index --write\`): ${err.message}`);
+    warn(`Could not regenerate index (run \`dotmd index\`): ${err.message}`);
   }
 }
 

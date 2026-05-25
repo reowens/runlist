@@ -179,7 +179,7 @@ dotmd query [filters]        Filtered search
 dotmd plans                  List all plans
 dotmd stale                  List stale docs
 dotmd actionable             List docs with next steps
-dotmd index [--write]        Generate/update docs.md index block
+dotmd index [--print]        Generate/update docs.md index block
 dotmd hud                    Actionable triage (silent when clean — ideal SessionStart hook)
 dotmd pickup <file>          Pick up a plan (in-session + print body)
 dotmd release [<file>]       Release in-session lease (alias: unpickup)

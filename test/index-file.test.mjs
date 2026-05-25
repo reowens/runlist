@@ -145,28 +145,34 @@ describe('writeIndex', () => {
 });
 
 describe('index CLI', () => {
-  it('prints rendered index to stdout', () => {
+  it('updates the index file by default and emits a confirmation line', () => {
     const docsDir = setup();
     writeDoc(docsDir, 'a.md', 'status: active\nupdated: 2025-01-01', '# A\n\n**Status:** ok');
     const result = run(['index']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-    ok(result.stdout.includes('Active'));
-  });
-
-  it('--write updates the index file', () => {
-    const docsDir = setup();
-    writeDoc(docsDir, 'a.md', 'status: active\nupdated: 2025-01-01', '# A\n\n**Status:** ok');
-    const result = run(['index', '--write']);
-    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('Updated'), `expected confirmation, got: ${result.stdout}`);
     const content = readFileSync(path.join(docsDir, 'docs.md'), 'utf8');
     ok(content.includes('A'));
   });
 
-  it('--write --dry-run does not modify file', () => {
+  it('--print emits rendered index to stdout without writing', () => {
     const docsDir = setup();
     writeDoc(docsDir, 'a.md', 'status: active\nupdated: 2025-01-01', '# A\n\n**Status:** ok');
     const before = readFileSync(path.join(docsDir, 'docs.md'), 'utf8');
-    run(['index', '--write', '--dry-run']);
+    const result = run(['index', '--print']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('Active'));
+    const after = readFileSync(path.join(docsDir, 'docs.md'), 'utf8');
+    strictEqual(before, after, 'file should be untouched in --print mode');
+  });
+
+  it('--dry-run does not modify the file', () => {
+    const docsDir = setup();
+    writeDoc(docsDir, 'a.md', 'status: active\nupdated: 2025-01-01', '# A\n\n**Status:** ok');
+    const before = readFileSync(path.join(docsDir, 'docs.md'), 'utf8');
+    const result = run(['index', '--dry-run']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('[dry-run]'));
     const after = readFileSync(path.join(docsDir, 'docs.md'), 'utf8');
     strictEqual(before, after);
   });
