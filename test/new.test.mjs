@@ -79,6 +79,38 @@ describe('dotmd new — type-first CLI', () => {
       ok(/created: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/.test(content), 'ISO timestamp');
     });
 
+    it('`dotmd new plan <name> "body"` lands body under `## Problem`', () => {
+      const docsDir = setupProject();
+      const r = run(['new', 'plan', 'payments-rewrite', 'Existing flow leaks PII on retry.']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'plans', 'payments-rewrite.md'), 'utf8');
+      // Body content lives in the Problem section, not on top of the scaffold
+      const problemIdx = content.indexOf('## Problem');
+      const goalsIdx = content.indexOf('## Goals');
+      ok(problemIdx !== -1 && goalsIdx > problemIdx, 'Problem precedes Goals');
+      const problemSection = content.slice(problemIdx, goalsIdx);
+      ok(problemSection.includes('Existing flow leaks PII on retry.'), 'body content under Problem');
+    });
+
+    it('`dotmd new plan` preserves the scaffolded outline below `## Problem`', () => {
+      const docsDir = setupProject();
+      const r = run(['new', 'plan', 'scaffold-check', 'short body']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'plans', 'scaffold-check.md'), 'utf8');
+      // Frontmatter intact
+      ok(content.includes('type: plan'));
+      ok(content.includes('next_step:'));
+      // All scaffolded sections present in expected order
+      const sections = ['## Problem', '## Goals', '## Non-Goals', '## What Exists Today', '## Constraints', '## Decisions', '## Open Questions', '## Phases', '## Deferred', '## Version History', '## Closeout'];
+      let cursor = 0;
+      for (const s of sections) {
+        const idx = content.indexOf(s, cursor);
+        ok(idx !== -1, `section missing: ${s}`);
+        ok(idx >= cursor, `section out of order: ${s}`);
+        cursor = idx + s.length;
+      }
+    });
+
   });
 
   describe('prompt type', () => {
@@ -334,35 +366,31 @@ describe('dotmd new — type-first CLI', () => {
     });
   });
 
-  describe('body-input on non-body templates fails fast (issue #9)', () => {
-    // The CLI accepts `-`, `@path`, and `--message` for any template, but
-    // built-in `plan` ignores `ctx.bodyInput` in its body fn — so silent
-    // discard was the failure mode. Plan's behavior: error.
-    //
-    // `doc` USED to be in this rejecting set, but per the gmax audit it was
-    // the easy on-ramp — `dotmd new doc x "quick note"` is the natural shape,
-    // and the error pointed at "set acceptsBody on your custom template" advice
-    // that didn't apply since init scaffolds no custom doc template. `doc` now
-    // accepts body and lands it in the Overview section (see "doc accepts
-    // body" tests below).
+  describe('body-input acceptance across built-in templates (issue #9)', () => {
+    // The CLI accepts `-`, `@path`, `--message`, and inline body for any
+    // template that opts in via `acceptsBody`. All built-ins (doc, plan,
+    // prompt) now accept body. The fail-fast guard still fires on custom
+    // templates that opt out — covered by the "rejects body when custom
+    // template opts out" test below.
 
-    it('rejects stdin body on `plan` (not on-prompt template)', () => {
-      setupProject();
-      const r = run(['new', 'plan', 'no-body-please', '-'], { input: 'heredoc content\n' });
-      strictEqual(r.status, 1, `should fail. stderr: ${r.stderr}`);
-      ok(r.stderr.includes('does not accept body input'), `expected fail-fast error, got: ${r.stderr}`);
-      ok(r.stderr.includes('stdin'), 'names the input source');
-      ok(r.stderr.includes('prompt'), 'mentions templates that DO accept body');
+    it('`plan` accepts stdin body and lands it under Problem', () => {
+      const docsDir = setupProject();
+      const r = run(['new', 'plan', 'piped-plan', '-'], { input: 'heredoc problem statement\n' });
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'plans', 'piped-plan.md'), 'utf8');
+      ok(/## Problem\s*\n\s*heredoc problem statement/.test(content),
+        `body should land under Problem: ${content}`);
     });
 
-    it('rejects @path body on `plan`', () => {
-      setupProject();
+    it('`plan` accepts @path body and lands it under Problem', () => {
+      const docsDir = setupProject();
       const srcPath = path.join(tmpDir, 'src.md');
-      writeFileSync(srcPath, 'file content\n');
+      writeFileSync(srcPath, 'file-sourced problem\n');
       const r = run(['new', 'plan', 'from-file', `@${srcPath}`]);
-      strictEqual(r.status, 1, `should fail. stderr: ${r.stderr}`);
-      ok(r.stderr.includes('does not accept body input'));
-      ok(r.stderr.includes(`@${srcPath}`));
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'plans', 'from-file.md'), 'utf8');
+      ok(/## Problem\s*\n\s*file-sourced problem/.test(content),
+        `body should land under Problem: ${content}`);
     });
 
     it('`doc` accepts inline body and lands it in Overview', () => {
@@ -404,6 +432,26 @@ describe('dotmd new — type-first CLI', () => {
       strictEqual(r.status, 0, `stderr: ${r.stderr}`);
       const content = readFileSync(path.join(docsDir, 'prompts', 'still-works.md'), 'utf8');
       ok(content.includes('body content'));
+    });
+
+    it('rejects body when a custom template opts out (no acceptsBody)', () => {
+      tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-new-'));
+      mkdirSync(path.join(tmpDir, '.git'));
+      mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+      writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+        export const templates = {
+          'plan': {
+            description: 'Override built-in plan, opted out of body input',
+            defaultStatus: 'active',
+            frontmatter: (s, d) => \`type: plan\\nstatus: \${s}\\ncreated: \${d}\\nupdated: \${d}\`,
+            body: (t) => \`\\n# \${t}\\n\`,
+          },
+        };
+        export const root = 'docs';
+      `);
+      const r = run(['new', 'plan', 'opted-out', 'inline body']);
+      strictEqual(r.status, 1, `should fail. stderr: ${r.stderr}`);
+      ok(r.stderr.includes('does not accept body input'), `expected fail-fast error, got: ${r.stderr}`);
     });
 
     it('custom template with acceptsBody:true accepts body without error', () => {

@@ -51,6 +51,9 @@ ${ctx?.bodyInput?.trim() ?? ''}
     dir: 'plans',
     targetRoot: 'plans',
     defaultStatus: 'active',
+    // Body input lands in the Problem section. Plans don't have an Overview;
+    // Problem is the established opening section in the build-up shape.
+    acceptsBody: true,
     frontmatter: (s, d) => [
       'type: plan',
       `status: ${s}`,
@@ -73,7 +76,7 @@ ${ctx?.bodyInput?.trim() ?? ''}
 
 ## Problem
 
-
+${ctx?.bodyInput?.trim() ?? ''}
 
 ## Goals
 
@@ -242,8 +245,9 @@ export async function runNew(argv, config, opts = {}) {
 
   // Fail-fast when the user passes body input to a template that doesn't
   // consume it — silently discarding heredoc content is the worst UX.
-  // Templates opt in via `acceptsBody: true` or `requiresBody: true`. Built-in
-  // `prompt` is the only template that consumes body by default.
+  // Templates opt in via `acceptsBody: true` or `requiresBody: true`. All
+  // built-in templates (doc, plan, prompt) accept body; this guard fires
+  // only for custom templates that opt out.
   if (bodyInput !== null && !template.acceptsBody && !template.requiresBody) {
     const accepting = Object.entries(BUILTIN_TEMPLATES)
       .filter(([, t]) => t.acceptsBody || t.requiresBody)
