@@ -2,6 +2,24 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## 0.34.0 — 2026-05-25
+
+Three agent-UX fixes bundled from the audit doc (`docs/agent-ux-audit.md` § A1–A3). Each one shaves a tool round-trip off a routine flow — the cost-of-friction multiplier on an agent is much higher than on a human at a terminal, so defaults and error messages designed for tool-using consumers matter disproportionately. One breaking change in `dotmd index`'s default (call-out below).
+
+### Changed (breaking)
+
+- **`dotmd index` writes by default.** Previously, `dotmd index` (no flag) printed the regenerated block to stdout and required `--write` to actually update the configured index file — so `dotmd check`'s `Generated index block is stale. Run \`dotmd index\`` error pointed at a command that didn't fix the error. Now the default writes (the call site that always wanted the write), and the new `--print` flag preserves the old stdout-only behavior for debugging or scripting. The stale-index error message is now self-consistent. **Migration:** any script that was parsing `dotmd index`'s stdout should switch to `dotmd index --print`. `--write` is no longer documented but is accepted as a silent no-op so existing scripts that pass it explicitly keep working. (Audit finding A1.)
+
+### Added
+
+- **`dotmd new plan <name> "<body>"` accepts a body argument.** Mirrors the `doc` and `prompt` shape — the inline/`--message`/`-`/`@path` body input now lands under the plan's `## Problem` section instead of being rejected with an error pointing at "set `acceptsBody: true` on your custom plan template" (which didn't apply, because the built-in plan template was the one rejecting body input). All built-in templates (`doc`, `plan`, `prompt`) now consume body input; custom templates that opt out still get the fail-fast error. (Audit finding A2.)
+
+- **`Did you mean: ...?` suggestions on unresolved refs, glossary misses, and unknown `--module` values.** Three sites that previously left the agent guessing now name plausible candidates from the index:
+  - `dotmd check` ref-resolution errors (`related_plans entry \`foo.md\` does not resolve to an existing file.`) now append up to three close candidates, filtered by inferred ref-field type — a `related_plans` typo suggests plans, `related_docs` suggests docs.
+  - `dotmd glossary <term>` no-match output (`No glossary match for "Widgit".`) now appends close glossary-term candidates.
+  - `dotmd query --module <name>` (and the `plans` / `prompts` presets) now appends a `No module \`<name>\` in index. Did you mean: ...?` line when the value doesn't exist anywhere in the index. Combination misses where the module exists are not flagged.
+  Ranking is substring-first, Levenshtein distance ≤3 second, top 3, deduped. No close match → no suggestion line (no `Did you mean: (none)`). Helper lives at `src/util.mjs:suggestCandidates`. (Audit finding A3.)
+
 ## 0.33.0 — 2026-05-25
 
 Two paired additions that close the agent-side session-handoff loop. `/baton` is the canonical wrap-up verb (status-update the in-flight plan, save a lean handoff prompt, release the lease) — replacing the prose-only "Resume prompts" section in CLAUDE.md that agents followed inconsistently. `.claude/commands/*.md` self-heal on dotmd upgrade so any future tweak to baton's wording (or to `plans.md` / `docs.md`) propagates to every project on the next session, not on whenever the user remembers to run `dotmd doctor`.
