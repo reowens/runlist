@@ -1,6 +1,6 @@
 import { describe, it, afterEach } from 'node:test';
 import { strictEqual, ok } from 'node:assert';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -206,6 +206,81 @@ export const types = {
     const parsed = JSON.parse(r.stdout);
     strictEqual(typeof parsed.errors, 'number', 'errors is a number in JSON output');
     ok(parsed.errors >= 1, `expected at least 1 error; got: ${parsed.errors}`);
+  });
+
+  it('self-heals stale slash-command files and surfaces a dim line', () => {
+    // The SessionStart hook fires hud every session. When `.claude/commands/*.md`
+    // banners are older than the installed dotmd version, hud should silently
+    // regen them and surface a single dim line so the diff isn't a surprise.
+    setupProject();
+    const cmdDir = path.join(tmpDir, '.claude', 'commands');
+    mkdirSync(cmdDir, { recursive: true });
+    const batonPath = path.join(cmdDir, 'baton.md');
+    writeFileSync(batonPath, '<!-- dotmd-generated: 0.0.1 -->\nstale body\n');
+
+    const r = runCli(['hud']);
+    strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
+    ok(/slash commands refreshed/.test(r.stdout),
+      `expected refresh line; got: ${r.stdout}`);
+    ok(/0\.0\.1\s*→/.test(r.stdout),
+      `refresh line should show version transition; got: ${r.stdout}`);
+    ok(/baton\.md/.test(r.stdout),
+      `refresh line should name the file; got: ${r.stdout}`);
+
+    const content = readFileSync(batonPath, 'utf8');
+    ok(!content.includes('dotmd-generated: 0.0.1'),
+      'stale banner should be gone after refresh');
+    ok(!content.includes('stale body'),
+      'stale body should be replaced with regenerated content');
+  });
+
+  it('stays silent when slash-command banners are current', () => {
+    // Inverse of the refresh test — when nothing is stale, the silent-clean
+    // contract holds. Otherwise every session would print a refresh line.
+    setupProject();
+    const cmdDir = path.join(tmpDir, '.claude', 'commands');
+    mkdirSync(cmdDir, { recursive: true });
+    const pkgVersion = JSON.parse(readFileSync(
+      path.resolve(import.meta.dirname, '..', 'package.json'), 'utf8',
+    )).version;
+    // Plant a file with the CURRENT version banner.
+    writeFileSync(
+      path.join(cmdDir, 'baton.md'),
+      `<!-- dotmd-generated: ${pkgVersion} -->\ncurrent body\n`,
+    );
+
+    const r = runCli(['hud']);
+    strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
+    strictEqual(r.stdout, '',
+      `hud should stay silent when banners are current; got: ${r.stdout}`);
+  });
+
+  it('does not touch user-managed slash-command files (no banner)', () => {
+    // A file without the `dotmd-generated:` banner is treated as user-managed
+    // by scaffoldClaudeCommands — the hud refresh path inherits that rule.
+    setupProject();
+    const cmdDir = path.join(tmpDir, '.claude', 'commands');
+    mkdirSync(cmdDir, { recursive: true });
+    const customPath = path.join(cmdDir, 'baton.md');
+    const original = '# my hand-rolled baton, no dotmd marker\n';
+    writeFileSync(customPath, original);
+
+    const r = runCli(['hud']);
+    strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
+    ok(!/slash commands refreshed/.test(r.stdout),
+      `should not announce a refresh for user-managed files; got: ${r.stdout}`);
+    strictEqual(readFileSync(customPath, 'utf8'), original,
+      'user-managed file must be left untouched');
+  });
+
+  it('survives missing .claude/ directory without erroring', () => {
+    // SessionStart hook must not break for users who do not use Claude Code
+    // and have no .claude/ dir at all. The scaffolder no-ops; hud follows.
+    setupProject();
+    ok(!existsSync(path.join(tmpDir, '.claude')), 'precondition: no .claude/');
+    const r = runCli(['hud']);
+    strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
+    strictEqual(r.stdout, '', `expected silent run; got: ${r.stdout}`);
   });
 
   it('output stays under ~500 bytes when full of common signals', () => {

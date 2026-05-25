@@ -2,6 +2,16 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## 0.33.0 — 2026-05-25
+
+Two paired additions that close the agent-side session-handoff loop. `/baton` is the canonical wrap-up verb (status-update the in-flight plan, save a lean handoff prompt, release the lease) — replacing the prose-only "Resume prompts" section in CLAUDE.md that agents followed inconsistently. `.claude/commands/*.md` self-heal on dotmd upgrade so any future tweak to baton's wording (or to `plans.md` / `docs.md`) propagates to every project on the next session, not on whenever the user remembers to run `dotmd doctor`.
+
+### Added
+
+- **`/baton` slash command — one verb wraps the session-handoff flow.** Scaffolded into `.claude/commands/baton.md` alongside the existing `plans.md` and `docs.md` templates. Body is ~13 lines: (1) update the in-flight plan's `current_state` / `next_step` and transition status with `dotmd status` or `dotmd archive`; (2) save ONE lean handoff prompt via `dotmd new prompt resume-<plan-slug>` (~10-20 lines per the prompt-leanness convention); (3) `dotmd release` the lease. Leans on Claude's judgment for the prompt's shape rather than prescribing a 50-line template. Adds zero CLI surface — composes existing verbs (`plans`, `status`, `archive`, `new`, `release`, `hud`) all already in `KNOWN_COMMANDS`, so the regression test that asserts every `dotmd <verb>` reference in generated templates resolves continues to cover the new file automatically. (See `docs/plans/baton-slash-command.md`.)
+
+- **`.claude/commands/*.md` self-heal on `dotmd` upgrade.** Before this, `scaffoldClaudeCommands` already wrote banner-versioned files (`<!-- dotmd-generated: X -->`) and refused to touch files without a banner (user-managed) — but the only refresh triggers were `dotmd init` (one-time) and `dotmd doctor` (manual). After a `dotmd-cli` upgrade, every project's slash-command bodies stayed frozen at the installed version's wording until the user remembered to run `doctor`. Now `runHud` — already wired as a SessionStart hook — calls `refreshStaleSlashCommands` after building the HUD, silently regens any file whose banner is older than the current `pkg.version`, and surfaces a single dim line: `↻ slash commands refreshed (vX → vY): foo.md, bar.md`. Wrapped in try/catch so a broken scaffolder can never kill the hook (would block every session). Skipped in `--json` mode to keep the structured shape stable for programmatic callers. Files without the banner remain user-managed and are still ignored — the existing `skipped` rule is the documented escape hatch. The `.claude/settings.json` hook line itself never changes shape; the static `"command": "dotmd hud"` keeps working across all future dotmd versions because the binary upgrade carries the new behavior. (See `docs/plans/slash-commands-self-heal.md`.)
+
 ## 0.32.1 — 2026-05-24
 
 Three correctness fixes for repositories with multiple document roots and customized configurations. No API changes.

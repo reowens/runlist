@@ -46,6 +46,22 @@ function generatePlansCommand(config) {
   return lines.join('\n');
 }
 
+function generateBatonCommand() {
+  const lines = [VERSION_MARKER, ''];
+  lines.push('You are wrapping this session. Hand the baton cleanly to the next one.');
+  lines.push('');
+  lines.push('1. **Update the in-flight plan.** Find it via `dotmd plans --status in-session`. Edit its `current_state:` / `next_step:` frontmatter so they reflect where things actually stand. If status should change (shipped → archive, stuck on a human decision → awaiting, etc.), transition with `dotmd status <file> <status>` — or `dotmd archive <file>` if work is done.');
+  lines.push('');
+  lines.push('2. **Save ONE lean handoff prompt.** Run `dotmd new prompt resume-<plan-slug>` with a body of ~10-20 lines: point at the plan file, name the next concrete decision, flag any gotchas. Do NOT recap the plan body (the plan is for that). Do NOT print the handoff into chat for the user to copy-paste — the saved prompt is the handoff.');
+  lines.push('');
+  lines.push('3. **Release the lease.** `dotmd release` (skip if `dotmd archive` already closed out — archive auto-releases).');
+  lines.push('');
+  lines.push('The next session\'s `dotmd hud` (SessionStart hook) surfaces the pending prompt automatically.');
+  lines.push('');
+
+  return lines.join('\n');
+}
+
 function generateDocsCommand(config) {
   const roots = Array.isArray(config.raw?.root) ? config.raw.root : [config.raw?.root ?? 'docs'];
   const rootCount = roots.length;
@@ -118,6 +134,7 @@ export function scaffoldClaudeCommands(cwd, config, opts = {}) {
   const files = [
     { name: 'plans.md', generate: () => generatePlansCommand(config) },
     { name: 'docs.md', generate: () => generateDocsCommand(config) },
+    { name: 'baton.md', generate: () => generateBatonCommand() },
   ];
 
   for (const { name, generate } of files) {
@@ -149,12 +166,24 @@ export function scaffoldClaudeCommands(cwd, config, opts = {}) {
   return results;
 }
 
+// Self-heal: regen any slash-command file whose banner is older than pkg.version.
+// Designed for runHud to call at SessionStart — closes the gap between "user
+// upgraded dotmd" and "slash-command body reflects the new version" without
+// requiring a manual `dotmd doctor`. Returns only the entries that actually
+// changed so the caller can surface a one-line note; an empty array means the
+// hud silent-clean contract is preserved. `skipped` (user-managed, no banner)
+// and `current` entries are filtered out — callers don't care about them.
+export function refreshStaleSlashCommands(config) {
+  const results = scaffoldClaudeCommands(config.repoRoot, config);
+  return results.filter(r => r.action === 'updated');
+}
+
 export function checkClaudeCommands(cwd) {
   const commandsDir = path.join(cwd, '.claude', 'commands');
   if (!existsSync(commandsDir)) return [];
 
   const warnings = [];
-  for (const name of ['plans.md', 'docs.md']) {
+  for (const name of ['plans.md', 'docs.md', 'baton.md']) {
     const filePath = path.join(commandsDir, name);
     const installedVersion = getInstalledVersion(filePath);
     if (installedVersion && installedVersion !== pkg.version) {

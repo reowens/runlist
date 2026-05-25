@@ -5,6 +5,7 @@ import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { asString, toRepoPath } from './util.mjs';
 import { green, yellow, red, dim } from './color.mjs';
 import { buildIndex } from './index.mjs';
+import { refreshStaleSlashCommands } from './claude-commands.mjs';
 
 const MAX_PREVIEW = 5;
 
@@ -89,6 +90,15 @@ export function runHud(argv, config) {
   const json = argv.includes('--json');
   const hud = buildHud(config);
 
+  // Self-heal stale slash-command files. Wrapped: a broken scaffolder must
+  // never kill the SessionStart hook (would block every session). Skipped in
+  // --json mode to keep the structured shape stable for programmatic callers.
+  let refreshed = [];
+  if (!json) {
+    try { refreshed = refreshStaleSlashCommands(config); }
+    catch { /* swallow — see comment above */ }
+  }
+
   if (json) {
     process.stdout.write(JSON.stringify(hud, null, 2) + '\n');
     return;
@@ -106,6 +116,12 @@ export function runHud(argv, config) {
   }
   if (hud.errors > 0) {
     lines.push(red(`✗ ${hud.errors} validation error${hud.errors === 1 ? '' : 's'}  ${dim('(run: dotmd check)')}`));
+  }
+  if (refreshed.length > 0) {
+    const from = refreshed[0].from;
+    const to = refreshed[0].to;
+    const names = refreshed.map(r => r.name).join(', ');
+    lines.push(dim(`↻ slash commands refreshed (v${from} → v${to}): ${names}`));
   }
 
   if (lines.length === 0) return; // silent when clean
