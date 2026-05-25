@@ -1,6 +1,26 @@
-import { describe, it } from 'node:test';
+import { describe, it, afterEach } from 'node:test';
 import { strictEqual, deepStrictEqual, ok } from 'node:assert';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { spawnSync } from 'node:child_process';
 import { parseQueryArgs, filterDocs } from '../src/query.mjs';
+
+const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+let tmpDir;
+
+function spawnDotmd(args) {
+  return spawnSync('node', [BIN, ...args], {
+    cwd: tmpDir,
+    encoding: 'utf8',
+    env: { ...process.env, NO_COLOR: '1' },
+  });
+}
+
+afterEach(() => {
+  if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
+  tmpDir = null;
+});
 
 describe('parseQueryArgs', () => {
   it('parses empty args to defaults', () => {
@@ -162,5 +182,43 @@ describe('filterDocs', () => {
   it('combines multiple filters', () => {
     const result = filterDocs(docs, { ...parseQueryArgs(['--owner', 'alice', '--has-next-step']), all: true }, config);
     strictEqual(result.length, 2);
+  });
+});
+
+describe('unknown --module value hint', () => {
+  function setupProject() {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-query-hint-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    const docsDir = path.join(tmpDir, 'docs');
+    mkdirSync(docsDir, { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';`);
+    writeFileSync(path.join(docsDir, 'a.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\nmodules:\n  - payments\n---\n# A\n');
+    return docsDir;
+  }
+
+  it('suggests close module names when --module value is a typo', () => {
+    setupProject();
+    const r = spawnDotmd(['query', '--module', 'paymentz']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    ok(r.stdout.includes('No module `paymentz`'), `expected unknown-module line, got: ${r.stdout}`);
+    ok(r.stdout.includes('Did you mean'), `expected suggestion, got: ${r.stdout}`);
+    ok(r.stdout.includes('payments'), `expected payments in suggestion, got: ${r.stdout}`);
+  });
+
+  it('omits hint when --module value exists (combination miss, not typo)', () => {
+    setupProject();
+    // The module exists, but the keyword filter knocks the lone doc out.
+    const r = spawnDotmd(['query', '--module', 'payments', '--keyword', 'unmatchable']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    ok(!r.stdout.includes('No module'), `should not emit unknown-module hint, got: ${r.stdout}`);
+  });
+
+  it('omits suggestion line when nothing in the index is close', () => {
+    setupProject();
+    const r = spawnDotmd(['query', '--module', 'zzzzzzzzz']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    ok(r.stdout.includes('No module `zzzzzzzzz`'));
+    ok(!r.stdout.includes('Did you mean'), `no close match should suppress hint, got: ${r.stdout}`);
   });
 });

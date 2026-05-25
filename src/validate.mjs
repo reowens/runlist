@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { asString, resolveRefPath } from './util.mjs';
+import { asString, resolveRefPath, suggestCandidates } from './util.mjs';
 import { getGitLastModified, getGitLastModifiedBatch } from './git.mjs';
 import { toRepoPath } from './util.mjs';
 
@@ -176,7 +176,12 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
     for (const field of allRefFields) {
       for (const relPath of (doc.refFields[field] || [])) {
         if (!resolveRefPath(relPath, docDir, config.repoRoot)) {
-          doc.errors.push({ path: doc.path, level: 'error', message: `${field} entry \`${relPath}\` does not resolve to an existing file.` });
+          doc.errors.push({
+            path: doc.path,
+            level: 'error',
+            message: `${field} entry \`${relPath}\` does not resolve to an existing file.`,
+            meta: { kind: 'ref-resolution', field, relPath },
+          });
         }
       }
     }
@@ -184,9 +189,67 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
     // Validate body links resolve to existing files
     for (const link of (doc.bodyLinks || [])) {
       if (!resolveRefPath(link.href, docDir, config.repoRoot)) {
-        doc.warnings.push({ path: doc.path, level: 'warning', message: `body link \`${link.href}\` does not resolve to an existing file.` });
+        doc.warnings.push({
+          path: doc.path,
+          level: 'warning',
+          message: `body link \`${link.href}\` does not resolve to an existing file.`,
+          meta: { kind: 'ref-resolution', field: 'body-link', relPath: link.href },
+        });
       }
     }
+  }
+}
+
+// Guess which doc type a ref field expects so suggestions don't propose
+// nonsense (a `related_plans` ref shouldn't suggest doc filenames). Heuristic:
+// match common substrings in the field name. When ambiguous, return null so
+// the caller suggests across all types.
+function inferRefFieldType(field) {
+  if (!field) return null;
+  const f = field.toLowerCase();
+  if (f.includes('plan')) return 'plan';
+  if (f.includes('doc')) return 'doc';
+  if (f.includes('prompt')) return 'prompt';
+  if (f.includes('research')) return 'research';
+  return null;
+}
+
+function candidatePathsForType(docs, type) {
+  // When the field implies a type, exclude docs that explicitly declare a
+  // different type. Untyped docs (no frontmatter `type:`) are kept — we
+  // don't know they aren't the target, so suggesting them is still useful.
+  const matches = type ? docs.filter(d => !d.type || d.type === type) : docs;
+  // Suggest by basename (the friendly handle agents/humans actually type) and
+  // by repo-relative path (covers cases where multiple files share a basename
+  // and the disambiguator is the directory).
+  const out = new Set();
+  for (const d of matches) {
+    out.add(path.basename(d.path));
+    out.add(d.path);
+  }
+  return [...out];
+}
+
+// Post-pass enrichment: walk every doc's errors/warnings for unresolved-ref
+// entries and append `Did you mean: a, b, c?` using the full index. Runs
+// after parsing so it has the global doc list (validateDoc runs per-file and
+// can't see siblings). Filters candidates by ref-field type when the field
+// name implies one (e.g. `related_plans` → plans only).
+export function enrichRefErrorSuggestions(docs, config) {
+  const enrich = (entry) => {
+    if (!entry?.meta || entry.meta.kind !== 'ref-resolution') return;
+    if (entry._suggested) return;
+    const inferred = inferRefFieldType(entry.meta.field);
+    const candidates = candidatePathsForType(docs, inferred);
+    const suggestions = suggestCandidates(path.basename(entry.meta.relPath), candidates);
+    entry._suggested = true;
+    if (suggestions.length === 0) return;
+    entry.message = `${entry.message} Did you mean: ${suggestions.join(', ')}?`;
+  };
+
+  for (const doc of docs) {
+    for (const e of (doc.errors || [])) enrich(e);
+    for (const w of (doc.warnings || [])) enrich(w);
   }
 }
 

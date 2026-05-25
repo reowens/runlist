@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { capitalize, toSlug, truncate, warn } from './util.mjs';
+import { capitalize, toSlug, truncate, warn, suggestCandidates } from './util.mjs';
 import { renderProgressBar, formatCurrentState } from './render.mjs';
 import { computeDaysSinceUpdate, computeIsStale } from './validate.mjs';
 import { getGitLastModifiedBatch } from './git.mjs';
@@ -90,10 +90,31 @@ export function runQuery(index, argv, config, opts = {}) {
 
   if (opts.preset === 'plans' || opts.preset === 'prompts') {
     renderPlansOutput(docs, filters, config, { noun: opts.preset });
+    if (docs.length === 0) writeUnknownFilterValueHint(filters, index);
     return;
   }
 
   renderQueryResults(docs, filters, config);
+  if (docs.length === 0) writeUnknownFilterValueHint(filters, index);
+}
+
+// When a query returns nothing AND a value-shaped filter (currently --module)
+// names a value that doesn't exist anywhere in the index, the empty result is
+// almost certainly a typo rather than a combination miss. Surface a hint so
+// the agent doesn't have to grep modules to discover the right spelling.
+function writeUnknownFilterValueHint(filters, index) {
+  if (filters.module) {
+    const allModules = new Set();
+    for (const d of index.docs) {
+      for (const m of (d.modules ?? [])) allModules.add(m);
+    }
+    const exists = [...allModules].some(m => m.toLowerCase() === filters.module.toLowerCase());
+    if (!exists) {
+      const suggestions = suggestCandidates(filters.module, [...allModules]);
+      const hint = suggestions.length ? ` Did you mean: ${suggestions.join(', ')}?` : '';
+      process.stdout.write(dim(`No module \`${filters.module}\` in index.${hint}`) + '\n');
+    }
+  }
 }
 
 export function parseQueryArgs(argv) {

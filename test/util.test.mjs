@@ -11,6 +11,7 @@ import {
   escapeRegex,
   die,
   DotmdError,
+  suggestCandidates,
 } from '../src/util.mjs';
 
 describe('escapeTable', () => {
@@ -165,5 +166,45 @@ describe('die', () => {
 
   it('throws with the correct message', () => {
     throws(() => die('bad input'), { message: 'bad input' });
+  });
+});
+
+describe('suggestCandidates', () => {
+  it('returns substring matches first', () => {
+    const r = suggestCandidates('auth', ['auth-revamp', 'authn-token', 'unrelated', 'storage']);
+    ok(r.includes('auth-revamp'));
+    ok(r.includes('authn-token'));
+    ok(!r.includes('unrelated'));
+  });
+
+  it('falls back to Levenshtein distance for small typos', () => {
+    const r = suggestCandidates('payents', ['payments', 'storage', 'cache']);
+    ok(r.includes('payments'), `expected payments via fuzzy match, got: ${r.join(', ')}`);
+  });
+
+  it('skips Levenshtein matches when distance exceeds the threshold', () => {
+    // Distance > 3 should not produce a suggestion (long target, short query).
+    const r = suggestCandidates('xyz', ['comprehensive-onboarding-flow', 'unrelated']);
+    deepStrictEqual(r, []);
+  });
+
+  it('returns at most `max` results', () => {
+    const r = suggestCandidates('plan', ['plan-a', 'plan-b', 'plan-c', 'plan-d', 'plan-e'], 3);
+    strictEqual(r.length, 3);
+  });
+
+  it('returns an empty array when no close matches', () => {
+    const r = suggestCandidates('xyzzy', ['auth', 'storage', 'cache']);
+    deepStrictEqual(r, []);
+  });
+
+  it('returns an empty array on empty input', () => {
+    deepStrictEqual(suggestCandidates('', ['a', 'b']), []);
+    deepStrictEqual(suggestCandidates('q', []), []);
+  });
+
+  it('drops exact matches (suggesting what the user typed is noise)', () => {
+    const r = suggestCandidates('auth', ['auth', 'auth-revamp', 'storage']);
+    ok(!r.includes('auth'));
   });
 });

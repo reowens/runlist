@@ -331,6 +331,49 @@ describe('reference path resolution', () => {
     ok(!result.stdout.includes('does not reference back'),
       `bidirectional pair should be satisfied across both path styles. stdout: ${result.stdout}`);
   });
+
+  it('appends `Did you mean` suggestions when a ref typo is close to a real basename', () => {
+    const root = setupRefProject();
+    writeFileSync(path.join(root, 'docs', 'plans', 'authn-revamp.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\n---\n# Authn\n');
+    writeFileSync(path.join(root, 'docs', 'plans', 'a.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\nrelated_plans:\n  - docs/plans/authn-revam.md\n---\n# A\n');
+    const result = run(['check']);
+    ok(result.stdout.includes('does not resolve'));
+    ok(result.stdout.includes('Did you mean'),
+      `expected suggestion line, got: ${result.stdout}`);
+    ok(result.stdout.includes('authn-revamp.md'),
+      `expected real basename in suggestion, got: ${result.stdout}`);
+  });
+
+  it('omits the `Did you mean` line when nothing in the index is close', () => {
+    const root = setupRefProject();
+    writeFileSync(path.join(root, 'docs', 'plans', 'authn-revamp.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\n---\n# Authn\n');
+    writeFileSync(path.join(root, 'docs', 'plans', 'a.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\nrelated_plans:\n  - docs/plans/zzzz-nothing-like-it.md\n---\n# A\n');
+    const result = run(['check']);
+    ok(result.stdout.includes('does not resolve'));
+    ok(!result.stdout.includes('Did you mean'),
+      `should not suggest when nothing close. got: ${result.stdout}`);
+  });
+
+  it('filters suggestions by ref-field type (related_plans → plans only)', () => {
+    // Set up a doc-typed file with a similar basename and a plan-typed file. A
+    // `related_plans` typo should suggest the plan, not the doc.
+    const root = setupRefProject();
+    writeFileSync(path.join(root, 'docs', 'plans', 'payments.md'),
+      '---\ntype: plan\nstatus: active\nupdated: 2025-01-01\n---\n# Payments plan\n');
+    writeFileSync(path.join(root, 'docs', 'payment.md'),
+      '---\ntype: doc\nstatus: active\nupdated: 2025-01-01\n---\n# Payment doc\n');
+    writeFileSync(path.join(root, 'docs', 'plans', 'a.md'),
+      '---\ntype: plan\nstatus: active\nupdated: 2025-01-01\nrelated_plans:\n  - docs/plans/paymentz.md\n---\n# A\n');
+    const result = run(['check']);
+    ok(result.stdout.includes('Did you mean'),
+      `expected suggestion line, got: ${result.stdout}`);
+    ok(result.stdout.includes('payments.md'),
+      `should suggest the plan-typed file. got: ${result.stdout}`);
+  });
 });
 
 // Regression for audit-example-project F2: three validators (Unknown surface,

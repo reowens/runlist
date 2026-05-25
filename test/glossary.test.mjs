@@ -80,6 +80,23 @@ describe('glossary matching', () => {
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(result.stdout.includes('No glossary match'));
   });
+
+  it('no match appends `Did you mean` for close typos', () => {
+    setup();
+    const result = run(['glossary', 'Widgit']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('No glossary match'));
+    ok(result.stdout.includes('Did you mean'), `expected suggestion, got: ${result.stdout}`);
+    ok(result.stdout.includes('Widget'), `expected Widget in suggestion, got: ${result.stdout}`);
+  });
+
+  it('no match omits `Did you mean` when nothing close exists', () => {
+    setup();
+    const result = run(['glossary', 'xyzzy']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('No glossary match'));
+    ok(!result.stdout.includes('Did you mean'), `should not suggest. got: ${result.stdout}`);
+  });
 });
 
 describe('glossary --list', () => {

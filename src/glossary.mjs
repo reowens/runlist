@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { buildIndex } from './index.mjs';
-import { die, warn } from './util.mjs';
+import { die, warn, suggestCandidates } from './util.mjs';
 import { bold, dim, green, yellow } from './color.mjs';
 
 function parseGlossaryTable(content, sectionHeading) {
@@ -217,7 +217,9 @@ export function runGlossary(argv, config) {
   }
 
   if (matches.length === 0) {
-    process.stdout.write(dim(`No glossary match for "${term}".`) + '\n');
+    const suggestions = suggestCandidates(term, entries.map(e => e.term));
+    const hint = suggestions.length ? ` Did you mean: ${suggestions.join(', ')}?` : '';
+    process.stdout.write(dim(`No glossary match for "${term}".${hint}`) + '\n');
     return;
   }
 

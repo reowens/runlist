@@ -89,6 +89,42 @@ export function levenshtein(a, b) {
   return matrix[b.length][a.length];
 }
 
+// Top-N candidates from a list, ranked for "did you mean" hints. Substring
+// match wins (cheap and intent-revealing for typos that share a prefix or
+// stem); Levenshtein distance ≤3 catches transpositions and small edits.
+// Results are deduped and capped. Empty input or empty candidate list returns
+// an empty array — callers should suppress the hint line in that case.
+export function suggestCandidates(query, candidates, max = 3) {
+  if (!query || !candidates?.length) return [];
+  const lower = String(query).toLowerCase();
+  const scored = new Map();
+
+  for (const cand of candidates) {
+    if (!cand) continue;
+    const candLower = String(cand).toLowerCase();
+    if (candLower === lower) continue;
+    if (candLower.includes(lower) || lower.includes(candLower)) {
+      // Substring hits sort first; shorter candidates rank higher within that bucket.
+      scored.set(cand, Math.min(scored.get(cand) ?? Infinity, candLower.length));
+    }
+  }
+
+  if (scored.size < max) {
+    for (const cand of candidates) {
+      if (!cand || scored.has(cand)) continue;
+      const candLower = String(cand).toLowerCase();
+      if (candLower === lower) continue;
+      const dist = levenshtein(lower, candLower);
+      if (dist <= 3) scored.set(cand, 1000 + dist);
+    }
+  }
+
+  return [...scored.entries()]
+    .sort((a, b) => a[1] - b[1])
+    .slice(0, max)
+    .map(([cand]) => cand);
+}
+
 export function resolveDocPath(input, config) {
   if (!input) return null;
   if (path.isAbsolute(input)) return existsSync(input) ? input : null;

@@ -3,12 +3,18 @@ import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { extractFirstHeading, extractSummary, extractStatusSnapshot, extractNextStep, extractChecklistCounts, extractBodyLinks } from './extractors.mjs';
 import { asString, normalizeStringList, normalizeBlockers, mergeUniqueStrings, toRepoPath, warn } from './util.mjs';
-import { validateDoc, validatePlanShape, validateDocShape, checkBidirectionalReferences, checkGitStaleness, computeDaysSinceUpdate, computeIsStale, computeChecklistCompletionRate } from './validate.mjs';
+import { validateDoc, validatePlanShape, validateDocShape, checkBidirectionalReferences, checkGitStaleness, computeDaysSinceUpdate, computeIsStale, computeChecklistCompletionRate, enrichRefErrorSuggestions } from './validate.mjs';
 import { checkIndex } from './index-file.mjs';
 import { checkClaudeCommands } from './claude-commands.mjs';
 
 export function buildIndex(config) {
   const docs = collectDocFiles(config).map(f => parseDocFile(f, config));
+  // Per-file validation (validateDoc) ran during parse without sibling
+  // visibility. Now that the full index is materialized, enrich
+  // unresolved-ref entries with "Did you mean..." candidates drawn from the
+  // index — mutates doc.errors/doc.warnings in place so the aggregations
+  // below pick up the enriched messages.
+  enrichRefErrorSuggestions(docs, config);
   const warnings = [];
   const errors = [];
 
