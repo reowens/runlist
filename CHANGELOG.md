@@ -2,6 +2,12 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- **`dotmd new <type>` for config overrides of built-in types: smart-inherit + honest error message.** A project that overrides `templates.plan` (or `templates.doc` / `templates.prompt`) in `dotmd.config.mjs` previously hit a contradictory error when piping body via `-` / `@path` / `--message`: `\`plan\` template does not accept body input … Templates that accept body input: doc, plan, prompt.` The hint computed from `BUILTIN_TEMPLATES` listed `plan` as accepting body even though the override was the one being rejected — agents had no way to self-fix without spelunking the config. Two changes: (a) `resolveTemplate` now shallow-merges the built-in under the override so missing fields (`description`, `dir`, `targetRoot`, `defaultStatus`, `frontmatter`, `body`, `acceptsBody`, `requiresBody`) inherit cleanly. Pure-metadata overrides (e.g., a project-branded `description` only) just work. (b) When an override supplies its own `body` fn without declaring `acceptsBody`/`requiresBody`, dotmd detects whether the fn references `bodyInput` — if so, body-acceptance is inherited from the built-in (body-aware overrides "just work"); if not, the inherited acceptance is stripped so the fail-fast guard still fires on silent body-discard. The error message itself is rewritten to compute the "accepting" list from the resolved template set (no more self-contradiction) and, when the offending name is a built-in override, calls that out by name with a concrete two-step fix — `acceptsBody: true` + `\${ctx?.bodyInput?.trim() ?? ''}` interpolation — and names the `dotmd.config.mjs` path the agent has to edit. 3 new tests; 916 passing.
+
 ## 0.38.0 — 2026-05-26
 
 Agent workflow improvements: lease warnings, a shelved prompt status, and an opt-in command journal. All changes are additive.

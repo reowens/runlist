@@ -473,6 +473,65 @@ describe('dotmd new — type-first CLI', () => {
       const r = run(['new', 'plan', 'opted-out', 'inline body']);
       strictEqual(r.status, 1, `should fail. stderr: ${r.stderr}`);
       ok(r.stderr.includes('does not accept body input'), `expected fail-fast error, got: ${r.stderr}`);
+      // Improved error: names dotmd.config.mjs as the override cause and
+      // gives the agent a concrete two-step fix.
+      ok(r.stderr.includes('dotmd.config.mjs'), `error should name dotmd.config.mjs: ${r.stderr}`);
+      ok(/overrides the built-in `plan`/.test(r.stderr), `error should call out the override: ${r.stderr}`);
+      ok(r.stderr.includes('ctx?.bodyInput'), `error should show the bodyInput interpolation fix: ${r.stderr}`);
+      // Resolved-set "accepting" list must not contradict the rejection by
+      // listing `plan` itself as accepting.
+      const hintMatch = r.stderr.match(/Templates that accept body input: ([^.\n]+)/);
+      if (hintMatch) {
+        ok(!hintMatch[1].split(',').map(s => s.trim()).includes('plan'),
+          `accepting list must not contain 'plan' when 'plan' is the failing template: ${hintMatch[1]}`);
+      }
+    });
+
+    it('config override of built-in `plan` auto-inherits acceptsBody when body fn references ctx.bodyInput', () => {
+      // Agent-first DX: a project copy-pastes a customized `plan` template
+      // that DOES interpolate ctx.bodyInput, but forgets to set acceptsBody.
+      // Smart-inherit treats body-aware overrides as body-accepting so
+      // `dotmd new plan x -` works without surfacing internal plumbing.
+      tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-new-'));
+      mkdirSync(path.join(tmpDir, '.git'));
+      mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+      writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+        export const templates = {
+          'plan': {
+            description: 'Body-aware override missing explicit acceptsBody',
+            frontmatter: (s, d) => \`type: plan\\nstatus: \${s}\\ncreated: \${d}\\nupdated: \${d}\`,
+            body: (t, ctx) => \`\\n# \${t}\\n\\n## Custom Section\\n\\n\${ctx?.bodyInput?.trim() ?? ''}\\n\`,
+          },
+        };
+        export const root = 'docs';
+      `);
+      const r = run(['new', 'plan', 'piped-via-override', '-'], { input: 'heredoc problem from agent\n' });
+      strictEqual(r.status, 0, `should succeed via smart-inherit. stderr: ${r.stderr}`);
+      // Override didn't declare `dir` or `targetRoot` either — those come
+      // from the built-in plan, landing the file under docs/plans/.
+      const content = readFileSync(path.join(tmpDir, 'docs', 'plans', 'piped-via-override.md'), 'utf8');
+      ok(/## Custom Section\s*\n\s*heredoc problem from agent/.test(content),
+        `body should land in custom override section: ${content}`);
+    });
+
+    it('pure metadata override inherits acceptsBody, frontmatter, body from same-name built-in', () => {
+      // Override declaring ONLY `description` should inherit everything else
+      // (frontmatter, body, dir, targetRoot, defaultStatus, acceptsBody)
+      // from the built-in plan template.
+      tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-new-'));
+      mkdirSync(path.join(tmpDir, '.git'));
+      mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+      writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+        export const templates = {
+          plan: { description: 'Project-branded plan description only' },
+        };
+        export const root = 'docs';
+      `);
+      const r = run(['new', 'plan', 'metadata-only', 'inline body for problem']);
+      strictEqual(r.status, 0, `should succeed via inherited built-in body. stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(tmpDir, 'docs', 'plans', 'metadata-only.md'), 'utf8');
+      ok(/## Problem\s*\n\s*inline body for problem/.test(content),
+        `body should land in inherited built-in's Problem section: ${content}`);
     });
 
     it('status default falls back to first valid type status when template default is invalid', () => {

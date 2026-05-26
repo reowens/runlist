@@ -265,17 +265,37 @@ export async function runNew(argv, config, opts = {}) {
 
   // Fail-fast when the user passes body input to a template that doesn't
   // consume it — silently discarding heredoc content is the worst UX.
-  // Templates opt in via `acceptsBody: true` or `requiresBody: true`. All
-  // built-in templates (doc, plan, prompt) accept body; this guard fires
-  // only for custom templates that opt out.
+  // Templates opt in via `acceptsBody: true` or `requiresBody: true`.
   if (bodyInput !== null && !template.acceptsBody && !template.requiresBody) {
-    const accepting = Object.entries(BUILTIN_TEMPLATES)
-      .filter(([, t]) => t.acceptsBody || t.requiresBody)
-      .map(([n]) => n);
+    const configTemplates = config.raw?.templates ?? {};
+    // Compute the accepting list from the RESOLVED set (config merged over
+    // built-ins) so the hint doesn't contradict the rejection.
+    const resolvedNames = new Set([...Object.keys(BUILTIN_TEMPLATES), ...Object.keys(configTemplates)]);
+    const accepting = [...resolvedNames]
+      .filter(n => n !== typeName)
+      .filter(n => {
+        const t = resolveTemplate(n, config);
+        return t.acceptsBody || t.requiresBody;
+      });
     const hint = accepting.length > 0
       ? ` Templates that accept body input: ${accepting.join(', ')}.`
       : '';
-    die(`\`${typeName}\` template does not accept body input, but body was passed via ${bodyInputSource}.${hint}\nEither drop the body, switch to a template that accepts it, or set \`acceptsBody: true\` on your custom \`${typeName}\` template in dotmd.config.mjs.`);
+
+    // Override-of-builtin diagnosis: the most common cause is a project
+    // dotmd.config.mjs that copy-pasted a stripped-down `plan` template
+    // and dropped the body-acceptance contract. Name that explicitly so
+    // an agent can self-fix without spelunking the config.
+    const builtin = BUILTIN_TEMPLATES[typeName];
+    const isOverride = Boolean(configTemplates[typeName] && builtin);
+    const builtinAccepts = Boolean(builtin && (builtin.acceptsBody || builtin.requiresBody));
+    let cause;
+    if (isOverride && builtinAccepts) {
+      const where = config.configPath ? toRepoPath(config.configPath, config.repoRoot) : 'dotmd.config.mjs';
+      cause = `Your config (${where}) overrides the built-in \`${typeName}\` template, and the override drops body acceptance.\nFix: in that override, add \`acceptsBody: true\` AND interpolate \`\${ctx?.bodyInput?.trim() ?? ''}\` into your \`body\` fn (e.g., inside \`## Problem\`). Or drop the override to use the built-in.`;
+    } else {
+      cause = `Either drop the body, switch to a template that accepts it, or set \`acceptsBody: true\` on your custom \`${typeName}\` template in dotmd.config.mjs.`;
+    }
+    die(`\`${typeName}\` template does not accept body input, but body was passed via ${bodyInputSource}.${hint}\n${cause}`);
   }
 
   // If name contains path separators, split into directory prefix and basename
@@ -379,10 +399,39 @@ export async function runNew(argv, config, opts = {}) {
 }
 
 function resolveTemplate(name, config) {
-  // Config templates take priority
   const configTemplates = config.raw?.templates ?? {};
-  if (configTemplates[name]) return configTemplates[name];
-  if (BUILTIN_TEMPLATES[name]) return BUILTIN_TEMPLATES[name];
+  const override = configTemplates[name];
+  const builtin = BUILTIN_TEMPLATES[name];
+
+  if (override) {
+    if (!builtin) return { ...override, _overridesBuiltin: false };
+    // Partial-override DX: shallow-merge built-in under override so missing
+    // fields (description, dir, targetRoot, defaultStatus, frontmatter, body,
+    // acceptsBody, requiresBody) fall back to the built-in. Anything the
+    // override explicitly declares wins.
+    const merged = { ...builtin, ...override, _overridesBuiltin: true };
+
+    // Body-loss guard: if the override supplies its OWN body fn but doesn't
+    // explicitly opt in to body acceptance, the inherited built-in
+    // `acceptsBody`/`requiresBody` could let body input flow into a custom
+    // body fn that doesn't honor `ctx.bodyInput` — silently discarding the
+    // heredoc, the worst-UX bug fix #9 was added to prevent. Strip the
+    // inherited flags so the fail-fast guard fires. EXCEPT when the custom
+    // body fn references `bodyInput` itself, in which case it's clearly
+    // body-aware and inheriting acceptsBody is the agent-first move.
+    const overrodeBody = typeof override.body === 'function';
+    const declaredAcceptance = override.acceptsBody !== undefined || override.requiresBody !== undefined;
+    if (overrodeBody && !declaredAcceptance) {
+      const bodyAware = /bodyInput/.test(override.body.toString());
+      if (!bodyAware) {
+        merged.acceptsBody = undefined;
+        merged.requiresBody = undefined;
+      }
+    }
+    return merged;
+  }
+
+  if (builtin) return builtin;
 
   const available = [...new Set([...Object.keys(BUILTIN_TEMPLATES), ...Object.keys(configTemplates)])];
   die(`Unknown type: ${name}\nAvailable: ${available.join(', ')}`);
