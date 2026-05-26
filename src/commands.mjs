@@ -5,7 +5,7 @@
 export const KNOWN_COMMANDS = [
   'list', 'json', 'check', 'coverage', 'stats', 'graph', 'deps', 'briefing', 'context', 'hud',
   'focus', 'query', 'plans', 'prompts', 'stale', 'actionable', 'index', 'pickup', 'release', 'finish', 'status', 'archive', 'bulk', 'bulk-tag', 'touch', 'doctor',
-  'unblocks', 'health', 'glossary',
+  'unblocks', 'health', 'glossary', 'modules', 'module',
   'fix-refs', 'lint', 'rename', 'migrate', 'notion', 'export', 'summary',
   'watch', 'diff', 'new', 'init', 'completions', 'statuses',
 ];

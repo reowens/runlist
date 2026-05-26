@@ -2,6 +2,18 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## 0.36.0 — 2026-05-26
+
+Two read-only commands for organizing and inspecting document collections, without a schema change or migration.
+
+### Added
+
+- **`dotmd modules` — module dashboard.** One row per module discovered in plan frontmatter, with dynamic status columns (only statuses with ≥1 plan render — auto-handles default and custom vocabularies). Sort modes: `total` (default), `stale`, `age`, `nextstep`, and `cleanup` — the last is a triage rank `(stale × avgAge) / max(total, 1)` for "which module is rotting hardest right now?" Defaults to `--type plan`; `--type doc` works but column set may look different. `--limit 20` (default) / `--all`. `--json` includes `_totalUnique` so callers can detect multi-module double-counting (a plan with `modules: [a, b]` counts in both rows — intentional). `(none)` is a literal row for unmoduled plans. Falls back to a stacked render when the table doesn't fit the terminal width.
+- **`dotmd module <name>` — per-module deep view.** Plans grouped by status, ordered by `config.statusOrder`, stale flag inline. `--sort status` (default) / `updated` / `age`. Unknown module name exits with `Module 'foo' not found. Did you mean: …?` (substring-first, Levenshtein ≤3 fallback). `--json` for tooling.
+- **`dotmd stale --group module`** documented (existing `query --group` mechanism, now called out in `dotmd stale --help` as the canonical triage view).
+
+The dashboard composes existing primitives (`modules: []`, `isStale`, `daysSinceUpdate`, `hasNextStep`, `statusOrder`, `lifecycle.skipStaleFor`, `lifecycle.terminalStatuses`) — no new config knobs. Workflow: `dotmd modules --sort cleanup` → walk the top row → `dotmd module <name>` → triage/archive → next.
+
 ## 0.35.0 — 2026-05-26
 
 One agent-UX fix from the audit doc (`docs/agent-ux-audit.md` § A4). Additive — no breaking change, no config migration.

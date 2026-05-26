@@ -32,6 +32,8 @@ Analyze:
   coverage [--json]                 Metadata coverage report
   graph [--dot] [--json]            Visualize document relationships
   deps [file] [--json]              Dependency tree or overview
+  modules [--sort cleanup] [--json] Module dashboard (plans grouped by module)
+  module <name> [--json]            Plans for one module, grouped by status
   unblocks <file> [--json]          Show what completes when this doc ships
   diff [file] [--summarize]         Show changes since last updated date
   summary <file> [--json]           AI summary of a document
@@ -296,6 +298,43 @@ depends on it.
 Options:
   --depth <n>            Max tree depth (default: 5)
   --json                 Machine-readable JSON output`,
+
+  modules: `dotmd modules — module dashboard (plans grouped by module)
+
+One row per module discovered in plan frontmatter. Dynamic status columns
+(only statuses with ≥1 plan render). Defaults to --type plan; pass --type
+to scope to docs/prompts.
+
+Sort modes:
+  --sort total           Plan count, desc (default)
+  --sort stale           Stale-plan count, desc
+  --sort age             Average age in days, desc
+  --sort nextstep        % of plans with a next_step set, desc
+  --sort cleanup         Triage score: (stale × avgAge) / max(total, 1)
+
+Options:
+  --limit <n>            Cap rows (default: 20)
+  --all                  Show every module
+  --json                 Machine-readable shape (includes _totalUnique to
+                         detect modules: [a, b] double-counting)
+
+A plan with \`modules: [a, b]\` counts in both rows — intentional, so
+multi-module plans surface in every relevant triage view. \`(none)\` is a
+literal row for plans with no module tag.`,
+
+  module: `dotmd module <name> — plans for one module, grouped by status
+
+Status groups follow config.statusOrder. Stale plans are flagged inline.
+
+Sort modes (within each status group):
+  --sort status          By config.statusOrder, then age (default)
+  --sort updated         Most-recently-updated first
+  --sort age             Oldest first
+
+Options:
+  --json                 Machine-readable shape
+
+Unknown module name suggests close matches (or lists what's available).`,
 
   doctor: `dotmd doctor — auto-fix everything in one pass
 
@@ -563,7 +602,10 @@ Examples:
   stale: `dotmd stale — list stale documents
 
 Shows docs that haven't been updated within their staleness threshold.
-Supports all query flags (--status, --json, --sort, etc.)`,
+Supports all query flags (--status, --json, --sort, etc.)
+
+Examples:
+  dotmd stale --group module       Stale plans grouped by module (triage view)`,
 
   actionable: `dotmd actionable — list docs with next steps
 
@@ -970,6 +1012,22 @@ async function main() {
 
   if (command === 'focus') { runFocus(index, restArgs, config); return; }
   if (command === 'query') { runQuery(index, restArgs, config); return; }
+  if (command === 'modules' || command === 'module') {
+    // D3: default `--type plan` when the user didn't pass --type explicitly.
+    // applyIndexFilters already narrowed by typeArg if it was set; if not, the
+    // index still spans all types, and the dashboard would mix plans/docs/prompts
+    // into the same module rows. Narrow here so the docs/prompts case stays a
+    // deliberate `--type doc` opt-in (deferred per plan).
+    const scoped = typeArg ? index : { ...index, docs: index.docs.filter(d => d.type === 'plan') };
+    if (command === 'modules') {
+      const { runModulesDashboard } = await import('../src/modules.mjs');
+      runModulesDashboard(scoped, restArgs, config);
+    } else {
+      const { runModuleDetail } = await import('../src/modules.mjs');
+      runModuleDetail(scoped, restArgs, config);
+    }
+    return;
+  }
   if (command === 'briefing') {
     if (args.includes('--json')) {
       const plans = index.docs.filter(d => d.type === 'plan');
