@@ -170,6 +170,7 @@ If a plan is already in-session:
 
 Options:
   --takeover             Force-claim a plan held by another session
+  --no-index             Skip index regen (see \`dotmd archive --help\`)
   --json                 Output as JSON
   --dry-run, -n          Preview without writing
 
@@ -191,6 +192,7 @@ Options:
   --all                  Release every lease in the file (administrative)
   --stale                Release leases whose pid is dead or age >24h
   --force                Override "not yours" refusal on a specific file
+  --no-index             Skip index regen (see \`dotmd archive --help\`)
   --json                 Output as JSON ({ released, skipped })
   --dry-run, -n          Preview without writing
 
@@ -220,6 +222,10 @@ If no file is given, prompts with a list of in-session plans.`,
 Moves the document to the new status. If transitioning to an archive
 status, automatically moves the file to the archive directory and
 regenerates the index (if configured).
+
+Options:
+  --no-index             Skip index regen (useful in concurrent-session repos
+                         doing path-limited commits — see \`dotmd archive --help\`).
 
 Default plan statuses (each maps to a distinct unstuck-action):
   in-session     A Claude session is working on it now
@@ -252,7 +258,13 @@ Options:
 Sets status to 'archived', moves to the archive directory, auto-updates
 references in other docs, and regenerates the index.
 
-Use --dry-run (-n) to preview changes without writing anything.`,
+Options:
+  --no-index             Skip index regen. Use when multiple sessions are
+                         working concurrently and you want a path-limited
+                         commit that doesn't pull other agents' uncommitted
+                         index changes into your staging area. Run \`dotmd index\`
+                         later (or wire it into a commit hook) to refresh.
+  --dry-run, -n          Preview changes without writing anything.`,
 
   coverage: `dotmd coverage — metadata coverage report
 

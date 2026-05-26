@@ -703,3 +703,99 @@ describe('init writes .dotmd/ to .gitignore', () => {
     strictEqual(matches, 1, 'only one .dotmd/ entry');
   });
 });
+
+describe('--no-index flag (issue #10 finding #3)', () => {
+  // Concurrent-session repos doing path-limited commits don't want every
+  // lifecycle verb to rewrite docs/plans/README.md — that pulls in other
+  // agents' uncommitted index lines. `--no-index` lets the caller skip
+  // regen and refresh later (or via commit hook).
+  function setupWithIndex() {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-noidx-'));
+    spawnSync('git', ['init'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
+    const docsDir = path.join(tmpDir, 'docs');
+    mkdirSync(docsDir, { recursive: true });
+    mkdirSync(path.join(docsDir, 'archived'), { recursive: true });
+    // Index file with generated-block markers.
+    writeFileSync(path.join(docsDir, 'README.md'),
+      '# Docs\n\n<!-- GENERATED:dotmd:start -->\n\n## Active\n\n| Doc | Status Snapshot |\n|-----|-----------------|\n| [Sentinel](sentinel.md) | sentinel-row-must-survive |\n\n<!-- GENERATED:dotmd:end -->\n');
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'),
+      `export const root = 'docs';\nexport const index = { path: 'docs/README.md' };\n`);
+    spawnSync('git', ['add', '.'], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-m', 'init'], { cwd: tmpDir });
+    return docsDir;
+  }
+
+  it('archive --no-index leaves docs/README.md untouched', () => {
+    const docsDir = setupWithIndex();
+    const filePath = writeDoc(docsDir, 'plan-x.md', 'type: plan\nstatus: active\nupdated: 2026-05-01', '# Plan X\n');
+    const indexBefore = readFileSync(path.join(docsDir, 'README.md'), 'utf8');
+
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const result = spawnSync('node', [bin, 'archive', filePath, '--no-index', '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir, encoding: 'utf8',
+    });
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+
+    const indexAfter = readFileSync(path.join(docsDir, 'README.md'), 'utf8');
+    strictEqual(indexAfter, indexBefore, 'index file should be byte-identical');
+    ok(result.stdout.includes('index not regenerated'), `expected skip-notice, got: ${result.stdout}`);
+    // Sanity: the archive itself still happened.
+    ok(existsSync(path.join(docsDir, 'archived', 'plan-x.md')), 'file was moved to archived');
+  });
+
+  it('archive (default) rewrites docs/README.md', () => {
+    // Inverse: confirm we didn't accidentally make --no-index the new default.
+    const docsDir = setupWithIndex();
+    const filePath = writeDoc(docsDir, 'plan-y.md', 'type: plan\nstatus: active\nupdated: 2026-05-01', '# Plan Y\n');
+    const indexBefore = readFileSync(path.join(docsDir, 'README.md'), 'utf8');
+
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const result = spawnSync('node', [bin, 'archive', filePath, '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir, encoding: 'utf8',
+    });
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+
+    const indexAfter = readFileSync(path.join(docsDir, 'README.md'), 'utf8');
+    ok(indexAfter !== indexBefore, 'default archive should rewrite the index');
+    ok(result.stdout.includes('Index regenerated'), `expected regen confirmation, got: ${result.stdout}`);
+  });
+
+  it('status --no-index leaves docs/README.md untouched', () => {
+    const docsDir = setupWithIndex();
+    const filePath = writeDoc(docsDir, 'plan-z.md', 'type: plan\nstatus: active\nupdated: 2026-05-01', '# Plan Z\n');
+    const indexBefore = readFileSync(path.join(docsDir, 'README.md'), 'utf8');
+
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const result = spawnSync('node', [bin, 'status', filePath, 'planned', '--no-index', '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir, encoding: 'utf8',
+    });
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+
+    const indexAfter = readFileSync(path.join(docsDir, 'README.md'), 'utf8');
+    strictEqual(indexAfter, indexBefore, 'index file should be byte-identical');
+  });
+
+  it('preserves sibling agent\'s uncommitted index edits across an archive', () => {
+    // Concurrent scenario: agent A made an uncommitted change to docs/README.md
+    // (a line for some other plan). Agent B runs `dotmd archive plan-b --no-index`.
+    // B's archive must NOT touch A's uncommitted edit.
+    const docsDir = setupWithIndex();
+    const filePath = writeDoc(docsDir, 'plan-b.md', 'type: plan\nstatus: active\nupdated: 2026-05-01', '# Plan B\n');
+
+    // Simulate agent A's uncommitted edit (the "sentinel-row-must-survive" row).
+    const readmePath = path.join(docsDir, 'README.md');
+    const tampered = readFileSync(readmePath, 'utf8').replace('sentinel-row-must-survive', 'AGENT_A_UNCOMMITTED_EDIT');
+    writeFileSync(readmePath, tampered);
+
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const result = spawnSync('node', [bin, 'archive', filePath, '--no-index', '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir, encoding: 'utf8',
+    });
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+
+    const after = readFileSync(readmePath, 'utf8');
+    ok(after.includes('AGENT_A_UNCOMMITTED_EDIT'), `agent A's edit must survive — got: ${after}`);
+  });
+});

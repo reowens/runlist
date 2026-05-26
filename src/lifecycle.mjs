@@ -68,6 +68,8 @@ function uniqueArchiveTarget(targetDir, basename) {
 
 export async function runStatus(argv, config, opts = {}) {
   const { dryRun } = opts;
+  const noIndex = argv.includes('--no-index') || opts.noIndex;
+  argv = argv.filter(a => a !== '--no-index');
   const input = argv[0];
   let newStatus = argv[1];
 
@@ -167,8 +169,14 @@ export async function runStatus(argv, config, opts = {}) {
 
   // Regen the index on every status change — `active → planned` etc. drift
   // the per-status sections just as much as archive crossings. Archive paths
-  // also benefit (replaces the previously-gated regen).
-  regenIndex(config);
+  // also benefit (replaces the previously-gated regen). `--no-index` skips
+  // this so concurrent agents can do path-limited commits without pulling
+  // each other's uncommitted index changes into the staging area.
+  if (noIndex) {
+    process.stderr.write(dim('(index not regenerated — run `dotmd index` to refresh)\n'));
+  } else {
+    regenIndex(config);
+  }
 
   process.stdout.write(`${green(toRepoPath(finalPath, config.repoRoot))}: ${oldStatus ?? 'unknown'} → ${newStatus}\n`);
 
@@ -183,6 +191,7 @@ export async function runPickup(argv, config, opts = {}) {
   const json = argv.includes('--json');
   const takeover = argv.includes('--takeover');
   const fullBody = argv.includes('--full');
+  const noIndex = argv.includes('--no-index') || opts.noIndex;
   let input = argv.find(a => !a.startsWith('-'));
 
   // Interactive: pick from active/planned plans
@@ -253,7 +262,11 @@ export async function runPickup(argv, config, opts = {}) {
     }
     if (oldStatus !== 'in-session') {
       updateFrontmatter(filePath, { status: 'in-session', updated: today });
-      regenIndex(config);
+      if (noIndex) {
+        process.stderr.write(dim('(index not regenerated — run `dotmd index` to refresh)\n'));
+      } else {
+        regenIndex(config);
+      }
     }
     // VH append per lease outcome:
     //   acquired   → `Picked up (<old> → in-session).`
@@ -304,6 +317,7 @@ export async function runUnpickup(argv, config, opts = {}) {
   const all = argv.includes('--all');
   const stale = argv.includes('--stale');
   const force = argv.includes('--force');
+  const noIndex = argv.includes('--no-index') || opts.noIndex;
   const toIdx = argv.indexOf('--to');
   const toStatus = toIdx >= 0 ? argv[toIdx + 1] : null;
   const positional = argv.filter((a, i) => !a.startsWith('-') && argv[i - 1] !== '--to');
@@ -360,7 +374,11 @@ export async function runUnpickup(argv, config, opts = {}) {
         const today = nowIso();
         updateFrontmatter(filePath, { status: newStatus, updated: today });
         appendVersionHistory(filePath, `Released (in-session → ${newStatus}).`);
-        regenIndex(config);
+        if (noIndex) {
+          process.stderr.write(dim('(index not regenerated — run `dotmd index` to refresh)\n'));
+        } else {
+          regenIndex(config);
+        }
       }
       // If frontmatter is no longer in-session (manual flip), leave it alone.
     } catch (err) {
@@ -493,6 +511,8 @@ export async function runFinish(argv, config, opts = {}) {
 
 export function runArchive(argv, config, opts = {}) {
   const { dryRun, out = process.stdout } = opts;
+  const noIndex = argv.includes('--no-index') || opts.noIndex;
+  argv = argv.filter(a => a !== '--no-index');
   const input = argv[0];
 
   if (!input) { die('Usage: dotmd archive <file>'); }
@@ -519,7 +539,8 @@ export function runArchive(argv, config, opts = {}) {
     const prefix = dim('[dry-run]');
     out.write(`${prefix} Would update frontmatter: status: ${oldStatus} → archived, updated: ${today}\n`);
     out.write(`${prefix} Would move: ${oldRepoPath} → ${newRepoPath}\n`);
-    if (config.indexPath) out.write(`${prefix} Would regenerate index\n`);
+    if (config.indexPath && !noIndex) out.write(`${prefix} Would regenerate index\n`);
+    if (config.indexPath && noIndex) out.write(`${prefix} Would skip index regen (--no-index)\n`);
 
     // Preview reference updates
     const refCount = countRefsToUpdate(filePath, targetPath, config);
@@ -543,12 +564,13 @@ export function runArchive(argv, config, opts = {}) {
   // Auto-update references in other docs
   const updatedRefCount = updateRefsAfterMove(filePath, targetPath, config);
 
-  regenIndex(config);
+  if (!noIndex) regenIndex(config);
 
   out.write(`${green('Archived')}: ${oldRepoPath} → ${newRepoPath}\n`);
   if (selfRefsFixed) out.write('Updated references in archived file.\n');
   if (updatedRefCount > 0) out.write(`Updated references in ${updatedRefCount} file(s).\n`);
-  if (config.indexPath) out.write('Index regenerated.\n');
+  if (config.indexPath && !noIndex) out.write('Index regenerated.\n');
+  if (config.indexPath && noIndex) out.write(dim('(index not regenerated — run `dotmd index` to refresh)\n'));
 
   try { releaseLease(config, oldRepoPath, { force: true }); } catch (err) { warn(`Could not release lease for ${oldRepoPath}: ${err.message}`); }
 
@@ -557,6 +579,7 @@ export function runArchive(argv, config, opts = {}) {
 
 export function runBulkArchive(argv, config, opts = {}) {
   const { dryRun } = opts;
+  const noIndex = argv.includes('--no-index') || opts.noIndex;
   const inputs = argv.filter(a => !a.startsWith('-'));
   if (inputs.length === 0) die('Usage: dotmd bulk archive <file1> <file2> ... or <glob>');
 
@@ -592,13 +615,22 @@ export function runBulkArchive(argv, config, opts = {}) {
   }
 
   process.stdout.write('\n');
+  // Bulk archives always defer index regen to the end — N individual regens
+  // is wasteful and the final state is the same. `--no-index` skips even
+  // the final one.
   for (const f of unique) {
     const relPath = toRepoPath(f, config.repoRoot);
     try {
-      runArchive([relPath], config, opts);
+      runArchive([relPath], config, { ...opts, noIndex: true });
     } catch (err) {
       warn(`Failed to archive ${relPath}: ${err.message}`);
     }
+  }
+  if (!noIndex) {
+    regenIndex(config);
+    if (config.indexPath) process.stdout.write('Index regenerated.\n');
+  } else if (config.indexPath) {
+    process.stdout.write(dim('(index not regenerated — run `dotmd index` to refresh)\n'));
   }
 }
 

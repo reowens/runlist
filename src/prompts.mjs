@@ -116,12 +116,13 @@ function resolvePromptInput(input, config) {
 function runPromptsUse(argv, config, opts = {}) {
   const input = argv.find(a => !a.startsWith('-'));
   if (!input) die('Usage: dotmd prompts use <file-or-slug>');
+  const noIndex = argv.includes('--no-index') || opts.noIndex;
   const filePath = resolvePromptInput(input, config);
-  consumePrompt(filePath, config, opts);
+  consumePrompt(filePath, config, { ...opts, noIndex });
 }
 
 function consumePrompt(filePath, config, opts) {
-  const { dryRun } = opts;
+  const { dryRun, noIndex } = opts;
   const raw = readFileSync(filePath, 'utf8');
   const { frontmatter, body } = extractFrontmatter(raw);
   const parsed = parseSimpleFrontmatter(frontmatter);
@@ -138,20 +139,21 @@ function consumePrompt(filePath, config, opts) {
 
   if (dryRun) {
     process.stderr.write(`${dim('[dry-run]')} Would emit body and archive: ${repoPath} (${status ?? 'unknown'} → archived)\n`);
-    runArchive([filePath], config, { dryRun: true, out: process.stderr });
+    runArchive([filePath], config, { dryRun: true, noIndex, out: process.stderr });
     return;
   }
 
   process.stdout.write(body);
   if (!body.endsWith('\n')) process.stdout.write('\n');
 
-  runArchive([filePath], config, { out: process.stderr });
+  runArchive([filePath], config, { noIndex, out: process.stderr });
   process.stderr.write(`${green('✓ Consumed')}: ${repoPath}\n`);
 }
 
 function runPromptsArchive(argv, config, opts = {}) {
   const input = argv.find(a => !a.startsWith('-'));
   if (!input) die('Usage: dotmd prompts archive <file-or-slug>');
+  const noIndex = argv.includes('--no-index') || opts.noIndex;
   const filePath = resolvePromptInput(input, config);
 
   const raw = readFileSync(filePath, 'utf8');
@@ -161,7 +163,7 @@ function runPromptsArchive(argv, config, opts = {}) {
     die(`Not a prompt: ${toRepoPath(filePath, config.repoRoot)}`);
   }
 
-  runArchive([filePath], config, opts);
+  runArchive([filePath], config, { ...opts, noIndex });
 }
 
 async function runPromptsNew(argv, config, opts = {}) {
