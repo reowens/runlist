@@ -273,6 +273,59 @@ describe('dotmd prompts archive', () => {
   });
 });
 
+describe('F14: shelved prompt status', () => {
+  beforeEach(setupProject);
+
+  it('`prompts list` shows shelved prompts alongside pending', () => {
+    writePrompt('parked', { status: 'shelved' });
+    writePrompt('active-one', { status: 'pending' });
+    const r = run(['prompts', 'list', '--include-archived']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(r.stdout.includes('parked'), `list should show shelved prompt:\n${r.stdout}`);
+    ok(r.stdout.includes('active-one'), `list should still show pending:\n${r.stdout}`);
+  });
+
+  it('`prompts next` skips shelved and only consumes pending', () => {
+    writePrompt('shelf', { status: 'shelved', created: '2025-01-01', body: 'shelf body' });
+    writePrompt('hot', { status: 'pending', created: '2025-06-01', body: 'hot body' });
+    const r = run(['prompts', 'next']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(r.stdout.includes('hot body'), `should consume the pending one:\n${r.stdout}`);
+    ok(!r.stdout.includes('shelf body'), `must not consume shelved:\n${r.stdout}`);
+  });
+
+  it('`prompts next` reports empty queue when only shelved prompts exist', () => {
+    writePrompt('only-shelved', { status: 'shelved' });
+    const r = run(['prompts', 'next']);
+    ok(r.status !== 0, 'non-zero exit when no pending');
+    ok(r.stderr.includes('No pending prompts'), `expected empty-queue error:\n${r.stderr}`);
+  });
+
+  it('`prompts shelve` flips status pending → shelved', () => {
+    const file = writePrompt('todo-later', { status: 'pending' });
+    const r = run(['prompts', 'shelve', 'todo-later']);
+    strictEqual(r.status, 0, r.stderr);
+    const after = readFileSync(file, 'utf8');
+    ok(after.includes('status: shelved'), `status should flip:\n${after}`);
+  });
+
+  it('`prompts unshelve` flips status shelved → pending', () => {
+    const file = writePrompt('back-on-deck', { status: 'shelved' });
+    const r = run(['prompts', 'unshelve', 'back-on-deck']);
+    strictEqual(r.status, 0, r.stderr);
+    const after = readFileSync(file, 'utf8');
+    ok(after.includes('status: pending'), `status should flip back:\n${after}`);
+  });
+
+  it('`hud` does not surface shelved prompts in the pending count', () => {
+    writePrompt('parked', { status: 'shelved' });
+    const r = run(['hud']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(!r.stdout.includes('pending prompt'),
+      `hud should not flag shelved as pending:\n${r.stdout}`);
+  });
+});
+
 describe('dotmd prompts new', () => {
   beforeEach(setupProject);
 

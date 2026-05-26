@@ -4,11 +4,11 @@ import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { asString, toRepoPath, die, resolveDocPath } from './util.mjs';
 import { buildIndex } from './index.mjs';
 import { runQuery } from './query.mjs';
-import { runArchive } from './lifecycle.mjs';
+import { runArchive, runStatus } from './lifecycle.mjs';
 import { runNew } from './new.mjs';
 import { green, dim } from './color.mjs';
 
-const SUBCOMMANDS = new Set(['list', 'next', 'use', 'archive', 'new']);
+const SUBCOMMANDS = new Set(['list', 'next', 'use', 'archive', 'new', 'shelve', 'unshelve']);
 
 export async function runPrompts(argv, config, opts = {}) {
   const sub = argv[0];
@@ -19,11 +19,13 @@ export async function runPrompts(argv, config, opts = {}) {
 
   const rest = argv.slice(1);
   switch (sub) {
-    case 'list':   return runPromptsList(rest, config, opts);
-    case 'next':   return runPromptsNext(rest, config, opts);
-    case 'use':    return runPromptsUse(rest, config, opts);
-    case 'archive': return runPromptsArchive(rest, config, opts);
-    case 'new':    return runPromptsNew(rest, config, opts);
+    case 'list':     return runPromptsList(rest, config, opts);
+    case 'next':     return runPromptsNext(rest, config, opts);
+    case 'use':      return runPromptsUse(rest, config, opts);
+    case 'archive':  return runPromptsArchive(rest, config, opts);
+    case 'new':      return runPromptsNew(rest, config, opts);
+    case 'shelve':   return runPromptsShelve(rest, config, opts);
+    case 'unshelve': return runPromptsUnshelve(rest, config, opts);
   }
 }
 
@@ -167,4 +169,18 @@ async function runPromptsNew(argv, config, opts = {}) {
     die('Usage: dotmd prompts new <slug> [body]\n       body: inline text | "-" (stdin) | "@path" (file) | --message "..."');
   }
   return runNew(['prompt', ...argv], config, opts);
+}
+
+async function runPromptsShelve(argv, config, opts = {}) {
+  const input = argv.find(a => !a.startsWith('-'));
+  if (!input) die('Usage: dotmd prompts shelve <file-or-slug>');
+  const filePath = resolvePromptInput(input, config);
+  return runStatus([filePath, 'shelved'], config, opts);
+}
+
+async function runPromptsUnshelve(argv, config, opts = {}) {
+  const input = argv.find(a => !a.startsWith('-'));
+  if (!input) die('Usage: dotmd prompts unshelve <file-or-slug>');
+  const filePath = resolvePromptInput(input, config);
+  return runStatus([filePath, 'pending'], config, opts);
 }

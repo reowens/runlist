@@ -14,7 +14,7 @@ Every document has a `type:` field in its frontmatter. Types determine which sta
 |------|---------|----------|
 | `plan` | Execution plans that Claude sessions work on | `in-session`, `active`, `planned`, `blocked`, `partial`, `paused`, `awaiting`, `queued-after`, `archived` |
 | `doc` | Reference material, design docs, specs, ADRs, RFCs, investigations | `draft`, `active`, `review`, `reference`, `deprecated`, `archived` |
-| `prompt` | Saved prompts that seed future sessions (body required) | `pending`, `claimed`, `archived` |
+| `prompt` | Saved prompts that seed future sessions (body required) | `pending`, `shelved`, `claimed`, `archived` |
 
 ### Plan statuses explained
 
@@ -85,7 +85,7 @@ multi-line body
 EOF
 ```
 
-Saved prompts have their own status vocab (`pending`, `claimed`, `archived`) and a dedicated command family (`dotmd prompts list|next|use|archive`). `dotmd prompts next` prints + claims the oldest pending prompt — useful when a session boots and needs an instruction.
+Saved prompts have their own status vocab (`pending`, `shelved`, `claimed`, `archived`) and a dedicated command family (`dotmd prompts list|next|use|archive|shelve|unshelve`). `dotmd prompts next` prints + claims the oldest pending prompt — useful when a session boots and needs an instruction. `shelved` is the "saved but not next" bucket: visible in `dotmd prompts list`, but hidden from `hud`/`briefing` and skipped by `prompts next`. Use `dotmd prompts shelve <file>` / `unshelve <file>` to flip.
 
 ### Querying by type
 

@@ -2,6 +2,20 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## 0.38.0 — 2026-05-26
+
+Agent workflow improvements: lease warnings, a shelved prompt status, and an opt-in command journal. All changes are additive.
+
+### Added
+
+- **`dotmd check` warns when an `in-session` plan has no live lease.** Missing and stale leases now produce distinct warnings with commands to release or re-queue the plan.
+- **`shelved` prompt status: pending lifecycle gets a "saved but not next" bucket.** Shelved prompts are hidden from the pending dashboard and next-prompt selection. `dotmd prompts shelve <file-or-slug>` and `unshelve` change the status without moving files.
+- **`dotmd journal` + opt-in `.dotmd/journal.jsonl`. (F17a — P2 agent observability.)** dotmd's primary user is Claude (per memory), but there was no usage signal: failed invocations (wrong arity, typoed argv), retries, cross-session activity. Every dotmd UX decision was informed by guesswork or one-shot audit snapshots. F17a is the foundation: every CLI invocation now appends one JSONL line — `{ts, sid, pid, argv, exit, ms, v, err?}` — to `.dotmd/journal.jsonl` when enabled via `DOTMD_JOURNAL=1` (env) or `journal: true` (config). Default-off keeps the surface clean for non-agent users. New `dotmd journal` reader supports `--tail N` (default 20), `--errors`, `--session <id>`, `--since <iso>`, `--by-command` (group + median ms + error rate), `--json` (raw array dump). Atomic concurrent writes via `appendFileSync` with `O_APPEND` (entries are well under `PIPE_BUF`). Lazy rotation to `.dotmd/journal.jsonl.1` at >5MB or oldest entry >30 days. F17b (hud reads journal) and F17c (`die()` self-correcting hints) are downstream — held for ~1 week of real journal data to shape the render.
+
+### Tests
+
+19 new regression tests: 4 in `test/validate.test.mjs` (F11 lease scenarios — no-lease, fresh, stale, non-in-session regression), 6 in `test/prompts.test.mjs` (F14 — list inclusion, `next` skip, empty-queue, shelve/unshelve, hud suppression), 9 in `test/journal.test.mjs` (F17a — opt-in default, env enable, config enable, concurrent atomicity, rotation, reader `--tail`/`--errors`/disabled-state). Total: 886 → 905.
+
 ## 0.37.0 — 2026-05-26
 
 Safety and output improvements: doctor reports by default and repeated auto-fixable warnings are grouped into bulk-fix hints.

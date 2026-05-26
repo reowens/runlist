@@ -3,7 +3,7 @@ import { die } from './util.mjs';
 const COMMANDS = [
   'list', 'json', 'check', 'coverage', 'stats', 'graph', 'deps', 'unblocks', 'health', 'glossary', 'briefing', 'context', 'focus', 'query',
   'plans', 'stale', 'actionable', 'index', 'pickup', 'unpickup', 'finish', 'status', 'archive', 'bulk', 'touch', 'doctor', 'lint', 'rename', 'migrate',
-  'fix-refs', 'notion', 'export', 'summary', 'watch', 'diff', 'init', 'new', 'completions',
+  'fix-refs', 'notion', 'export', 'summary', 'watch', 'diff', 'init', 'new', 'completions', 'journal',
 ];
 
 const GLOBAL_FLAGS = ['--config', '--dry-run', '--verbose', '--root', '--type', '--help', '--version'];
@@ -47,6 +47,7 @@ const COMMAND_FLAGS = {
   summary: ['--model', '--max-tokens', '--json'],
   context: ['--summarize', '--model', '--json'],
   touch: ['--git'],
+  journal: ['--tail', '--errors', '--session', '--since', '--by-command', '--json'],
 };
 
 function bashCompletion() {

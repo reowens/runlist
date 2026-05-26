@@ -539,6 +539,81 @@ describe('rootStatuses validation', () => {
   });
 });
 
+describe('F11: stale-lease warning for in-session plans', () => {
+  function setupPlanProject() {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-f11-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, 'docs', 'plans'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';`);
+    return path.join(tmpDir, 'docs', 'plans');
+  }
+
+  function writeLease(repoPath, pickedUpAt) {
+    const leaseDir = path.join(tmpDir, '.dotmd');
+    mkdirSync(leaseDir, { recursive: true });
+    const leases = {
+      [repoPath]: {
+        path: repoPath,
+        oldStatus: 'active',
+        pid: 99999,
+        host: 'test-host',
+        session: 'test-session',
+        pickedUpAt,
+      },
+    };
+    writeFileSync(path.join(leaseDir, 'in-session.json'), JSON.stringify(leases, null, 2) + '\n');
+  }
+
+  it('warns when an in-session plan has no matching lease entry', () => {
+    const dir = setupPlanProject();
+    writeFileSync(path.join(dir, 'orphan.md'),
+      '---\ntype: plan\nstatus: in-session\nupdated: 2025-01-01\nmodule: foo\ncurrent_state: x\nnext_step: y\n---\n# orphan\n');
+    const result = run(['check']);
+    ok(result.stdout.includes('no active lease found'),
+      `expected stale-lease warning, got: ${result.stdout}`);
+    ok(result.stdout.includes('dotmd release docs/plans/orphan.md'),
+      `expected release fix suggestion, got: ${result.stdout}`);
+    ok(result.stdout.includes('dotmd status docs/plans/orphan.md active'),
+      `expected status fix suggestion, got: ${result.stdout}`);
+  });
+
+  it('does not warn when an in-session plan has a fresh lease', () => {
+    const dir = setupPlanProject();
+    writeFileSync(path.join(dir, 'held.md'),
+      '---\ntype: plan\nstatus: in-session\nupdated: 2025-01-01\nmodule: foo\ncurrent_state: x\nnext_step: y\n---\n# held\n');
+    writeLease('docs/plans/held.md', new Date().toISOString());
+    const result = run(['check']);
+    ok(!result.stdout.includes('no active lease found'),
+      `fresh lease should suppress no-lease warning: ${result.stdout}`);
+    ok(!result.stdout.includes('lease is stale'),
+      `fresh lease should not be flagged stale: ${result.stdout}`);
+  });
+
+  it('warns with stale-variant message when lease is older than 24h', () => {
+    const dir = setupPlanProject();
+    writeFileSync(path.join(dir, 'rotting.md'),
+      '---\ntype: plan\nstatus: in-session\nupdated: 2025-01-01\nmodule: foo\ncurrent_state: x\nnext_step: y\n---\n# rotting\n');
+    // 48h ago — well past the 24h threshold.
+    const stale = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    writeLease('docs/plans/rotting.md', stale);
+    const result = run(['check']);
+    ok(result.stdout.includes('lease is stale'),
+      `expected stale-variant warning, got: ${result.stdout}`);
+    ok(result.stdout.includes('48h ago'),
+      `stale message should name the age, got: ${result.stdout}`);
+  });
+
+  it('does not warn when status is active even without a lease (regression)', () => {
+    const dir = setupPlanProject();
+    writeFileSync(path.join(dir, 'queued.md'),
+      '---\ntype: plan\nstatus: active\nupdated: 2025-01-01\nmodule: foo\ncurrent_state: x\nnext_step: y\n---\n# queued\n');
+    const result = run(['check']);
+    ok(!result.stdout.includes('no active lease found'),
+      `non-in-session status must not trigger lease warning: ${result.stdout}`);
+    ok(!result.stdout.includes('lease is stale'), result.stdout);
+  });
+});
+
 describe('F18: singular module/surface deprecation warning', () => {
   it('warns when only singular `module:` is set, names the migration target', () => {
     const docsDir = setupProject();

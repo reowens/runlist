@@ -36,8 +36,8 @@ const DEFAULTS = {
       staleDays: { draft: 30, active: 14, review: 14 },
     },
     prompt: {
-      statuses: ['pending', 'claimed', 'archived'],
-      context: { expanded: ['pending'], listed: [], counted: ['claimed', 'archived'] },
+      statuses: ['pending', 'shelved', 'claimed', 'archived'],
+      context: { expanded: ['pending'], listed: ['shelved'], counted: ['claimed', 'archived'] },
       staleDays: { pending: 30 },
     },
   },
@@ -97,6 +97,10 @@ const DEFAULTS = {
   glossary: null,
 
   notion: null,
+
+  // Opt-in JSONL command journal at .dotmd/journal.jsonl. Default off — agents
+  // and users who want usage observability flip this on (or set DOTMD_JOURNAL=1).
+  journal: false,
 
   presets: {
     stale: ['--status', 'active,ready,planned,blocked,scoping', '--stale', '--sort', 'updated', '--all'],
@@ -483,6 +487,7 @@ export async function resolveConfig(cwd, explicitConfigPath) {
     display: config.display,
     referenceFields: config.referenceFields,
     presets: config.presets,
+    journal: config.journal === true,
     hooks,
     configWarnings,
   };

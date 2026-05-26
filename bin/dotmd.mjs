@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { resolveConfig } from '../src/config.mjs';
 import { die, warn, levenshtein } from '../src/util.mjs';
+import { recordCliInvocation } from '../src/journal.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -69,6 +70,8 @@ Setup:
   statuses [list|add|set|remove|migrate]  Manage per-project status taxonomy
   watch [command]                   Re-run a command on file changes
   completions <shell>               Shell completion script (bash, zsh)
+  journal [--tail N|--errors|--by-command|--session id|--since iso|--json]
+                                    View opt-in JSONL command journal (enable: DOTMD_JOURNAL=1 or journal: true)
 
 Global Options:
   --config <path>        Explicit config file path
@@ -94,6 +97,39 @@ Outputs the complete document index as JSON to stdout.`,
 Add to your shell config:
   bash: eval "$(dotmd completions bash)"
   zsh:  eval "$(dotmd completions zsh)"`,
+
+  journal: `dotmd journal — view opt-in command-usage journal
+
+dotmd's primary user is an agent (per docs/audit-example-project.md F17),
+but the CLI gives no usage signal by default. Turn on the journal and every
+invocation appends one JSONL line to .dotmd/journal.jsonl with argv, exit
+code, elapsed ms, session id, and (on error) a single-line err message.
+
+Enable:
+  - env:    DOTMD_JOURNAL=1
+  - config: \`export const journal = true;\` in dotmd.config.mjs
+
+The env var beats config (DOTMD_JOURNAL=0 forces off). The journal is
+default-off so non-agent users don't pay the size/PII cost.
+
+Reader options:
+  --tail N            Last N entries (default: 20 when no other filter)
+  --errors            Only non-zero exits
+  --session <id>      Only entries from one session
+  --since <iso>       Only entries with ts >= iso
+  --by-command        Group by argv[0]: count, median ms, error rate
+  --json              Emit selected entries as a JSON array
+
+Storage:
+  Rotates to .dotmd/journal.jsonl.1 at >5MB or oldest entry >30 days.
+  Single backup retained; older history is dropped on rotation.
+
+Examples:
+  DOTMD_JOURNAL=1 dotmd plans
+  dotmd journal --tail 5
+  dotmd journal --errors
+  dotmd journal --by-command
+  dotmd journal --since 2025-01-01 --json`,
 
   query: `dotmd query — filtered document search
 
@@ -599,6 +635,10 @@ Subcommands:
   use <file-or-slug>         Consume a specific prompt (same as next, but
                              targets the named prompt instead of picking oldest)
   archive <file-or-slug>     Archive a prompt without printing its body
+  shelve <file-or-slug>      Park a prompt (status → shelved): kept in list,
+                             hidden from hud/briefing pending surfaces, skipped
+                             by \`prompts next\`. Use for "saved but not next."
+  unshelve <file-or-slug>    Move a shelved prompt back to pending.
   new <slug> [body]          Create a new prompt (alias for
                              \`dotmd new prompt <slug> [body]\`)
 
@@ -606,7 +646,7 @@ Subcommands:
 slug matching a prompt basename, or a unique substring of a prompt
 path. Ambiguous substrings error with the candidate list.
 
-Default prompt statuses: pending, claimed, archived.
+Default prompt statuses: pending, shelved, claimed, archived.
 
 Examples:
   dotmd prompts                        # pending prompts (default)
@@ -778,6 +818,7 @@ async function main() {
   const verbose = args.includes('--verbose');
 
   const config = await resolveConfig(process.cwd(), explicitConfig);
+  _resolvedConfig = config;
 
   // Init — runInit re-resolves the config from disk internally (after any
   // starter-config write), so we don't need to pre-pass it.
@@ -866,6 +907,7 @@ async function main() {
 
   // Lifecycle commands
   if (command === 'hud') { const { runHud } = await import('../src/hud.mjs'); runHud(restArgs, config); return; }
+  if (command === 'journal') { const { runJournal } = await import('../src/journal-read.mjs'); runJournal(restArgs, config); return; }
   if (command === 'pickup') { const { runPickup } = await import('../src/lifecycle.mjs'); await runPickup(restArgs, config, { dryRun }); return; }
   if (command === 'unpickup' || command === 'release') { const { runUnpickup } = await import('../src/lifecycle.mjs'); await runUnpickup(restArgs, config, { dryRun }); return; }
   if (command === 'handoff') { die('`dotmd handoff` was removed in 0.31.0. Use `dotmd prompts new <name>` to create a saved prompt instead. The .dotmd/handoffs/ sidecar mechanism no longer exists; see CHANGELOG.'); }
@@ -1170,7 +1212,31 @@ async function main() {
   die(`Unknown command: ${command}\n\nRun \`dotmd --help\` for available commands.`);
 }
 
-main().catch(err => {
-  process.stderr.write(`${err.message}\n`);
-  process.exitCode = 1;
-});
+// F17a: opt-in JSONL journal of every CLI invocation. The dispatch tail
+// records argv / exit / elapsed-ms / err once main() either returns or
+// throws — config is captured into the module-level _resolvedConfig the
+// moment it's loaded, so even early dispatcher errors (after config) get
+// journaled.
+let _resolvedConfig = null;
+const _startMs = Date.now();
+const _invocationArgs = process.argv.slice(2);
+
+function _journalExit(err) {
+  try {
+    recordCliInvocation({
+      config: _resolvedConfig,
+      startMs: _startMs,
+      args: _invocationArgs,
+      err,
+      version: pkg.version,
+    });
+  } catch { /* never break exit on journal failure */ }
+}
+
+main()
+  .then(() => { _journalExit(null); })
+  .catch(err => {
+    process.stderr.write(`${err.message}\n`);
+    process.exitCode = 1;
+    _journalExit(err);
+  });
