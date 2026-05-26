@@ -128,7 +128,7 @@ Every document can have a `type` field in its frontmatter. Types determine which
 |------|---------|----------------|
 | `plan` | Execution plans | `in-session`, `active`, `planned`, `blocked`, `partial`, `paused`, `awaiting`, `queued-after`, `archived` |
 | `doc` | Design docs, specs, ADRs, RFCs, reference material | `draft`, `active`, `review`, `reference`, `deprecated`, `archived` |
-| `prompt` | Saved prompts that seed future Claude sessions | `pending`, `claimed`, `archived` |
+| `prompt` | Saved prompts that seed future Claude sessions | `pending`, `shelved`, `claimed`, `archived` |
 
 Documents without a `type` field use the global `statuses.order` from config.
 
@@ -206,7 +206,8 @@ dotmd glossary <term>        Look up domain terms + related docs
 dotmd watch [command]        Re-run a command on file changes
 dotmd diff [file]            Show changes since last updated date
 dotmd new <type> <name>      Create a new doc (type: doc, plan, or prompt)
-dotmd prompts [sub]          List, claim, or archive saved prompts
+dotmd prompts [sub]          Manage saved prompts (list, next, use, shelve, archive, new)
+dotmd journal [flags]        View opt-in command-usage journal (DOTMD_JOURNAL=1)
 dotmd init                   Create starter config + docs directory
 dotmd completions <shell>    Output shell completion script (bash, zsh)
 ```
@@ -300,15 +301,57 @@ Manage them with the `prompts` command family:
 ```bash
 dotmd prompts                     # list pending prompts (default)
 dotmd prompts list --all          # all statuses
-dotmd prompts next                # show + claim the oldest pending prompt (prints body)
-dotmd prompts use <file>          # claim a specific prompt (prints body, flips to claimed)
-dotmd prompts archive <file>      # archive a prompt
+dotmd prompts next                # print body of oldest pending + auto-archive (one-shot)
+dotmd prompts use <file>          # print body of a specific prompt + auto-archive
+dotmd prompts shelve <file>       # park a prompt (status → shelved): kept in list,
+                                  # hidden from hud/briefing, skipped by `next`
+dotmd prompts unshelve <file>     # move a shelved prompt back to pending
+dotmd prompts archive <file>      # archive without printing the body
 dotmd prompts new <name> [body]   # alias for `dotmd new prompt`
 ```
 
-`dotmd hud` surfaces pending prompts on session start (alongside held leases), so a saved prompt acts as a self-addressed reminder: write it now, the next session sees it.
+`dotmd hud` surfaces pending prompts on session start (alongside held leases), so a saved prompt acts as a self-addressed reminder: write it now, the next session sees it. Shelved prompts are kept out of the SessionStart surface — use them for "saved but not next."
 
-Statuses: `pending` (drafted, awaiting a session), `claimed` (consumed by a session), `archived`.
+Statuses: `pending` (drafted, awaiting a session), `shelved` (saved but parked — visible in `prompts list`, hidden from `hud`/`briefing`, skipped by `prompts next`), `archived` (consumed or filed away). `claimed` is reserved for a future "in-flight" state but is currently a synonym for archived in practice.
+
+### Command Journal (opt-in)
+
+dotmd's primary user is an agent. Every CLI invocation can be journaled
+to `.dotmd/journal.jsonl` so agents (and humans) can see what got run,
+what failed, and how long things took — observability that turns every
+session into data the next design call can use.
+
+Default off. Enable with either:
+
+```bash
+export DOTMD_JOURNAL=1                                # env var
+# or, in dotmd.config.mjs:
+export const journal = true;                          # config flag
+```
+
+(`DOTMD_JOURNAL=0` forces off even when the config opts in.)
+
+Each invocation appends one JSON line:
+`{ts, sid, pid, argv, exit, ms, v, err?}`. Writes are atomic via
+`O_APPEND` (entries are well under `PIPE_BUF`), so concurrent sessions
+interleave cleanly without locking. Lazy rotation to
+`.dotmd/journal.jsonl.1` at >5MB or oldest entry >30 days; one backup
+retained.
+
+Read it back with `dotmd journal`:
+
+```bash
+dotmd journal --tail 20            # last N entries (default)
+dotmd journal --errors             # only non-zero exits
+dotmd journal --session <id>       # filter by session id
+dotmd journal --since 2026-05-01   # filter by ts
+dotmd journal --by-command         # group by argv[0]: count, median ms, errors
+dotmd journal --json               # raw entries as a JSON array
+```
+
+The journal is local-only and gitignored (or should be — `.dotmd/` is
+typically already ignored). Default-off keeps the surface clean for
+users who don't want the storage / PII tradeoff.
 
 ### Check & Fix
 
@@ -619,6 +662,15 @@ either is silent.
 `dotmd hud` (and `dotmd briefing` for the verbose case) surface a
 `⚠ N stuck leases` line when stale leases exist, with a
 `dotmd release --stale` suggestion.
+
+`dotmd check` also catches the symmetric failure mode: a plan whose
+frontmatter claims `status: in-session` but whose lease either doesn't
+exist (last session crashed before releasing) or is stale (>24h since
+pickup). Each warning names the exact unstuck command
+(`dotmd release <plan>` or `dotmd status <plan> active`), so plans
+don't sit stuck in-session indefinitely. Always-on — legit concurrent
+sessions hold real leases, so the warning only fires on actual
+divergence.
 
 ### Touch
 
