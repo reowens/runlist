@@ -777,6 +777,86 @@ describe('--no-index flag (issue #10 finding #3)', () => {
     strictEqual(indexAfter, indexBefore, 'index file should be byte-identical');
   });
 
+  it('archive --show-files emits files footer naming touched paths', () => {
+    const docsDir = setupWithIndex();
+    const filePath = writeDoc(docsDir, 'showme.md', 'type: plan\nstatus: active\nupdated: 2026-05-01', '# Showme\n');
+
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const result = spawnSync('node', [bin, 'archive', filePath, '--show-files', '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir, encoding: 'utf8',
+    });
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+
+    const footerMatch = result.stderr.match(/^files: (.+)$/m);
+    ok(footerMatch, `expected 'files: …' footer in stderr, got: ${result.stderr}`);
+    const files = footerMatch[1].split(' ');
+    ok(files.includes('docs/showme.md'), `expected old path in footer: ${files.join(' ')}`);
+    ok(files.includes('docs/archived/showme.md'), `expected new path in footer: ${files.join(' ')}`);
+    ok(files.some(f => f.endsWith('README.md')), `expected index path in footer: ${files.join(' ')}`);
+  });
+
+  it('archive without --show-files does NOT emit files footer (default behavior)', () => {
+    const docsDir = setupWithIndex();
+    const filePath = writeDoc(docsDir, 'silentme.md', 'type: plan\nstatus: active\nupdated: 2026-05-01', '# Silentme\n');
+
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const result = spawnSync('node', [bin, 'archive', filePath, '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir, encoding: 'utf8',
+    });
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(!/^files: /m.test(result.stderr), `expected no files footer, got: ${result.stderr}`);
+  });
+
+  it('status --show-files names the doc + index', () => {
+    const docsDir = setupWithIndex();
+    const filePath = writeDoc(docsDir, 'flip.md', 'type: plan\nstatus: active\nupdated: 2026-05-01', '# Flip\n');
+
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const result = spawnSync('node', [bin, 'status', filePath, 'planned', '--show-files', '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir, encoding: 'utf8',
+    });
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+
+    const footerMatch = result.stderr.match(/^files: (.+)$/m);
+    ok(footerMatch, `expected files footer, got: ${result.stderr}`);
+    const files = footerMatch[1].split(' ');
+    ok(files.includes('docs/flip.md'), `expected doc in footer: ${files.join(' ')}`);
+    ok(files.some(f => f.endsWith('README.md')), `expected index in footer: ${files.join(' ')}`);
+  });
+
+  it('status --show-files --no-index does not include the index in the footer', () => {
+    const docsDir = setupWithIndex();
+    const filePath = writeDoc(docsDir, 'skiponly.md', 'type: plan\nstatus: active\nupdated: 2026-05-01', '# Skip\n');
+
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const result = spawnSync('node', [bin, 'status', filePath, 'planned', '--show-files', '--no-index', '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir, encoding: 'utf8',
+    });
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+
+    const footerMatch = result.stderr.match(/^files: (.+)$/m);
+    ok(footerMatch, `expected files footer, got: ${result.stderr}`);
+    const files = footerMatch[1].split(' ');
+    ok(files.includes('docs/skiponly.md'), `expected doc in footer: ${files.join(' ')}`);
+    ok(!files.some(f => f.endsWith('README.md')), `index should NOT be in footer when --no-index: ${files.join(' ')}`);
+  });
+
+  it('new --show-files names the new doc + index', () => {
+    const docsDir = setupWithIndex();
+
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const result = spawnSync('node', [bin, 'new', 'doc', 'fresh-doc', '--show-files', '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir, encoding: 'utf8',
+    });
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+
+    const footerMatch = result.stderr.match(/^files: (.+)$/m);
+    ok(footerMatch, `expected files footer, got: ${result.stderr}`);
+    const files = footerMatch[1].split(' ');
+    ok(files.some(f => f.includes('fresh-doc.md')), `expected new doc in footer: ${files.join(' ')}`);
+    ok(files.some(f => f.endsWith('README.md')), `expected index in footer: ${files.join(' ')}`);
+  });
+
   it('preserves sibling agent\'s uncommitted index edits across an archive', () => {
     // Concurrent scenario: agent A made an uncommitted change to docs/README.md
     // (a line for some other plan). Agent B runs `dotmd archive plan-b --no-index`.

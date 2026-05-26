@@ -55,6 +55,18 @@ export function toRepoPath(absolutePath, repoRoot) {
   return path.relative(repoRoot, absolutePath).split(path.sep).join('/');
 }
 
+// Emit a `files: a b c` line to stderr listing every doc / index path
+// the command touched (deduped, sorted, repo-relative). Lets agents do
+// `git add` with the exact set instead of guessing. Opt-in via
+// `--show-files` on lifecycle commands; default off to keep output stable.
+export function emitFilesFooter(paths, config) {
+  const rel = [...new Set(paths.filter(Boolean))]
+    .map(p => path.isAbsolute(p) ? toRepoPath(p, config.repoRoot) : p)
+    .sort();
+  if (rel.length === 0) return;
+  process.stderr.write(`files: ${rel.join(' ')}\n`);
+}
+
 export function nowIso() {
   return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 }

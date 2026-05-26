@@ -117,12 +117,13 @@ function runPromptsUse(argv, config, opts = {}) {
   const input = argv.find(a => !a.startsWith('-'));
   if (!input) die('Usage: dotmd prompts use <file-or-slug>');
   const noIndex = argv.includes('--no-index') || opts.noIndex;
+  const showFiles = argv.includes('--show-files') || opts.showFiles;
   const filePath = resolvePromptInput(input, config);
-  consumePrompt(filePath, config, { ...opts, noIndex });
+  consumePrompt(filePath, config, { ...opts, noIndex, showFiles });
 }
 
 function consumePrompt(filePath, config, opts) {
-  const { dryRun, noIndex } = opts;
+  const { dryRun, noIndex, showFiles } = opts;
   const raw = readFileSync(filePath, 'utf8');
   const { frontmatter, body } = extractFrontmatter(raw);
   const parsed = parseSimpleFrontmatter(frontmatter);
@@ -146,7 +147,7 @@ function consumePrompt(filePath, config, opts) {
   process.stdout.write(body);
   if (!body.endsWith('\n')) process.stdout.write('\n');
 
-  runArchive([filePath], config, { noIndex, out: process.stderr });
+  runArchive([filePath], config, { noIndex, showFiles, out: process.stderr });
   process.stderr.write(`${green('✓ Consumed')}: ${repoPath}\n`);
 }
 
@@ -154,6 +155,7 @@ function runPromptsArchive(argv, config, opts = {}) {
   const input = argv.find(a => !a.startsWith('-'));
   if (!input) die('Usage: dotmd prompts archive <file-or-slug>');
   const noIndex = argv.includes('--no-index') || opts.noIndex;
+  const showFiles = argv.includes('--show-files') || opts.showFiles;
   const filePath = resolvePromptInput(input, config);
 
   const raw = readFileSync(filePath, 'utf8');
@@ -163,7 +165,7 @@ function runPromptsArchive(argv, config, opts = {}) {
     die(`Not a prompt: ${toRepoPath(filePath, config.repoRoot)}`);
   }
 
-  runArchive([filePath], config, { ...opts, noIndex });
+  runArchive([filePath], config, { ...opts, noIndex, showFiles });
 }
 
 async function runPromptsNew(argv, config, opts = {}) {

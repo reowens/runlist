@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter, replaceFrontmatter } from './frontmatter.mjs';
-import { asString, toRepoPath, die, warn, resolveDocPath, resolveRefPath, escapeRegex, nowIso, suggestCandidates } from './util.mjs';
+import { asString, toRepoPath, die, warn, resolveDocPath, resolveRefPath, escapeRegex, nowIso, suggestCandidates, emitFilesFooter } from './util.mjs';
 import { gitMv, getGitLastModified, getGitLastModifiedBatch } from './git.mjs';
 import { buildIndex, collectDocFiles } from './index.mjs';
 import { renderIndexFile, writeIndex } from './index-file.mjs';
@@ -69,7 +69,8 @@ function uniqueArchiveTarget(targetDir, basename) {
 export async function runStatus(argv, config, opts = {}) {
   const { dryRun } = opts;
   const noIndex = argv.includes('--no-index') || opts.noIndex;
-  argv = argv.filter(a => a !== '--no-index');
+  const showFiles = argv.includes('--show-files') || opts.showFiles;
+  argv = argv.filter(a => a !== '--no-index' && a !== '--show-files');
   const input = argv[0];
   let newStatus = argv[1];
 
@@ -180,6 +181,13 @@ export async function runStatus(argv, config, opts = {}) {
 
   process.stdout.write(`${green(toRepoPath(finalPath, config.repoRoot))}: ${oldStatus ?? 'unknown'} → ${newStatus}\n`);
 
+  if (showFiles) {
+    const touched = [filePath];
+    if (finalPath !== filePath) touched.push(finalPath);
+    if (config.indexPath && !noIndex) touched.push(config.indexPath);
+    emitFilesFooter(touched, config);
+  }
+
   try { config.hooks.onStatusChange?.({ path: toRepoPath(finalPath, config.repoRoot), oldStatus, newStatus }, {
     oldPath: toRepoPath(filePath, config.repoRoot),
     newPath: toRepoPath(finalPath, config.repoRoot),
@@ -192,6 +200,7 @@ export async function runPickup(argv, config, opts = {}) {
   const takeover = argv.includes('--takeover');
   const fullBody = argv.includes('--full');
   const noIndex = argv.includes('--no-index') || opts.noIndex;
+  const showFiles = argv.includes('--show-files') || opts.showFiles;
   let input = argv.find(a => !a.startsWith('-'));
 
   // Interactive: pick from active/planned plans
@@ -308,6 +317,12 @@ export async function runPickup(argv, config, opts = {}) {
     }
   }
 
+  if (showFiles && oldStatus !== 'in-session') {
+    const touched = [filePath];
+    if (config.indexPath && !noIndex) touched.push(config.indexPath);
+    emitFilesFooter(touched, config);
+  }
+
   try { config.hooks.onPickup?.({ path: repoPath, oldStatus, newStatus: 'in-session' }); } catch (err) { warn(`Hook 'onPickup' threw: ${err.message}`); }
 }
 
@@ -318,10 +333,12 @@ export async function runUnpickup(argv, config, opts = {}) {
   const stale = argv.includes('--stale');
   const force = argv.includes('--force');
   const noIndex = argv.includes('--no-index') || opts.noIndex;
+  const showFiles = argv.includes('--show-files') || opts.showFiles;
   const toIdx = argv.indexOf('--to');
   const toStatus = toIdx >= 0 ? argv[toIdx + 1] : null;
   const positional = argv.filter((a, i) => !a.startsWith('-') && argv[i - 1] !== '--to');
   const fileArg = positional[0];
+  const touched = [];
 
   const session = currentSessionId();
   const released = [];
@@ -374,6 +391,7 @@ export async function runUnpickup(argv, config, opts = {}) {
         const today = nowIso();
         updateFrontmatter(filePath, { status: newStatus, updated: today });
         appendVersionHistory(filePath, `Released (in-session → ${newStatus}).`);
+        touched.push(filePath);
         if (noIndex) {
           process.stderr.write(dim('(index not regenerated — run `dotmd index` to refresh)\n'));
         } else {
@@ -447,6 +465,12 @@ export async function runUnpickup(argv, config, opts = {}) {
       process.stderr.write(`${yellow('⚠ Skipped')}: ${s.path} (held by ${s.session}; use --force to override)\n`);
     }
   }
+
+  if (showFiles && touched.length > 0) {
+    const all = [...touched];
+    if (config.indexPath && !noIndex) all.push(config.indexPath);
+    emitFilesFooter(all, config);
+  }
 }
 
 export async function runFinish(argv, config, opts = {}) {
@@ -512,7 +536,8 @@ export async function runFinish(argv, config, opts = {}) {
 export function runArchive(argv, config, opts = {}) {
   const { dryRun, out = process.stdout } = opts;
   const noIndex = argv.includes('--no-index') || opts.noIndex;
-  argv = argv.filter(a => a !== '--no-index');
+  const showFiles = argv.includes('--show-files') || opts.showFiles;
+  argv = argv.filter(a => a !== '--no-index' && a !== '--show-files');
   const input = argv[0];
 
   if (!input) { die('Usage: dotmd archive <file>'); }
@@ -562,7 +587,7 @@ export function runArchive(argv, config, opts = {}) {
   const selfRefsFixed = updateRefsFromMovedFile(filePath, targetPath, config);
 
   // Auto-update references in other docs
-  const updatedRefCount = updateRefsAfterMove(filePath, targetPath, config);
+  const { count: updatedRefCount, paths: refTouchedPaths } = updateRefsAfterMove(filePath, targetPath, config);
 
   if (!noIndex) regenIndex(config);
 
@@ -574,12 +599,19 @@ export function runArchive(argv, config, opts = {}) {
 
   try { releaseLease(config, oldRepoPath, { force: true }); } catch (err) { warn(`Could not release lease for ${oldRepoPath}: ${err.message}`); }
 
+  const touched = [oldRepoPath, newRepoPath, ...refTouchedPaths];
+  if (config.indexPath && !noIndex) touched.push(config.indexPath);
+  if (showFiles) emitFilesFooter(touched, config);
+
   try { config.hooks.onArchive?.({ path: newRepoPath, oldStatus }, { oldPath: oldRepoPath, newPath: newRepoPath }); } catch (err) { warn(`Hook 'onArchive' threw: ${err.message}`); }
+
+  return { touched };
 }
 
 export function runBulkArchive(argv, config, opts = {}) {
   const { dryRun } = opts;
   const noIndex = argv.includes('--no-index') || opts.noIndex;
+  const showFiles = argv.includes('--show-files') || opts.showFiles;
   const inputs = argv.filter(a => !a.startsWith('-'));
   if (inputs.length === 0) die('Usage: dotmd bulk archive <file1> <file2> ... or <glob>');
 
@@ -618,10 +650,12 @@ export function runBulkArchive(argv, config, opts = {}) {
   // Bulk archives always defer index regen to the end — N individual regens
   // is wasteful and the final state is the same. `--no-index` skips even
   // the final one.
+  const bulkTouched = [];
   for (const f of unique) {
     const relPath = toRepoPath(f, config.repoRoot);
     try {
-      runArchive([relPath], config, { ...opts, noIndex: true });
+      const result = runArchive([relPath], config, { ...opts, noIndex: true, showFiles: false });
+      if (result?.touched) bulkTouched.push(...result.touched);
     } catch (err) {
       warn(`Failed to archive ${relPath}: ${err.message}`);
     }
@@ -631,6 +665,11 @@ export function runBulkArchive(argv, config, opts = {}) {
     if (config.indexPath) process.stdout.write('Index regenerated.\n');
   } else if (config.indexPath) {
     process.stdout.write(dim('(index not regenerated — run `dotmd index` to refresh)\n'));
+  }
+  if (showFiles) {
+    const all = [...bulkTouched];
+    if (config.indexPath && !noIndex) all.push(config.indexPath);
+    emitFilesFooter(all, config);
   }
 }
 
@@ -714,7 +753,7 @@ export function runTouch(argv, config, opts = {}) {
 function updateRefsAfterMove(oldPath, newPath, config) {
   const basename = path.basename(oldPath);
   const allFiles = collectDocFiles(config);
-  let updatedCount = 0;
+  const touched = [];
 
   for (const docFile of allFiles) {
     if (docFile === newPath) continue;
@@ -742,11 +781,11 @@ function updateRefsAfterMove(oldPath, newPath, config) {
     if (newFm !== fm) {
       raw = replaceFrontmatter(raw, newFm);
       writeFileSync(docFile, raw, 'utf8');
-      updatedCount++;
+      touched.push(docFile);
     }
   }
 
-  return updatedCount;
+  return { count: touched.length, paths: touched };
 }
 
 function updateRefsFromMovedFile(oldPath, newPath, config) {

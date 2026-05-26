@@ -171,6 +171,7 @@ If a plan is already in-session:
 Options:
   --takeover             Force-claim a plan held by another session
   --no-index             Skip index regen (see \`dotmd archive --help\`)
+  --show-files           Append \`files: …\` line to stderr (see \`dotmd archive --help\`)
   --json                 Output as JSON
   --dry-run, -n          Preview without writing
 
@@ -193,6 +194,7 @@ Options:
   --stale                Release leases whose pid is dead or age >24h
   --force                Override "not yours" refusal on a specific file
   --no-index             Skip index regen (see \`dotmd archive --help\`)
+  --show-files           Append \`files: …\` line to stderr (see \`dotmd archive --help\`)
   --json                 Output as JSON ({ released, skipped })
   --dry-run, -n          Preview without writing
 
@@ -226,6 +228,7 @@ regenerates the index (if configured).
 Options:
   --no-index             Skip index regen (useful in concurrent-session repos
                          doing path-limited commits — see \`dotmd archive --help\`).
+  --show-files           Append \`files: …\` line to stderr (see \`dotmd archive --help\`).
 
 Default plan statuses (each maps to a distinct unstuck-action):
   in-session     A Claude session is working on it now
@@ -264,6 +267,10 @@ Options:
                          commit that doesn't pull other agents' uncommitted
                          index changes into your staging area. Run \`dotmd index\`
                          later (or wire it into a commit hook) to refresh.
+  --show-files           Append a final \`files: a b c …\` line to stderr
+                         listing every doc/index path the command touched
+                         (deduped, sorted, repo-relative). Lets agents do
+                         \`git add\` with the exact set instead of guessing.
   --dry-run, -n          Preview changes without writing anything.`,
 
   coverage: `dotmd coverage — metadata coverage report
@@ -500,6 +507,8 @@ Other options:
   --status <s>         Set initial status (defaults to first valid status for the type)
   --title <t>          Override the auto-derived title
   --root <name>        Create in a specific docs root
+  --show-files         Append \`files: …\` line to stderr listing what was touched
+                       (the new doc + the index file). See \`dotmd archive --help\`.
   --list-types         Show registered types (alias: --list-templates)
 
 For plans, the default status vocabulary is: in-session, active, planned,

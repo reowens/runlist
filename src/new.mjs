@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { toRepoPath, die, warn, nowIso } from './util.mjs';
+import { toRepoPath, die, warn, nowIso, emitFilesFooter } from './util.mjs';
 import { green, dim, bold } from './color.mjs';
 import { isInteractive, promptText } from './prompt.mjs';
 import { regenIndex } from './lifecycle.mjs';
@@ -185,12 +185,14 @@ export async function runNew(argv, config, opts = {}) {
   let title = null;
   let rootName = opts.root ?? null;
   let messageFlag = null;
+  let showFiles = opts.showFiles ?? false;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--status' && argv[i + 1]) { status = argv[++i]; continue; }
     if (argv[i] === '--title' && argv[i + 1]) { title = argv[++i]; continue; }
     if (argv[i] === '--message' && argv[i + 1]) { messageFlag = argv[++i]; continue; }
     if (argv[i] === '--root' && argv[i + 1]) { rootName = argv[++i]; continue; }
     if (argv[i] === '--config') { i++; continue; }
+    if (argv[i] === '--show-files') { showFiles = true; continue; }
     if (argv[i] === '--list-templates' || argv[i] === '--list-types') {
       listTemplates(config);
       return;
@@ -394,6 +396,12 @@ export async function runNew(argv, config, opts = {}) {
   if (rootHint) process.stdout.write(dim(rootHint));
 
   regenIndex(config);
+
+  if (showFiles) {
+    const touched = [filePath];
+    if (config.indexPath) touched.push(config.indexPath);
+    emitFilesFooter(touched, config);
+  }
 
   try { config.hooks.onNew?.({ path: repoPath, status, title: docTitle, type: typeName }); } catch (err) { warn(`Hook 'onNew' threw: ${err.message}`); }
 }
