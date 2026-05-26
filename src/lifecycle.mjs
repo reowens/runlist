@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter, replaceFrontmatter } from './frontmatter.mjs';
-import { asString, toRepoPath, die, warn, resolveDocPath, resolveRefPath, escapeRegex, nowIso } from './util.mjs';
+import { asString, toRepoPath, die, warn, resolveDocPath, resolveRefPath, escapeRegex, nowIso, suggestCandidates } from './util.mjs';
 import { gitMv, getGitLastModified, getGitLastModifiedBatch } from './git.mjs';
 import { buildIndex, collectDocFiles } from './index.mjs';
 import { renderIndexFile, writeIndex } from './index-file.mjs';
@@ -101,7 +101,11 @@ export async function runStatus(argv, config, opts = {}) {
     }
   }
 
-  if (!effectiveValid.has(newStatus)) { die(`Invalid status: ${newStatus}\nValid: ${[...effectiveValid].join(', ')}`); }
+  if (!effectiveValid.has(newStatus)) {
+    const suggestions = suggestCandidates(newStatus, [...effectiveValid]);
+    const hint = suggestions.length ? `\nDid you mean: ${suggestions.join(', ')}?` : '';
+    die(`Invalid status: ${newStatus}\nValid: ${[...effectiveValid].join(', ')}${hint}`);
+  }
 
   const oldStatus = asString(parsedFm.status);
 

@@ -69,14 +69,27 @@ ${ctx?.bodyInput?.trim() ?? ''}
       'current_state:',
       'next_step:',
     ].join('\n'),
-    body: (t, ctx) => `
+    body: (t, ctx) => {
+      const bodyInput = ctx?.bodyInput?.trim() ?? '';
+      // Full-body shortcut: if the input already authors `## Section` headings,
+      // it's a complete plan body the user/agent wrote start-to-finish. Drop
+      // the scaffold's later sections to avoid duplicate empty `## Goals`,
+      // `## Phases`, etc. below the user's already-filled versions. A bare title
+      // (`# X`) at the head of the body is honored — we don't double-print the
+      // scaffold's title. Otherwise emit the scaffold and slot the body into
+      // `## Problem` as before (section-content mode).
+      if (/^##\s+\S/m.test(bodyInput)) {
+        const hasOwnTitle = /^#\s+\S/.test(bodyInput);
+        return hasOwnTitle ? `\n${bodyInput}\n` : `\n# ${t}\n\n${bodyInput}\n`;
+      }
+      return `
 # ${t}
 
 > One-paragraph problem statement: what this plan is for, why now.
 
 ## Problem
 
-${ctx?.bodyInput?.trim() ?? ''}
+${bodyInput}
 
 ## Goals
 
@@ -128,7 +141,8 @@ Status markers (put in heading text):
 ## Closeout
 
 <!-- Filled on archive: what shipped, key commits, deferrals dispositioned. -->
-`,
+`;
+    },
   },
   prompt: {
     description: 'Saved prompt to seed a future Claude session — body is required',

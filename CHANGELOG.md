@@ -2,6 +2,18 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## 0.36.1 — 2026-05-26
+
+Two small polish items from the agent-UX audit's A2/A3 deferred list.
+
+### Added
+
+- **`Did you mean: …?` on `dotmd status <file> <unknown-status>`.** Same `suggestCandidates` helper that powers ref-resolution and module-name hints, now wired into the status validator. A typo like `dotmd status foo.md planed` (one letter off `planned`) now ends with `Did you mean: planned?` instead of leaving the agent to scan the full `Valid: …` list. Falls back silently when nothing in the per-type/per-root status set is close (no `Did you mean: (none)`). Closes the A3 follow-up listed in `docs/agent-ux-audit.md` Deferred.
+
+### Fixed
+
+- **`dotmd new plan <name> "<full-body>"` no longer leaves a duplicate empty scaffold below the inserted body.** When the inline/`@path`/`-`/`--message` body input already authors `## Section` headings (i.e. the agent wrote a complete plan body start-to-finish), the plan template now short-circuits the scaffold ladder and emits only the title + the user's body. Previously, the body got slotted into `## Problem` while the scaffold's later `## Goals`, `## Non-Goals`, `## Phases`, etc. still rendered empty below, leaving a confusing duplicated outline. Single-section bodies (no `## ` heading) still land under `## Problem` as before — the contract widens, doesn't change. Closes the A2 polish item from `docs/agent-ux-audit.md` Deferred (discovered while drafting the A4 plan itself).
+
 ## 0.36.0 — 2026-05-26
 
 Two read-only commands for organizing and inspecting document collections, without a schema change or migration.

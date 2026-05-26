@@ -199,6 +199,32 @@ describe('status command (dry-run)', () => {
     const content = readFileSync(filePath, 'utf8');
     ok(content.includes('status: active'), 'file unchanged');
   });
+
+  it('suggests close-match statuses on a typo (A3 follow-up)', async () => {
+    const docsDir = setupProject();
+    const filePath = writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# Plan\n');
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    // `planed` is one letter off `planned` — should suggest it.
+    const result = spawnSync('node', [bin, 'status', filePath, 'planed', '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir, encoding: 'utf8',
+    });
+    ok(result.status !== 0, 'should exit non-zero on invalid status');
+    ok(result.stderr.includes('Invalid status: planed'), `got: ${result.stderr}`);
+    ok(result.stderr.includes('Did you mean'), `expected suggestion, got: ${result.stderr}`);
+    ok(result.stderr.includes('planned'), `expected 'planned' in suggestion, got: ${result.stderr}`);
+  });
+
+  it('omits Did-you-mean line when no close match exists', async () => {
+    const docsDir = setupProject();
+    const filePath = writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# Plan\n');
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const result = spawnSync('node', [bin, 'status', filePath, 'xyzzy', '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir, encoding: 'utf8',
+    });
+    ok(result.status !== 0, 'should exit non-zero on invalid status');
+    ok(!result.stderr.includes('Did you mean'),
+      `should not suggest when nothing close, got: ${result.stderr}`);
+  });
 });
 
 describe('touch command', () => {

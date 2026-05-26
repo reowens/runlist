@@ -111,6 +111,27 @@ describe('dotmd new — type-first CLI', () => {
       }
     });
 
+    it('full-body shortcut: body containing `## Section` headings skips the scaffold ladder (A2 polish)', () => {
+      const docsDir = setupProject();
+      const body = '## Problem\nthe real problem\n\n## Goals\n- ship\n\n## Phases\n### Phase 1 — do ⬜';
+      const r = run(['new', 'plan', 'full-body', body]);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'plans', 'full-body.md'), 'utf8');
+      // Frontmatter still emitted
+      ok(content.includes('type: plan'));
+      // Each user-authored section appears exactly once — no duplicate empty
+      // scaffold version sitting below.
+      strictEqual((content.match(/^## Problem$/gm) || []).length, 1, 'Problem should appear once');
+      strictEqual((content.match(/^## Goals$/gm) || []).length, 1, 'Goals should appear once');
+      strictEqual((content.match(/^## Phases$/gm) || []).length, 1, 'Phases should appear once');
+      // Scaffold-only sections (Non-Goals, What Exists Today, Closeout, etc.)
+      // are dropped — the agent authored a complete body and got it through.
+      ok(!content.includes('## Non-Goals'), 'scaffold-only sections should be dropped');
+      ok(!content.includes('## Closeout'), 'scaffold-only sections should be dropped');
+      // Title still emitted by the scaffold (body had no `# X`).
+      ok(content.includes('# Full Body'), 'title from name arg should still be emitted');
+    });
+
   });
 
   describe('prompt type', () => {
