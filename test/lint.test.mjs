@@ -173,4 +173,45 @@ describe('dotmd lint', () => {
     ok(content.includes('- web'), 'has web in array');
     ok(content.includes('- ios'), 'has ios in array');
   });
+
+  it('--fix migrates singular module: to plural modules: array (F18, no existing plural)', () => {
+    const docsDir = setupProject();
+    writeFileSync(path.join(docsDir, 'm.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\nmodule: catalog\n---\n# M\n');
+
+    const result = run(['lint', '--fix']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+
+    const content = readFileSync(path.join(docsDir, 'm.md'), 'utf8');
+    ok(!/^module:/m.test(content), 'singular module: removed');
+    ok(/^modules:\n  - catalog$/m.test(content), `expected plural block: ${content}`);
+  });
+
+  it('--fix merges singular module: into existing modules: array (F18)', () => {
+    const docsDir = setupProject();
+    writeFileSync(path.join(docsDir, 'm.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\nmodule: catalog\nmodules:\n  - bar\n---\n# M\n');
+
+    const result = run(['lint', '--fix']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+
+    const content = readFileSync(path.join(docsDir, 'm.md'), 'utf8');
+    ok(!/^module:/m.test(content), 'singular module: removed');
+    ok(/-\s+catalog/.test(content), `catalog added to plural: ${content}`);
+    ok(/-\s+bar/.test(content), `existing bar preserved: ${content}`);
+  });
+
+  it('--fix dedupes when singular module: equals an entry already in modules: (F18)', () => {
+    const docsDir = setupProject();
+    writeFileSync(path.join(docsDir, 'm.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\nmodule: catalog\nmodules:\n  - catalog\n---\n# M\n');
+
+    const result = run(['lint', '--fix']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+
+    const content = readFileSync(path.join(docsDir, 'm.md'), 'utf8');
+    ok(!/^module:/m.test(content), 'singular module: removed');
+    const catalogLines = content.split('\n').filter(l => /^\s*-\s+catalog\s*$/.test(l));
+    strictEqual(catalogLines.length, 1, `expected single catalog entry, got: ${content}`);
+  });
 });

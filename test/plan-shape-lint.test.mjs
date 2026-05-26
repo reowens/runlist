@@ -58,40 +58,44 @@ describe('plan-shape lint', () => {
     ok(w.message.includes('700'));
   });
 
-  it('warns when surface and surfaces array diverge (singular not in array)', () => {
+  it('warns when surface is used (F18: singular is universally deprecated)', () => {
     const docsDir = setupProject();
     writeDoc(docsDir, 'plan.md', `type: plan\nstatus: active\nupdated: 2026-05-13\nsurface: web\nsurfaces:\n  - backend\n  - api`);
 
     const idx = checkJson();
-    const w = idx.warnings.find(x => x.message.includes('surface') && x.message.includes('surfaces'));
-    ok(w, 'expected surface/surfaces warning when values diverge');
+    const w = idx.warnings.find(x => x.message.includes('`surface:` (singular) is deprecated'));
+    ok(w, 'expected F18 deprecation warning');
+    ok(w.message.includes('surfaces: ["web", "backend", "api"]'), `migration target should merge: ${w.message}`);
   });
 
-  it('does NOT warn when surface is already a member of the surfaces array', () => {
+  it('warns when surface is already a member of the surfaces array (F18: singular still deprecated)', () => {
     const docsDir = setupProject();
     writeDoc(docsDir, 'plan.md', `type: plan\nstatus: active\nupdated: 2026-05-13\nsurface: web\nsurfaces:\n  - web\n  - api`);
 
     const idx = checkJson();
-    const w = idx.warnings.find(x => x.message.includes('surface') && x.message.includes('surfaces'));
-    ok(!w, 'no warning when singular ∈ plural (index.mjs merges them transparently)');
+    const w = idx.warnings.find(x => x.message.includes('`surface:` (singular) is deprecated'));
+    ok(w, 'F18: singular use always warns, even when already in plural');
+    ok(w.message.includes('surfaces: ["web", "api"]'), `migration target should dedupe: ${w.message}`);
   });
 
-  it('warns when module and modules array diverge (singular not in array)', () => {
+  it('warns when module is used (F18: singular is universally deprecated)', () => {
     const docsDir = setupProject();
     writeDoc(docsDir, 'plan.md', `type: plan\nstatus: active\nupdated: 2026-05-13\nmodule: auth\nmodules:\n  - identity\n  - billing`);
 
     const idx = checkJson();
-    const w = idx.warnings.find(x => x.message.includes('module') && x.message.includes('modules'));
-    ok(w, 'expected module/modules warning when values diverge');
+    const w = idx.warnings.find(x => x.message.includes('`module:` (singular) is deprecated'));
+    ok(w, 'expected F18 deprecation warning');
+    ok(w.message.includes('modules: ["auth", "identity", "billing"]'), `migration target should merge: ${w.message}`);
   });
 
-  it('does NOT warn when module is already a member of the modules array', () => {
+  it('warns when module is already a member of the modules array (F18: singular still deprecated)', () => {
     const docsDir = setupProject();
     writeDoc(docsDir, 'plan.md', `type: plan\nstatus: active\nupdated: 2026-05-13\nmodule: auth\nmodules:\n  - auth\n  - identity`);
 
     const idx = checkJson();
-    const w = idx.warnings.find(x => x.message.includes('module') && x.message.includes('modules'));
-    ok(!w, 'no warning when singular ∈ plural (index.mjs merges them transparently)');
+    const w = idx.warnings.find(x => x.message.includes('`module:` (singular) is deprecated'));
+    ok(w, 'F18: singular use always warns, even when already in plural');
+    ok(w.message.includes('modules: ["auth", "identity"]'), `migration target should dedupe: ${w.message}`);
   });
 
   it('warns on lowercase ## Open questions heading drift', () => {

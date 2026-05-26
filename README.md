@@ -97,8 +97,10 @@ Any `.md` file with YAML frontmatter:
 type: doc
 status: active
 updated: 2026-03-14
-module: auth
-surface: backend
+modules:
+  - auth
+surfaces:
+  - backend
 next_step: implement token refresh
 current_state: initial scaffolding complete
 related_plans:
@@ -115,6 +117,8 @@ Design doc content here...
 ```
 
 The only required field is `status`. Everything else is optional but unlocks more features. The `type` field (`plan`, `doc`, or `research`) enables type-specific statuses and smarter context briefings.
+
+> **Note:** `module:` and `surface:` (singular) are deprecated as of 0.36.3 — use the plural array forms (`modules:`, `surfaces:`). Run `dotmd lint --fix` to migrate existing docs.
 
 ## Document Types
 

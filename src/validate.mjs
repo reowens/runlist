@@ -103,7 +103,7 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
   }
 
   if (config.moduleRequiredStatuses.has(doc.status) && !doc.modules?.length) {
-    doc.errors.push({ path: doc.path, level: 'error', message: '`module` is required for active/ready/planned/blocked docs; use a real module, `platform`, or `none`. Accepts singular `module:` or plural `modules:` list.' });
+    doc.errors.push({ path: doc.path, level: 'error', message: '`modules` is required for active/ready/planned/blocked docs; use a real module, `platform`, or `none`.' });
   }
 
   if (config.validSurfaces && !config.lifecycle.skipWarningsFor.has(doc.status)) {
@@ -111,6 +111,30 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
       if (!config.validSurfaces.has(surface)) {
         doc.warnings.push({ path: doc.path, level: 'warning', message: `Unknown surface \`${surface}\`; expected a known surface taxonomy value.` });
       }
+    }
+  }
+
+  // F18: Singular `module:` / `surface:` are deprecated in favor of plural arrays.
+  // The reader still merges singular into plural transparently (back-compat),
+  // but new usage should always go through the plural form. The migration
+  // target is inlined in the message so `dotmd lint --fix` users see exactly
+  // what they'll end up with — and so non-fix readers can hand-migrate.
+  // Suppress for archived/terminal docs (same noise-control rule as F2).
+  if (!config.lifecycle.skipWarningsFor.has(doc.status)) {
+    for (const { singular, plural } of [{ singular: 'module', plural: 'modules' }, { singular: 'surface', plural: 'surfaces' }]) {
+      const singularValue = frontmatter[singular];
+      if (!singularValue) continue;
+      const pluralValue = Array.isArray(frontmatter[plural]) ? frontmatter[plural] : [];
+      const merged = [];
+      for (const v of [singularValue, ...pluralValue]) {
+        if (typeof v === 'string' && v && !merged.includes(v)) merged.push(v);
+      }
+      const target = `${plural}: [${merged.map(v => `"${v}"`).join(', ')}]`;
+      doc.warnings.push({
+        path: doc.path,
+        level: 'warning',
+        message: `\`${singular}:\` (singular) is deprecated — use \`${target}\`. Run \`dotmd lint --fix\` to migrate.`,
+      });
     }
   }
 
@@ -354,27 +378,6 @@ export function validatePlanShape(doc, body, frontmatter, config) {
       path: doc.path,
       level: 'warning',
       message: `\`current_state\` is ${currentState.length} chars (cap: 500). Long prose belongs in the body.`,
-    });
-  }
-
-  // 3. surface AND surfaces both populated with DIVERGENT values. When the
-  // singular value is already a member of the plural array, src/index.mjs
-  // merges them transparently — warning would be noise. Only divergence
-  // actually risks data loss when readers consult one form vs. the other.
-  if (frontmatter.surface && Array.isArray(frontmatter.surfaces) && frontmatter.surfaces.length > 0
-      && !frontmatter.surfaces.includes(frontmatter.surface)) {
-    doc.warnings.push({
-      path: doc.path,
-      level: 'warning',
-      message: `Both \`surface\` (singular: \`${frontmatter.surface}\`) and \`surfaces\` (array) are set with different values. Pick one — prefer \`surfaces\` array form.`,
-    });
-  }
-  if (frontmatter.module && Array.isArray(frontmatter.modules) && frontmatter.modules.length > 0
-      && !frontmatter.modules.includes(frontmatter.module)) {
-    doc.warnings.push({
-      path: doc.path,
-      level: 'warning',
-      message: `Both \`module\` (singular: \`${frontmatter.module}\`) and \`modules\` (array) are set with different values. Pick one — prefer \`modules\` array form.`,
     });
   }
 

@@ -67,11 +67,18 @@ export function runLint(argv, config, opts = {}) {
       }
     }
 
-    // Comma-separated surface → surfaces array
-    const surfaceVal = asString(parsed.surface);
-    if (surfaceVal && surfaceVal.includes(',')) {
-      const values = surfaceVal.split(',').map(s => s.trim()).filter(Boolean);
-      fixes.push({ field: 'surface', oldValue: surfaceVal, newValue: values, type: 'split-to-array' });
+    // Singular `module:` / `surface:` → plural array (F18 deprecation).
+    // Any singular use migrates, regardless of comma — comma-containing values
+    // split on `,`, single values become a one-item list. Merging with any
+    // existing plural array happens at apply-time so the message reflects
+    // just what's being introduced from the singular form.
+    for (const { singular, plural } of [{ singular: 'module', plural: 'modules' }, { singular: 'surface', plural: 'surfaces' }]) {
+      const val = asString(parsed[singular]);
+      if (!val) continue;
+      const values = val.includes(',')
+        ? val.split(',').map(s => s.trim()).filter(Boolean)
+        : [val];
+      fixes.push({ field: singular, oldValue: val, newValue: values, pluralKey: plural, type: 'singular-to-plural' });
     }
 
     // Trailing whitespace in values
@@ -111,8 +118,8 @@ export function runLint(argv, config, opts = {}) {
             process.stdout.write(dim(`    ${f.oldValue} → ${f.newValue}\n`));
           } else if (f.type === 'infer-status') {
             process.stdout.write(dim(`    missing status (fixable via AI)\n`));
-          } else if (f.type === 'split-to-array') {
-            process.stdout.write(dim(`    ${f.field}: "${f.oldValue}" → surfaces: [${f.newValue.join(', ')}]\n`));
+          } else if (f.type === 'singular-to-plural') {
+            process.stdout.write(dim(`    ${f.field}: "${f.oldValue}" → ${f.pluralKey}: [${f.newValue.join(', ')}]\n`));
           } else if (f.type === 'eof') {
             process.stdout.write(dim(`    missing newline at end of file\n`));
           } else if (f.type === 'add') {
@@ -147,7 +154,7 @@ export function runLint(argv, config, opts = {}) {
     const keyRenames = [];
     let needsEofFix = false;
     const trimFixes = [];
-    const splitToArray = [];
+    const singularToPlural = [];
 
     for (const f of fixes) {
       if (f.type === 'rename-key') {
@@ -156,8 +163,8 @@ export function runLint(argv, config, opts = {}) {
         needsEofFix = true;
       } else if (f.type === 'trim') {
         trimFixes.push(f);
-      } else if (f.type === 'split-to-array') {
-        splitToArray.push(f);
+      } else if (f.type === 'singular-to-plural') {
+        singularToPlural.push(f);
       } else {
         updates[f.field] = f.newValue;
       }
@@ -183,23 +190,23 @@ export function runLint(argv, config, opts = {}) {
         }
       }
 
-      // Apply split-to-array fixes (surface: a, b → surfaces: array)
-      for (const sa of splitToArray) {
+      // Apply singular-to-plural fixes (module/surface → modules/surfaces array).
+      // Removes the singular key line; merges its value(s) into the plural array,
+      // or creates the plural block if absent. Duplicates are skipped.
+      for (const sa of singularToPlural) {
         let raw = readFileSync(filePath, 'utf8');
         const { frontmatter: fm } = extractFrontmatter(raw);
-        // Remove the scalar surface line
         let newFm = fm.replace(new RegExp(`^${escapeRegex(sa.field)}:.*$`, 'm'), '').replace(/\n{2,}/g, '\n');
-        // Check if surfaces: array already exists
-        if (newFm.includes('surfaces:')) {
-          // Append new values to existing array
+        const pluralLineRe = new RegExp(`^${escapeRegex(sa.pluralKey)}:[ \\t]*$`, 'm');
+        if (pluralLineRe.test(newFm)) {
           for (const val of sa.newValue) {
-            if (!newFm.includes(`- ${val}`)) {
-              newFm = newFm.replace(/^(surfaces:)$/m, `$1\n  - ${val}`);
+            const hasVal = new RegExp(`^[ \\t]*-[ \\t]+${escapeRegex(val)}[ \\t]*$`, 'm').test(newFm);
+            if (!hasVal) {
+              newFm = newFm.replace(pluralLineRe, `${sa.pluralKey}:\n  - ${val}`);
             }
           }
         } else {
-          // Create new surfaces: array
-          newFm += `\nsurfaces:\n${sa.newValue.map(v => `  - ${v}`).join('\n')}`;
+          newFm += `\n${sa.pluralKey}:\n${sa.newValue.map(v => `  - ${v}`).join('\n')}`;
         }
         raw = replaceFrontmatter(raw, newFm.trim());
         writeFileSync(filePath, raw, 'utf8');
@@ -250,8 +257,8 @@ export function runLint(argv, config, opts = {}) {
         } else {
           process.stdout.write(`${prefix}  ${dim('status: (missing) — AI inference unavailable')}\n`);
         }
-      } else if (f.type === 'split-to-array') {
-        process.stdout.write(`${prefix}  ${dim(`${f.field}: "${f.oldValue}" → surfaces: [${f.newValue.join(', ')}]`)}\n`);
+      } else if (f.type === 'singular-to-plural') {
+        process.stdout.write(`${prefix}  ${dim(`${f.field}: "${f.oldValue}" → ${f.pluralKey}: [${f.newValue.join(', ')}]`)}\n`);
       } else if (f.type === 'add') {
         process.stdout.write(`${prefix}  ${dim(`add ${f.field}: ${f.newValue}`)}\n`);
       } else {
