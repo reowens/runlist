@@ -175,6 +175,34 @@ describe('generated content teaches prompt consumption', () => {
     ok(/do not\s+`?cat`?/i.test(content), 'warns against cat/read');
   });
 
+  it('baton.md leads with resume-prompt creation and steers away from listing all in-session plans', async () => {
+    // Refinement pin: the baton skill used to instruct Claude to start with
+    // `dotmd plans --status in-session` (which lists EVERY session's lease,
+    // not just the current one) and to edit plan frontmatter before saving
+    // the resume prompt. That made wrap-up a heavy lookup workflow. The
+    // refined body must lead with `dotmd new prompt` and, if it mentions
+    // `dotmd plans --status in-session` at all, must flag it as wrong.
+    setup({ claude: true });
+    const config = await resolveConfig(tmpDir);
+    scaffoldClaudeCommands(tmpDir, config);
+    const content = readFileSync(path.join(tmpDir, '.claude', 'commands', 'baton.md'), 'utf8');
+
+    const newPromptIdx = content.indexOf('dotmd new prompt');
+    const releaseIdx = content.indexOf('dotmd release');
+    ok(newPromptIdx > -1, 'baton must mention `dotmd new prompt`');
+    ok(releaseIdx > -1, 'baton must mention `dotmd release`');
+    ok(newPromptIdx < releaseIdx,
+      '`dotmd new prompt` must appear before `dotmd release` (prompt is step 1)');
+
+    const planListIdx = content.indexOf('dotmd plans --status in-session');
+    if (planListIdx > -1) {
+      // If listed at all, it must be in a "do not use this" warning.
+      const surrounding = content.slice(Math.max(0, planListIdx - 80), planListIdx + 50);
+      ok(/do not|don't|never/i.test(surrounding),
+        `\`dotmd plans --status in-session\` should be flagged as wrong, got context: "${surrounding}"`);
+    }
+  });
+
   it('docs.md mentions the prompts subcommands', async () => {
     setup({ claude: true });
     const config = await resolveConfig(tmpDir);

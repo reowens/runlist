@@ -20,7 +20,7 @@ const VERSION_REGEX = /<!-- dotmd-generated: ([\d.]+) -->/;
 const SLASH_DESCRIPTIONS = {
   plans: "dotmd-managed plan briefing for this repo. Use when the user asks what's on the plate, references a plan slug, queues work, or wants to pick up / release / archive a plan.",
   docs: "dotmd-managed docs briefing for this repo. Use when the user asks to list, scaffold, query, validate, archive, or rename non-plan docs (reference docs, ADRs, RFCs, design notes), or asks how the dotmd doc lifecycle works here.",
-  baton: "Wrap the current session cleanly: update the in-flight plan, save ONE resume prompt via 'dotmd new prompt', release the lease. Use when the user says hand off / save a resume / wrap up, or when context is getting tight.",
+  baton: "Save a resume prompt for the held plan and release the lease — the minimum handoff. Use when the user says hand off / save a resume / wrap up, or when context is getting tight.",
 };
 
 function frontmatterFor(name) {
@@ -67,13 +67,17 @@ function generatePlansCommand(config) {
 
 function generateBatonCommand() {
   const lines = [...frontmatterFor('baton'), VERSION_MARKER, ''];
-  lines.push('You are wrapping this session. Hand the baton cleanly to the next one.');
+  lines.push('Wrap this session. Minimum required (two commands):');
   lines.push('');
-  lines.push('1. **Update the in-flight plan.** Find it via `dotmd plans --status in-session`. Edit its `current_state:` / `next_step:` frontmatter so they reflect where things actually stand. If status should change (shipped → archive, stuck on a human decision → awaiting, etc.), transition with `dotmd status <file> <status>` — or `dotmd archive <file>` if work is done.');
+  lines.push('1. **Save the resume prompt.** `dotmd new prompt resume-<plan-slug>` with a 10-20 line body via heredoc: the next concrete decision plus any gotchas. NOT a recap of the plan body. The saved prompt IS the handoff — never print it into chat for copy-paste.');
   lines.push('');
-  lines.push('2. **Save ONE lean handoff prompt.** Run `dotmd new prompt resume-<plan-slug>` with a body of ~10-20 lines: point at the plan file, name the next concrete decision, flag any gotchas. Do NOT recap the plan body (the plan is for that). Do NOT print the handoff into chat for the user to copy-paste — the saved prompt is the handoff.');
+  lines.push('2. **Release the lease.** `dotmd release` — or `dotmd archive <file>` if the work is fully shipped (archive auto-releases).');
   lines.push('');
-  lines.push('3. **Release the lease.** `dotmd release` (skip if `dotmd archive` already closed out — archive auto-releases).');
+  lines.push('Optional, only when genuinely needed:');
+  lines.push('- Status really changed (paused / awaiting / partial / blocked): `dotmd status <file> <status>` BEFORE `dotmd release`.');
+  lines.push('- Plan dashboard text is misleading the user: edit `next_step:` in the plan frontmatter. Cosmetic — the next session reads the resume prompt, not the plan frontmatter.');
+  lines.push('');
+  lines.push('If you don\'t already know which plan you hold: `dotmd hud --json` and read `.owned`. Do NOT use `dotmd plans --status in-session` — that lists every session\'s holdings, not just yours.');
   lines.push('');
   lines.push('The next session\'s `dotmd hud` (SessionStart hook) surfaces the pending prompt automatically.');
   lines.push('');
