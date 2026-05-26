@@ -475,6 +475,66 @@ describe('dotmd new — type-first CLI', () => {
       ok(r.stderr.includes('does not accept body input'), `expected fail-fast error, got: ${r.stderr}`);
     });
 
+    it('status default falls back to first valid type status when template default is invalid', () => {
+      // Project overrides doc statuses to exclude `active` (the built-in template
+      // default). Previously, `dotmd new doc foo` errored with "Invalid status
+      // `active` for type `doc`" — agents had to trial-and-error a valid status.
+      // Now it auto-picks the first valid type status (`current` below).
+      tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-new-'));
+      mkdirSync(path.join(tmpDir, '.git'));
+      mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+      writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+        export const root = 'docs';
+        export const types = {
+          doc: { statuses: ['current', 'draft', 'archived'] },
+        };
+      `);
+      const r = run(['new', 'doc', 'copy-tiers']);
+      strictEqual(r.status, 0, `expected success, got: ${r.stderr}`);
+      const content = readFileSync(path.join(tmpDir, 'docs', 'copy-tiers.md'), 'utf8');
+      ok(content.includes('status: current'), `expected status: current, got: ${content.match(/status: \w+/)?.[0]}`);
+    });
+
+    it('output shows chosen root + alternatives when >1 root and --root omitted', () => {
+      // Multi-root project: dry-run output should surface which root was picked
+      // and what the alternatives are, so an agent that lands in the wrong root
+      // can see the fix without spelunking the config.
+      tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-new-'));
+      mkdirSync(path.join(tmpDir, '.git'));
+      mkdirSync(path.join(tmpDir, 'docs', 'business'), { recursive: true });
+      mkdirSync(path.join(tmpDir, 'docs', 'engineering'), { recursive: true });
+      writeFileSync(
+        path.join(tmpDir, 'dotmd.config.mjs'),
+        `export const root = ['docs/business', 'docs/engineering'];`,
+      );
+      const r = run(['new', 'doc', 'copy-tiers', '--dry-run']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      ok(/Root:\s+business\s+\(others:\s+engineering/.test(r.stdout),
+        `expected Root hint with alternatives, got: ${r.stdout}`);
+    });
+
+    it('root hint is omitted when only one root is configured', () => {
+      const docsDir = setupProject();
+      const r = run(['new', 'doc', 'solo', '--dry-run']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      ok(!/Root:.+others:/.test(r.stdout), `single-root project should not print root hint: ${r.stdout}`);
+      ok(docsDir);
+    });
+
+    it('root hint is omitted when --root is explicit', () => {
+      tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-new-'));
+      mkdirSync(path.join(tmpDir, '.git'));
+      mkdirSync(path.join(tmpDir, 'docs', 'business'), { recursive: true });
+      mkdirSync(path.join(tmpDir, 'docs', 'engineering'), { recursive: true });
+      writeFileSync(
+        path.join(tmpDir, 'dotmd.config.mjs'),
+        `export const root = ['docs/business', 'docs/engineering'];`,
+      );
+      const r = run(['new', 'doc', 'explicit', '--root', 'engineering', '--dry-run']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      ok(!/Root:.+others:/.test(r.stdout), `explicit --root should suppress hint: ${r.stdout}`);
+    });
+
     it('custom template with acceptsBody:true accepts body without error', () => {
       tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-new-'));
       mkdirSync(path.join(tmpDir, '.git'));

@@ -230,13 +230,19 @@ export async function runNew(argv, config, opts = {}) {
   // Resolve template (by type name, falls back to lookup)
   const template = resolveTemplate(typeName, config);
 
-  // Validate status (template default first, then per-type list, then 'active')
+  // Validate status. The template's `defaultStatus` is only used when it's
+  // actually valid in the user's per-type config — otherwise fall back to the
+  // first valid type status. This avoids the "Invalid status `active` for type
+  // `doc`" loop when a project overrides doc statuses to exclude 'active'.
   if (!status) {
-    if (typeof template === 'object' && template.defaultStatus) {
-      status = template.defaultStatus;
+    const typeStatuses = config.typeStatuses?.get(typeName);
+    const tmplDefault = (typeof template === 'object' && template.defaultStatus) ? template.defaultStatus : null;
+    if (tmplDefault && (!typeStatuses || typeStatuses.size === 0 || typeStatuses.has(tmplDefault))) {
+      status = tmplDefault;
+    } else if (typeStatuses && typeStatuses.size > 0) {
+      status = [...typeStatuses][0];
     } else {
-      const typeStatuses = config.typeStatuses?.get(typeName);
-      status = typeStatuses && typeStatuses.size > 0 ? [...typeStatuses][0] : 'active';
+      status = tmplDefault ?? 'active';
     }
   }
   const effective = config.typeStatuses?.get(typeName) ?? config.validStatuses;
@@ -340,9 +346,23 @@ export async function runNew(argv, config, opts = {}) {
     content = `---\n${fm}\n---\n${body}`;
   }
 
+  // When the project has >1 root and `--root` was omitted, surface the choice
+  // so agents can see that an alternative root was available. Cheap visibility
+  // for the "ended up in docs/plans/ for a doc" foot-gun.
+  const allRoots = config.docsRoots ?? [config.docsRoot];
+  let rootHint = '';
+  if (!rootName && allRoots.length > 1) {
+    const chosenLabel = path.basename(targetRoot);
+    const others = allRoots
+      .filter(r => r !== targetRoot)
+      .map(r => path.basename(r));
+    rootHint = `Root: ${chosenLabel} (others: ${others.join(', ')} — pass --root <name> to change)\n`;
+  }
+
   if (dryRun) {
     process.stdout.write(`${dim('[dry-run]')} Would create: ${repoPath}\n`);
     process.stdout.write(`${dim('[dry-run]')} Type: ${typeName}\n`);
+    if (rootHint) process.stdout.write(`${dim('[dry-run]')} ${rootHint}`);
     return;
   }
 
@@ -351,6 +371,7 @@ export async function runNew(argv, config, opts = {}) {
 
   writeFileSync(filePath, content, 'utf8');
   process.stdout.write(`${green('Created')}: ${repoPath} ${dim(`(${typeName})`)}\n`);
+  if (rootHint) process.stdout.write(dim(rootHint));
 
   regenIndex(config);
 

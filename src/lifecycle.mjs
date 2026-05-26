@@ -32,7 +32,11 @@ function findFileRoot(filePath, config) {
 export function regenIndex(config) {
   if (!config.indexPath) return;
   try {
-    const index = buildIndex(config);
+    // Fast path: skip validation/git-staleness/ref-checking — the rendered
+    // index file only consumes status/title/snapshot/etc. Validation runs on
+    // explicit `dotmd check` / `dotmd index`. This keeps lifecycle commands
+    // snappy on repos with huge git history or heavy `validate` hooks.
+    const index = buildIndex(config, { fast: true });
     writeIndex(renderIndexFile(index, config), config);
   } catch (err) {
     warn(`Could not regenerate index (run \`dotmd index\`): ${err.message}`);

@@ -7,14 +7,23 @@ import { validateDoc, validatePlanShape, validateDocShape, checkBidirectionalRef
 import { checkIndex } from './index-file.mjs';
 import { checkClaudeCommands } from './claude-commands.mjs';
 
-export function buildIndex(config) {
-  const docs = collectDocFiles(config).map(f => parseDocFile(f, config));
-  // Per-file validation (validateDoc) ran during parse without sibling
-  // visibility. Now that the full index is materialized, enrich
-  // unresolved-ref entries with "Did you mean..." candidates drawn from the
-  // index — mutates doc.errors/doc.warnings in place so the aggregations
-  // below pick up the enriched messages.
-  enrichRefErrorSuggestions(docs, config);
+// `fast: true` skips every pass that only produces warnings/errors — the
+// rendered index file consumes only status/title/snapshot/etc., not the
+// validation output. Use it from `regenIndex` (post-mutation index refresh)
+// where validation has already run elsewhere (or will, next time the user
+// runs `dotmd check`). Saves the full-repo `git log` scan in
+// `checkGitStaleness` plus the bidirectional ref walk + claude-commands check.
+export function buildIndex(config, opts = {}) {
+  const { fast = false } = opts;
+  const docs = collectDocFiles(config).map(f => parseDocFile(f, config, { fast }));
+  if (!fast) {
+    // Per-file validation (validateDoc) ran during parse without sibling
+    // visibility. Now that the full index is materialized, enrich
+    // unresolved-ref entries with "Did you mean..." candidates drawn from the
+    // index — mutates doc.errors/doc.warnings in place so the aggregations
+    // below pick up the enriched messages.
+    enrichRefErrorSuggestions(docs, config);
+  }
   const warnings = [];
   const errors = [];
 
@@ -23,7 +32,7 @@ export function buildIndex(config) {
     errors.push(...doc.errors);
   }
 
-  if (config.hooks.validate) {
+  if (!fast && config.hooks.validate) {
     const ctx = { config, allDocs: docs, repoRoot: config.repoRoot };
     for (const doc of docs) {
       try {
@@ -65,20 +74,22 @@ export function buildIndex(config) {
     }
   }
 
-  if (config.indexPath) {
-    const indexCheck = checkIndex(transformedDocs, config);
-    warnings.push(...indexCheck.warnings);
-    errors.push(...indexCheck.errors);
+  if (!fast) {
+    if (config.indexPath) {
+      const indexCheck = checkIndex(transformedDocs, config);
+      warnings.push(...indexCheck.warnings);
+      errors.push(...indexCheck.errors);
+    }
+
+    const refCheck = checkBidirectionalReferences(transformedDocs, config);
+    warnings.push(...refCheck.warnings);
+
+    const gitWarnings = checkGitStaleness(transformedDocs, config);
+    warnings.push(...gitWarnings);
+
+    const claudeWarnings = checkClaudeCommands(config.repoRoot);
+    warnings.push(...claudeWarnings);
   }
-
-  const refCheck = checkBidirectionalReferences(transformedDocs, config);
-  warnings.push(...refCheck.warnings);
-
-  const gitWarnings = checkGitStaleness(transformedDocs, config);
-  warnings.push(...gitWarnings);
-
-  const claudeWarnings = checkClaudeCommands(config.repoRoot);
-  warnings.push(...claudeWarnings);
 
   return {
     generatedAt: new Date().toISOString(),
@@ -122,7 +133,8 @@ function walkMarkdownFiles(directory, files, excludedDirs, skipPaths, seen = new
   }
 }
 
-export function parseDocFile(filePath, config) {
+export function parseDocFile(filePath, config, opts = {}) {
+  const { fast = false } = opts;
   const relativePath = toRepoPath(filePath, config.repoRoot);
   const raw = readFileSync(filePath, 'utf8');
   const { frontmatter, body } = extractFrontmatter(raw);
@@ -250,8 +262,10 @@ export function parseDocFile(filePath, config) {
     doc.warnings.push({ path: relativePath, level: 'warning', message: w.message });
   }
 
-  validateDoc(doc, parsedFrontmatter, headingTitle, config);
-  validatePlanShape(doc, body, parsedFrontmatter, config);
-  validateDocShape(doc, body, parsedFrontmatter, config);
+  if (!fast) {
+    validateDoc(doc, parsedFrontmatter, headingTitle, config);
+    validatePlanShape(doc, body, parsedFrontmatter, config);
+    validateDocShape(doc, body, parsedFrontmatter, config);
+  }
   return doc;
 }
