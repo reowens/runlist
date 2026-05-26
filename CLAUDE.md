@@ -105,6 +105,21 @@ dotmd context --type plan                  # briefing filtered to plans
 
 The `--type` flag works as a global filter on most commands: `list`, `json`, `check`, `context`, `focus`, `query`, `coverage`, `stats`, `graph`, `index`, `export`.
 
+When `dotmd query` / `dotmd plans` truncates to the default `--limit`, the output now shows `results: N of M (use --all to see all)` (since 0.36.2). The "N more plans" footer also renders for grouped views (`--sort status`, `--group module/surface/owner`), not just the flat triage view.
+
+### Triaging plans at scale (>50 plans)
+
+When a flat `dotmd plans` list stops being useful, use the module dashboard to triage systematically (shipped 0.36.0):
+
+```bash
+dotmd modules                              # one row per module, dynamic status columns
+dotmd modules --sort cleanup               # rank by (stale × avgAge) / total — "rotting hardest"
+dotmd module <name>                        # deep view of one module, plans grouped by status
+dotmd stale --group module                 # same staleness, bucketed by module
+```
+
+Workflow: `dotmd modules --sort cleanup` → pick the top row → `dotmd module <name>` → archive or update the rotting plans → move on. The dashboard composes existing primitives — no new config knobs to set up.
+
 ## Commands
 
 ```bash

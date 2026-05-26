@@ -410,14 +410,27 @@ Types and their default destinations:
 \`<type>\` can be omitted; defaults to \`doc\`.
 \`<name>\` is slugified for the filename.
 
-Body input (prompt type only):
+Body input (all built-in types — required for prompt, optional for plan/doc):
   <text>                 Inline body as 3rd positional
   --message "<text>"     Explicit inline body
   -                      Read body from stdin (heredoc-friendly for agents)
   @path                  Read body from a file
 
+For plan/doc, a single-section body lands under the type's first scaffolded
+section (e.g. \`## Problem\` for plans). If the body already authors
+\`## Section\` headings start-to-finish, the scaffold short-circuits and only
+the title + your body is emitted — no duplicated empty outline below
+(since 0.36.1).
+
 Examples:
   dotmd new plan auth-revamp
+  dotmd new plan auth-revamp "Investigation findings before scoping…"
+  dotmd new plan full-spec - <<'EOF'
+  ## Problem
+  …
+  ## Phases
+  …
+  EOF
   dotmd new prompt cleanup-tomorrow "look at remaining lint warnings"
   dotmd new prompt resume-foo - <<'EOF'
   multi-line

@@ -2,6 +2,24 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## 0.36.2 — 2026-05-26
+
+Output and diagnostic improvements with no schema changes or breaking behavior.
+
+### Added
+
+- **`dotmd query` and `dotmd plans` show "N of M (use --all)" when truncated.** Previously the text renderer dropped the `_totalBeforeLimit` value that the JSON output already exposed, so a query returning 20 of 125 docs printed `results: 20` with no hint that more existed. Now: `results: 20 of 125 (use --all to see all)`. The same fix lifts the existing "N more plans" footer out of `dotmd plans`' triage-only branch — it now renders for `--sort status` and `--group module/surface/owner` views too. (Audit findings F7, F9.)
+- **Config-load warning when a rich-status definition has contradictory flags.** A status configured with both `skipStale: true` and `staleDays: 60` silently dropped the number — the boolean won. Same for `skipWarnings: true` paired with `requiresModule: true` (the module requirement could never fire). `normalizeRichStatuses` now emits a `warn()` at load time naming the type, status, and conflicting fields. Catches dead config that would otherwise stay invisible. (Audit finding F8.)
+- **`config.context.staleTailLimit` (default 8).** Caps stale slug lists in `dotmd context` and `dotmd hud`, then points to `dotmd stale` for the full list.
+
+### Fixed
+
+- **`dotmd glossary` differentiates "section not found" from "section found but no entries."** The diagnostic explains whether to add the heading or supply a recognizable glossary table. `dotmd glossary --list` uses the same distinction.
+
+### Tests
+
+Added 16 regression tests across `test/glossary.test.mjs` (4), `test/query.test.mjs` (6), `test/render.test.mjs` (4), `test/config.test.mjs` (3) — totals went 847 → 863.
+
 ## 0.36.1 — 2026-05-26
 
 Two small polish items from the agent-UX audit's A2/A3 deferred list.

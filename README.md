@@ -177,6 +177,8 @@ dotmd context [--summarize]  Full briefing (LLM-oriented)
 dotmd focus [status]         Detailed view for one status group
 dotmd query [filters]        Filtered search
 dotmd plans                  List all plans
+dotmd modules                Module dashboard (plans grouped by module)
+dotmd module <name>          Plans for one module, grouped by status
 dotmd stale                  List stale docs
 dotmd actionable             List docs with next steps
 dotmd index [--print]        Generate/update docs.md index block
@@ -314,6 +316,18 @@ dotmd check --fix            # auto-fix broken refs + lint + regen index
 
 Validates: required fields, status values, broken reference paths, broken body links (`[text](path.md)`), bidirectional reference symmetry, git date drift, taxonomy mismatches.
 
+#### Per-ref one-way opt-out (`>` prefix)
+
+`referenceFields.bidirectional` is per-field — once a field is bidirectional, every ref in it expects a back-ref. For leaf-to-upstream cases (a plan referencing the audit doc that spawned it; many docs pointing at a single hub) that's noise: the parent shouldn't list every child. Prefix the value with `>` to mark a single ref one-way without changing the field:
+
+```yaml
+related_docs:
+  - docs/sibling-design.md            # bidirectional (default for the field)
+  - "> docs/audit-example-project.md" # one-way upstream — no back-ref expected
+```
+
+The prefix is stripped before path resolution — refs still resolve normally. Works on any ref field. Quote the value (it starts with `>`, which is YAML's block-scalar indicator). Shipped 0.35.0 — closed 7 false-positive warnings in this repo's own corpus.
+
 ### Stats
 
 ```bash
@@ -391,6 +405,39 @@ dotmd health --json                      # machine-readable
 dotmd briefing                           # compact 5-10 line summary
 dotmd briefing --json                    # machine-readable
 ```
+
+### Modules Dashboard
+
+A triage view for codebases with enough plans that a flat list stops being useful (rule-of-thumb: ~50+ plans across many modules). Composes existing primitives (`modules: []`, `isStale`, `daysSinceUpdate`, `hasNextStep`, `statusOrder`) — no new config.
+
+```bash
+dotmd modules                            # one row per module, dynamic status columns
+dotmd modules --sort cleanup             # rank by (stale × avgAge) / total — "rotting hardest"
+dotmd modules --sort stale|age|nextstep|total
+dotmd modules --type doc                 # docs instead of plans
+dotmd modules --limit 20                 # default 20; --all to disable
+dotmd modules --json                     # includes _totalUnique for double-count detection
+
+dotmd module <name>                      # deep view of one module, plans grouped by status
+dotmd module <name> --sort updated|age   # default sort is status
+dotmd module <name> --json
+```
+
+Workflow for systematic cleanup:
+
+```
+dotmd modules --sort cleanup → walk the top row → dotmd module <name> → triage/archive → next
+```
+
+Notes:
+
+- Status columns are dynamic — only statuses with ≥1 plan render, so default and custom vocabularies both look right.
+- A plan with `modules: [a, b]` counts in both rows. This is intentional. `--json` exposes `_totalUnique` so tooling can detect this if needed.
+- `(none)` is a literal row for unmoduled plans — surfaces unowned work that would otherwise hide in a flat list.
+- Unknown module names exit with `Module 'foo' not found. Did you mean: …?` (substring-first, Levenshtein ≤3 fallback).
+- The dashboard auto-falls-back to a stacked render when the table doesn't fit your terminal width.
+
+`dotmd stale --group module` is the canonical "what's rotting per module" companion view (uses the existing `query --group` mechanism, called out here so it's findable).
 
 ### AI Summaries
 
@@ -694,7 +741,7 @@ export const types = {
     statuses: {
       'active':   { context: 'expanded', staleDays: 14, requiresModule: true },
       'planned':  { context: 'listed', staleDays: 30, requiresModule: true },
-      'blocked':  { context: 'listed', staleDays: 30, skipStale: true },
+      'blocked':  { context: 'listed', skipStale: true },
       'archived': { context: 'counted', archive: true, terminal: true, skipStale: true, skipWarnings: true },
     },
   },
@@ -714,6 +761,8 @@ export const types = {
 | `skipWarnings` | `boolean` | `false` | Exempt from validation warnings |
 
 Object key order determines display order. The config resolver derives `statuses.order`, `lifecycle.*`, `taxonomy.moduleRequiredFor`, and `context.*` from these definitions. Explicit global sections still win when provided.
+
+**Contradiction check.** Combining `skipStale: true` with a `staleDays` value, or `skipWarnings: true` with `requiresModule: true`, makes one of the fields dead config — the boolean wins silently. From 0.36.2, dotmd `warn()`s at config load when it spots either pair, naming the type, status, and conflicting fields. Drop one to silence the warning. The same check runs against the `quiet: true` sugar (which implies both `skipStale` and `skipWarnings` unless explicitly overridden).
 
 ### Array form (also supported)
 

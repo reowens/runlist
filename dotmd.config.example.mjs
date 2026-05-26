@@ -36,6 +36,11 @@ export const excludeDirs = ['evidence'];
 // `terminal` and `quiet` are orthogonal. Mark a status `terminal` only when it represents closure
 // (excluded from active-work scope). Use `quiet` for noise suppression without closure semantics.
 //
+// Contradiction check (since 0.36.2): dotmd `warn()`s at config-load when a status combines
+// `skipStale: true` with a `staleDays` value (the number is silently ignored) or
+// `skipWarnings: true` with `requiresModule: true` (the module requirement can never fire).
+// The same check applies via the `quiet: true` sugar. Drop one of the conflicting fields to silence.
+//
 // Each plan stop-status maps to a distinct unstuck-action — the test for whether
 // the vocabulary earns its weight. blocked = monitor (external arrival on its own
 // schedule), awaiting = ask (chase the human/decision), queued-after = check the
@@ -151,6 +156,9 @@ export const context = {
   recentStatuses: ['active', 'ready', 'planned'],
   recentLimit: 10,
   truncateNextStep: 80,
+  // Cap on slugs shown in the "Stale: …" tail before "…and N more (run `dotmd stale`)"
+  // takes over (since 0.36.2). Raise on wide terminals; lower for tighter briefings.
+  staleTailLimit: 8,
 };
 
 // Display settings
