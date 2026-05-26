@@ -95,6 +95,10 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
     doc.errors.push({ path: doc.path, level: 'error', message: '`blockers` must be a YAML list when present.' });
   }
 
+  if (Object.prototype.hasOwnProperty.call(frontmatter, 'blocked_by') && !Array.isArray(frontmatter.blocked_by)) {
+    doc.errors.push({ path: doc.path, level: 'error', message: '`blocked_by` must be a YAML list when present.' });
+  }
+
   if (Object.prototype.hasOwnProperty.call(frontmatter, 'surfaces') && !Array.isArray(frontmatter.surfaces)) {
     doc.errors.push({ path: doc.path, level: 'error', message: '`surfaces` must be a YAML list when present.' });
   }

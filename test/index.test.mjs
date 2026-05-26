@@ -369,6 +369,27 @@ export const referenceFields = {
     strictEqual(doc.hasNextStep, true);
     strictEqual(doc.hasBlockers, true);
   });
+
+  it('accepts `blocked_by` as an alias for `blockers` (issue #10 finding #2)', async () => {
+    // Agents reach for the JIRA/Linear-style name naturally. Both populate
+    // the same indexed `blockers` field — pick whichever reads better.
+    const docsDir = setup();
+    writeDoc(docsDir, 'a.md', 'status: blocked\nblocked_by:\n  - foo.md\n  - bar.md', '# A');
+    const config = await resolveConfig(tmpDir);
+    const doc = parseDocFile(path.join(docsDir, 'a.md'), config);
+    deepStrictEqual(doc.blockers, ['foo.md', 'bar.md']);
+    strictEqual(doc.hasBlockers, true);
+  });
+
+  it('merges `blockers` and `blocked_by` (de-duped) if both are set', async () => {
+    // Tolerant of accidental dual-naming during a migration. mergeUniqueStrings
+    // collapses overlaps so a doc with both names doesn't double-count.
+    const docsDir = setup();
+    writeDoc(docsDir, 'a.md', 'status: blocked\nblockers:\n  - foo.md\nblocked_by:\n  - foo.md\n  - bar.md', '# A');
+    const config = await resolveConfig(tmpDir);
+    const doc = parseDocFile(path.join(docsDir, 'a.md'), config);
+    deepStrictEqual(doc.blockers.sort(), ['bar.md', 'foo.md']);
+  });
 });
 
 // ── buildIndex ──────────────────────────────────────────────────────────

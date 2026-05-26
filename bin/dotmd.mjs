@@ -701,6 +701,21 @@ Supports all query flags (--status, --json, --sort, etc.)`,
 Shows documents that reference or depend on the given file.
 Useful for impact analysis before archiving or changing a plan.
 
+The dependency edge is read from each plan's \`blockers:\` frontmatter
+(a YAML list of plan slugs or paths). \`blocked_by:\` is accepted as
+an alias since 0.39.3 — both populate the same index field, so use
+whichever name reads better.
+
+Frontmatter shape:
+
+    ---
+    type: plan
+    status: blocked
+    blockers:
+      - foo-plan.md
+      - docs/plans/bar-plan.md
+    ---
+
 Options:
   --json                 Output as JSON`,
 

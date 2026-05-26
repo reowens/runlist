@@ -175,7 +175,13 @@ export function parseDocFile(filePath, config, opts = {}) {
     }
   }
   const nextStep = asString(parsedFrontmatter.next_step) ?? extractNextStep(body) ?? null;
-  const blockers = normalizeBlockers(parsedFrontmatter.blockers);
+  // `blocked_by` is accepted as an alias for `blockers` since 0.39.3 — agents
+  // filing tickets naturally reach for the JIRA/Linear name. If both are set,
+  // they're merged (de-duped via normalizeBlockers → mergeUniqueStrings).
+  const blockers = mergeUniqueStrings(
+    normalizeBlockers(parsedFrontmatter.blockers),
+    normalizeBlockers(parsedFrontmatter.blocked_by),
+  );
   const surface = asString(parsedFrontmatter.surface) ?? null;
   const surfaces = normalizeStringList(parsedFrontmatter.surfaces);
   const moduleName = asString(parsedFrontmatter.module) ?? null;
