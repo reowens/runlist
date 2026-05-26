@@ -757,6 +757,12 @@ export const referenceFields = {
   bidirectional: ['related_plans'],       // warn if A→B but B↛A
   unidirectional: ['supports_plans'],     // one-way, no symmetry check
 };
+// Per-ref opt-out: prefix any value with `>` to mark that specific ref one-way
+// without changing the field's default. Useful for leaf→upstream-parent refs
+// (audits, hub docs) where a back-ref would force editing a stable parent.
+//   related_docs:
+//     - docs/sibling-design.md            # bidirectional (default for the field)
+//     - "> docs/audit-example-project.md" # one-way upstream — no back-ref expected
 
 export const index = {
   path: 'docs/docs.md',

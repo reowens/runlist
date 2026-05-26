@@ -284,6 +284,51 @@ export const referenceFields = {
     const config = await resolveConfig(tmpDir);
     const doc = parseDocFile(path.join(docsDir, 'a.md'), config);
     deepStrictEqual(doc.refFields.depends_on, ['b.md']);
+    deepStrictEqual(doc.refFieldDirections.depends_on, ['two-way']);
+  });
+
+  it('parses `>` prefix as one-way ref and strips it from the path', async () => {
+    const docsDir = setup(`
+export const referenceFields = {
+  bidirectional: ['related_docs'],
+  unidirectional: [],
+};`);
+    writeDoc(docsDir, 'a.md', 'status: active\nrelated_docs:\n  - "> b.md"', '# A');
+    writeDoc(docsDir, 'b.md', 'status: active', '# B');
+    const config = await resolveConfig(tmpDir);
+    const doc = parseDocFile(path.join(docsDir, 'a.md'), config);
+    deepStrictEqual(doc.refFields.related_docs, ['b.md']);
+    deepStrictEqual(doc.refFieldDirections.related_docs, ['one-way']);
+  });
+
+  it('parses mixed list with one-way and two-way entries per-entry', async () => {
+    const docsDir = setup(`
+export const referenceFields = {
+  bidirectional: ['related_docs'],
+  unidirectional: [],
+};`);
+    writeDoc(docsDir, 'a.md', 'status: active\nrelated_docs:\n  - b.md\n  - "> c.md"\n  - d.md', '# A');
+    writeDoc(docsDir, 'b.md', 'status: active', '# B');
+    writeDoc(docsDir, 'c.md', 'status: active', '# C');
+    writeDoc(docsDir, 'd.md', 'status: active', '# D');
+    const config = await resolveConfig(tmpDir);
+    const doc = parseDocFile(path.join(docsDir, 'a.md'), config);
+    deepStrictEqual(doc.refFields.related_docs, ['b.md', 'c.md', 'd.md']);
+    deepStrictEqual(doc.refFieldDirections.related_docs, ['two-way', 'one-way', 'two-way']);
+  });
+
+  it('accepts `>` prefix on unidirectional fields as a no-op marker', async () => {
+    const docsDir = setup(`
+export const referenceFields = {
+  bidirectional: [],
+  unidirectional: ['parent_plan'],
+};`);
+    writeDoc(docsDir, 'a.md', 'status: active\nparent_plan: "> b.md"', '# A');
+    writeDoc(docsDir, 'b.md', 'status: active', '# B');
+    const config = await resolveConfig(tmpDir);
+    const doc = parseDocFile(path.join(docsDir, 'a.md'), config);
+    deepStrictEqual(doc.refFields.parent_plan, ['b.md']);
+    deepStrictEqual(doc.refFieldDirections.parent_plan, ['one-way']);
   });
 
   it('tags doc with correct root label', async () => {

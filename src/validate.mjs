@@ -258,26 +258,42 @@ export function checkBidirectionalReferences(docs, config) {
   const biFields = config.referenceFields.bidirectional || [];
   if (!biFields.length) return { warnings, errors: [] };
 
+  // refMap stores `Set<targetPath>` keyed by the source doc path — used to
+  // answer "does B reference A?" via .has(). oneWayMap stores the subset of A's
+  // outbound refs that opted out of expecting a back-ref (via the `>` prefix in
+  // frontmatter, parsed in src/index.mjs:parseDocFile). We split these so the
+  // membership check stays cheap (Set.has) while the per-ref directionality
+  // filter only consults oneWayMap when iterating outbound edges.
   const refMap = new Map();
+  const oneWayMap = new Map();
   for (const doc of docs) {
     const docDir = path.dirname(path.join(config.repoRoot, doc.path));
     const refs = new Set();
+    const oneWay = new Set();
     for (const field of biFields) {
-      for (const relPath of (doc.refFields[field] || [])) {
+      const entries = doc.refFields[field] || [];
+      const dirs = doc.refFieldDirections?.[field] || [];
+      for (let i = 0; i < entries.length; i++) {
+        const relPath = entries[i];
         // Use the same doc-relative-then-repo-root fallback as validateDoc so
         // both styles produce identical refMap keys; otherwise an entry like
         // `docs/foo.md` (repo-root style) gets keyed as
         // `<doc-parent>/docs/foo.md` and never matches the target's repo path.
         const resolved = resolveRefPath(relPath, docDir, config.repoRoot)
           ?? path.resolve(docDir, relPath);
-        refs.add(toRepoPath(resolved, config.repoRoot));
+        const targetPath = toRepoPath(resolved, config.repoRoot);
+        refs.add(targetPath);
+        if (dirs[i] === 'one-way') oneWay.add(targetPath);
       }
     }
     refMap.set(doc.path, refs);
+    oneWayMap.set(doc.path, oneWay);
   }
 
   for (const [docPath, refs] of refMap) {
+    const oneWay = oneWayMap.get(docPath);
     for (const targetPath of refs) {
+      if (oneWay.has(targetPath)) continue;
       const targetRefs = refMap.get(targetPath);
       if (targetRefs && !targetRefs.has(docPath)) {
         warnings.push({ path: docPath, level: 'warning',

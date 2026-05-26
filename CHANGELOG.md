@@ -2,6 +2,20 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## 0.35.0 — 2026-05-26
+
+One agent-UX fix from the audit doc (`docs/agent-ux-audit.md` § A4). Additive — no breaking change, no config migration.
+
+### Added
+
+- **Per-ref `>` prefix marks a single ref as one-way.** `referenceFields.bidirectional` is per-field, all-or-nothing — so a `related_docs: docs/audit-doc.md` pointing at a parent audit always tripped the `does not reference back` warning, and the only escape hatch (moving the whole field to `unidirectional`) gave up legitimate sibling-cross-ref reciprocity checks. The opt-out now lives on the ref itself: prefix the value with `>` in frontmatter and `dotmd check` skips reciprocity for that one entry while keeping the field bidirectional everywhere else. The prefix is stripped before path resolution, so refs still resolve. Works on any ref field (bidirectional or unidirectional). Example:
+  ```yaml
+  related_docs:
+    - docs/sibling-design.md            # bidirectional (default for the field)
+    - "> docs/audit-example-project.md" # one-way upstream — no back-ref expected
+  ```
+  Retired 7 false-positive warnings in this repo's own corpus (leaf plans/docs referencing parent audit docs and archived siblings). (Audit finding A4.)
+
 ## 0.34.0 — 2026-05-25
 
 Three agent-UX fixes bundled from the audit doc (`docs/agent-ux-audit.md` § A1–A3). Each one shaves a tool round-trip off a routine flow — the cost-of-friction multiplier on an agent is much higher than on a human at a terminal, so defaults and error messages designed for tool-using consumers matter disproportionately. One breaking change in `dotmd index`'s default (call-out below).

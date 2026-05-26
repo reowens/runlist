@@ -175,10 +175,30 @@ export function parseDocFile(filePath, config) {
   const bodyLinks = extractBodyLinks(body);
   const hasCloseout = /^##\s+Closeout/m.test(body);
 
-  // Dynamic reference field extraction
+  // Dynamic reference field extraction. A leading `>` on a value (e.g.
+  // `"> docs/audit-example-project.md"`) marks that single ref as one-way —
+  // the prefix is stripped so path resolution still works, and the direction
+  // is recorded on a parallel `refFieldDirections[field]` array indexed the
+  // same as `refFields[field]`. Bidirectional reciprocity checks consume the
+  // directions to skip outbound entries that opted out of expecting a back-ref.
   const refFields = {};
+  const refFieldDirections = {};
   for (const field of [...(config.referenceFields.bidirectional || []), ...(config.referenceFields.unidirectional || [])]) {
-    refFields[field] = normalizeStringList(parsedFrontmatter[field]);
+    const raw = normalizeStringList(parsedFrontmatter[field]);
+    const paths = [];
+    const directions = [];
+    for (const entry of raw) {
+      const oneWay = entry.match(/^>\s*(.+)$/);
+      if (oneWay) {
+        paths.push(oneWay[1].trim());
+        directions.push('one-way');
+      } else {
+        paths.push(entry);
+        directions.push('two-way');
+      }
+    }
+    refFields[field] = paths;
+    refFieldDirections[field] = directions;
   }
 
   // Tag doc with its root
@@ -215,6 +235,7 @@ export function parseDocFile(filePath, config) {
     checklist,
     bodyLinks,
     refFields,
+    refFieldDirections,
     checklistCompletionRate: computeChecklistCompletionRate(checklist),
     hasCloseout,
     hasNextStep: Boolean(nextStep),

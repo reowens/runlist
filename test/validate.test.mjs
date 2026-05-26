@@ -358,6 +358,38 @@ describe('reference path resolution', () => {
       `should not suggest when nothing close. got: ${result.stdout}`);
   });
 
+  it('does not warn about missing back-ref when the outbound entry uses `>` prefix (A4)', () => {
+    const root = setupRefProject();
+    // a.md → b.md is one-way via the `>` prefix; b.md doesn't reference a back.
+    // The reciprocity check should skip the warning entirely.
+    writeFileSync(path.join(root, 'docs', 'plans', 'a.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\nrelated_plans:\n  - "> docs/plans/b.md"\n---\n# A\n');
+    writeFileSync(path.join(root, 'docs', 'plans', 'b.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\n---\n# B\n');
+    const result = run(['check']);
+    ok(!result.stdout.includes('does not reference back'),
+      `one-way ref should suppress reciprocity warning. stdout: ${result.stdout}`);
+  });
+
+  it('still warns when an unprefixed sibling in a mixed list lacks a back-ref (A4)', () => {
+    const root = setupRefProject();
+    // a.md → b.md is one-way (silent); a.md → c.md is two-way (must reciprocate, but c.md doesn't).
+    writeFileSync(path.join(root, 'docs', 'plans', 'a.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\nrelated_plans:\n  - "> docs/plans/b.md"\n  - docs/plans/c.md\n---\n# A\n');
+    writeFileSync(path.join(root, 'docs', 'plans', 'b.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\n---\n# B\n');
+    writeFileSync(path.join(root, 'docs', 'plans', 'c.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\n---\n# C\n');
+    const result = run(['check']);
+    const backRefLines = result.stdout.split('\n').filter(l => l.includes('does not reference back'));
+    strictEqual(backRefLines.length, 1,
+      `expected exactly one reciprocity warning, got: ${backRefLines.join(' | ')}`);
+    ok(backRefLines[0].includes('docs/plans/c.md'),
+      `reciprocity warning should target the unprefixed entry. got: ${backRefLines[0]}`);
+    ok(!backRefLines[0].includes('docs/plans/b.md'),
+      `reciprocity warning should not target the prefixed entry. got: ${backRefLines[0]}`);
+  });
+
   it('filters suggestions by ref-field type (related_plans → plans only)', () => {
     // Set up a doc-typed file with a similar basename and a plan-typed file. A
     // `related_plans` typo should suggest the plan, not the doc.
