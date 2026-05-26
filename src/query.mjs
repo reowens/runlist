@@ -251,7 +251,13 @@ function getDocSummary(doc, config) {
 
 function renderQueryResults(docs, filters, config) {
   process.stdout.write('Query\n\n');
-  process.stdout.write(`- results: ${docs.length}\n`);
+  const total = filters._totalBeforeLimit ?? docs.length;
+  const truncated = !filters.all && total > docs.length;
+  if (truncated) {
+    process.stdout.write(`- results: ${docs.length} of ${total} ${dim('(use --all to see all)')}\n`);
+  } else {
+    process.stdout.write(`- results: ${docs.length}\n`);
+  }
   if (filters.types?.length) process.stdout.write(`- type: ${filters.types.join(', ')}\n`);
   if (filters.statuses?.length) process.stdout.write(`- status: ${filters.statuses.join(', ')}\n`);
   if (filters.keyword) process.stdout.write(`- keyword: ${filters.keyword}\n`);
@@ -381,12 +387,13 @@ function renderPlansOutput(docs, filters, config, opts = {}) {
     // Triage view: flat, sorted by recency, tag on right.
     process.stdout.write('\n');
     renderPlanRows(docs, filters, maxWidth, { showTag: true });
-    // Footer when the result was capped.
-    const hidden = totalAll - totalShown;
-    if (hidden > 0) {
-      process.stdout.write('\n');
-      process.stdout.write(dim(`  ${hidden} more ${noun}  ·  dotmd ${noun} --all  ·  dotmd ${noun} status\n`));
-    }
+  }
+
+  // Footer when the result was capped — emit for every view shape.
+  const hidden = totalAll - totalShown;
+  if (hidden > 0) {
+    process.stdout.write('\n');
+    process.stdout.write(dim(`  ${hidden} more ${noun}  ·  dotmd ${noun} --all  ·  dotmd ${noun} status\n`));
   }
 
   process.stdout.write('\n');

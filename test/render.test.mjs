@@ -6,6 +6,7 @@ import {
   formatSnapshot,
   renderCheck,
   buildCoverage,
+  renderContext,
 } from '../src/render.mjs';
 
 function makeConfig(overrides = {}) {
@@ -106,6 +107,45 @@ describe('renderCompactList', () => {
     ok(/Untagged \(2\)/.test(result), `expected Untagged (2) section; got: ${result}`);
     ok(result.includes('docs/loose.md'), 'lists first untagged path');
     ok(result.includes('docs/also.md'), 'lists second untagged path');
+  });
+});
+
+describe('renderContext stale tail', () => {
+  function staleDoc(i) {
+    return makeDoc({
+      title: `Stale ${i}`,
+      path: `docs/stale-${i}.md`,
+      status: 'active',
+      isStale: true,
+      daysSinceUpdate: 30 + i,
+    });
+  }
+
+  it('caps stale tail at 8 slugs + "…and N more" hint', () => {
+    const docs = Array.from({ length: 12 }, (_, i) => staleDoc(i));
+    const result = renderContext({ docs }, makeConfig());
+    ok(result.includes('…and 4 more'), `expected overflow marker, got: ${result}`);
+    ok(result.includes('dotmd stale'), `expected "dotmd stale" hint, got: ${result}`);
+  });
+
+  it('does not emit overflow marker when stale count fits cap', () => {
+    const docs = Array.from({ length: 5 }, (_, i) => staleDoc(i));
+    const result = renderContext({ docs }, makeConfig());
+    ok(!result.includes('…and'), `expected no overflow marker, got: ${result}`);
+    ok(result.includes('Stale:'), 'still emits Stale: line');
+  });
+
+  it('emits "Stale: none" when no stale docs', () => {
+    const docs = [makeDoc({ isStale: false })];
+    const result = renderContext({ docs }, makeConfig());
+    ok(result.includes('Stale: none'), `expected "Stale: none", got: ${result}`);
+  });
+
+  it('honors config.context.staleTailLimit override', () => {
+    const docs = Array.from({ length: 6 }, (_, i) => staleDoc(i));
+    const config = makeConfig({ context: { ...makeConfig().context, staleTailLimit: 3 } });
+    const result = renderContext({ docs }, config);
+    ok(result.includes('…and 3 more'), `expected "…and 3 more" with override, got: ${result}`);
   });
 });
 

@@ -222,3 +222,74 @@ describe('unknown --module value hint', () => {
     ok(!r.stdout.includes('Did you mean'), `no close match should suppress hint, got: ${r.stdout}`);
   });
 });
+
+describe('truncation signal', () => {
+  function setupCorpus(n) {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-query-trunc-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    const docsDir = path.join(tmpDir, 'docs');
+    mkdirSync(docsDir, { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';`);
+    for (let i = 0; i < n; i++) {
+      writeFileSync(path.join(docsDir, `doc-${i}.md`),
+        `---\nstatus: active\nupdated: 2025-01-${String(i + 1).padStart(2, '0')}\n---\n# Doc ${i}\n`);
+    }
+  }
+
+  it('query text render shows "N of M (use --all)" when truncated', () => {
+    setupCorpus(5);
+    const r = spawnDotmd(['query', '--limit', '2']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    ok(r.stdout.includes('results: 2 of 5'), `expected truncation hint, got: ${r.stdout}`);
+    ok(r.stdout.includes('use --all'), `expected --all hint, got: ${r.stdout}`);
+  });
+
+  it('query text render hides truncation hint with --all', () => {
+    setupCorpus(5);
+    const r = spawnDotmd(['query', '--limit', '2', '--all']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    ok(!r.stdout.includes(' of 5'), `expected no truncation hint with --all, got: ${r.stdout}`);
+    ok(!r.stdout.includes('use --all'), `expected no --all hint when --all set, got: ${r.stdout}`);
+  });
+
+  it('query text render hides truncation hint when result fits', () => {
+    setupCorpus(2);
+    const r = spawnDotmd(['query', '--limit', '5']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    ok(r.stdout.includes('results: 2\n'), `expected plain count, got: ${r.stdout}`);
+    ok(!r.stdout.includes('use --all'), `expected no --all hint when not truncated, got: ${r.stdout}`);
+  });
+
+  function setupPlans(n) {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-plans-trunc-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    const plansDir = path.join(tmpDir, 'docs', 'plans');
+    mkdirSync(plansDir, { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';`);
+    for (let i = 0; i < n; i++) {
+      writeFileSync(path.join(plansDir, `plan-${i}.md`),
+        `---\ntype: plan\nstatus: active\nupdated: 2025-01-${String(i + 1).padStart(2, '0')}\nmodules:\n  - mod-${i % 2}\n---\n# Plan ${i}\n`);
+    }
+  }
+
+  it('plans triage view shows "N more" footer when truncated', () => {
+    setupPlans(5);
+    const r = spawnDotmd(['plans', '--limit', '2']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    ok(r.stdout.includes('3 more plans'), `expected "3 more plans" footer, got: ${r.stdout}`);
+  });
+
+  it('plans grouped-by-status view shows "N more" footer when truncated', () => {
+    setupPlans(5);
+    const r = spawnDotmd(['plans', '--limit', '2', '--sort', 'status']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    ok(r.stdout.includes('3 more plans'), `expected "3 more plans" footer in grouped view, got: ${r.stdout}`);
+  });
+
+  it('plans group-by-module view shows "N more" footer when truncated', () => {
+    setupPlans(5);
+    const r = spawnDotmd(['plans', '--limit', '2', '--group', 'module']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    ok(r.stdout.includes('3 more plans'), `expected "3 more plans" footer in group-by-module view, got: ${r.stdout}`);
+  });
+});

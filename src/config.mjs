@@ -158,6 +158,16 @@ function normalizeRichStatuses(config, userConfig) {
       const quietImpliesSkipStale = p.quiet && p.skipStale !== false;
       const quietImpliesSkipWarnings = p.quiet && p.skipWarnings !== false;
 
+      // Contradiction diagnostics — emit at load so dead config doesn't fail silently.
+      const skipStaleEffective = p.skipStale === true || quietImpliesSkipStale;
+      const skipWarningsEffective = p.skipWarnings === true || quietImpliesSkipWarnings;
+      if (skipStaleEffective && p.staleDays != null) {
+        warn(`dotmd config: status "${typeName}.${name}" has skipStale: true and staleDays: ${p.staleDays} — staleDays is ignored. Drop one to silence this warning.`);
+      }
+      if (skipWarningsEffective && p.requiresModule) {
+        warn(`dotmd config: status "${typeName}.${name}" has skipWarnings: true and requiresModule: true — the module requirement can never fire. Drop one to silence this warning.`);
+      }
+
       if (p.archive && !derived.archiveStatuses.includes(name)) derived.archiveStatuses.push(name);
       if ((p.skipStale || quietImpliesSkipStale) && !derived.skipStaleFor.includes(name)) derived.skipStaleFor.push(name);
       if ((p.skipWarnings || quietImpliesSkipWarnings) && !derived.skipWarningsFor.includes(name)) derived.skipWarningsFor.push(name);

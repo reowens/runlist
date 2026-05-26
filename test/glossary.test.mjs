@@ -152,7 +152,21 @@ describe('glossary errors', () => {
     ok(result.stderr.includes('Usage'));
   });
 
-  it('exits with error when glossary section has no entries', () => {
+  it('exits with error when glossary section is missing', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-gloss-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+export const root = 'docs';
+export const glossary = { path: 'docs/glossary.md', section: 'Terminology' };`);
+    writeFileSync(path.join(tmpDir, 'docs', 'glossary.md'), '# Glossary\n\nNo section here at all.\n');
+    const result = run(['glossary', 'test']);
+    strictEqual(result.status, 1);
+    ok(result.stderr.includes('not found'));
+    ok(result.stderr.includes('Terminology'));
+  });
+
+  it('exits with error when glossary section is present but empty', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-gloss-'));
     mkdirSync(path.join(tmpDir, '.git'));
     mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
@@ -162,6 +176,19 @@ export const glossary = { path: 'docs/glossary.md', section: 'Terminology' };`);
     writeFileSync(path.join(tmpDir, 'docs', 'glossary.md'), '# Glossary\n\n## Terminology\n\nNo table here.\n');
     const result = run(['glossary', 'test']);
     strictEqual(result.status, 1);
-    ok(result.stderr.includes('no entries'));
+    ok(result.stderr.includes('no recognizable entries'));
+  });
+
+  it('--list also reports section-missing diagnostic', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-gloss-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+export const root = 'docs';
+export const glossary = { path: 'docs/glossary.md', section: 'Terminology' };`);
+    writeFileSync(path.join(tmpDir, 'docs', 'glossary.md'), '# Glossary\n\nNo section here.\n');
+    const result = run(['glossary', '--list']);
+    strictEqual(result.status, 1);
+    ok(result.stderr.includes('not found'));
   });
 });

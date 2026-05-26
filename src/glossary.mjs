@@ -7,7 +7,7 @@ import { bold, dim, green, yellow } from './color.mjs';
 function parseGlossaryTable(content, sectionHeading) {
   const headingRegex = new RegExp(`^##\\s+${sectionHeading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'm');
   const match = content.match(headingRegex);
-  if (!match) return [];
+  if (!match) return { found: false, entries: [] };
 
   const sectionStart = match.index + match[0].length;
   const nextHeading = content.indexOf('\n## ', sectionStart);
@@ -47,7 +47,7 @@ function parseGlossaryTable(content, sectionHeading) {
     entries.push({ term: m[1], meaning: `UI label: "${m[2]}"${m[3] ? ` (${m[3]})` : ''}`, tiers: 'schema→UI' });
   }
 
-  return entries;
+  return { found: true, entries };
 }
 
 function loadGlossary(config) {
@@ -62,7 +62,8 @@ function loadGlossary(config) {
 
   const content = readFileSync(filePath, 'utf8');
   const section = glossaryConfig.section ?? 'Terminology';
-  return parseGlossaryTable(content, section);
+  const result = parseGlossaryTable(content, section);
+  return { ...result, path: glossaryConfig.path, section };
 }
 
 function matchTerm(query, entries) {
@@ -177,9 +178,15 @@ export function runGlossary(argv, config) {
   const listAll = argv.includes('--list');
   const term = argv.find(a => !a.startsWith('-'));
 
-  const entries = loadGlossary(config);
-  if (!entries) die('No glossary configured. Add glossary: { path, section } to your dotmd config.');
-  if (entries.length === 0) die('Glossary section found but no entries parsed.');
+  const result = loadGlossary(config);
+  if (!result) die('No glossary configured. Add glossary: { path, section } to your dotmd config.');
+  if (!result.found) {
+    die(`Glossary section "## ${result.section}" not found in ${result.path}. Add the section, or update glossary.section in dotmd.config.mjs.`);
+  }
+  if (result.entries.length === 0) {
+    die(`Glossary section "## ${result.section}" found in ${result.path} but contains no recognizable entries (expected markdown table or schema→UI bullets).`);
+  }
+  const entries = result.entries;
 
   if (json && listAll) {
     const index = buildIndex(config);

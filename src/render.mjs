@@ -275,7 +275,13 @@ function _renderContext(index, config, opts = {}) {
 
   const stale = index.docs.filter(d => d.isStale && !config.lifecycle.skipStaleFor.has(d.status));
   if (stale.length) {
-    lines.push(`Stale: ${stale.map(d => `${toSlug(d)} (${d.daysSinceUpdate}d)`).join(', ')}`);
+    const cap = config.context?.staleTailLimit ?? 8;
+    const shown = stale.slice(0, cap).map(d => `${toSlug(d)} (${d.daysSinceUpdate}d)`).join(', ');
+    const overflow = stale.length - cap;
+    const tail = overflow > 0
+      ? `${shown}, …and ${overflow} more (run \`dotmd stale\` for the full list)`
+      : shown;
+    lines.push(`Stale: ${tail}`);
   } else {
     lines.push('Stale: none');
   }

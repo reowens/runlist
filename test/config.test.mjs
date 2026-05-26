@@ -288,7 +288,7 @@ describe('rich status definitions', () => {
         plan: {
           statuses: {
             'active':   { context: 'expanded', staleDays: 7, requiresModule: true },
-            'blocked':  { context: 'listed', staleDays: 30, skipStale: true },
+            'blocked':  { context: 'listed', skipStale: true },
             'archived': { context: 'counted', archive: true, terminal: true, skipStale: true, skipWarnings: true },
           }
         }
@@ -548,5 +548,77 @@ describe('rich status definitions', () => {
     ok(typeCtx.counted.includes('misc'), 'bare status defaults to counted');
     ok(!typeCtx.expanded.includes('misc'));
     ok(!typeCtx.listed.includes('misc'));
+  });
+});
+
+describe('rich status contradiction warnings', () => {
+  function captureStderr(fn) {
+    const orig = process.stderr.write.bind(process.stderr);
+    let buf = '';
+    process.stderr.write = (chunk, ...rest) => {
+      buf += typeof chunk === 'string' ? chunk : chunk.toString();
+      return true;
+    };
+    return Promise.resolve(fn()).finally(() => { process.stderr.write = orig; }).then(() => buf);
+  }
+
+  it('warns when skipStale: true and staleDays are both set', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const types = {
+        plan: {
+          statuses: {
+            'backlog': { context: 'listed', skipStale: true, staleDays: 60 },
+          }
+        }
+      };
+    `);
+    const stderr = await captureStderr(() => resolveConfig(tmpDir));
+    ok(stderr.includes('plan.backlog'), `expected status path in warning, got: ${stderr}`);
+    ok(stderr.includes('skipStale'), `expected skipStale in warning, got: ${stderr}`);
+    ok(stderr.includes('staleDays'), `expected staleDays in warning, got: ${stderr}`);
+  });
+
+  it('warns when quiet: true and staleDays are both set (quiet implies skipStale)', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const types = {
+        plan: {
+          statuses: {
+            'partial': { context: 'listed', quiet: true, staleDays: 30 },
+          }
+        }
+      };
+    `);
+    const stderr = await captureStderr(() => resolveConfig(tmpDir));
+    ok(stderr.includes('plan.partial'), `expected warning to fire for quiet+staleDays, got: ${stderr}`);
+  });
+
+  it('warns when skipWarnings: true and requiresModule are both set', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const types = {
+        plan: {
+          statuses: {
+            'paused': { context: 'listed', skipWarnings: true, requiresModule: true },
+          }
+        }
+      };
+    `);
+    const stderr = await captureStderr(() => resolveConfig(tmpDir));
+    ok(stderr.includes('plan.paused'), `expected status path in warning, got: ${stderr}`);
+    ok(stderr.includes('skipWarnings'), `expected skipWarnings in warning, got: ${stderr}`);
+    ok(stderr.includes('requiresModule'), `expected requiresModule in warning, got: ${stderr}`);
+  });
+
+  it('does not warn when skipStale: true alone (no contradiction)', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const types = {
+        plan: {
+          statuses: {
+            'blocked': { context: 'listed', skipStale: true },
+          }
+        }
+      };
+    `);
+    const stderr = await captureStderr(() => resolveConfig(tmpDir));
+    ok(!stderr.includes('plan.blocked'), `unexpected warning for clean config, got: ${stderr}`);
   });
 });
