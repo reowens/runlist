@@ -4,6 +4,29 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
 
 ## Unreleased
 
+Sprint 1 of agent-DX work from issue #10. Three additive findings — `--no-index` (#3), `--show-files` (#9), and the `blocked_by` / prompt-body docs (#2 + #4). No behavior change for callers who don't opt in.
+
+### Added
+
+- **`--no-index` flag on every lifecycle verb. (Issue #10 finding #3.)** Concurrent-session repos hit a path-limited-commit problem: `dotmd archive` / `dotmd status` / `dotmd pickup` / `dotmd release` / `dotmd prompts use` / `dotmd prompts archive` / `dotmd bulk archive` all regenerate `docs/plans/README.md` in place. When other agents have uncommitted edits to the index, `git add <plan> <index>` pulls in their lines too. Reframed from the original "incremental regen" proposal: tracing the scenario showed that whether you patch incrementally or regen fully, the working tree still contains every agent's filesystem state — patching alone doesn't fix co-mingling. The actual fix is letting the caller skip the regen and refresh later (commit hook or separate `dotmd index`). With `--no-index`, each affected verb emits a one-line stderr notice (`(index not regenerated — run \`dotmd index\` to refresh)`) and leaves `README.md` byte-identical. Bonus: `runBulkArchive` now always defers index regen internally and runs ONE regen at the end (going from N regens to 1 on a bulk of N plans); `--no-index` skips even that final one.
+- **`--show-files` flag on lifecycle/mutation verbs (archive, status, pickup, release, bulk archive, prompts use/archive, new). (Issue #10 finding #9.)** Agents doing path-limited commits had to guess which files each verb modified. Now appends a trailing `files: a b c …` line to stderr — repo-relative, deduped, sorted, space-separated, parseable. Default off so existing output stays stable. The footer respects `--no-index`: if the index regen was skipped, the index path is NOT in the footer.
+- **`blocked_by:` accepted as an alias for `blockers:`. (Issue #10 finding #2.)** Agents reaching for the JIRA/Linear-style name now get the same indexed field; both names populate `doc.blockers` via `mergeUniqueStrings` (de-duped if both set). `dotmd unblocks --help` documents the frontmatter shape and names both aliases. Validation now checks the YAML-list shape for either.
+
+### Docs
+
+- **CLAUDE.md prompt section calls out all four body-input modes. (Issue #10 finding #4.)** The previous example only showed heredoc, leading the issue's reporting agent to conclude `dotmd new prompt` body input was "awkward" — when really `-` / `@path` / `--message` / inline all work for every body-accepting type. The expanded example demos all four with a note that heredoc is brittle for content with backticks.
+
+### Internal
+
+- `runArchive` now returns `{ touched }` so `runBulkArchive` can collect and emit a single `--show-files` footer at the end (matches the deferred-index-regen pattern).
+- `updateRefsAfterMove` returns `{ count, paths }` instead of a bare count — needed so the `--show-files` footer can name the ref-updated files, not just count them.
+
+### Tests
+
+11 new across `test/lifecycle.test.mjs` (4 for --no-index, 5 for --show-files) and `test/index.test.mjs` (2 for blocked_by alias). 916 → 927 passing.
+
+## 0.39.2 — 2026-05-26
+
 ### Fixed
 
 - **`dotmd new <type>` for config overrides of built-in types: smart-inherit + honest error message.** A project that overrides `templates.plan` (or `templates.doc` / `templates.prompt`) in `dotmd.config.mjs` previously hit a contradictory error when piping body via `-` / `@path` / `--message`: `\`plan\` template does not accept body input … Templates that accept body input: doc, plan, prompt.` The hint computed from `BUILTIN_TEMPLATES` listed `plan` as accepting body even though the override was the one being rejected — agents had no way to self-fix without spelunking the config. Two changes: (a) `resolveTemplate` now shallow-merges the built-in under the override so missing fields (`description`, `dir`, `targetRoot`, `defaultStatus`, `frontmatter`, `body`, `acceptsBody`, `requiresBody`) inherit cleanly. Pure-metadata overrides (e.g., a project-branded `description` only) just work. (b) When an override supplies its own `body` fn without declaring `acceptsBody`/`requiresBody`, dotmd detects whether the fn references `bodyInput` — if so, body-acceptance is inherited from the built-in (body-aware overrides "just work"); if not, the inherited acceptance is stripped so the fail-fast guard still fires on silent body-discard. The error message itself is rewritten to compute the "accepting" list from the resolved template set (no more self-contradiction) and, when the offending name is a built-in override, calls that out by name with a concrete two-step fix — `acceptsBody: true` + `\${ctx?.bodyInput?.trim() ?? ''}` interpolation — and names the `dotmd.config.mjs` path the agent has to edit. 3 new tests; 916 passing.
