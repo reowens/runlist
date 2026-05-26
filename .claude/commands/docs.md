@@ -1,6 +1,6 @@
-<!-- dotmd-generated: 0.36.1 -->
+<!-- dotmd-generated: 0.36.2 -->
 
-All documentation in this repo is managed by **dotmd** (v0.36.1). Docs across 1 root: docs. Config at `dotmd.config.mjs`.
+All documentation in this repo is managed by **dotmd** (v0.36.2). Docs across 1 root: docs. Config at `dotmd.config.mjs`.
 
 Document types: `plan`, `doc`, `prompt`.
 
