@@ -41,7 +41,7 @@ Analyze:
 
 Validate & Fix:
   check [--fix] [--errors-only] [--json]  Validate frontmatter and references
-  doctor [--dry-run]                Auto-fix everything: refs, lint, dates, index
+  doctor [--apply]                  Auto-fix everything: refs, lint, dates, index (preview by default)
   lint [--fix]                      Check and auto-fix frontmatter issues
   fix-refs [--dry-run]              Auto-fix broken reference paths + body links
 
@@ -204,6 +204,11 @@ Options:
   --errors-only          Show only errors, suppress warnings
   --fix                  Auto-fix broken refs, lint issues, and regenerate index
   --json                 Output errors and warnings as JSON
+  --no-collapse          Show every warning per-doc (since 0.37.0, high-frequency
+                         auto-fixable warning categories — singular module/surface
+                         deprecations, updated-behind-git — are collapsed into a
+                         one-line summary with the bulk-fix command). --json output
+                         is unchanged regardless.
   --dry-run, -n          Preview fixes without writing (with --fix)`,
 
   archive: `dotmd archive <file> — archive a document
@@ -342,7 +347,10 @@ Runs in sequence: fix broken references, lint --fix, sync dates from
 git, regenerate index, then show remaining issues.
 
 Modes:
-  (default)              Auto-fix pass (writes by default; honors --dry-run)
+  (default)              Auto-fix pass — previews by default since 0.37.0
+                         (F4). Use --apply (alias --yes) to actually write;
+                         explicit --dry-run still wins over --apply if both
+                         are passed (safety prevails).
   --statuses             Read-only diagnostic: detect overloaded status
                          buckets where one status holds plans pursuing
                          multiple distinct unstuck-actions. Suggests how
@@ -374,7 +382,9 @@ Modes:
                          in their Version History would be misleading).
   --migrate-template --json  Machine-readable result.
 
-Use --dry-run (-n) to preview all changes without writing anything.`,
+--apply (or --yes) opts into writes for the default auto-fix pass.
+Sub-modes (--statuses, --migrate-*) keep their existing contracts:
+they write by default and honor --dry-run.`,
 
   'fix-refs': `dotmd fix-refs — auto-fix broken reference paths
 
@@ -871,7 +881,22 @@ async function main() {
   if (command === 'rename') { const { runRename } = await import('../src/rename.mjs'); await runRename(restArgs, config, { dryRun }); return; }
   if (command === 'migrate') { const { runMigrate } = await import('../src/migrate.mjs'); runMigrate(restArgs, config, { dryRun }); return; }
   if (command === 'fix-refs') { const { runFixRefs } = await import('../src/fix-refs.mjs'); runFixRefs(restArgs, config, { dryRun }); return; }
-  if (command === 'doctor') { const { runDoctor } = await import('../src/doctor.mjs'); runDoctor(restArgs, config, { dryRun }); return; }
+  if (command === 'doctor') {
+    // 0.37.0 (F4): the default auto-fix loop previews by default; --apply
+    // (alias --yes) writes. Explicit --dry-run still works and wins over
+    // --apply (safety prevails). The F4 flip applies ONLY to the default
+    // auto-fix path — sub-modes (--statuses, --migrate-template,
+    // --migrate-prompts) keep their existing "write unless --dry-run"
+    // contract because they're explicit one-shots the user opted into.
+    const subMode = args.includes('--statuses') || args.includes('--migrate-template') || args.includes('--migrate-prompts');
+    const explicitApply = args.includes('--apply') || args.includes('--yes');
+    const explicitDryRun = args.includes('--dry-run') || args.includes('-n');
+    const doctorDryRun = subMode ? dryRun : (explicitDryRun || !explicitApply);
+    const filtered = restArgs.filter(a => a !== '--apply' && a !== '--yes');
+    const { runDoctor } = await import('../src/doctor.mjs');
+    runDoctor(filtered, config, { dryRun: doctorDryRun });
+    return;
+  }
   if (command === 'statuses') { const { runStatuses } = await import('../src/statuses.mjs'); await runStatuses(restArgs, config, { dryRun, type: typeArg }); return; }
 
   // All remaining commands need the index + render modules
@@ -931,6 +956,7 @@ async function main() {
   if (command === 'check') {
     const fix = args.includes('--fix');
     const errorsOnly = args.includes('--errors-only');
+    const noCollapse = args.includes('--no-collapse');
 
     if (fix) {
       // Auto-fix: broken refs, then lint, then rebuild index
@@ -961,7 +987,7 @@ async function main() {
           passed: freshIndex.errors.length === 0,
         }, null, 2) + '\n');
       } else {
-        process.stdout.write('\n' + renderCheck(freshIndex, config, { errorsOnly }));
+        process.stdout.write('\n' + renderCheck(freshIndex, config, { errorsOnly, noCollapse }));
       }
       if (freshIndex.errors.length > 0) process.exitCode = 1;
       return;
@@ -980,7 +1006,7 @@ async function main() {
       return;
     }
 
-    process.stdout.write(renderCheck(index, config, { errorsOnly }));
+    process.stdout.write(renderCheck(index, config, { errorsOnly, noCollapse }));
     if (index.errors.length > 0) process.exitCode = 1;
     return;
   }

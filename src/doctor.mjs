@@ -53,7 +53,12 @@ export function runDoctor(argv, config, opts = {}) {
   }
 
   const { dryRun } = opts;
-  process.stdout.write(bold('dotmd doctor') + '\n\n');
+  // 0.37.0 (F4): the mode banner makes it impossible to mistake a preview run
+  // for a real one — and tells the user the exact flag that flips it.
+  const modeNote = dryRun
+    ? dim('[preview — run with --apply to write]')
+    : dim('[applying changes]');
+  process.stdout.write(bold('dotmd doctor') + ' ' + modeNote + '\n\n');
 
   // Step 1: Fix broken references
   process.stdout.write(bold('1. Fixing broken references...') + '\n');

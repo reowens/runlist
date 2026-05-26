@@ -2,6 +2,26 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## 0.37.0 — 2026-05-26
+
+Safety and output improvements: doctor reports by default and repeated auto-fixable warnings are grouped into bulk-fix hints.
+
+### Changed
+
+- **`dotmd doctor` previews by default; `--apply` (alias `--yes`) writes. (F4 — P2 safety.)** The auto-fix pass (refs, lint, dates, index regen, Claude command refresh) used to mutate on first invocation — the audit found this surface was too low for a multi-step batch operation on a 1k+ doc repo (three files were rewritten before the auditor noticed and reverted). Now: bare `dotmd doctor` runs the same pipeline as a dry-run preview and prints a banner naming the flag — `dotmd doctor [preview — run with --apply to write]`. When mutation is desired, `--apply` (or `--yes`) flips back to write mode and the banner reads `[applying changes]`. If both `--apply` and `--dry-run` are passed, `--dry-run` wins (explicit safety prevails over explicit intent). Sub-modes — `--statuses`, `--migrate-template`, `--migrate-prompts` — keep their existing "write unless `--dry-run`" contracts because they're explicit one-shots the user opted into. **This is a behavior break for any scripted callers of plain `dotmd doctor`** — add `--apply` to scripts to preserve the old behavior. Mirrors `dotmd archive`'s safe pattern.
+
+### Added
+
+- **`dotmd check` collapses high-frequency auto-fixable warnings into one-line bulk-fix hints.** Categories with three or more findings name the applicable bulk repair command; smaller groups retain individual paths. Categories shipped:
+  - `updated-behind-git` → `dotmd touch --git`
+  - singular `module:` deprecation (F18) → `dotmd lint --fix`
+  - singular `surface:` deprecation (F18) → `dotmd lint --fix`
+  Structural warnings (missing title, broken body links, ref reciprocity, etc.) always pass through per-doc — location matters for those. `dotmd check --no-collapse` opts every warning back to per-doc rendering. `dotmd check --json` is unchanged regardless of collapse — JSON consumers see the full per-doc warning list and the collapse is purely a text-render concern. `dotmd doctor`'s step-6 remaining-issues view inherits the collapse for free.
+
+### Tests
+
+Added 15 regression tests across `test/check-collapse.test.mjs` (5 unit + 6 CLI) and `test/doctor.test.mjs` (4 F4 cases). Total: 871 → 886.
+
 ## 0.36.3 — 2026-05-26
 
 Singular `module:` and `surface:` fields are deprecated in favor of `modules:` and `surfaces:` arrays. Readers continue to merge both forms for compatibility.

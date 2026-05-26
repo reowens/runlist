@@ -1,6 +1,6 @@
 import { describe, it, afterEach } from 'node:test';
 import { strictEqual, ok, deepStrictEqual } from 'node:assert';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -78,6 +78,92 @@ describe('doctor command', () => {
     const result = run(['doctor', '--dry-run']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(result.stdout.includes('dotmd doctor'), 'shows heading');
+  });
+
+  it('F4: default `dotmd doctor` previews — shows preview banner and does not write', () => {
+    // 0.37.0 (F4): default mode is dry-run. Without --apply, files must stay
+    // byte-identical. Test that the banner names the right flag so users
+    // can self-correct.
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-doctor-'));
+    spawnSync('git', ['init'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
+    mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';`);
+    // Seed a doc with a fixable issue (camelCase key) so lint --fix would normally rewrite it.
+    const docPath = path.join(tmpDir, 'docs', 'a.md');
+    const before = '---\nstatus: active\nupdated: 2025-01-01\nnextStep: do it\n---\n# A\n';
+    writeFileSync(docPath, before);
+    spawnSync('git', ['add', '.'], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-m', 'init'], { cwd: tmpDir });
+
+    const result = run(['doctor']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('preview'), `banner should say preview; got: ${result.stdout}`);
+    ok(result.stdout.includes('--apply'), `banner should name --apply; got: ${result.stdout}`);
+
+    const after = readFileSync(docPath, 'utf8');
+    strictEqual(after, before, 'file must be untouched in preview mode');
+  });
+
+  it('F4: `dotmd doctor --apply` writes — shows applying banner and modifies files', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-doctor-'));
+    spawnSync('git', ['init'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
+    mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';`);
+    const docPath = path.join(tmpDir, 'docs', 'a.md');
+    writeFileSync(docPath, '---\nstatus: active\nupdated: 2025-01-01\nnextStep: do it\n---\n# A\n');
+    spawnSync('git', ['add', '.'], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-m', 'init'], { cwd: tmpDir });
+
+    const result = run(['doctor', '--apply']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('applying'), `banner should say applying; got: ${result.stdout}`);
+
+    const after = readFileSync(docPath, 'utf8');
+    ok(after.includes('next_step: do it'), 'lint --fix should have rewritten the camelCase key');
+    ok(!after.includes('nextStep:'), 'camelCase key should be gone');
+  });
+
+  it('F4: `--yes` is an alias for `--apply`', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-doctor-'));
+    spawnSync('git', ['init'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
+    mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';`);
+    const docPath = path.join(tmpDir, 'docs', 'a.md');
+    writeFileSync(docPath, '---\nstatus: active\nupdated: 2025-01-01\nnextStep: do it\n---\n# A\n');
+    spawnSync('git', ['add', '.'], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-m', 'init'], { cwd: tmpDir });
+
+    const result = run(['doctor', '--yes']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('applying'), 'banner says applying');
+    const after = readFileSync(docPath, 'utf8');
+    ok(after.includes('next_step: do it'), '--yes triggers writes like --apply');
+  });
+
+  it('F4: --dry-run wins over --apply (explicit safety prevails)', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-doctor-'));
+    spawnSync('git', ['init'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
+    mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';`);
+    const docPath = path.join(tmpDir, 'docs', 'a.md');
+    const before = '---\nstatus: active\nupdated: 2025-01-01\nnextStep: do it\n---\n# A\n';
+    writeFileSync(docPath, before);
+    spawnSync('git', ['add', '.'], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-m', 'init'], { cwd: tmpDir });
+
+    const result = run(['doctor', '--apply', '--dry-run']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('preview'), 'banner stays preview when both flags present');
+    const after = readFileSync(docPath, 'utf8');
+    strictEqual(after, before, 'file must be untouched when --dry-run wins');
   });
 
   it('numbered steps are contiguous (1,2,3,4,5,6 — no skipped 5)', () => {

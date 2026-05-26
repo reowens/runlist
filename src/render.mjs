@@ -5,6 +5,7 @@ import { extractFrontmatter } from './frontmatter.mjs';
 import { summarizeDocBody } from './ai.mjs';
 import { bold, red, yellow, green, dim } from './color.mjs';
 import { findStaleLeases } from './lease.mjs';
+import { categorizeWarnings } from './check-collapse.mjs';
 
 // Render `currentState` with an `(auto)` prefix when the value was body-scraped
 // rather than read from frontmatter. Lets a reader see at a glance which docs
@@ -376,7 +377,7 @@ export function renderCheck(index, config, opts = {}) {
 }
 
 function _renderCheck(index, opts = {}) {
-  const { errorsOnly } = opts;
+  const { errorsOnly, noCollapse } = opts;
   const lines = ['Check', ''];
   lines.push(`- docs scanned: ${index.docs.length}`);
   lines.push(`- errors: ${index.errors.length}`);
@@ -393,8 +394,18 @@ function _renderCheck(index, opts = {}) {
 
   if (!errorsOnly && index.warnings.length > 0) {
     lines.push(yellow('Warnings'));
-    for (const issue of index.warnings) {
-      lines.push(`- ${issue.path}: ${issue.message}`);
+    if (noCollapse) {
+      for (const issue of index.warnings) {
+        lines.push(`- ${issue.path}: ${issue.message}`);
+      }
+    } else {
+      const { passthrough, collapsed } = categorizeWarnings(index.warnings);
+      for (const issue of passthrough) {
+        lines.push(`- ${issue.path}: ${issue.message}`);
+      }
+      for (const sum of collapsed) {
+        lines.push(`- ${sum.count} ${sum.label} — run \`${sum.fix}\` to bulk-fix`);
+      }
     }
     lines.push('');
   }
