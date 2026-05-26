@@ -1,4 +1,7 @@
-<!-- dotmd-generated: 0.38.0 -->
+---
+description: Wrap the current session cleanly: update the in-flight plan, save ONE resume prompt via 'dotmd new prompt', release the lease. Use when the user says hand off / save a resume / wrap up, or when context is getting tight.
+---
+<!-- dotmd-generated: 0.38.1 -->
 
 You are wrapping this session. Hand the baton cleanly to the next one.
 

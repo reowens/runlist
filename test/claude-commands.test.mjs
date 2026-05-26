@@ -51,6 +51,43 @@ describe('scaffoldClaudeCommands', () => {
     ok(content.includes('<!-- dotmd-generated:'));
   });
 
+  it('emits YAML frontmatter with a description for each command', async () => {
+    // Claude Code surfaces this `description:` field in the available-skills
+    // system reminder at session start. Without it, the listing shows the
+    // version marker as the description (e.g. `plans: <!-- dotmd-generated: 0.38.1 -->`)
+    // and Claude has no trigger context. This test pins the contract.
+    setup({ claude: true });
+    const config = await resolveConfig(tmpDir);
+    scaffoldClaudeCommands(tmpDir, config);
+    for (const name of ['plans.md', 'docs.md', 'baton.md']) {
+      const content = readFileSync(path.join(tmpDir, '.claude', 'commands', name), 'utf8');
+      ok(content.startsWith('---\n'), `${name} should start with --- frontmatter`);
+      const match = content.match(/^---\ndescription:\s*(.+)\n---\n/);
+      ok(match, `${name} should have a description field in frontmatter`);
+      ok(match[1].length > 30, `${name} description should be a real sentence, got: ${match[1]}`);
+      // Frontmatter must come BEFORE the version marker
+      ok(
+        content.indexOf('---\ndescription:') < content.indexOf('<!-- dotmd-generated:'),
+        `${name} frontmatter must precede the version marker`,
+      );
+    }
+  });
+
+  it('still detects outdated banner when frontmatter pushes it off line 1', () => {
+    // Regression: VERSION_REGEX was line-1-anchored. After moving the banner
+    // below frontmatter, the regex was loosened — this test pins that it can
+    // still detect old version markers wherever they sit in the file.
+    setup({ claude: true });
+    mkdirSync(path.join(tmpDir, '.claude', 'commands'), { recursive: true });
+    writeFileSync(
+      path.join(tmpDir, '.claude', 'commands', 'plans.md'),
+      '---\ndescription: stale\n---\n<!-- dotmd-generated: 0.0.1 -->\nold body\n',
+    );
+    const warnings = checkClaudeCommands(tmpDir);
+    ok(warnings.length > 0, 'should detect outdated banner under frontmatter');
+    ok(warnings[0].message.includes('0.0.1'));
+  });
+
   it('reports action: created for new files', async () => {
     setup({ claude: true });
     const config = await resolveConfig(tmpDir);

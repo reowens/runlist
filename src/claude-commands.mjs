@@ -6,10 +6,29 @@ import { green, dim, yellow } from './color.mjs';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
 const VERSION_MARKER = `<!-- dotmd-generated: ${pkg.version} -->`;
-const VERSION_REGEX = /^<!-- dotmd-generated: ([\d.]+) -->/;
+// Marker is no longer pinned to line 1 — it now lives below the YAML
+// frontmatter that Claude Code surfaces as the slash command's description.
+// The regex is intentionally non-anchored so getInstalledVersion finds it
+// wherever it sits, and the marker string is specific enough that a false
+// positive elsewhere in a user-edited file is not a realistic concern.
+const VERSION_REGEX = /<!-- dotmd-generated: ([\d.]+) -->/;
+
+// Trigger sentences surfaced by Claude Code's available-skills system reminder.
+// Keep each ≤200 chars (well under the 1,536-char auto-load truncation limit)
+// and front-load the "when to reach for it" cue so Claude can route to the
+// right slash command without the user having to type the slash.
+const SLASH_DESCRIPTIONS = {
+  plans: "dotmd-managed plan briefing for this repo. Use when the user asks what's on the plate, references a plan slug, queues work, or wants to pick up / release / archive a plan.",
+  docs: "dotmd-managed docs briefing for this repo. Use when the user asks to list, scaffold, query, validate, archive, or rename non-plan docs (reference docs, ADRs, RFCs, design notes), or asks how the dotmd doc lifecycle works here.",
+  baton: "Wrap the current session cleanly: update the in-flight plan, save ONE resume prompt via 'dotmd new prompt', release the lease. Use when the user says hand off / save a resume / wrap up, or when context is getting tight.",
+};
+
+function frontmatterFor(name) {
+  return ['---', `description: ${SLASH_DESCRIPTIONS[name]}`, '---'];
+}
 
 function generatePlansCommand(config) {
-  const lines = [VERSION_MARKER, ''];
+  const lines = [...frontmatterFor('plans'), VERSION_MARKER, ''];
   lines.push('Run `dotmd context` to get the current plans briefing, then use it to orient yourself.');
   lines.push('');
   lines.push(`Plans are managed by **dotmd** (v${pkg.version}). Config at \`dotmd.config.mjs\`. Always use \`dotmd\` directly.`);
@@ -47,7 +66,7 @@ function generatePlansCommand(config) {
 }
 
 function generateBatonCommand() {
-  const lines = [VERSION_MARKER, ''];
+  const lines = [...frontmatterFor('baton'), VERSION_MARKER, ''];
   lines.push('You are wrapping this session. Hand the baton cleanly to the next one.');
   lines.push('');
   lines.push('1. **Update the in-flight plan.** Find it via `dotmd plans --status in-session`. Edit its `current_state:` / `next_step:` frontmatter so they reflect where things actually stand. If status should change (shipped → archive, stuck on a human decision → awaiting, etc.), transition with `dotmd status <file> <status>` — or `dotmd archive <file>` if work is done.');
@@ -66,7 +85,7 @@ function generateDocsCommand(config) {
   const roots = Array.isArray(config.raw?.root) ? config.raw.root : [config.raw?.root ?? 'docs'];
   const rootCount = roots.length;
 
-  const lines = [VERSION_MARKER, ''];
+  const lines = [...frontmatterFor('docs'), VERSION_MARKER, ''];
   lines.push(`All documentation in this repo is managed by **dotmd** (v${pkg.version}). Docs across ${rootCount} root${rootCount > 1 ? 's' : ''}: ${roots.join(', ')}. Config at \`dotmd.config.mjs\`.`);
   lines.push('');
 

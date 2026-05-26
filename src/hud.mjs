@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { readLeases, findStaleLeases, currentSessionId } from './lease.mjs';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
@@ -122,6 +122,21 @@ export function runHud(argv, config) {
     const to = refreshed[0].to;
     const names = refreshed.map(r => r.name).join(', ');
     lines.push(dim(`↻ slash commands refreshed (v${from} → v${to}): ${names}`));
+  }
+
+  // Teach-once primer for fresh installs. The first session that runs hud in
+  // a dotmd-managed repo gets one line explaining what dotmd is and how to
+  // hand off — without this, a clean repo emits nothing and Claude has no
+  // signal that dotmd is the prompt/handoff machinery here. Gated on a
+  // marker under .dotmd/ (already the per-repo state dir, already gitignored
+  // by `dotmd init`) so subsequent sessions stay silent.
+  const primerMarker = path.join(config.repoRoot, '.dotmd', 'primer-shown');
+  if (!existsSync(primerMarker)) {
+    lines.push(dim('dotmd: managing this repo\'s docs. Use `dotmd new prompt` for handoffs (never hand-write docs/prompts/*.md). `dotmd plans` shows the queue. `dotmd --help` for more.'));
+    try {
+      mkdirSync(path.dirname(primerMarker), { recursive: true });
+      writeFileSync(primerMarker, '');
+    } catch { /* best-effort — failed marker write just means the primer reprints next session */ }
   }
 
   if (lines.length === 0) return; // silent when clean

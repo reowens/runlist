@@ -17,6 +17,11 @@ function setupProject() {
   mkdirSync(docsDir, { recursive: true });
   mkdirSync(path.join(docsDir, 'archived'), { recursive: true });
   writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';\n`);
+  // Pre-stamp the primer marker so the default test setup represents a
+  // session that's already seen the teach-once primer. Tests that want to
+  // exercise the first-session primer should delete this marker explicitly.
+  mkdirSync(path.join(tmpDir, '.dotmd'), { recursive: true });
+  writeFileSync(path.join(tmpDir, '.dotmd', 'primer-shown'), '');
   return docsDir;
 }
 
@@ -281,6 +286,47 @@ export const types = {
     const r = runCli(['hud']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
     strictEqual(r.stdout, '', `expected silent run; got: ${r.stdout}`);
+  });
+
+  it('prints the teach-once primer on a fresh repo, then stays silent', () => {
+    // On a clean repo with no actionable signals, hud was previously silent —
+    // meaning a brand-new install gave Claude no hint that dotmd manages docs/.
+    // First run should emit the primer line and drop a .dotmd/primer-shown
+    // marker; second run on the same repo should be silent again.
+    setupProject();
+    // setupProject pre-stamps the marker for default silence; for THIS test
+    // we want the fresh-install case, so remove it before the first run.
+    rmSync(path.join(tmpDir, '.dotmd', 'primer-shown'), { force: true });
+
+    const first = runCli(['hud']);
+    strictEqual(first.status, 0, `hud failed: ${first.stderr}`);
+    ok(/dotmd: managing/.test(first.stdout),
+      `expected primer line on first run; got: ${first.stdout}`);
+    ok(/dotmd new prompt/.test(first.stdout),
+      `primer should mention the handoff command; got: ${first.stdout}`);
+    ok(existsSync(path.join(tmpDir, '.dotmd', 'primer-shown')),
+      'primer marker should be created after first run');
+
+    const second = runCli(['hud']);
+    strictEqual(second.status, 0, `hud failed: ${second.stderr}`);
+    strictEqual(second.stdout, '',
+      `hud should be silent after primer has been shown; got: ${second.stdout}`);
+  });
+
+  it('primer is skipped in --json mode (structured output stays stable)', () => {
+    // Programmatic callers (e.g. tooling parsing hud --json) must not see
+    // teach-text leak into the JSON payload, and the marker must not be
+    // created as a side effect of a JSON probe.
+    setupProject();
+    rmSync(path.join(tmpDir, '.dotmd', 'primer-shown'), { force: true });
+
+    const r = runCli(['hud', '--json']);
+    strictEqual(r.status, 0, `hud --json failed: ${r.stderr}`);
+    const parsed = JSON.parse(r.stdout);
+    ok(typeof parsed === 'object', 'JSON output parses');
+    ok(!('primer' in parsed), 'no primer field leaks into JSON');
+    ok(!existsSync(path.join(tmpDir, '.dotmd', 'primer-shown')),
+      'JSON mode should not create the primer marker');
   });
 
   it('output stays under ~500 bytes when full of common signals', () => {
