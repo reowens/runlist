@@ -4,6 +4,23 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
 
 ## Unreleased
 
+Sprint 3 of agent-DX work from issue #10. Three findings — `dotmd doctor --frontmatter-fix` (#7), deterministic archive-collision paths (#6), and `dotmd archive --closeout-template` (#5). One behavior change: archive collisions now use a numeric suffix instead of a UTC timestamp; the rest is opt-in.
+
+### Added
+
+- **`dotmd doctor --frontmatter-fix`. (Issue #10 finding #7.)** `dotmd check` flags `current_state >500` / `next_step >300` warnings but offered no auto-fix — the only path was hand-editing every plan. This sub-mode truncates the offending field at the nearest sentence boundary under the target (300 / 200) and moves the overflow into a `## Current State` / `## Next Step` body section (placed above the first H2 if absent, appended otherwise). Plans only; uses a folded YAML block scalar (`key: >`) so the rewrite is safe regardless of colons / quotes / leading dashes in the value. Writes by default; honors `--dry-run`.
+- **`dotmd archive --closeout-template`. (Issue #10 finding #5.)** CLAUDE.md says the closeout workflow is "write a `## Closeout` section, then archive" — but the CLI offered no scaffold, just a post-hoc warning. The new opt-in flag injects a small bullet skeleton (Outcomes / Key commits / Deferrals) into the plan body before the archive move. Idempotent: if `## Closeout` is already present, the flag is a no-op. Placed just before `## Version History` if present (so the closeout reads as content, not appendix), else at end of body. Honors `--dry-run`.
+
+### Changed
+
+- **Archive-collision paths are now deterministic. (Issue #10 finding #6.)** Re-archiving a file with the same basename used to produce `foo-20260526T224855Z.md` — non-deterministic, hard to cross-reference. Now: `foo.md`, `foo-2.md`, `foo-3.md`, … — readable, sortable, predictable. Especially helpful for `dotmd prompts use` where agents commonly reuse slugs like `resume-<plan>`. Affects both `dotmd archive` (plans) and `dotmd prompts use` (prompts), since both flow through `uniqueArchiveTarget` in `src/lifecycle.mjs`.
+
+### Tests
+
+10 new + 1 rewritten (5 frontmatter-fix in `test/doctor.test.mjs`, 5 closeout-template in `test/lifecycle.test.mjs`, the archive-collision test rewritten for the new shape and extended with a third collision). 935 → 945 passing.
+
+## 0.39.4 — 2026-05-26
+
 Sprint 2 of agent-DX work from issue #10. Three pure-additive findings — `dotmd help statuses` aggregator (#10), `prompts list --verbose` target ref (#8), and pickup error affordance + archive dry-run completeness (#1 + #11). No behavior change for callers who don't opt in.
 
 ### Added
