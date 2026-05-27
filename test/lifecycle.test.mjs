@@ -440,7 +440,12 @@ describe('archive ref rewriting for repo-relative refs', () => {
 });
 
 describe('archive collision (same basename twice)', () => {
-  it('keeps the prior archive and suffixes the new one with a UTC timestamp', () => {
+  it('keeps the prior archive and suffixes the new one with a numeric counter', () => {
+    // 0.39.5 (issue #10 finding #6): collisions used to land at
+    // `foo-20260526T224855Z.md`. The non-deterministic timestamp made it
+    // hard to cross-reference re-archived prompts/plans, especially for
+    // agents reusing slugs like `resume-foo`. Now collisions deterministically
+    // get `foo-2.md`, `foo-3.md`, … — readable + sortable + predictable.
     const docsDir = setupProject();
     const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
     const cfg = path.join(tmpDir, 'dotmd.config.mjs');
@@ -460,16 +465,25 @@ describe('archive collision (same basename twice)', () => {
     const original = readFileSync(path.join(docsDir, 'archived', 'foo.md'), 'utf8');
     ok(original.includes('# First'), 'prior archive body preserved');
 
-    // A second file landed in archived/ with a timestamp-suffixed name
-    const entries = readdirSync(path.join(docsDir, 'archived'));
-    const suffixed = entries.filter(f => f !== 'foo.md' && /^foo-\d{8}T\d{6}Z\.md$/.test(f));
-    strictEqual(suffixed.length, 1, `expected one timestamp-suffixed sibling, got entries: ${entries.join(', ')}`);
-
-    const refreshed = readFileSync(path.join(docsDir, 'archived', suffixed[0]), 'utf8');
+    // Second archive deterministically lands at foo-2.md.
+    const refreshedPath = path.join(docsDir, 'archived', 'foo-2.md');
+    ok(existsSync(refreshedPath), `expected archived/foo-2.md, got entries: ${readdirSync(path.join(docsDir, 'archived')).join(', ')}`);
+    const refreshed = readFileSync(refreshedPath, 'utf8');
     ok(refreshed.includes('# Refresh'), 'second archive contains the refreshed body');
 
-    // The CLI output should reference the suffixed path so the user can see the rename
-    ok(r2.stdout.includes(suffixed[0]), `expected stdout to mention ${suffixed[0]}, got: ${r2.stdout}`);
+    // No timestamp-suffixed siblings exist.
+    const entries = readdirSync(path.join(docsDir, 'archived'));
+    const stamped = entries.filter(f => /-\d{8}T\d{6}Z\.md$/.test(f));
+    strictEqual(stamped.length, 0, `no timestamp-suffixed siblings; got: ${entries.join(', ')}`);
+
+    // The CLI output should reference foo-2.md so the user can see the rename.
+    ok(r2.stdout.includes('foo-2.md'), `expected stdout to mention foo-2.md, got: ${r2.stdout}`);
+
+    // Archive #3: third collision lands at foo-3.md.
+    writeDoc(docsDir, 'foo.md', 'status: active\nupdated: 2026-05-22', '# Third\n');
+    const r3 = spawnSync('node', [bin, 'archive', path.join(docsDir, 'foo.md'), '--config', cfg], { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(r3.status, 0, `third archive failed: ${r3.stderr}`);
+    ok(existsSync(path.join(docsDir, 'archived', 'foo-3.md')), 'third archive lands at foo-3.md');
   });
 });
 

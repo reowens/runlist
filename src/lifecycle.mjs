@@ -44,24 +44,23 @@ export function regenIndex(config) {
 }
 
 // Pick an archive destination that won't clobber an existing record. If
-// `<dir>/<basename>` is free, returns it unchanged; otherwise appends a UTC
-// timestamp (and a counter on the vanishingly rare same-second collision) so
-// both the prior archive and the current one survive.
+// `<dir>/<basename>` is free, returns it unchanged; otherwise appends a
+// numeric suffix (`-2`, `-3`, …) so the slug → path mapping stays readable
+// across re-archives (issue #10 finding #6). The pre-0.39.5 behavior used a
+// UTC timestamp on collision, which made the second archive's path
+// non-deterministic and harder to cross-reference against the original.
 function uniqueArchiveTarget(targetDir, basename) {
   const base = path.join(targetDir, basename);
   if (!existsSync(base)) return base;
 
   const ext = path.extname(basename);
   const stem = basename.slice(0, -ext.length);
-  const d = new Date();
-  const pad = (n) => String(n).padStart(2, '0');
-  const stamp = `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`;
 
-  let target = path.join(targetDir, `${stem}-${stamp}${ext}`);
   let n = 2;
+  let target = path.join(targetDir, `${stem}-${n}${ext}`);
   while (existsSync(target)) {
-    target = path.join(targetDir, `${stem}-${stamp}-${n}${ext}`);
     n++;
+    target = path.join(targetDir, `${stem}-${n}${ext}`);
   }
   return target;
 }
