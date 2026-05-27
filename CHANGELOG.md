@@ -4,6 +4,25 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
 
 ## Unreleased
 
+Sprint 2 of agent-DX work from issue #10. Three pure-additive findings — `dotmd help statuses` aggregator (#10), `prompts list --verbose` target ref (#8), and pickup error affordance + archive dry-run completeness (#1 + #11). No behavior change for callers who don't opt in.
+
+### Added
+
+- **`dotmd help statuses` — single-source-of-truth status reference. (Issue #10 finding #10.)** Original report: "to piece together the full plan-status vocab I had to read `dotmd new --help`, `dotmd plans --help`, and the body of `dotmd plans list --help`." Now one help topic prints the full vocabulary for every doc type (plan / doc / prompt), each status's unstuck-action one-liner, and the canonical transition commands. Cross-referenced from `status --help` and `plans --help`; surfaced under Setup in `dotmd --help`. Pure docs surface — no behavior change.
+- **`dotmd prompts list --verbose` appends the target plan ref. (Issue #10 finding #8.)** Reported friction: `prompts list` showed slugs and statuses but not where each prompt pointed. Agents had to either `cat` the file or run `prompts use <slug>` (destructive — archives) just to see the target. Verbose mode now renders `→ docs/plans/<target>.md` per row. Target resolution order: (1) frontmatter `related_plans[0]`, (2) frontmatter `parent_plan`, (3) first body markdown link to a `.md` file (resolved relative to the prompt's location). All three sources are already in the index (`refFields`, `bodyLinks`) — no extra disk reads. Falls through to `(no target plan)` when none match.
+- **`dotmd pickup` rejection includes the recovery command. (Issue #10 finding #1.)** Picking up a plan in `partial` / `paused` / `awaiting` / `blocked` / `queued-after` used to die with just `"Cannot pick up a plan with status 'X'. Must be active or planned."` — no path forward except editing YAML by hand. Now appends `Recover with: dotmd status <file> active && dotmd pickup <file>`, reusing the exact repo-relative path the agent passed in. Deferred the `--from <status>` flag pending real-world demand — the hint is the cheaper fix.
+
+### Fixed
+
+- **`archive --dry-run` previews lease release + onArchive hook fire. (Issue #10 finding #11.)** Previously the dry-run block listed frontmatter update, file move, index regen, and ref-update count — but silently omitted two side effects that the real run performs: releasing the in-session lease (if held) and firing the `onArchive` hook (if configured). Both now appear as `[dry-run] Would release in-session lease: <path>` and `[dry-run] Would fire hook: onArchive` when applicable.
+- **`prompts {next,use} --dry-run` previews the body. (Issue #10 finding #11.)** The previous dry-run announced the intent (`Would emit body and archive: …`) but never showed *what* body would be emitted, defeating the point of preview. Body now renders to stderr inside a fenced preview block with byte / line counts. Stdout stays empty in dry-run mode so existing piping contracts (`$(dotmd prompts use foo)` etc.) aren't surprised by dry-run output.
+
+### Tests
+
+7 new across `test/integration.test.mjs` (2 — help statuses, unknown-topic error), `test/prompts.test.mjs` (4 — verbose target from related_plans, verbose target from body link, verbose orphan marker, dry-run body preview), `test/lifecycle.test.mjs` (2 — pickup recovery hint, archive dry-run hook preview). 927 → 935 passing.
+
+## 0.39.3 — 2026-05-26
+
 Sprint 1 of agent-DX work from issue #10. Three additive findings — `--no-index` (#3), `--show-files` (#9), and the `blocked_by` / prompt-body docs (#2 + #4). No behavior change for callers who don't opt in.
 
 ### Added
