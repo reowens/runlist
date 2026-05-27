@@ -524,10 +524,19 @@ Modes:
                          history; a "Migrated to v0.21 template" entry
                          in their Version History would be misleading).
   --migrate-template --json  Machine-readable result.
+  --frontmatter-fix      Auto-fix the long-frontmatter warnings that
+                         \`dotmd check\` flags: \`current_state\` >500 chars
+                         or \`next_step\` >300 chars. Truncates the
+                         frontmatter field at the nearest sentence
+                         boundary under the target (300 / 200) and
+                         appends the remainder to a \`## Current State\`
+                         / \`## Next Step\` body section (created above
+                         the first H2 if absent, appended otherwise).
+                         Plans only; honors --dry-run.
 
 --apply (or --yes) opts into writes for the default auto-fix pass.
-Sub-modes (--statuses, --migrate-*) keep their existing contracts:
-they write by default and honor --dry-run.`,
+Sub-modes (--statuses, --migrate-*, --frontmatter-fix) keep their
+existing contracts: they write by default and honor --dry-run.`,
 
   'fix-refs': `dotmd fix-refs — auto-fix broken reference paths
 
@@ -1065,7 +1074,7 @@ async function main() {
     // auto-fix path — sub-modes (--statuses, --migrate-template,
     // --migrate-prompts) keep their existing "write unless --dry-run"
     // contract because they're explicit one-shots the user opted into.
-    const subMode = args.includes('--statuses') || args.includes('--migrate-template') || args.includes('--migrate-prompts');
+    const subMode = args.includes('--statuses') || args.includes('--migrate-template') || args.includes('--migrate-prompts') || args.includes('--frontmatter-fix');
     const explicitApply = args.includes('--apply') || args.includes('--yes');
     const explicitDryRun = args.includes('--dry-run') || args.includes('-n');
     const doctorDryRun = subMode ? dryRun : (explicitDryRun || !explicitApply);

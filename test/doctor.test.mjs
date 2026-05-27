@@ -360,3 +360,105 @@ describe('doctor --statuses', () => {
     ok(!result.stdout.includes('Heuristic'), 'does not run --statuses diagnostic');
   });
 });
+
+describe('doctor --frontmatter-fix', () => {
+  function setupPlanProject() {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-fmfix-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, 'docs', 'plans'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';`);
+  }
+
+  function writeLongPlan(name, currentStateLen, nextStepLen = 0) {
+    // Build sentence-rich text so the splitter has clean boundaries.
+    const sentence = 'The quick brown fox jumps over the lazy dog. ';
+    const currentState = sentence.repeat(Math.ceil(currentStateLen / sentence.length)).slice(0, currentStateLen);
+    const nextStep = nextStepLen ? sentence.repeat(Math.ceil(nextStepLen / sentence.length)).slice(0, nextStepLen) : '';
+    const lines = [
+      '---',
+      'type: plan',
+      'status: active',
+      'updated: 2026-05-26',
+      `current_state: "${currentState.replace(/"/g, '\\"')}"`,
+    ];
+    if (nextStep) lines.push(`next_step: "${nextStep.replace(/"/g, '\\"')}"`);
+    lines.push('---', `# ${name}`, '', '## Problem', 'Body text.', '');
+    writeFileSync(path.join(tmpDir, 'docs', 'plans', `${name}.md`), lines.join('\n'));
+  }
+
+  it('does nothing when no fields are over-cap', () => {
+    setupPlanProject();
+    writeLongPlan('short', 100, 50);
+
+    const result = run(['doctor', '--frontmatter-fix']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('No over-cap'), `expected no-op message; got: ${result.stdout}`);
+  });
+
+  it('shrinks current_state and inserts a `## Current State` section', () => {
+    setupPlanProject();
+    writeLongPlan('long-cs', 612);
+    const planPath = path.join(tmpDir, 'docs', 'plans', 'long-cs.md');
+
+    const result = run(['doctor', '--frontmatter-fix']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('long-cs.md'), `should list the touched file; got: ${result.stdout}`);
+    ok(result.stdout.includes('current_state'), 'mentions the field');
+
+    const after = readFileSync(planPath, 'utf8');
+    // Re-parse to confirm field shrank under cap.
+    const fmEnd = after.indexOf('\n---\n', 4);
+    const fmBlock = after.slice(4, fmEnd);
+    const csLine = fmBlock.split('\n').find(l => l.startsWith('current_state:'));
+    ok(csLine.endsWith('>'), `expected folded block scalar; got: ${csLine}`);
+    ok(after.includes('## Current State'), 'body has the new section');
+    // Tail content lives in the section.
+    const bodyAfter = after.slice(fmEnd + 5);
+    const csSectionIdx = bodyAfter.indexOf('## Current State');
+    ok(csSectionIdx >= 0, 'section is in body');
+    ok(csSectionIdx < bodyAfter.indexOf('## Problem'), 'section sits above first existing H2');
+  });
+
+  it('shrinks next_step independently of current_state', () => {
+    setupPlanProject();
+    writeLongPlan('long-ns', 100, 342);
+    const planPath = path.join(tmpDir, 'docs', 'plans', 'long-ns.md');
+
+    const result = run(['doctor', '--frontmatter-fix']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('next_step'), 'mentions the next_step fix');
+    const after = readFileSync(planPath, 'utf8');
+    ok(after.includes('## Next Step'), 'body has Next Step section');
+    ok(!after.includes('## Current State'), 'untouched fields do not get sections');
+  });
+
+  it('--dry-run does not modify files', () => {
+    setupPlanProject();
+    writeLongPlan('preview', 612);
+    const planPath = path.join(tmpDir, 'docs', 'plans', 'preview.md');
+    const before = readFileSync(planPath, 'utf8');
+
+    const result = run(['doctor', '--frontmatter-fix', '--dry-run']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('preview'), 'banner shows preview mode');
+    const after = readFileSync(planPath, 'utf8');
+    strictEqual(after, before, 'file is byte-identical in dry-run');
+  });
+
+  it('clears the validatePlanShape warning after the fix', () => {
+    setupPlanProject();
+    writeLongPlan('verify', 612, 342);
+
+    // Sanity-check: pre-fix, `check` reports both length warnings.
+    const before = run(['check']);
+    ok(before.stdout.includes('current_state` is') || before.stderr.includes('current_state'),
+      `pre-fix should warn about current_state length; got: ${before.stdout}\n${before.stderr}`);
+
+    const fix = run(['doctor', '--frontmatter-fix']);
+    strictEqual(fix.status, 0, `stderr: ${fix.stderr}`);
+
+    const after = run(['check']);
+    ok(!after.stdout.includes('cap: 500') && !after.stdout.includes('cap: 300'),
+      `post-fix should clear length warnings; got: ${after.stdout}`);
+  });
+});
