@@ -760,12 +760,17 @@ Prompts are documents with \`type: prompt\`, typically saved under
 docs/prompts/. They seed future Claude sessions; consuming a prompt
 prints its body to stdout and atomically archives it (one-shot).
 
+\`dotmd prompt\` (singular) is an alias for \`dotmd prompts\` — every
+subcommand below works under either spelling.
+
 Subcommands:
   list                       List pending prompts (default)
   next                       Consume the oldest pending prompt:
                              print body to stdout, flip status to archived
   use <file-or-slug>         Consume a specific prompt (same as next, but
                              targets the named prompt instead of picking oldest)
+  resume <file-or-slug>      Alias for \`use\` — same behavior, easier name
+                             when continuing a session
   archive <file-or-slug>     Archive a prompt without printing its body
   shelve <file-or-slug>      Park a prompt (status → shelved): kept in list,
                              hidden from hud/briefing pending surfaces, skipped
@@ -792,6 +797,8 @@ Examples:
   claude "$(dotmd prompts next)"       # consume oldest pending + run claude
   claude "$(dotmd prompts use resume-foo)"           # by slug
   claude "$(dotmd prompts use docs/prompts/foo.md)"  # by path
+  claude "$(dotmd prompts resume resume-foo)"        # \`resume\` is an alias for \`use\`
+  dotmd prompt list                    # singular alias for \`dotmd prompts list\`
 
   dotmd prompts next --dry-run         # preview without consuming
   dotmd prompts archive old-thing
@@ -964,7 +971,7 @@ the whole docs tree is scanned.`,
 
 async function main() {
   const args = process.argv.slice(2);
-  const command = args[0] ?? 'list';
+  let command = args[0] ?? 'list';
 
   // Pre-config flags
   if (args.includes('--version') || args.includes('-v')) {
@@ -984,6 +991,14 @@ async function main() {
     process.stdout.write(`${HELP._main}\n`);
     return;
   }
+
+  // Singular-form alias for the prompts subcommand namespace. Trivial
+  // no-collision collapse — `prompt` was previously "unknown command", now
+  // routes everywhere `prompts` does (incl. per-command --help below, and the
+  // subcommand dispatch at the `prompts` branch in the chain). The other
+  // singular/plural pairs (`plan`/`plans`, `module`/`modules`,
+  // `status`/`statuses`) are deliberately kept distinct — see F20 plan.
+  if (command === 'prompt') command = 'prompts';
 
   // Per-command help
   if (args.includes('--help') || args.includes('-h')) {

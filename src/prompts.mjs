@@ -8,7 +8,10 @@ import { runArchive, runStatus } from './lifecycle.mjs';
 import { runNew } from './new.mjs';
 import { green, dim } from './color.mjs';
 
-const SUBCOMMANDS = new Set(['list', 'next', 'use', 'archive', 'new', 'shelve', 'unshelve']);
+// `resume` is an alias for `use` — agents reach for "resume" when continuing a
+// session; `use` reads as internal mechanics. Both names stay valid; the
+// canonical output ("Consumed: …") is unchanged.
+const SUBCOMMANDS = new Set(['list', 'next', 'use', 'resume', 'archive', 'new', 'shelve', 'unshelve']);
 
 export async function runPrompts(argv, config, opts = {}) {
   const sub = argv[0];
@@ -22,6 +25,7 @@ export async function runPrompts(argv, config, opts = {}) {
     case 'list':     return runPromptsList(rest, config, opts);
     case 'next':     return runPromptsNext(rest, config, opts);
     case 'use':      return runPromptsUse(rest, config, opts);
+    case 'resume':   return runPromptsUse(rest, config, opts);
     case 'archive':  return runPromptsArchive(rest, config, opts);
     case 'new':      return runPromptsNew(rest, config, opts);
     case 'shelve':   return runPromptsShelve(rest, config, opts);
