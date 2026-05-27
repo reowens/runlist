@@ -8,4 +8,5 @@ export const KNOWN_COMMANDS = [
   'unblocks', 'health', 'glossary', 'modules', 'module',
   'fix-refs', 'lint', 'rename', 'migrate', 'notion', 'export', 'summary',
   'watch', 'diff', 'new', 'init', 'completions', 'statuses', 'journal',
+  'ship',
 ];

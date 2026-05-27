@@ -55,6 +55,7 @@ Lifecycle:
   set <status> [<file>]             Unified transition: archive/release/transition in one verb
   archive <file>                    Archive (status + move + update refs)
   bulk archive <f1> <f2> ...        Archive multiple files at once
+  ship [patch|minor|major]          Regen + commit + bump in one step (default: patch)
   bulk-tag [files...]               Tag pre-existing untagged .md files
   touch <file>                      Bump updated date
   touch --git                       Bulk-sync dates from git history
@@ -294,6 +295,31 @@ Release the in-session lease(s) and flip frontmatter back to the prior
 status. With no file, releases every lease owned by the current session.
 Identical behavior to \`dotmd unpickup\`; both names route to the same
 implementation. See \`dotmd unpickup --help\` for full option list.`,
+
+  ship: `dotmd ship [patch|minor|major] — regen + commit + bump in one step
+
+Bundles the multi-step release dance into a single command:
+  1. Regenerate \`.claude/commands/*.md\` with the TARGET version stamp
+     (the post-bump version, so the slash-command files match the new
+     release and no dirty tree lingers after).
+  2. Auto-stage every dirty file matching the release allowlist
+     (src/, test/, bin/, docs/, .claude/commands/, package*.json,
+     dotmd.config*.mjs, README.md, CLAUDE.md, .gitignore). Anything
+     outside the allowlist is left dirty — secrets, sibling-session
+     WIP, etc. never get bundled in.
+  3. Commit with an auto-generated message including the held plan
+     title (if any).
+  4. Run \`npm version <bump>\` to bump package.json, tag, push, run
+     the publish workflow, and reinstall locally.
+
+Options:
+  --dry-run, -n          Show what would happen without staging or bumping.
+
+Defaults to patch. Pass \`minor\` or \`major\` to bump those instead.
+
+Network failures mid-bump (e.g. \`git push\` fails) leave the local
+commit + tag intact. Inspect with \`git log -1\` and rerun
+\`git push origin main --tags\` to recover.`,
 
   set: `dotmd set <status> [<file>] — unified status-transition verb
 
@@ -1150,6 +1176,7 @@ async function main() {
   if (command === 'handoff') { die('`dotmd handoff` was removed in 0.31.0. Use `dotmd prompts new <name>` to create a saved prompt instead. The .dotmd/handoffs/ sidecar mechanism no longer exists; see CHANGELOG.'); }
   if (command === 'status') { const { runStatus } = await import('../src/lifecycle.mjs'); await runStatus(restArgs, config, { dryRun }); return; }
   if (command === 'set') { const { runSet } = await import('../src/lifecycle.mjs'); await runSet(restArgs, config, { dryRun }); return; }
+  if (command === 'ship') { const { runShip } = await import('../src/ship.mjs'); await runShip(restArgs, config, { dryRun }); return; }
   if (command === 'archive') { const { runArchive } = await import('../src/lifecycle.mjs'); runArchive(restArgs, config, { dryRun }); return; }
   if (command === 'bulk' && restArgs[0] === 'archive') { const { runBulkArchive } = await import('../src/lifecycle.mjs'); runBulkArchive(restArgs.slice(1), config, { dryRun }); return; }
   if (command === 'bulk' && restArgs[0] === 'tag') { const { runBulkTag } = await import('../src/bulk-tag.mjs'); runBulkTag(restArgs.slice(1), config, { dryRun }); return; }

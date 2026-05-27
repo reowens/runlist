@@ -5,13 +5,13 @@ import { green, dim, yellow } from './color.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
-const VERSION_MARKER = `<!-- dotmd-generated: ${pkg.version} -->`;
 // Marker is no longer pinned to line 1 — it now lives below the YAML
 // frontmatter that Claude Code surfaces as the slash command's description.
 // The regex is intentionally non-anchored so getInstalledVersion finds it
 // wherever it sits, and the marker string is specific enough that a false
 // positive elsewhere in a user-edited file is not a realistic concern.
 const VERSION_REGEX = /<!-- dotmd-generated: ([\d.]+) -->/;
+function markerFor(version) { return `<!-- dotmd-generated: ${version} -->`; }
 
 // Trigger sentences surfaced by Claude Code's available-skills system reminder.
 // Front-load the "when to reach for it" cue so Claude can route to the right
@@ -55,11 +55,11 @@ function frontmatterFor(name, config) {
   return ['---', `description: ${description}`, '---'];
 }
 
-function generatePlansCommand(config) {
-  const lines = [...frontmatterFor('plans', config), VERSION_MARKER, ''];
+function generatePlansCommand(config, version) {
+  const lines = [...frontmatterFor('plans', config), markerFor(version), ''];
   lines.push('Run `dotmd context` to get the current plans briefing, then use it to orient yourself.');
   lines.push('');
-  lines.push(`Plans are managed by **dotmd** (v${pkg.version}). Config at \`dotmd.config.mjs\`. Always use \`dotmd\` directly.`);
+  lines.push(`Plans are managed by **dotmd** (v${version}). Config at \`dotmd.config.mjs\`. Always use \`dotmd\` directly.`);
   lines.push('');
   lines.push('Plan-specific commands:');
   lines.push('- `dotmd context` — briefing with active/paused/ready plans, age tags, next steps');
@@ -94,8 +94,8 @@ function generatePlansCommand(config) {
   return lines.join('\n');
 }
 
-function generateBatonCommand(config) {
-  const lines = [...frontmatterFor('baton', config), VERSION_MARKER, ''];
+function generateBatonCommand(config, version) {
+  const lines = [...frontmatterFor('baton', config), markerFor(version), ''];
   lines.push('Wrap this session. Minimum required (two commands):');
   lines.push('');
   lines.push('1. **Save the resume prompt.** `dotmd new prompt resume-<plan-slug>` with a 10-20 line body via heredoc: the next concrete decision plus any gotchas. NOT a recap of the plan body. The saved prompt IS the handoff — never print it into chat for copy-paste.');
@@ -114,12 +114,12 @@ function generateBatonCommand(config) {
   return lines.join('\n');
 }
 
-function generateDocsCommand(config) {
+function generateDocsCommand(config, version) {
   const roots = Array.isArray(config.raw?.root) ? config.raw.root : [config.raw?.root ?? 'docs'];
   const rootCount = roots.length;
 
-  const lines = [...frontmatterFor('docs', config), VERSION_MARKER, ''];
-  lines.push(`All documentation in this repo is managed by **dotmd** (v${pkg.version}). Docs across ${rootCount} root${rootCount > 1 ? 's' : ''}: ${roots.join(', ')}. Config at \`dotmd.config.mjs\`.`);
+  const lines = [...frontmatterFor('docs', config), markerFor(version), ''];
+  lines.push(`All documentation in this repo is managed by **dotmd** (v${version}). Docs across ${rootCount} root${rootCount > 1 ? 's' : ''}: ${roots.join(', ')}. Config at \`dotmd.config.mjs\`.`);
   lines.push('');
 
   // Document types from config
@@ -177,7 +177,7 @@ function getInstalledVersion(filePath) {
 }
 
 export function scaffoldClaudeCommands(cwd, config, opts = {}) {
-  const { dryRun = false } = opts;
+  const { dryRun = false, version = pkg.version } = opts;
   const claudeDir = path.join(cwd, '.claude');
   if (!existsSync(claudeDir)) return [];
 
@@ -185,16 +185,16 @@ export function scaffoldClaudeCommands(cwd, config, opts = {}) {
   const results = [];
 
   const files = [
-    { name: 'plans.md', generate: () => generatePlansCommand(config) },
-    { name: 'docs.md', generate: () => generateDocsCommand(config) },
-    { name: 'baton.md', generate: () => generateBatonCommand(config) },
+    { name: 'plans.md', generate: () => generatePlansCommand(config, version) },
+    { name: 'docs.md', generate: () => generateDocsCommand(config, version) },
+    { name: 'baton.md', generate: () => generateBatonCommand(config, version) },
   ];
 
   for (const { name, generate } of files) {
     const filePath = path.join(commandsDir, name);
     const installedVersion = getInstalledVersion(filePath);
 
-    if (installedVersion === pkg.version) {
+    if (installedVersion === version) {
       results.push({ name, action: 'current' });
     } else if (installedVersion) {
       // Outdated — regenerate
@@ -202,7 +202,7 @@ export function scaffoldClaudeCommands(cwd, config, opts = {}) {
         mkdirSync(commandsDir, { recursive: true });
         writeFileSync(filePath, generate(), 'utf8');
       }
-      results.push({ name, action: 'updated', from: installedVersion, to: pkg.version });
+      results.push({ name, action: 'updated', from: installedVersion, to: version });
     } else if (!existsSync(filePath)) {
       // New — create
       if (!dryRun) {
@@ -231,7 +231,8 @@ export function refreshStaleSlashCommands(config) {
   return results.filter(r => r.action === 'updated');
 }
 
-export function checkClaudeCommands(cwd) {
+export function checkClaudeCommands(cwd, opts = {}) {
+  const { version = pkg.version } = opts;
   const commandsDir = path.join(cwd, '.claude', 'commands');
   if (!existsSync(commandsDir)) return [];
 
@@ -239,11 +240,11 @@ export function checkClaudeCommands(cwd) {
   for (const name of ['plans.md', 'docs.md', 'baton.md']) {
     const filePath = path.join(commandsDir, name);
     const installedVersion = getInstalledVersion(filePath);
-    if (installedVersion && installedVersion !== pkg.version) {
+    if (installedVersion && installedVersion !== version) {
       warnings.push({
         path: `.claude/commands/${name}`,
         level: 'warning',
-        message: `Claude command outdated (v${installedVersion} → v${pkg.version}). Run \`dotmd doctor\` to update.`,
+        message: `Claude command outdated (v${installedVersion} → v${version}). Run \`dotmd doctor\` to update.`,
       });
     }
   }
