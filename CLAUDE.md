@@ -102,15 +102,15 @@ Built-in types: `plan`, `doc`, `prompt`. Add more via `templates` in config.
 When you want to leave a self-addressed reminder ("look at X tomorrow," "resume payments refactor"), write a saved prompt instead of dropping a note in chat. `dotmd hud` surfaces pending prompts at session start, so the next session sees it without copy-paste:
 
 ```bash
-dotmd new prompt cleanup "look at remaining lint warnings"   # inline body
-dotmd new prompt cleanup --message "look at remaining lint warnings"  # --message flag
-dotmd new prompt from-draft @/tmp/draft.md                   # @path reads from file
+dotmd new prompt resume-foo @/tmp/draft.md                   # @path reads from file (preferred for multi-line)
 dotmd new prompt resume-foo - <<'EOF'                        # `-` reads stdin
 multi-line body
 EOF
+dotmd new prompt cleanup --message "look at remaining lint warnings"  # --message flag
+dotmd new prompt cleanup "look at remaining lint warnings"   # inline body (one-liners only)
 ```
 
-All four body-input modes (inline, `--message`, `@path`, stdin) work for every body-accepting type (`plan`, `doc`, `prompt`). Pick whichever fits — heredoc is brittle for content with backticks, `@path` sidesteps shell quoting entirely.
+All four body-input modes (`@path`, stdin, `--message`, inline) work for every body-accepting type (`plan`, `doc`, `prompt`). **Default to `@path` or `-` for multi-line bodies.** Inline puts the entire body on the bash command line — heredoc is brittle for content with backticks, and PreToolUse hooks that scan commands for forbidden literals (e.g. destructive-git patterns) will fire on prose that just *describes* the rule. `@/tmp/foo.md` sidesteps both.
 
 Saved prompts have their own status vocab (`pending`, `shelved`, `claimed`, `archived`) and a dedicated command family (`dotmd prompts list|next|use|archive|shelve|unshelve`). `dotmd prompts next` prints + claims the oldest pending prompt — useful when a session boots and needs an instruction. `shelved` is the "saved but not next" bucket: visible in `dotmd prompts list`, but hidden from `hud`/`briefing` and skipped by `prompts next`. Use `dotmd prompts shelve <file>` / `unshelve <file>` to flip.
 

@@ -581,10 +581,16 @@ Types and their default destinations:
 \`<name>\` is slugified for the filename.
 
 Body input (all built-in types — required for prompt, optional for plan/doc):
-  <text>                 Inline body as 3rd positional
-  --message "<text>"     Explicit inline body
+  @path                  Read body from a file (preferred for multi-line bodies)
   -                      Read body from stdin (heredoc-friendly for agents)
-  @path                  Read body from a file
+  --message "<text>"     Explicit inline body
+  <text>                 Inline body as 3rd positional
+
+Tip for agents: prefer \`@path\` or \`-\` for multi-line bodies. Inline bodies
+put the entire content on the bash command line, which (a) breaks under shell
+quoting for backticks/dollar-signs and (b) trips PreToolUse hooks that scan
+command strings for forbidden literals (destructive-git patterns, etc.).
+\`@/tmp/foo.md\` sidesteps both.
 
 For plan/doc, a single-section body lands under the type's first scaffolded
 section (e.g. \`## Problem\` for plans). If the body already authors
@@ -594,19 +600,19 @@ the title + your body is emitted — no duplicated empty outline below
 
 Examples:
   dotmd new plan auth-revamp
-  dotmd new plan auth-revamp "Investigation findings before scoping…"
+  dotmd new prompt resume-foo @/tmp/draft.md
+  dotmd new prompt resume-foo - <<'EOF'
+  multi-line
+  prompt body
+  EOF
+  dotmd new prompt cleanup-tomorrow "look at remaining lint warnings"
   dotmd new plan full-spec - <<'EOF'
   ## Problem
   …
   ## Phases
   …
   EOF
-  dotmd new prompt cleanup-tomorrow "look at remaining lint warnings"
-  dotmd new prompt resume-foo - <<'EOF'
-  multi-line
-  prompt body
-  EOF
-  dotmd new prompt from-file @/tmp/draft.md
+  dotmd new plan auth-revamp "Investigation findings before scoping…"
 
 Other options:
   --status <s>         Set initial status (defaults to first valid status for the type)
