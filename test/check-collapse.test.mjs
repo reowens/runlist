@@ -99,7 +99,7 @@ describe('dotmd check collapse render (CLI)', () => {
       writeFileSync(path.join(tmpDir, 'docs', `m${i}.md`),
         `---\nstatus: active\nupdated: 2025-01-01\nmodule: foo\n---\n# M${i}\n`);
     }
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(result.stdout.includes('3 docs use deprecated singular `module:`'),
       `expected collapsed summary line; got: ${result.stdout}`);
@@ -149,7 +149,7 @@ describe('dotmd check collapse render (CLI)', () => {
       writeFileSync(path.join(tmpDir, 'docs', `m${i}.md`),
         `---\nstatus: active\nupdated: 2025-01-01\nmodule: foo\n---\n# M${i}\n`);
     }
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(!result.stdout.includes('docs use deprecated'), 'no collapse below threshold');
     ok(result.stdout.includes('m0.md') && result.stdout.includes('m1.md'),
@@ -167,7 +167,7 @@ describe('dotmd check collapse render (CLI)', () => {
     writeFileSync(path.join(tmpDir, 'docs', 'x.md'),
       `---\nstatus: active\nupdated: 2025-01-01\n---\nbody\n`);
 
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(result.stdout.includes('3 docs use deprecated singular `module:`'),
       'singular-module collapsed');

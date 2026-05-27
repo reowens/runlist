@@ -288,16 +288,45 @@ describe('renderCheck', () => {
     ok(result.includes('Check failed'), 'shows failure message');
   });
 
-  it('shows warnings when present', () => {
+  it('shows warnings when present (verbose)', () => {
     const index = {
       docs: [makeDoc()],
       errors: [],
       warnings: [{ path: 'docs/warn.md', message: 'stale doc' }],
     };
-    const result = renderCheck(index, makeConfig());
+    const result = renderCheck(index, makeConfig(), { verbose: true });
     ok(result.includes('warnings: 1'), 'shows warning count');
     ok(result.includes('docs/warn.md: stale doc'), 'shows warning detail');
     ok(result.includes('Check passed with warnings'), 'shows passed with warnings');
+  });
+
+  it('hides warning detail by default — prints count + pointer only', () => {
+    const index = {
+      docs: [makeDoc()],
+      errors: [],
+      warnings: [
+        { path: 'docs/a.md', message: 'first warning' },
+        { path: 'docs/b.md', message: 'second warning' },
+      ],
+    };
+    const result = renderCheck(index, makeConfig());
+    ok(result.includes('warnings: 2'), 'shows count');
+    ok(!result.includes('docs/a.md: first warning'), 'hides per-doc detail');
+    ok(!result.includes('docs/b.md: second warning'), 'hides per-doc detail');
+    ok(result.includes('--verbose'), 'points at --verbose for detail');
+    ok(result.includes('doctor'), 'points at doctor for auto-fix');
+    ok(result.includes('Check passed with warnings'), 'still shows pass-with-warnings status');
+  });
+
+  it('errors are always shown in full, even without --verbose', () => {
+    const index = {
+      docs: [makeDoc()],
+      errors: [{ path: 'docs/bad.md', message: 'broken thing' }],
+      warnings: [{ path: 'docs/warn.md', message: 'stale doc' }],
+    };
+    const result = renderCheck(index, makeConfig());
+    ok(result.includes('docs/bad.md: broken thing'), 'error detail shown');
+    ok(!result.includes('docs/warn.md: stale doc'), 'warning detail hidden');
   });
 
   it('shows both errors and warnings', () => {

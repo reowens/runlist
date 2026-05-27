@@ -377,7 +377,7 @@ export function renderCheck(index, config, opts = {}) {
 }
 
 function _renderCheck(index, opts = {}) {
-  const { errorsOnly, noCollapse } = opts;
+  const { errorsOnly, noCollapse, verbose } = opts;
   const lines = ['Check', ''];
   lines.push(`- docs scanned: ${index.docs.length}`);
   lines.push(`- errors: ${index.errors.length}`);
@@ -392,22 +392,32 @@ function _renderCheck(index, opts = {}) {
     lines.push('');
   }
 
+  // Warnings: terse by default — print count + pointer. The full per-doc list
+  // grew long enough on real projects that it drowned the summary; agents now
+  // see warnings as a single line and opt in to detail when they need it.
+  // --verbose / --no-collapse expand to the full list (with collapse-by-category
+  // still applied unless --no-collapse is set).
   if (!errorsOnly && index.warnings.length > 0) {
-    lines.push(yellow('Warnings'));
-    if (noCollapse) {
-      for (const issue of index.warnings) {
-        lines.push(`- ${issue.path}: ${issue.message}`);
+    if (verbose || noCollapse) {
+      lines.push(yellow('Warnings'));
+      if (noCollapse) {
+        for (const issue of index.warnings) {
+          lines.push(`- ${issue.path}: ${issue.message}`);
+        }
+      } else {
+        const { passthrough, collapsed } = categorizeWarnings(index.warnings);
+        for (const issue of passthrough) {
+          lines.push(`- ${issue.path}: ${issue.message}`);
+        }
+        for (const sum of collapsed) {
+          lines.push(`- ${sum.count} ${sum.label} — run \`${sum.fix}\` to bulk-fix`);
+        }
       }
+      lines.push('');
     } else {
-      const { passthrough, collapsed } = categorizeWarnings(index.warnings);
-      for (const issue of passthrough) {
-        lines.push(`- ${issue.path}: ${issue.message}`);
-      }
-      for (const sum of collapsed) {
-        lines.push(`- ${sum.count} ${sum.label} — run \`${sum.fix}\` to bulk-fix`);
-      }
+      lines.push(dim(`Run \`dotmd check --verbose\` for per-doc detail, or \`dotmd doctor\` to auto-fix where possible.`));
+      lines.push('');
     }
-    lines.push('');
   }
 
   if (index.errors.length === 0 && index.warnings.length === 0) {

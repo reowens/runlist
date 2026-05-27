@@ -449,15 +449,15 @@ describe('doctor --frontmatter-fix', () => {
     setupPlanProject();
     writeLongPlan('verify', 1700, 342);
 
-    // Sanity-check: pre-fix, `check` reports both length warnings.
-    const before = run(['check']);
+    // Sanity-check: pre-fix, `check --verbose` reports both length warnings.
+    const before = run(['check', '--verbose']);
     ok(before.stdout.includes('current_state` is') || before.stderr.includes('current_state'),
       `pre-fix should warn about current_state length; got: ${before.stdout}\n${before.stderr}`);
 
     const fix = run(['doctor', '--frontmatter-fix']);
     strictEqual(fix.status, 0, `stderr: ${fix.stderr}`);
 
-    const after = run(['check']);
+    const after = run(['check', '--verbose']);
     ok(!after.stdout.includes('cap: 1500') && !after.stdout.includes('cap: 300'),
       `post-fix should clear length warnings; got: ${after.stdout}`);
   });

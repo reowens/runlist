@@ -53,7 +53,7 @@ describe('body link validation', () => {
     writeFileSync(path.join(docsDir, 'a.md'),
       '---\nstatus: active\nupdated: 2025-01-01\n---\n# A\n\nSee [broken](nonexistent.md) for details.\n');
 
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(result.stdout.includes('body link'), 'shows body link warning');
     ok(result.stdout.includes('nonexistent.md'), 'shows broken link path');
@@ -66,7 +66,7 @@ describe('body link validation', () => {
     writeFileSync(path.join(docsDir, 'b.md'),
       '---\nstatus: active\nupdated: 2025-01-01\n---\n# B\n');
 
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(!result.stdout.includes('body link'), 'no body link warning for valid link');
   });
@@ -76,7 +76,7 @@ describe('body link validation', () => {
     writeFileSync(path.join(docsDir, 'a.md'),
       '---\nstatus: active\nupdated: 2025-01-01\n---\n# A\n\n```\n[fake](nonexistent.md)\n```\n');
 
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(!result.stdout.includes('body link'), 'no warning for link inside code block');
   });
@@ -86,7 +86,7 @@ describe('body link validation', () => {
     writeFileSync(path.join(docsDir, 'a.md'),
       '---\nstatus: implemented\n---\n# A\n');
 
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     // Unknown status itself is now an error, so exit 1 — but the missing-updated
     // check is gated on knownStatus, so we should NOT see that error compound on top.
     strictEqual(result.status, 1, `should fail on unknown status. stderr: ${result.stderr}`);
@@ -98,7 +98,7 @@ describe('body link validation', () => {
     writeFileSync(path.join(docsDir, 'a.md'),
       '---\nstatus: active\n---\n# A\n');
 
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     strictEqual(result.status, 1, 'should fail for known status missing updated');
     ok(result.stdout.includes('Missing frontmatter `updated`'), 'shows updated error');
   });
@@ -108,7 +108,7 @@ describe('body link validation', () => {
     writeFileSync(path.join(docsDir, 'a.md'),
       '---\nstatus: implemented\nupdated: 2025-01-01\n---\n# A\n');
 
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     strictEqual(result.status, 1, `should fail for unknown status. stderr: ${result.stderr}`);
     ok(result.stdout.includes('Unknown status'), 'shows error about unknown status');
   });
@@ -137,7 +137,7 @@ describe('type-scoped status validation (strict)', () => {
     writeFileSync(path.join(docsDir, 'prompts', 'mis-statused.md'),
       '---\ntype: prompt\nstatus: active\nupdated: 2025-01-01\n---\n# bad\n');
 
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     strictEqual(result.status, 1, `should fail. stderr: ${result.stderr}\nstdout: ${result.stdout}`);
     ok(result.stdout.includes('Unknown status `active`'), 'flags the bad status');
     ok(result.stdout.includes('type `prompt`'), 'error message names the type');
@@ -151,7 +151,7 @@ describe('type-scoped status validation (strict)', () => {
     writeFileSync(path.join(docsDir, 'plans', 'wrong-vocab.md'),
       '---\ntype: plan\nstatus: pending\nupdated: 2025-01-01\nmodule: foo\n---\n# bad\n');
 
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     strictEqual(result.status, 1, `should fail. stderr: ${result.stderr}\nstdout: ${result.stdout}`);
     ok(result.stdout.includes('Unknown status `pending`'), 'flags the bad status');
     ok(result.stdout.includes('type `plan`'), 'error message names the type');
@@ -163,7 +163,7 @@ describe('type-scoped status validation (strict)', () => {
     writeFileSync(path.join(docsDir, 'plans', 'good.md'),
       '---\ntype: plan\nstatus: active\nupdated: 2025-01-01\nmodule: foo\n---\n# good\n');
 
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     strictEqual(result.status, 0, `should pass. stderr: ${result.stderr}\nstdout: ${result.stdout}`);
   });
 
@@ -173,7 +173,7 @@ describe('type-scoped status validation (strict)', () => {
     writeFileSync(path.join(docsDir, 'prompts', 'good.md'),
       '---\ntype: prompt\nstatus: pending\nupdated: 2025-01-01\n---\n# good\n');
 
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     strictEqual(result.status, 0, `should pass. stderr: ${result.stderr}\nstdout: ${result.stdout}`);
   });
 
@@ -183,7 +183,7 @@ describe('type-scoped status validation (strict)', () => {
     writeFileSync(path.join(docsDir, 'untyped.md'),
       '---\nstatus: active\nupdated: 2025-01-01\n---\n# untyped\n');
 
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     strictEqual(result.status, 0, `should pass. stderr: ${result.stderr}\nstdout: ${result.stdout}`);
   });
 
@@ -193,7 +193,7 @@ describe('type-scoped status validation (strict)', () => {
     writeFileSync(path.join(docsDir, 'unknown-type.md'),
       '---\ntype: spike\nstatus: active\nupdated: 2025-01-01\n---\n# unknown\n');
 
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     // Unknown-type warning fires, but the status itself is accepted via global.
     ok(!result.stdout.includes('Unknown status'), `status should not error: ${result.stdout}`);
   });
@@ -211,7 +211,7 @@ describe('archive drift (#8)', () => {
     writeFileSync(path.join(docsDir, 'prompts', 'drift.md'),
       '---\ntype: prompt\nstatus: archived\ncreated: 2025-01-01\n---\nbody\n');
 
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     strictEqual(result.status, 1, `should fail. stdout: ${result.stdout}`);
     ok(result.stdout.includes('status: `archived`') || result.stdout.includes('`status: archived`'),
        `error names the bad status: ${result.stdout}`);
@@ -225,7 +225,7 @@ describe('archive drift (#8)', () => {
     writeFileSync(path.join(docsDir, 'plans', 'drift-plan.md'),
       '---\ntype: plan\nstatus: archived\nupdated: 2025-01-01\nmodule: foo\n---\n# drift\n');
 
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     strictEqual(result.status, 1, `should fail. stdout: ${result.stdout}`);
     ok(result.stdout.includes('docs/plans/drift-plan.md'), 'mentions the file path');
     ok(result.stdout.includes('dotmd archive'), 'suggests dotmd archive');
@@ -239,7 +239,7 @@ describe('archive drift (#8)', () => {
     writeFileSync(path.join(docsDir, 'plans', 'audit', 'catalog-audit.md'),
       '---\ntype: plan\nstatus: archived\nupdated: 2025-01-01\nmodule: catalog\n---\n# audit\n');
 
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     // Should NOT trip the drift error (other validation may still fail, but not this).
     ok(!result.stdout.includes('not in `docs/plans/archived/`'),
        `nested subdir should be exempt: ${result.stdout}`);
@@ -253,7 +253,7 @@ describe('archive drift (#8)', () => {
     writeFileSync(path.join(docsDir, 'prompts', 'archived', 'done.md'),
       '---\ntype: prompt\nstatus: archived\ncreated: 2025-01-01\n---\nbody\n');
 
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     // No drift error for correctly-placed archived files.
     ok(!result.stdout.includes('direct child'),
        `properly archived file should not trip drift: ${result.stdout}`);
@@ -266,7 +266,7 @@ describe('archive drift (#8)', () => {
     writeFileSync(path.join(docsDir, 'prompts', 'live.md'),
       '---\ntype: prompt\nstatus: pending\ncreated: 2025-01-01\nupdated: 2025-01-01\n---\n# live\n\n> blurb\n\nbody\n');
 
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     // Only assert the drift error specifically — other validation warnings/errors
     // are out of scope for this test.
     ok(!result.stdout.includes('direct child'),
@@ -294,7 +294,7 @@ describe('reference path resolution', () => {
       '---\nstatus: active\nupdated: 2025-01-01\nrelated_plans:\n  - docs/plans/b.md\n---\n# A\n');
     writeFileSync(path.join(root, 'docs', 'plans', 'b.md'),
       '---\nstatus: active\nupdated: 2025-01-01\nrelated_plans:\n  - docs/plans/a.md\n---\n# B\n');
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     ok(!result.stdout.includes('does not resolve'),
       `repo-root-relative path should resolve. stdout: ${result.stdout}`);
   });
@@ -305,7 +305,7 @@ describe('reference path resolution', () => {
       '---\nstatus: active\nupdated: 2025-01-01\n---\n# A\n\nSee [catalog](docs/modules/catalog/catalog.md).\n');
     writeFileSync(path.join(root, 'docs', 'modules', 'catalog', 'catalog.md'),
       '---\nstatus: active\nupdated: 2025-01-01\n---\n# Catalog\n');
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     ok(!result.stdout.includes('body link'),
       `repo-root-relative body link should resolve. stdout: ${result.stdout}`);
   });
@@ -314,7 +314,7 @@ describe('reference path resolution', () => {
     const root = setupRefProject();
     writeFileSync(path.join(root, 'docs', 'plans', 'a.md'),
       '---\nstatus: active\nupdated: 2025-01-01\nrelated_plans:\n  - docs/plans/missing.md\n---\n# A\n');
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     ok(result.stdout.includes('does not resolve'),
       `missing target should still be flagged. stdout: ${result.stdout}`);
   });
@@ -327,7 +327,7 @@ describe('reference path resolution', () => {
       '---\nstatus: active\nupdated: 2025-01-01\nrelated_plans:\n  - docs/plans/b.md\n---\n# A\n');
     writeFileSync(path.join(root, 'docs', 'plans', 'b.md'),
       '---\nstatus: active\nupdated: 2025-01-01\nrelated_plans:\n  - ./a.md\n---\n# B\n');
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     ok(!result.stdout.includes('does not reference back'),
       `bidirectional pair should be satisfied across both path styles. stdout: ${result.stdout}`);
   });
@@ -338,7 +338,7 @@ describe('reference path resolution', () => {
       '---\nstatus: active\nupdated: 2025-01-01\n---\n# Authn\n');
     writeFileSync(path.join(root, 'docs', 'plans', 'a.md'),
       '---\nstatus: active\nupdated: 2025-01-01\nrelated_plans:\n  - docs/plans/authn-revam.md\n---\n# A\n');
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     ok(result.stdout.includes('does not resolve'));
     ok(result.stdout.includes('Did you mean'),
       `expected suggestion line, got: ${result.stdout}`);
@@ -352,7 +352,7 @@ describe('reference path resolution', () => {
       '---\nstatus: active\nupdated: 2025-01-01\n---\n# Authn\n');
     writeFileSync(path.join(root, 'docs', 'plans', 'a.md'),
       '---\nstatus: active\nupdated: 2025-01-01\nrelated_plans:\n  - docs/plans/zzzz-nothing-like-it.md\n---\n# A\n');
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     ok(result.stdout.includes('does not resolve'));
     ok(!result.stdout.includes('Did you mean'),
       `should not suggest when nothing close. got: ${result.stdout}`);
@@ -366,7 +366,7 @@ describe('reference path resolution', () => {
       '---\nstatus: active\nupdated: 2025-01-01\nrelated_plans:\n  - "> docs/plans/b.md"\n---\n# A\n');
     writeFileSync(path.join(root, 'docs', 'plans', 'b.md'),
       '---\nstatus: active\nupdated: 2025-01-01\n---\n# B\n');
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     ok(!result.stdout.includes('does not reference back'),
       `one-way ref should suppress reciprocity warning. stdout: ${result.stdout}`);
   });
@@ -380,7 +380,7 @@ describe('reference path resolution', () => {
       '---\nstatus: active\nupdated: 2025-01-01\n---\n# B\n');
     writeFileSync(path.join(root, 'docs', 'plans', 'c.md'),
       '---\nstatus: active\nupdated: 2025-01-01\n---\n# C\n');
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     const backRefLines = result.stdout.split('\n').filter(l => l.includes('does not reference back'));
     strictEqual(backRefLines.length, 1,
       `expected exactly one reciprocity warning, got: ${backRefLines.join(' | ')}`);
@@ -400,7 +400,7 @@ describe('reference path resolution', () => {
       '---\ntype: doc\nstatus: active\nupdated: 2025-01-01\n---\n# Payment doc\n');
     writeFileSync(path.join(root, 'docs', 'plans', 'a.md'),
       '---\ntype: plan\nstatus: active\nupdated: 2025-01-01\nrelated_plans:\n  - docs/plans/paymentz.md\n---\n# A\n');
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     ok(result.stdout.includes('Did you mean'),
       `expected suggestion line, got: ${result.stdout}`);
     ok(result.stdout.includes('payments.md'),
@@ -433,7 +433,7 @@ describe('archived/terminal status suppresses noise validators', () => {
     // Archived plan with a surface that's NOT in the taxonomy.
     writeFileSync(path.join(root, 'docs', 'archived', 'old.md'),
       '---\ntype: plan\nstatus: archived\nupdated: 2025-01-01\nsurface: legacy-thing\n---\n# Old\n');
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     ok(!result.stdout.includes('Unknown surface'),
       `archived plan with unknown surface should not warn. stdout: ${result.stdout}`);
   });
@@ -442,7 +442,7 @@ describe('archived/terminal status suppresses noise validators', () => {
     const root = setupArchivedProject();
     writeFileSync(path.join(root, 'docs', 'live.md'),
       '---\ntype: plan\nstatus: active\nupdated: 2025-01-01\nmodule: foo\nsurface: legacy-thing\ncurrent_state: x\nnext_step: y\n---\n# Live\n');
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     ok(result.stdout.includes('Unknown surface'),
       `live plan with unknown surface should warn. stdout: ${result.stdout}`);
   });
@@ -451,7 +451,7 @@ describe('archived/terminal status suppresses noise validators', () => {
     const root = setupArchivedProject();
     writeFileSync(path.join(root, 'docs', 'archived', 'old.md'),
       '---\ntype: plan\nstatus: archived\nupdated: 2025-01-01\n---\n# Old\n\nSee [gone](./deleted.md).\n');
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     ok(!result.stdout.includes('body link'),
       `archived doc body link to deleted target should not warn. stdout: ${result.stdout}`);
   });
@@ -460,7 +460,7 @@ describe('archived/terminal status suppresses noise validators', () => {
     const root = setupArchivedProject();
     writeFileSync(path.join(root, 'docs', 'archived', 'old.md'),
       '---\ntype: plan\nstatus: archived\nupdated: 2025-01-01\nrelated_plans:\n  - ./gone-forever.md\n---\n# Old\n');
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     ok(!result.stdout.includes('does not resolve'),
       `archived doc ref-field to deleted target should not error. stdout: ${result.stdout}`);
     // And exit code should reflect zero errors.
@@ -471,7 +471,7 @@ describe('archived/terminal status suppresses noise validators', () => {
     const root = setupArchivedProject();
     writeFileSync(path.join(root, 'docs', 'live.md'),
       '---\ntype: plan\nstatus: active\nupdated: 2025-01-01\nmodule: foo\ncurrent_state: x\nnext_step: y\nrelated_plans:\n  - ./missing.md\n---\n# Live\n');
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     ok(result.stdout.includes('does not resolve'),
       `live doc with missing ref-field target should error. stdout: ${result.stdout}`);
   });
@@ -505,7 +505,7 @@ describe('rootStatuses validation', () => {
     const dirs = setupMultiRootProject();
     writeFileSync(path.join(dirs.modules, 'a.md'),
       '---\nstatus: implemented\nupdated: 2025-01-01\n---\n# A\n');
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(!result.stdout.includes('Unknown status'), 'no unknown status warning for root-allowed status');
   });
@@ -514,7 +514,7 @@ describe('rootStatuses validation', () => {
     const dirs = setupMultiRootProject();
     writeFileSync(path.join(dirs.plans, 'a.md'),
       '---\nstatus: implemented\nupdated: 2025-01-01\n---\n# A\n');
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     ok(result.stdout.includes('Unknown status'), 'warns about implemented in plans root');
   });
 
@@ -524,7 +524,7 @@ describe('rootStatuses validation', () => {
       '---\nstatus: active\nupdated: 2025-01-01\n---\n# A\n');
     writeFileSync(path.join(dirs.plans, 'b.md'),
       '---\nstatus: active\nupdated: 2025-01-01\n---\n# B\n');
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(!result.stdout.includes('Unknown status'), 'global status valid everywhere');
   });
@@ -534,7 +534,7 @@ describe('rootStatuses validation', () => {
     // implemented without updated — should get error because it's now a known status
     writeFileSync(path.join(dirs.modules, 'a.md'),
       '---\nstatus: implemented\n---\n# A\n');
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     ok(result.stdout.includes('Missing frontmatter `updated`'), 'enforces updated for known root status');
   });
 });
@@ -568,7 +568,7 @@ describe('F11: stale-lease warning for in-session plans', () => {
     const dir = setupPlanProject();
     writeFileSync(path.join(dir, 'orphan.md'),
       '---\ntype: plan\nstatus: in-session\nupdated: 2025-01-01\nmodule: foo\ncurrent_state: x\nnext_step: y\n---\n# orphan\n');
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     ok(result.stdout.includes('no active lease found'),
       `expected stale-lease warning, got: ${result.stdout}`);
     ok(result.stdout.includes('dotmd release docs/plans/orphan.md'),
@@ -582,7 +582,7 @@ describe('F11: stale-lease warning for in-session plans', () => {
     writeFileSync(path.join(dir, 'held.md'),
       '---\ntype: plan\nstatus: in-session\nupdated: 2025-01-01\nmodule: foo\ncurrent_state: x\nnext_step: y\n---\n# held\n');
     writeLease('docs/plans/held.md', new Date().toISOString());
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     ok(!result.stdout.includes('no active lease found'),
       `fresh lease should suppress no-lease warning: ${result.stdout}`);
     ok(!result.stdout.includes('lease is stale'),
@@ -596,7 +596,7 @@ describe('F11: stale-lease warning for in-session plans', () => {
     // 48h ago — well past the 24h threshold.
     const stale = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
     writeLease('docs/plans/rotting.md', stale);
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     ok(result.stdout.includes('lease is stale'),
       `expected stale-variant warning, got: ${result.stdout}`);
     ok(result.stdout.includes('48h ago'),
@@ -607,7 +607,7 @@ describe('F11: stale-lease warning for in-session plans', () => {
     const dir = setupPlanProject();
     writeFileSync(path.join(dir, 'queued.md'),
       '---\ntype: plan\nstatus: active\nupdated: 2025-01-01\nmodule: foo\ncurrent_state: x\nnext_step: y\n---\n# queued\n');
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     ok(!result.stdout.includes('no active lease found'),
       `non-in-session status must not trigger lease warning: ${result.stdout}`);
     ok(!result.stdout.includes('lease is stale'), result.stdout);
@@ -619,7 +619,7 @@ describe('F18: singular module/surface deprecation warning', () => {
     const docsDir = setupProject();
     writeFileSync(path.join(docsDir, 'a.md'),
       '---\nstatus: active\nupdated: 2025-01-01\nmodule: catalog\n---\n# A\n');
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     const matches = result.stdout.split('\n').filter(l => l.includes('`module:` (singular) is deprecated'));
     strictEqual(matches.length, 1, `expected exactly one deprecation warning, got: ${result.stdout}`);
     ok(matches[0].includes('modules: ["catalog"]'), `expected migration target in message: ${matches[0]}`);
@@ -629,7 +629,7 @@ describe('F18: singular module/surface deprecation warning', () => {
     const docsDir = setupProject();
     writeFileSync(path.join(docsDir, 'a.md'),
       '---\nstatus: active\nupdated: 2025-01-01\nmodule: catalog\nmodules:\n  - catalog\n---\n# A\n');
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     const matches = result.stdout.split('\n').filter(l => l.includes('`module:` (singular) is deprecated'));
     strictEqual(matches.length, 1, `expected exactly one deprecation warning, got: ${result.stdout}`);
     ok(matches[0].includes('modules: ["catalog"]'), `target should be deduped to one value: ${matches[0]}`);
@@ -639,7 +639,7 @@ describe('F18: singular module/surface deprecation warning', () => {
     const docsDir = setupProject();
     writeFileSync(path.join(docsDir, 'a.md'),
       '---\nstatus: active\nupdated: 2025-01-01\nmodule: catalog\nmodules:\n  - other\n---\n# A\n');
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     const matches = result.stdout.split('\n').filter(l => l.includes('`module:` (singular) is deprecated'));
     strictEqual(matches.length, 1, `expected exactly one deprecation warning, got: ${result.stdout}`);
     ok(matches[0].includes('modules: ["catalog", "other"]'), `target should merge: ${matches[0]}`);
@@ -649,7 +649,7 @@ describe('F18: singular module/surface deprecation warning', () => {
     const docsDir = setupProject();
     writeFileSync(path.join(docsDir, 'a.md'),
       '---\nstatus: active\nupdated: 2025-01-01\nmodule: catalog\nmodules:\n  - other\n---\n# A\n');
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     ok(!result.stdout.includes('set with different values'),
       `F3 divergence message should be subsumed: ${result.stdout}`);
   });
@@ -658,7 +658,7 @@ describe('F18: singular module/surface deprecation warning', () => {
     const docsDir = setupProject();
     writeFileSync(path.join(docsDir, 'a.md'),
       '---\nstatus: active\nupdated: 2025-01-01\nsurface: web\n---\n# A\n');
-    const result = run(['check']);
+    const result = run(['check', '--verbose']);
     const matches = result.stdout.split('\n').filter(l => l.includes('`surface:` (singular) is deprecated'));
     strictEqual(matches.length, 1, `expected exactly one deprecation warning, got: ${result.stdout}`);
     ok(matches[0].includes('surfaces: ["web"]'), `expected migration target in message: ${matches[0]}`);

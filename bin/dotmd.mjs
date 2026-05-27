@@ -335,15 +335,19 @@ Use --dry-run (-n) to preview changes without writing anything.`,
 
   check: `dotmd check — validate frontmatter and references
 
+By default the warning list is suppressed: you see counts plus a one-line
+pointer to \`dotmd doctor\` (auto-fix) or \`dotmd check --verbose\`
+(per-doc detail). Errors are always shown in full.
+
 Options:
-  --errors-only          Show only errors, suppress warnings
+  --verbose              Show every warning per-doc (with category collapse
+                         applied — high-frequency auto-fixable categories
+                         summarize to a one-line bulk-fix hint).
+  --no-collapse          Like --verbose but disables category collapse too —
+                         every warning prints raw.
+  --errors-only          Show only errors, suppress warnings entirely
   --fix                  Auto-fix broken refs, lint issues, and regenerate index
-  --json                 Output errors and warnings as JSON
-  --no-collapse          Show every warning per-doc (since 0.37.0, high-frequency
-                         auto-fixable warning categories — singular module/surface
-                         deprecations, updated-behind-git — are collapsed into a
-                         one-line summary with the bulk-fix command). --json output
-                         is unchanged regardless.
+  --json                 Output errors and warnings as JSON (always full detail)
   --dry-run, -n          Preview fixes without writing (with --fix)`,
 
   archive: `dotmd archive <file> — archive a document
@@ -1219,6 +1223,7 @@ async function main() {
     const fix = args.includes('--fix');
     const errorsOnly = args.includes('--errors-only');
     const noCollapse = args.includes('--no-collapse');
+    const verbose = args.includes('--verbose');
 
     if (fix) {
       // Auto-fix: broken refs, then lint, then rebuild index
@@ -1249,7 +1254,7 @@ async function main() {
           passed: freshIndex.errors.length === 0,
         }, null, 2) + '\n');
       } else {
-        process.stdout.write('\n' + renderCheck(freshIndex, config, { errorsOnly, noCollapse }));
+        process.stdout.write('\n' + renderCheck(freshIndex, config, { errorsOnly, noCollapse, verbose }));
       }
       if (freshIndex.errors.length > 0) process.exitCode = 1;
       return;
@@ -1268,7 +1273,7 @@ async function main() {
       return;
     }
 
-    process.stdout.write(renderCheck(index, config, { errorsOnly, noCollapse }));
+    process.stdout.write(renderCheck(index, config, { errorsOnly, noCollapse, verbose }));
     if (index.errors.length > 0) process.exitCode = 1;
     return;
   }
