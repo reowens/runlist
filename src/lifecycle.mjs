@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { extractFrontmatter, parseSimpleFrontmatter, replaceFrontmatter } from './frontmatter.mjs';
+import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { asString, toRepoPath, die, warn, resolveDocPath, resolveRefPath, escapeRegex, nowIso, suggestCandidates, emitFilesFooter } from './util.mjs';
 import { gitMv, getGitLastModified, getGitLastModifiedBatch } from './git.mjs';
 import { buildIndex, collectDocFiles } from './index.mjs';
@@ -829,30 +829,40 @@ function updateRefsAfterMove(oldPath, newPath, config) {
 
   for (const docFile of allFiles) {
     if (docFile === newPath) continue;
-    let raw = readFileSync(docFile, 'utf8');
-    const { frontmatter: fm } = extractFrontmatter(raw);
-    if (!fm || !fm.includes(basename)) continue;
+    const raw = readFileSync(docFile, 'utf8');
+    if (!raw.includes(basename)) continue;
+    const { frontmatter: fm, body } = extractFrontmatter(raw);
+    if (!fm) continue;
 
     const docDir = path.dirname(docFile);
     const oldRelPath = path.relative(docDir, oldPath).split(path.sep).join('/');
     const newRelPath = path.relative(docDir, newPath).split(path.sep).join('/');
 
     let newFm = fm;
-
-    // Replace exact relative path
     if (newFm.includes(oldRelPath)) {
       newFm = newFm.split(oldRelPath).join(newRelPath);
     }
-
-    // Also handle ./ prefix variant
     const dotSlashOld = './' + oldRelPath;
     if (newFm.includes(dotSlashOld)) {
       newFm = newFm.split(dotSlashOld).join(newRelPath);
     }
 
-    if (newFm !== fm) {
-      raw = replaceFrontmatter(raw, newFm);
-      writeFileSync(docFile, raw, 'utf8');
+    // Body markdown links [text](path.md) or [text](path.md#anchor) pointing
+    // at oldPath. resolveRefPath can't be used here: oldPath no longer exists
+    // on disk (git mv already ran), so its existsSync probe would fail. Match
+    // by resolving the href manually and comparing absolute paths instead.
+    const linkRegex = /(\[[^\]]*\]\()([^)#]+\.md)(#[^)]*)?(\))/g;
+    const newBody = body.replace(linkRegex, (match, pre, href, frag, post) => {
+      if (/^https?:/i.test(href)) return match;
+      const docRelAbs = path.resolve(docDir, href);
+      const repoRelAbs = path.resolve(config.repoRoot, href);
+      if (docRelAbs !== oldPath && repoRelAbs !== oldPath) return match;
+      const newHref = path.relative(docDir, newPath).split(path.sep).join('/');
+      return `${pre}${newHref}${frag ?? ''}${post}`;
+    });
+
+    if (newFm !== fm || newBody !== body) {
+      writeFileSync(docFile, `---\n${newFm}\n---\n${newBody}`, 'utf8');
       touched.push(docFile);
     }
   }
@@ -895,10 +905,7 @@ function updateRefsFromMovedFile(oldPath, newPath, config) {
   });
 
   if (newFm !== frontmatter || newBody !== body) {
-    const rebuilt = replaceFrontmatter(raw, newFm);
-    // Replace body: rebuilt has updated frontmatter but old body
-    const { frontmatter: updatedFm } = extractFrontmatter(rebuilt);
-    writeFileSync(newPath, `---\n${updatedFm}\n---${newBody}`, 'utf8');
+    writeFileSync(newPath, `---\n${newFm}\n---\n${newBody}`, 'utf8');
     return 1;
   }
 
@@ -913,14 +920,27 @@ function countRefsToUpdate(oldPath, newPath, config) {
   for (const docFile of allFiles) {
     if (docFile === newPath) continue;
     const raw = readFileSync(docFile, 'utf8');
-    const { frontmatter: fm } = extractFrontmatter(raw);
-    if (!fm || !fm.includes(basename)) continue;
+    if (!raw.includes(basename)) continue;
+    const { frontmatter: fm, body } = extractFrontmatter(raw);
+    if (!fm) continue;
 
     const docDir = path.dirname(docFile);
     const oldRelPath = path.relative(docDir, oldPath).split(path.sep).join('/');
-    if (fm.includes(oldRelPath) || fm.includes('./' + oldRelPath)) {
-      count++;
+    const fmHit = fm.includes(oldRelPath) || fm.includes('./' + oldRelPath);
+
+    let bodyHit = false;
+    if (!fmHit) {
+      const linkRegex = /\[[^\]]*\]\(([^)#]+\.md)(?:#[^)]*)?\)/g;
+      for (const match of body.matchAll(linkRegex)) {
+        const href = match[1];
+        if (/^https?:/i.test(href)) continue;
+        const docRelAbs = path.resolve(docDir, href);
+        const repoRelAbs = path.resolve(config.repoRoot, href);
+        if (docRelAbs === oldPath || repoRelAbs === oldPath) { bodyHit = true; break; }
+      }
     }
+
+    if (fmHit || bodyHit) count++;
   }
 
   return count;

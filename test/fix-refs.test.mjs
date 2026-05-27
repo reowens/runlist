@@ -295,4 +295,97 @@ describe('archive updates references', () => {
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(result.stdout.includes('Would update references'), 'shows would-update message');
   });
+
+  function setupArchiveScenario(aBody) {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-arcrefs-'));
+    spawnSync('git', ['init'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
+
+    const docsDir = path.join(tmpDir, 'docs');
+    mkdirSync(docsDir, { recursive: true });
+    mkdirSync(path.join(docsDir, 'archived'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';`);
+
+    writeFileSync(path.join(docsDir, 'a.md'),
+      `---\nstatus: active\nupdated: 2025-01-01\n---\n# A\n\n${aBody}\n`);
+    writeFileSync(path.join(docsDir, 'b.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\n---\n# B\n');
+    spawnSync('git', ['add', '.'], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-m', 'init'], { cwd: tmpDir });
+    return docsDir;
+  }
+
+  it('rewrites body markdown links pointing at the archived file', () => {
+    const docsDir = setupArchiveScenario('See [B](b.md) for details.');
+    const result = run(['archive', path.join(docsDir, 'b.md')]);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    const aContent = readFileSync(path.join(docsDir, 'a.md'), 'utf8');
+    ok(aContent.includes('[B](archived/b.md)'),
+      `body link not rewritten:\n${aContent}`);
+    ok(!aContent.includes('[B](b.md)'), 'old body link should be gone');
+  });
+
+  it('rewrites body links with ./ prefix', () => {
+    const docsDir = setupArchiveScenario('See [B](./b.md) for details.');
+    const result = run(['archive', path.join(docsDir, 'b.md')]);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    const aContent = readFileSync(path.join(docsDir, 'a.md'), 'utf8');
+    ok(aContent.includes('[B](archived/b.md)'),
+      `./ prefix body link not rewritten:\n${aContent}`);
+  });
+
+  it('preserves anchor fragments on body link rewrite', () => {
+    const docsDir = setupArchiveScenario('See [B](b.md#section) for details.');
+    const result = run(['archive', path.join(docsDir, 'b.md')]);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    const aContent = readFileSync(path.join(docsDir, 'a.md'), 'utf8');
+    ok(aContent.includes('[B](archived/b.md#section)'),
+      `anchor not preserved:\n${aContent}`);
+  });
+
+  it('leaves http(s) links alone', () => {
+    const docsDir = setupArchiveScenario('See [B](https://example.com/b.md) online.');
+    const result = run(['archive', path.join(docsDir, 'b.md')]);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    const aContent = readFileSync(path.join(docsDir, 'a.md'), 'utf8');
+    ok(aContent.includes('[B](https://example.com/b.md)'),
+      `external link should be untouched:\n${aContent}`);
+  });
+
+  it('counts body-only-touched files in the "Updated references" total', () => {
+    const docsDir = setupArchiveScenario('See [B](b.md) for details.');
+    const result = run(['archive', path.join(docsDir, 'b.md')]);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('Updated references in 1 file(s)'),
+      `expected body-link rewrite to count toward total:\n${result.stdout}`);
+  });
+
+  it('produces well-formed frontmatter in the archived file after body-link self-fix', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-arcrefs-'));
+    spawnSync('git', ['init'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
+
+    const docsDir = path.join(tmpDir, 'docs');
+    mkdirSync(path.join(docsDir, 'plans'), { recursive: true });
+    mkdirSync(path.join(docsDir, 'journeys'), { recursive: true });
+    mkdirSync(path.join(docsDir, 'archived'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';`);
+
+    writeFileSync(path.join(docsDir, 'journeys', 'target.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\n---\n# Target\n');
+    writeFileSync(path.join(docsDir, 'plans', 'source.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\n---\n# Source\n\nSee [target](../journeys/target.md).\n');
+    spawnSync('git', ['add', '.'], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-m', 'init'], { cwd: tmpDir });
+
+    const result = run(['archive', path.join(docsDir, 'plans', 'source.md')]);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+
+    const archived = readFileSync(path.join(docsDir, 'archived', 'source.md'), 'utf8');
+    ok(archived.startsWith('---\n'), 'opens with frontmatter delimiter');
+    ok(archived.includes('\n---\n'),
+      `closing frontmatter delimiter must be on its own line:\n${archived}`);
+  });
 });
