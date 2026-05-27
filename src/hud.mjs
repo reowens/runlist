@@ -76,10 +76,13 @@ export function buildHud(config) {
   // Validation error count — hud's "silent when clean" contract should treat
   // `check` errors as not-clean. Without this, a SessionStart hook firing hud
   // can leave the agent with no visible signal that a check is failing.
-  // buildIndex wraps the same scan every other read command does; cost is fine.
+  // `errorsOnly: true` skips warning-only cross-doc passes (git staleness,
+  // bidirectional refs, claude-commands) that hud never reads — ~6× faster on
+  // SessionStart for platform-scale corpora. Per-file validation + checkIndex
+  // still run, so the error count matches `dotmd check`'s.
   let errors = 0;
   try {
-    const index = buildIndex(config);
+    const index = buildIndex(config, { errorsOnly: true });
     errors = index.errors.length;
   } catch { /* swallow — bad config shouldn't break the SessionStart hook */ }
 

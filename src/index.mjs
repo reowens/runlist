@@ -7,14 +7,22 @@ import { validateDoc, validatePlanShape, validateDocShape, checkBidirectionalRef
 import { checkIndex } from './index-file.mjs';
 import { checkClaudeCommands } from './claude-commands.mjs';
 
-// `fast: true` skips every pass that only produces warnings/errors — the
-// rendered index file consumes only status/title/snapshot/etc., not the
-// validation output. Use it from `regenIndex` (post-mutation index refresh)
-// where validation has already run elsewhere (or will, next time the user
-// runs `dotmd check`). Saves the full-repo `git log` scan in
-// `checkGitStaleness` plus the bidirectional ref walk + claude-commands check.
+// `fast: true` skips every pass that produces warnings/errors — the rendered
+// index file consumes only status/title/snapshot/etc., not the validation
+// output. Use it from `regenIndex` (post-mutation index refresh) where
+// validation has already run elsewhere (or will, next time the user runs
+// `dotmd check`). Saves the full-repo `git log` scan in `checkGitStaleness`
+// plus the bidirectional ref walk + claude-commands check.
+//
+// `errorsOnly: true` runs every error-producing pass (per-file `validateDoc`,
+// `checkIndex`, the `validate` hook) but skips the warning-only cross-doc
+// passes (bidirectional refs, runlist back-pointers, git staleness, claude
+// commands). Use it from `dotmd hud` — the SessionStart hook only renders the
+// error COUNT, so the warning-only passes are pure overhead there. Preserves
+// the invariant that hud's "✗ N validation errors" line matches `dotmd check`.
 export function buildIndex(config, opts = {}) {
-  const { fast = false } = opts;
+  const { fast = false, errorsOnly = false } = opts;
+  const skipWarningOnlyChecks = fast || errorsOnly;
   const docs = collectDocFiles(config).map(f => parseDocFile(f, config, { fast }));
   if (!fast) {
     // Per-file validation (validateDoc) ran during parse without sibling
@@ -86,13 +94,13 @@ export function buildIndex(config, opts = {}) {
     countsByType[type][doc.status] = (countsByType[type][doc.status] ?? 0) + 1;
   }
 
-  if (!fast) {
-    if (config.indexPath) {
-      const indexCheck = checkIndex(transformedDocs, config);
-      warnings.push(...indexCheck.warnings);
-      errors.push(...indexCheck.errors);
-    }
+  if (!fast && config.indexPath) {
+    const indexCheck = checkIndex(transformedDocs, config);
+    warnings.push(...indexCheck.warnings);
+    errors.push(...indexCheck.errors);
+  }
 
+  if (!skipWarningOnlyChecks) {
     const refCheck = checkBidirectionalReferences(transformedDocs, config);
     warnings.push(...refCheck.warnings);
 

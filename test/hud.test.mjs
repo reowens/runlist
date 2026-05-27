@@ -329,6 +329,45 @@ export const types = {
       'JSON mode should not create the primer marker');
   });
 
+  it('error count matches `dotmd check` (errorsOnly mode preserves invariant)', () => {
+    // F22 regression: hud uses buildIndex({ errorsOnly: true }) to skip
+    // warning-only cross-doc passes (git staleness, bidirectional refs,
+    // claude-commands) for ~6× SessionStart speedup. The contract: hud's
+    // error count must still equal what `dotmd check` would report — agents
+    // shouldn't see "✗ 2 validation errors" and then run check to see 3.
+    // Covers the three categories of errors hud must continue to surface:
+    //   - per-file validateDoc errors (archive drift here; same path covers
+    //     missing-status, unknown-status, bad-blockers-list, etc.)
+    //   - checkIndex errors (index drift between sidecar and corpus)
+    //   - clean-repo baseline (both must report 0)
+    function errorCount(jsonOutput) {
+      return JSON.parse(jsonOutput).errors ?? 0;
+    }
+    function checkErrorCount(checkOutput) {
+      // `dotmd check --json` returns { errors: [...], warnings: [...] }
+      return (JSON.parse(checkOutput).errors ?? []).length;
+    }
+
+    // Scenario 1: clean repo — both report 0.
+    const docsDir = setupProject();
+    writeDoc(docsDir, 'plan-a.md', 'type: plan\nstatus: active\nupdated: 2025-01-01\nmodules: [core]', '# A\n');
+    let hudJson = runCli(['hud', '--json']);
+    let checkJson = runCli(['check', '--json']);
+    strictEqual(hudJson.status, 0, `hud failed: ${hudJson.stderr}`);
+    strictEqual(checkJson.status, 0, `check failed: ${checkJson.stderr}`);
+    strictEqual(errorCount(hudJson.stdout), checkErrorCount(checkJson.stdout),
+      `clean-repo parity: hud=${errorCount(hudJson.stdout)} check=${checkErrorCount(checkJson.stdout)}`);
+    strictEqual(errorCount(hudJson.stdout), 0, 'clean repo should report 0 errors');
+
+    // Scenario 2: per-file validateDoc error (archive-drift).
+    writeDoc(docsDir, 'broken.md', 'type: plan\nstatus: archived\nupdated: 2025-01-01', '# Broken\n');
+    hudJson = runCli(['hud', '--json']);
+    checkJson = runCli(['check', '--json']);
+    strictEqual(errorCount(hudJson.stdout), checkErrorCount(checkJson.stdout),
+      `per-file-error parity: hud=${errorCount(hudJson.stdout)} check=${checkErrorCount(checkJson.stdout)}\nhud: ${hudJson.stdout}\ncheck: ${checkJson.stdout}`);
+    ok(errorCount(hudJson.stdout) >= 1, 'per-file error should be counted');
+  });
+
   it('output stays under ~500 bytes when full of common signals', () => {
     const docsDir = setupProject();
     for (let i = 0; i < 5; i++) {
