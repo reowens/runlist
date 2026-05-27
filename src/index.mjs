@@ -74,6 +74,18 @@ export function buildIndex(config, opts = {}) {
     }
   }
 
+  // Per-type counts (F6): same input docs, keyed by `type` first so callers
+  // can distinguish `plan/partial` (work shipped + tail deferred) from
+  // `doc/partial` (incomplete reference material). Untyped docs (pre-0.30
+  // corpora) land under `unknown` rather than getting dropped silently.
+  const countsByType = {};
+  for (const doc of transformedDocs) {
+    if (!doc.status) continue;
+    const type = doc.type || 'unknown';
+    if (!countsByType[type]) countsByType[type] = {};
+    countsByType[type][doc.status] = (countsByType[type][doc.status] ?? 0) + 1;
+  }
+
   if (!fast) {
     if (config.indexPath) {
       const indexCheck = checkIndex(transformedDocs, config);
@@ -95,6 +107,7 @@ export function buildIndex(config, opts = {}) {
     generatedAt: new Date().toISOString(),
     docs: transformedDocs,
     countsByStatus,
+    countsByType,
     warnings,
     errors,
   };

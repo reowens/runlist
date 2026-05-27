@@ -35,8 +35,14 @@ function makeDoc(overrides = {}) {
 
 function makeIndex(docs, errors = [], warnings = []) {
   const countsByStatus = {};
-  for (const d of docs) countsByStatus[d.status] = (countsByStatus[d.status] || 0) + 1;
-  return { docs, countsByStatus, errors, warnings };
+  const countsByType = {};
+  for (const d of docs) {
+    countsByStatus[d.status] = (countsByStatus[d.status] || 0) + 1;
+    const t = d.type || 'unknown';
+    if (!countsByType[t]) countsByType[t] = {};
+    countsByType[t][d.status] = (countsByType[t][d.status] || 0) + 1;
+  }
+  return { docs, countsByStatus, countsByType, errors, warnings };
 }
 
 function run(args) {
@@ -232,6 +238,56 @@ describe('renderStats', () => {
     const stats = buildStats(makeIndex([makeDoc()]), config);
     strictEqual(renderStats(stats, config), 'custom\n');
   });
+
+  it('renders flat Status line when only one type has docs (F6)', () => {
+    // F6: single-type repos should NOT grow a `Plans:` header; the flat
+    // line stays exactly as it was pre-F6.
+    const config = makeConfig({ validTypes: new Set(['plan', 'doc']) });
+    const stats = buildStats(makeIndex([
+      makeDoc({ type: 'plan', status: 'active' }),
+      makeDoc({ type: 'plan', status: 'planned' }),
+    ]), config);
+    const text = renderStats(stats, config);
+    ok(!text.includes('Plans:'), `single-type render should NOT include type header; got:\n${text}`);
+    ok(text.includes('active: 1'), 'flat Status line includes active');
+    ok(text.includes('planned: 1'), 'flat Status line includes planned');
+  });
+
+  it('groups Status by type when 2+ types have docs (F6)', () => {
+    // F6: the canonical case from the audit — plan/partial and doc/partial
+    // are semantically distinct buckets and must render as separate lines.
+    const config = makeConfig({ validTypes: new Set(['plan', 'doc']) });
+    const stats = buildStats(makeIndex([
+      makeDoc({ type: 'plan', status: 'active' }),
+      makeDoc({ type: 'plan', status: 'partial' }),
+      makeDoc({ type: 'doc', status: 'active' }),
+      makeDoc({ type: 'doc', status: 'partial' }),
+      makeDoc({ type: 'doc', status: 'partial' }),
+    ]), config);
+    const text = renderStats(stats, config);
+    ok(text.includes('Plans:'), `expected Plans: header; got:\n${text}`);
+    ok(text.includes('Docs:'), `expected Docs: header; got:\n${text}`);
+    // Plans line: 1 partial. Docs line: 2 partial. The lumped flat count
+    // would have been 3 partial.
+    const planLine = text.split('\n').find(l => l.includes('Plans:'));
+    const docLine = text.split('\n').find(l => l.includes('Docs:'));
+    ok(planLine.includes('partial: 1'), `plan/partial = 1; line was: ${planLine}`);
+    ok(docLine.includes('partial: 2'), `doc/partial = 2; line was: ${docLine}`);
+    // Plans line precedes Docs line (config.validTypes declaration order).
+    ok(text.indexOf('Plans:') < text.indexOf('Docs:'), 'Plans renders before Docs');
+  });
+
+  it('labels untyped bucket as `Untyped` and sorts it last (F6)', () => {
+    const config = makeConfig({ validTypes: new Set(['plan']) });
+    const stats = buildStats(makeIndex([
+      makeDoc({ type: 'plan', status: 'active' }),
+      makeDoc({ status: 'active' }), // no type
+    ]), config);
+    const text = renderStats(stats, config);
+    ok(text.includes('Plans:'), 'has Plans header');
+    ok(text.includes('Untyped:'), 'has Untyped header');
+    ok(text.indexOf('Plans:') < text.indexOf('Untyped:'), 'Untyped renders after known types');
+  });
 });
 
 describe('renderStatsJson', () => {
@@ -246,6 +302,19 @@ describe('renderStatsJson', () => {
     ok(json.completeness);
     ok(json.checklists);
     ok(json.audit);
+  });
+
+  it('exposes countsByType alongside countsByStatus (F6)', () => {
+    const config = makeConfig();
+    const stats = buildStats(makeIndex([
+      makeDoc({ type: 'plan', status: 'active' }),
+      makeDoc({ type: 'doc', status: 'partial' }),
+    ]), config);
+    const json = JSON.parse(renderStatsJson(stats));
+    ok(json.countsByStatus, 'has flat countsByStatus (back-compat)');
+    ok(json.countsByType, 'has typed countsByType (F6 addition)');
+    strictEqual(json.countsByType.plan.active, 1);
+    strictEqual(json.countsByType.doc.partial, 1);
   });
 });
 

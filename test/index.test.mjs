@@ -426,6 +426,38 @@ describe('buildIndex', () => {
     strictEqual(index.countsByStatus['custom-status'], 1);
   });
 
+  it('builds countsByType keyed by type/status (F6)', async () => {
+    // F6: countsByStatus flat-counts `partial: 3` whether the docs are
+    // plan/partial (shipped + tail deferred) or doc/partial (incomplete
+    // reference). countsByType preserves the distinction so stats /
+    // briefing can render them as separate buckets.
+    const docsDir = setup();
+    writeDoc(docsDir, 'p1.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# P1');
+    writeDoc(docsDir, 'p2.md', 'type: plan\nstatus: partial\nupdated: 2025-01-01', '# P2');
+    writeDoc(docsDir, 'd1.md', 'type: doc\nstatus: active\nupdated: 2025-01-01', '# D1');
+    writeDoc(docsDir, 'd2.md', 'type: doc\nstatus: partial\nupdated: 2025-01-01', '# D2');
+    writeDoc(docsDir, 'd3.md', 'type: doc\nstatus: partial\nupdated: 2025-01-01', '# D3');
+    const config = await resolveConfig(tmpDir);
+    const index = buildIndex(config);
+
+    ok(typeof index.countsByType === 'object', 'has countsByType field');
+    strictEqual(index.countsByType.plan?.active, 1, 'plan/active = 1');
+    strictEqual(index.countsByType.plan?.partial, 1, 'plan/partial = 1');
+    strictEqual(index.countsByType.doc?.active, 1, 'doc/active = 1');
+    strictEqual(index.countsByType.doc?.partial, 2, 'doc/partial = 2');
+    // Flat sum is preserved for back-compat callers.
+    strictEqual(index.countsByStatus.partial, 3, 'flat partial = 3 (sum)');
+    strictEqual(index.countsByStatus.active, 2, 'flat active = 2 (sum)');
+  });
+
+  it('buckets untyped docs under `unknown` in countsByType (F6)', async () => {
+    const docsDir = setup();
+    writeDoc(docsDir, 'a.md', 'status: active\nupdated: 2025-01-01', '# A');
+    const config = await resolveConfig(tmpDir);
+    const index = buildIndex(config);
+    strictEqual(index.countsByType.unknown?.active, 1, 'untyped doc lands under `unknown`');
+  });
+
   it('runs validate hook and collects hook warnings', async () => {
     const docsDir = setup(`
 export function validate(doc) {

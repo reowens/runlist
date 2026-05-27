@@ -2,7 +2,22 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+
 ## Unreleased
+
+F6 from `docs/audit-example-project.md`. The last open polish item: `dotmd stats` flat-counted `partial: 84` whether the docs were `plan/partial` (work shipped + tail deferred) or `doc/partial` (incomplete reference material). Now per-type.
+
+### Added
+
+- **`buildIndex` exposes `countsByType` alongside `countsByStatus`. (Audit F6.)** Same input docs, keyed by `type` first: `{ plan: { active: 1, partial: 1, … }, doc: { active: 1, partial: 2, … }, prompt: { … }, unknown: { … } }`. The flat `countsByStatus` stays as the sum across types — back-compat for any external consumer; no removal.
+- **`dotmd stats` renders the Status block per type when 2+ types have docs.** `Plans: active: 34  partial: 22`, `Docs: active: 125  partial: 62`. Single-type corpora keep the existing flat line — no needless `Plans:` header on a plans-only repo. Type order follows `config.validTypes` declaration order; untyped docs render last under `Untyped:`.
+- **`dotmd stats --json` includes `countsByType`** alongside the existing `countsByStatus`. Both populated; tooling can pick whichever shape it prefers.
+
+### Tests
+
+6 new (`test/index.test.mjs` covers the typed shape + untyped bucket; `test/stats.test.mjs` covers flat vs grouped render and JSON exposure). 945 → 951 passing.
+
+## 0.39.5 — 2026-05-26
 
 Sprint 3 of agent-DX work from issue #10. Three findings — `dotmd doctor --frontmatter-fix` (#7), deterministic archive-collision paths (#6), and `dotmd archive --closeout-template` (#5). One behavior change: archive collisions now use a numeric suffix instead of a UTC timestamp; the rest is opt-in.
 

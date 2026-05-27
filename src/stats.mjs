@@ -46,6 +46,7 @@ export function buildStats(index, config) {
     generatedAt: new Date().toISOString(),
     totalDocs: docs.length,
     countsByStatus: index.countsByStatus,
+    countsByType: index.countsByType ?? {},
     health: {
       staleCount,
       stalePct: pct(staleCount, nonArchived.length),
@@ -97,16 +98,45 @@ function _renderStats(stats, config) {
   lines.push(bold(`Stats`) + dim(` — ${stats.totalDocs} docs`));
   lines.push('');
 
-  // Status
+  // Status. With F6, render one line per type when 2+ types have docs so
+  // `plan/partial` and `doc/partial` (semantically distinct under per-type
+  // taxonomies) don't collapse into one number. Single-type corpora keep the
+  // existing flat line — no needless `Plans:` header on a plans-only repo.
   lines.push(bold('Status'));
-  const allStatuses = [
-    ...config.statusOrder.filter(s => stats.countsByStatus[s]),
-    ...Object.keys(stats.countsByStatus).filter(s => !config.statusOrder.includes(s)).sort(),
-  ];
-  const statusParts = allStatuses
-    .filter(s => stats.countsByStatus[s])
-    .map(s => `${s}: ${stats.countsByStatus[s]}`);
-  lines.push('  ' + statusParts.join('  '));
+  const typesWithDocs = Object.entries(stats.countsByType ?? {})
+    .filter(([, statusMap]) => Object.values(statusMap).some(n => n > 0));
+  if (typesWithDocs.length > 1) {
+    // Type order: respect config.validTypes declaration order; unknown last.
+    const typeOrder = [...(config.validTypes ?? [])];
+    const sortedTypes = typesWithDocs.sort(([a], [b]) => {
+      const ai = typeOrder.indexOf(a);
+      const bi = typeOrder.indexOf(b);
+      if (ai === -1 && bi === -1) return a.localeCompare(b);
+      if (ai === -1) return 1;
+      if (bi === -1) return -1;
+      return ai - bi;
+    });
+    const labelFor = (t) => t === 'unknown' ? 'Untyped' : (t.charAt(0).toUpperCase() + t.slice(1) + 's');
+    for (const [type, statusMap] of sortedTypes) {
+      const statusesForType = [
+        ...config.statusOrder.filter(s => statusMap[s]),
+        ...Object.keys(statusMap).filter(s => !config.statusOrder.includes(s)).sort(),
+      ];
+      const parts = statusesForType
+        .filter(s => statusMap[s])
+        .map(s => `${s}: ${statusMap[s]}`);
+      lines.push(`  ${dim(labelFor(type) + ':')} ${parts.join('  ')}`);
+    }
+  } else {
+    const allStatuses = [
+      ...config.statusOrder.filter(s => stats.countsByStatus[s]),
+      ...Object.keys(stats.countsByStatus).filter(s => !config.statusOrder.includes(s)).sort(),
+    ];
+    const statusParts = allStatuses
+      .filter(s => stats.countsByStatus[s])
+      .map(s => `${s}: ${stats.countsByStatus[s]}`);
+    lines.push('  ' + statusParts.join('  '));
+  }
   lines.push('');
 
   // Health
