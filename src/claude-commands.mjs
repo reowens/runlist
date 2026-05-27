@@ -74,7 +74,8 @@ function generatePlansCommand(config) {
   lines.push('- `dotmd prompts use <file>` — consume a specific prompt (prints body, auto-archives)');
   lines.push('- `dotmd archive <file>` — archive with auto ref-fixing (both directions)');
   lines.push('- `dotmd bulk archive <files>` — archive multiple at once');
-  lines.push('- `dotmd status <file> <status>` — transition status');
+  lines.push('- `dotmd set <status> [<file>]` — unified transition (archive / release / status bump in one verb; infers path from held lease)');
+  lines.push('- `dotmd status <file> <status>` — transition status (legacy; `set` is preferred)');
   lines.push('- `dotmd query --keyword <term>` — find plans by keyword');
 
   if (config.raw?.glossary) {
@@ -153,7 +154,8 @@ function generateDocsCommand(config) {
   lines.push('- `dotmd prompts new <name> "<body>"` — save a resume-prompt');
   lines.push('- `dotmd prompts next` — consume oldest pending prompt (prints body, auto-archives)');
   lines.push('- `dotmd prompts use <file>` — consume a specific prompt (prints body, auto-archives)');
-  lines.push('- `dotmd status <file> <status>` — transition status');
+  lines.push('- `dotmd set <status> [<file>]` — unified transition (archive / release / status bump; infers path from held lease)');
+  lines.push('- `dotmd status <file> <status>` — transition status (legacy; `set` is preferred)');
   lines.push('- `dotmd archive <file>` — archive with auto ref-fixing');
   lines.push('- `dotmd bulk archive <files>` — archive multiple at once');
   lines.push('- `dotmd touch --git` — bulk-sync updated dates from git history');

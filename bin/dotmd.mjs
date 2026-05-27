@@ -53,6 +53,7 @@ Lifecycle:
   runlist <hub> [next]              Show or walk an ordered group of plans (see \`dotmd help runlist\`)
   finish <file> [done|active]       Finish a plan (set done or active)
   status <file> <status>            Transition document status
+  set <status> [<file>]             Unified transition: archive/release/transition in one verb
   archive <file>                    Archive (status + move + update refs)
   bulk archive <f1> <f2> ...        Archive multiple files at once
   bulk-tag [files...]               Tag pre-existing untagged .md files
@@ -305,6 +306,30 @@ Options:
   --dry-run, -n          Preview without writing
 
 If no file is given, prompts with a list of in-session plans.`,
+
+  set: `dotmd set <status> [<file>] — unified status-transition verb
+
+Routes to the right plumbing based on the target status:
+  - target is an archive status → archive the file (move + ref update)
+  - source is in-session         → also releases the held lease
+  - everything else              → plain frontmatter status bump
+
+When <file> is omitted, dotmd infers it from the calling session's held
+lease. With zero or multiple leases, you must pass <file> explicitly.
+
+To acquire an in-session lease, use \`dotmd pickup <file>\` instead —
+\`dotmd set in-session\` is refused so the asymmetric lease-acquisition
+path is never skipped silently.
+
+Options:
+  --no-index             Skip index regen (see \`dotmd archive --help\`).
+  --show-files           Append \`files: …\` footer.
+  --dry-run, -n          Preview without writing.
+
+Examples:
+  dotmd set partial                 # release current lease, mark partial
+  dotmd set archived docs/plans/x   # archive a specific plan
+  dotmd set active                  # finish a held in-session plan`,
 
   status: `dotmd status <file> <new-status> — transition document status
 
@@ -1137,6 +1162,7 @@ async function main() {
   if (command === 'handoff') { die('`dotmd handoff` was removed in 0.31.0. Use `dotmd prompts new <name>` to create a saved prompt instead. The .dotmd/handoffs/ sidecar mechanism no longer exists; see CHANGELOG.'); }
   if (command === 'finish') { const { runFinish } = await import('../src/lifecycle.mjs'); await runFinish(restArgs, config, { dryRun }); return; }
   if (command === 'status') { const { runStatus } = await import('../src/lifecycle.mjs'); await runStatus(restArgs, config, { dryRun }); return; }
+  if (command === 'set') { const { runSet } = await import('../src/lifecycle.mjs'); await runSet(restArgs, config, { dryRun }); return; }
   if (command === 'archive') { const { runArchive } = await import('../src/lifecycle.mjs'); runArchive(restArgs, config, { dryRun }); return; }
   if (command === 'bulk' && restArgs[0] === 'archive') { const { runBulkArchive } = await import('../src/lifecycle.mjs'); runBulkArchive(restArgs.slice(1), config, { dryRun }); return; }
   if (command === 'bulk' && restArgs[0] === 'tag') { const { runBulkTag } = await import('../src/bulk-tag.mjs'); runBulkTag(restArgs.slice(1), config, { dryRun }); return; }

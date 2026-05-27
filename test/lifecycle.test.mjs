@@ -851,6 +851,100 @@ describe('init writes .dotmd/ to .gitignore', () => {
   });
 });
 
+describe('dotmd set — unified status transition', () => {
+  function runCli(args, env = {}) {
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    return spawnSync('node', [bin, ...args, '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir,
+      encoding: 'utf8',
+      env: { ...process.env, ...env, PATH: process.env.PATH },
+    });
+  }
+
+  it('archive transition: `dotmd set archived <f>` moves file and updates refs', () => {
+    const docsDir = setupProject();
+    const filePath = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# A\n');
+
+    const result = runCli(['set', 'archived', filePath]);
+    strictEqual(result.status, 0, `set archived should succeed: ${result.stderr}`);
+    ok(existsSync(path.join(docsDir, 'archived', 'a.md')), 'file moved to archive dir');
+    ok(!existsSync(filePath), 'original location should be empty');
+  });
+
+  it('infers path from held lease when only <status> is given', () => {
+    const docsDir = setupProject();
+    const filePath = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# A\n');
+
+    const pickup = runCli(['pickup', filePath], { CLAUDE_CODE_SESSION_ID: 'sess-S' });
+    strictEqual(pickup.status, 0, `pickup should succeed: ${pickup.stderr}`);
+
+    const result = runCli(['set', 'partial'], { CLAUDE_CODE_SESSION_ID: 'sess-S' });
+    strictEqual(result.status, 0, `set should succeed: ${result.stderr}`);
+
+    const content = readFileSync(filePath, 'utf8');
+    ok(content.includes('status: partial'), `expected status: partial in:\n${content}`);
+
+    const leaseFile = path.join(tmpDir, '.dotmd', 'in-session.json');
+    ok(!existsSync(leaseFile), 'lease should be auto-released after leaving in-session');
+  });
+
+  it('refuses when no path given and no held lease', () => {
+    const docsDir = setupProject();
+    writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# A\n');
+
+    const result = runCli(['set', 'partial']);
+    ok(result.status !== 0, 'should fail');
+    ok(result.stderr.includes('no held lease') || result.stderr.includes('no held lease to infer'),
+      `expected helpful error, got: ${result.stderr}`);
+  });
+
+  it('refuses when no path given and multiple leases held', () => {
+    const docsDir = setupProject();
+    const a = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# A\n');
+    const b = writeDoc(docsDir, 'b.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# B\n');
+
+    runCli(['pickup', a], { CLAUDE_CODE_SESSION_ID: 'sess-multi' });
+    runCli(['pickup', b], { CLAUDE_CODE_SESSION_ID: 'sess-multi' });
+
+    const result = runCli(['set', 'partial'], { CLAUDE_CODE_SESSION_ID: 'sess-multi' });
+    ok(result.status !== 0, 'should fail');
+    ok(/you hold 2 leases/i.test(result.stderr),
+      `expected multi-lease error, got: ${result.stderr}`);
+  });
+
+  it('refuses `set in-session` and points at pickup', () => {
+    const docsDir = setupProject();
+    const filePath = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# A\n');
+
+    const result = runCli(['set', 'in-session', filePath]);
+    ok(result.status !== 0, 'should fail');
+    ok(result.stderr.includes('dotmd pickup'),
+      `expected pickup pointer, got: ${result.stderr}`);
+  });
+
+  it('rejects an invalid status with suggestion', () => {
+    const docsDir = setupProject();
+    const filePath = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# A\n');
+
+    const result = runCli(['set', 'fnord', filePath]);
+    ok(result.status !== 0, 'should fail');
+    ok(/Invalid status/.test(result.stderr),
+      `expected validation error, got: ${result.stderr}`);
+  });
+
+  it('non-archive transition leaves a non-in-session lease alone', () => {
+    // If the user manually sets status from `active → partial` (no lease was
+    // held), nothing should attempt to release a lease that doesn't exist.
+    const docsDir = setupProject();
+    const filePath = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# A\n');
+
+    const result = runCli(['set', 'partial', filePath]);
+    strictEqual(result.status, 0, `set should succeed: ${result.stderr}`);
+    const content = readFileSync(filePath, 'utf8');
+    ok(content.includes('status: partial'));
+  });
+});
+
 describe('--no-index flag (issue #10 finding #3)', () => {
   // Concurrent-session repos doing path-limited commits don't want every
   // lifecycle verb to rewrite docs/plans/README.md — that pulls in other

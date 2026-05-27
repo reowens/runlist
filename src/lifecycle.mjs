@@ -680,6 +680,82 @@ export function runArchive(argv, config, opts = {}) {
   return { touched };
 }
 
+// Unified status-transition verb. Collapses status/archive/release into one
+// signature — `dotmd set <status> [<path>]` — and dispatches to the right
+// plumbing based on the *target* status:
+//   - target in archiveStatuses (and file not already archived) → runArchive
+//     (gets us ref-fixing + auto lease release + closeout-template offer)
+//   - source = in-session, target != in-session                → runStatus +
+//     auto-release of the held lease (so users don't have to chain `release`)
+//   - everything else (incl. unarchive, plain transitions)     → runStatus
+//
+// Path is inferred from the calling session's held lease when omitted. With
+// zero leases or >1 leases, we refuse and ask for explicit `<path>` instead
+// of guessing.
+//
+// `dotmd set in-session <path>` is refused — acquiring a lease is asymmetric
+// enough to deserve its own verb (`dotmd pickup`), and silently routing here
+// would skip the lease-acquisition path entirely.
+export async function runSet(argv, config, opts = {}) {
+  const { dryRun } = opts;
+  const noIndex = argv.includes('--no-index');
+  const showFiles = argv.includes('--show-files');
+  argv = argv.filter(a => a !== '--no-index' && a !== '--show-files');
+
+  const newStatus = argv[0];
+  let input = argv[1];
+
+  if (!newStatus) die('Usage: dotmd set <status> [<path>]');
+
+  if (newStatus === 'in-session') {
+    die('To acquire an in-session lease, use `dotmd pickup <file>`. `dotmd set` is for releasing/transitioning a held lease.');
+  }
+
+  if (!input) {
+    const leases = readLeases(config);
+    const sid = currentSessionId();
+    const owned = Object.entries(leases).filter(([_, l]) => l.session === sid);
+    if (owned.length === 0) {
+      die('No <path> given and no held lease to infer from.\nUsage: dotmd set <status> <path>');
+    }
+    if (owned.length > 1) {
+      const paths = owned.map(([p]) => `  - ${p}`).join('\n');
+      die(`No <path> given; you hold ${owned.length} leases:\n${paths}\nSpecify <path> explicitly.`);
+    }
+    input = owned[0][0];
+  }
+
+  const filePath = resolveDocPath(input, config);
+  if (!filePath) die(`File not found: ${input}\nSearched: ${toRepoPath(config.repoRoot, config.repoRoot) || '.'}, ${toRepoPath(config.docsRoot, config.repoRoot)}`);
+
+  const raw = readFileSync(filePath, 'utf8');
+  const { frontmatter: fmRaw } = extractFrontmatter(raw);
+  const parsedFm = parseSimpleFrontmatter(fmRaw);
+  const oldStatus = asString(parsedFm.status);
+
+  const fileRoot = findFileRoot(filePath, config);
+  const relFromRoot = path.relative(fileRoot, filePath);
+  const inArchive = relFromRoot.startsWith(config.archiveDir + '/') || relFromRoot.startsWith(config.archiveDir + path.sep);
+
+  if (config.lifecycle.archiveStatuses.has(newStatus) && !inArchive) {
+    const archiveArgs = [filePath];
+    if (noIndex) archiveArgs.push('--no-index');
+    if (showFiles) archiveArgs.push('--show-files');
+    return runArchive(archiveArgs, config, { dryRun });
+  }
+
+  const statusArgs = [filePath, newStatus];
+  if (noIndex) statusArgs.push('--no-index');
+  if (showFiles) statusArgs.push('--show-files');
+  await runStatus(statusArgs, config, { dryRun });
+
+  if (oldStatus === 'in-session' && newStatus !== 'in-session' && !dryRun) {
+    const repoPath = toRepoPath(filePath, config.repoRoot);
+    try { releaseLease(config, repoPath, { force: false }); }
+    catch (err) { warn(`Could not release lease for ${repoPath}: ${err.message}`); }
+  }
+}
+
 export function runBulkArchive(argv, config, opts = {}) {
   const { dryRun } = opts;
   const noIndex = argv.includes('--no-index') || opts.noIndex;
