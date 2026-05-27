@@ -61,6 +61,29 @@ The prompt lands under `docs/prompts/<name>.md` with `status: pending`. The next
 
 Use this whenever you'd otherwise print a multi-line "here's how to resume" block.
 
+### Grouping plans into runlists
+
+When several plans need to ship in a known order (e.g. an "auth revamp" sprint with extract → rewrite → cleanup phases), declare a `runlist:` on a hub plan instead of chaining `queued-after` per pair or maintaining the order in prose:
+
+```yaml
+---
+type: plan
+status: active
+title: Auth Revamp
+runlist:
+  - auth-revamp-01-extract.md
+  - auth-revamp-02-rewrite.md
+  - auth-revamp-03-cleanup.md
+---
+```
+
+Then:
+
+- `dotmd runlist <hub>` — show the children + their statuses in order. First non-archived child is marked `→` (that's the next pickup target).
+- `dotmd runlist next <hub>` — pick up the first non-archived child. If it's not in a pickup-able status (`active` / `planned` / `in-session`), the command stops with a runlist-aware error so you resolve the blocker before continuing.
+
+Each child should set `parent_plan:` pointing back at the hub — `dotmd check` warns when it doesn't. Order is authoritative from `runlist:`; `parent_plan` keeps the existing reverse-link semantics (pickup-card Related:, graph).
+
 ### Creating documents
 
 Signature: `dotmd new <type> <name> [body]`. `<type>` is required (defaults to `doc` if omitted).

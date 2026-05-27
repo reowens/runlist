@@ -49,6 +49,7 @@ Validate & Fix:
 Lifecycle:
   pickup <file> [--takeover]        Pick up a plan (set in-session + print body)
   release [<file>] [--to <s>]       Release in-session lease (alias: unpickup)
+  runlist <hub> [next]              Show or walk an ordered group of plans (see \`dotmd help runlist\`)
   finish <file> [done|active]       Finish a plan (set done or active)
   status <file> <status>            Transition document status
   archive <file>                    Archive (status + move + update refs)
@@ -897,6 +898,40 @@ directory, updates references, and regenerates the index.
 
 Use --dry-run (-n) to preview changes without writing anything.`,
 
+  runlist: `dotmd runlist <hub> [next] — work with an ordered group of plans
+
+A "runlist" is just a plan with a \`runlist:\` array of child plan paths in its
+frontmatter — there is no separate doc type. The hub plan can have any status;
+the order of the children comes from the array.
+
+Usage:
+  dotmd runlist <hub>          Show children + their statuses, in order.
+                               The first non-archived child is marked \`→\`.
+  dotmd runlist next <hub>     Pick up the first non-archived child.
+                               Stops if it's not in a pickup-able status
+                               (active / planned / in-session) so you resolve
+                               the blocker before continuing the runlist.
+
+Flags (only meaningful with \`next\`, forwarded to pickup):
+  --takeover         Override a held lease.
+  --full             Print full plan body instead of the pickup card.
+  --no-index         Skip index regeneration.
+  --show-files       Emit \`files: …\` footer.
+
+Common shape:
+  ---
+  type: plan
+  status: active
+  title: Auth Revamp
+  runlist:
+    - auth-revamp-01-extract.md
+    - auth-revamp-02-rewrite.md
+    - auth-revamp-03-cleanup.md
+  ---
+
+Child plans should set \`parent_plan:\` back at the hub — \`dotmd check\` warns
+when they don't.`,
+
   'bulk-tag': `dotmd bulk-tag [files...] — fill in type/status frontmatter on pre-existing markdown
 
 Scans the docs tree for files that are missing either \`type:\` or \`status:\`
@@ -1061,6 +1096,7 @@ async function main() {
   if (command === 'journal') { const { runJournal } = await import('../src/journal-read.mjs'); runJournal(restArgs, config); return; }
   if (command === 'pickup') { const { runPickup } = await import('../src/lifecycle.mjs'); await runPickup(restArgs, config, { dryRun }); return; }
   if (command === 'unpickup' || command === 'release') { const { runUnpickup } = await import('../src/lifecycle.mjs'); await runUnpickup(restArgs, config, { dryRun }); return; }
+  if (command === 'runlist') { const { runRunlist } = await import('../src/runlist.mjs'); await runRunlist(restArgs, config, { dryRun }); return; }
   if (command === 'handoff') { die('`dotmd handoff` was removed in 0.31.0. Use `dotmd prompts new <name>` to create a saved prompt instead. The .dotmd/handoffs/ sidecar mechanism no longer exists; see CHANGELOG.'); }
   if (command === 'finish') { const { runFinish } = await import('../src/lifecycle.mjs'); await runFinish(restArgs, config, { dryRun }); return; }
   if (command === 'status') { const { runStatus } = await import('../src/lifecycle.mjs'); await runStatus(restArgs, config, { dryRun }); return; }

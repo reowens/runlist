@@ -1,0 +1,169 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
+import {
+  asString,
+  die,
+  normalizeStringList,
+  resolveDocPath,
+  resolveRefPath,
+  toRepoPath,
+  toSlug,
+} from './util.mjs';
+import { bold, cyan, dim, green, red, yellow } from './color.mjs';
+
+const PICKUPABLE_STATUSES = new Set(['active', 'planned', 'in-session']);
+
+// Read a hub plan's `runlist:` and resolve each entry to a repo-relative path
+// plus its current status. Missing files are reported with `missing: true`;
+// callers decide how to render them. Pure: no IO beyond file reads.
+function readRunlistChildren(hubAbsPath, config) {
+  const raw = readFileSync(hubAbsPath, 'utf8');
+  const { frontmatter: fmRaw } = extractFrontmatter(raw);
+  const fm = parseSimpleFrontmatter(fmRaw);
+  const refs = normalizeStringList(fm.runlist);
+
+  const hubDir = path.dirname(hubAbsPath);
+  const out = [];
+  for (const ref of refs) {
+    const abs = resolveRefPath(ref, hubDir, config.repoRoot);
+    if (!abs) {
+      out.push({ ref, path: null, status: null, title: null, missing: true });
+      continue;
+    }
+    const repoPath = toRepoPath(abs, config.repoRoot);
+    try {
+      const childRaw = readFileSync(abs, 'utf8');
+      const { frontmatter: childFmRaw } = extractFrontmatter(childRaw);
+      const childFm = parseSimpleFrontmatter(childFmRaw);
+      out.push({
+        ref,
+        path: repoPath,
+        status: asString(childFm.status) ?? null,
+        title: asString(childFm.title) ?? path.basename(abs, '.md'),
+        parentPlan: childFm.parent_plan ?? null,
+        missing: false,
+      });
+    } catch {
+      out.push({ ref, path: repoPath, status: null, title: null, missing: true });
+    }
+  }
+  return out;
+}
+
+const STATUS_TAG_COLORS = {
+  'in-session': (s) => bold(red(s)),
+  'active': green,
+  'planned': (s) => s,
+  'blocked': yellow,
+  'partial': (s) => dim(green(s)),
+  'paused': (s) => yellow(s),
+  'awaiting': yellow,
+  'queued-after': (s) => dim(cyan(s)),
+  'archived': dim,
+};
+
+function colorStatus(status) {
+  const fn = STATUS_TAG_COLORS[status] ?? ((s) => s);
+  return fn(status ?? 'unknown');
+}
+
+function renderRunlist(hubRepoPath, children, opts = {}) {
+  const lines = [];
+  lines.push(bold(`runlist: ${hubRepoPath}`));
+  if (children.length === 0) {
+    lines.push(dim('  (empty — add child plan paths to the hub plan\'s `runlist:` field)'));
+    return lines.join('\n') + '\n';
+  }
+
+  const archiveStatuses = opts.archiveStatuses ?? new Set(['archived']);
+  let nextPicked = false;
+  for (let i = 0; i < children.length; i++) {
+    const c = children[i];
+    const idx = String(i + 1).padStart(2);
+    if (c.missing) {
+      lines.push(`  ${idx}. ${red('missing')}  ${c.ref}`);
+      continue;
+    }
+    const isNext = !nextPicked && !archiveStatuses.has(c.status);
+    if (isNext) nextPicked = true;
+    const marker = isNext ? green('→') : ' ';
+    const statusTag = `[${colorStatus(c.status)}]`;
+    lines.push(`  ${marker} ${idx}. ${statusTag} ${c.path}`);
+  }
+  if (!nextPicked) {
+    lines.push('');
+    lines.push(dim('  All children archived. Hub is ready for archive.'));
+  }
+  return lines.join('\n') + '\n';
+}
+
+export async function runRunlist(argv, config, opts = {}) {
+  const json = argv.includes('--json');
+  const positional = argv.filter(a => !a.startsWith('-'));
+
+  // Subcommand dispatch: `runlist <hub>` (show) vs `runlist next <hub>` (pickup)
+  const sub = positional[0] === 'next' ? 'next' : 'show';
+  const hubInput = sub === 'next' ? positional[1] : positional[0];
+
+  if (!hubInput) {
+    die(sub === 'next'
+      ? 'Usage: dotmd runlist next <hub-plan>'
+      : 'Usage: dotmd runlist <hub-plan>');
+  }
+
+  const hubAbs = resolveDocPath(hubInput, config);
+  if (!hubAbs) die(`Hub plan not found: ${hubInput}`);
+  const hubRepoPath = toRepoPath(hubAbs, config.repoRoot);
+
+  const children = readRunlistChildren(hubAbs, config);
+  const archiveStatuses = config.lifecycle?.archiveStatuses ?? new Set(['archived']);
+
+  if (sub === 'show') {
+    if (json) {
+      process.stdout.write(JSON.stringify({
+        hub: hubRepoPath,
+        children,
+      }, null, 2) + '\n');
+      return;
+    }
+    process.stdout.write(renderRunlist(hubRepoPath, children, { archiveStatuses }));
+    return;
+  }
+
+  // sub === 'next' — find first non-archived non-missing child and pick it up.
+  const target = children.find(c => !c.missing && !archiveStatuses.has(c.status));
+  if (!target) {
+    if (children.length === 0) die(`Hub ${hubRepoPath} has empty \`runlist:\` — nothing to pick up.`);
+    const allArchived = children.every(c => !c.missing && archiveStatuses.has(c.status));
+    if (allArchived) {
+      die(`All children in runlist ${hubRepoPath} are archived. Hub is ready for \`dotmd archive ${hubRepoPath}\`.`);
+    }
+    const missing = children.filter(c => c.missing).map(c => c.ref);
+    die(`No pickup-able child in runlist ${hubRepoPath}. Unresolved refs: ${missing.join(', ')}`);
+  }
+
+  // Pre-check status: pickup will die on non-pickup-able statuses, but with
+  // a generic message. Surface the runlist context first so the agent knows
+  // which list is blocked and on which item.
+  if (!PICKUPABLE_STATUSES.has(target.status)) {
+    die(
+      `Next child in runlist ${hubRepoPath} is ${target.path} (status: ${target.status}).\n` +
+      `Resolve the blocker before continuing the runlist.\n` +
+      `  dotmd status ${target.path} active   # if ready to resume\n` +
+      `  dotmd pickup ${target.path}          # to inspect`,
+    );
+  }
+
+  // Delegate to runPickup — same lease semantics, same VH append, same card
+  // render. Dynamic import to avoid circular module-load cost when the
+  // runlist command isn't used.
+  const { runPickup } = await import('./lifecycle.mjs');
+  const pickupArgs = [target.path];
+  if (argv.includes('--takeover')) pickupArgs.push('--takeover');
+  if (argv.includes('--full')) pickupArgs.push('--full');
+  if (argv.includes('--no-index')) pickupArgs.push('--no-index');
+  if (argv.includes('--show-files')) pickupArgs.push('--show-files');
+  if (json) pickupArgs.push('--json');
+  await runPickup(pickupArgs, config, opts);
+}

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { extractFirstHeading, extractSummary, extractStatusSnapshot, extractNextStep, extractChecklistCounts, extractBodyLinks } from './extractors.mjs';
 import { asString, normalizeStringList, normalizeBlockers, mergeUniqueStrings, toRepoPath, warn } from './util.mjs';
-import { validateDoc, validatePlanShape, validateDocShape, checkBidirectionalReferences, checkGitStaleness, computeDaysSinceUpdate, computeIsStale, computeChecklistCompletionRate, enrichRefErrorSuggestions } from './validate.mjs';
+import { validateDoc, validatePlanShape, validateDocShape, checkBidirectionalReferences, checkGitStaleness, checkRunlistBackPointers, computeDaysSinceUpdate, computeIsStale, computeChecklistCompletionRate, enrichRefErrorSuggestions } from './validate.mjs';
 import { checkIndex } from './index-file.mjs';
 import { checkClaudeCommands } from './claude-commands.mjs';
 
@@ -95,6 +95,13 @@ export function buildIndex(config, opts = {}) {
 
     const refCheck = checkBidirectionalReferences(transformedDocs, config);
     warnings.push(...refCheck.warnings);
+
+    const runlistWarnings = checkRunlistBackPointers(transformedDocs, config);
+    warnings.push(...runlistWarnings);
+    for (const w of runlistWarnings) {
+      const child = transformedDocs.find(d => d.path === w.path);
+      if (child) child.warnings.push(w);
+    }
 
     const gitWarnings = checkGitStaleness(transformedDocs, config);
     warnings.push(...gitWarnings);

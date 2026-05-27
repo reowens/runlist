@@ -358,6 +358,50 @@ export function checkBidirectionalReferences(docs, config) {
   return { warnings, errors: [] };
 }
 
+// Runlist back-pointer check: when a hub plan declares a `runlist:` of children,
+// each child SHOULD have `parent_plan:` pointing back at the hub. The two
+// fields encode complementary information (runlist = ordered execution intent;
+// parent_plan = reverse-link the rest of dotmd already uses for related-summary
+// rendering), so divergence almost always means the agent forgot the back-link.
+// Warning fires on the CHILD (that's the file that needs the edit). Skips
+// terminal/archive statuses on either side — runlists referencing closed work
+// are a normal history pattern.
+export function checkRunlistBackPointers(docs, config) {
+  const warnings = [];
+  const skipStatuses = new Set([
+    ...(config.lifecycle.terminalStatuses ?? []),
+    ...(config.lifecycle.skipWarningsFor ?? []),
+  ]);
+  const byPath = new Map(docs.map(d => [d.path, d]));
+
+  for (const hub of docs) {
+    if (skipStatuses.has(hub.status)) continue;
+    const runlistRefs = hub.refFields?.runlist ?? [];
+    if (runlistRefs.length === 0) continue;
+    const hubDir = path.dirname(path.join(config.repoRoot, hub.path));
+
+    for (const ref of runlistRefs) {
+      const resolved = resolveRefPath(ref, hubDir, config.repoRoot);
+      if (!resolved) continue; // unresolved refs already get their own existence error
+      const childPath = toRepoPath(resolved, config.repoRoot);
+      const child = byPath.get(childPath);
+      if (!child) continue;
+      if (skipStatuses.has(child.status)) continue;
+      const childParents = (child.refFields?.parent_plan ?? []).map(p => {
+        const abs = resolveRefPath(p, path.dirname(path.join(config.repoRoot, child.path)), config.repoRoot);
+        return abs ? toRepoPath(abs, config.repoRoot) : p;
+      });
+      if (childParents.includes(hub.path)) continue;
+      warnings.push({
+        path: child.path,
+        level: 'warning',
+        message: `appears in runlist of \`${hub.path}\` but \`parent_plan:\` does not point back at it. Add \`parent_plan: ${hub.path}\` so reverse-link tooling (pickup-card Related:, graph) stays consistent.`,
+      });
+    }
+  }
+  return warnings;
+}
+
 export function checkGitStaleness(docs, config) {
   const warnings = [];
   const gitDates = getGitLastModifiedBatch(config.repoRoot);
