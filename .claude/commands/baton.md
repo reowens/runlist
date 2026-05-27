@@ -1,7 +1,7 @@
 ---
 description: Save a resume prompt for the held plan and release the lease — the minimum handoff. Use when the user says hand off / save a resume / wrap up, or when context is getting tight.
 ---
-<!-- dotmd-generated: 0.39.5 -->
+<!-- dotmd-generated: 0.39.6 -->
 
 Wrap this session. Minimum required (two commands):
 
