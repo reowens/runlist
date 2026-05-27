@@ -759,6 +759,9 @@ Default prompt statuses: pending, shelved, claimed, archived.
 
 Examples:
   dotmd prompts                        # pending prompts (default)
+  dotmd prompts list --verbose         # one row per prompt + target plan ref
+                                       # (from related_plans, parent_plan,
+                                       #  or the first body .md link)
   dotmd prompts list --include-archived # all prompts including archived
   dotmd prompts list --status claimed   # already-consumed prompts
   dotmd prompts --json                 # JSON output
@@ -1023,7 +1026,7 @@ async function main() {
   }
   if (command === 'prompts') {
     const { runPrompts } = await import('../src/prompts.mjs');
-    await runPrompts(restArgs, config, { dryRun });
+    await runPrompts(restArgs, config, { dryRun, verbose });
     return;
   }
 

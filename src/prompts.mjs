@@ -29,11 +29,16 @@ export async function runPrompts(argv, config, opts = {}) {
   }
 }
 
-function runPromptsList(argv, config) {
+function runPromptsList(argv, config, opts = {}) {
   const index = buildIndex(config);
   const hasStatusFlag = argv.includes('--status');
   const includeArchived = argv.includes('--include-archived');
   const sub = argv[0];
+
+  if (opts.verbose && !argv.includes('--json')) {
+    renderPromptsVerbose(index, config, { hasStatusFlag, includeArchived });
+    return;
+  }
 
   let defaults;
   let extras = argv;
@@ -46,6 +51,67 @@ function runPromptsList(argv, config) {
     defaults = ['--type', 'prompt', '--exclude-archived', '--sort', 'updated', '--limit', '10'];
   }
   runQuery(index, [...defaults, ...extras], config, { preset: 'prompts' });
+}
+
+// Resolve a prompt's "target plan" for `prompts list --verbose`. Order:
+//   1. frontmatter `related_plans:` (first entry — assumed plan slug)
+//   2. frontmatter `parent_plan:`
+//   3. first body markdown link to a .md file
+// Returns a repo-relative display path or null.
+function findPromptTarget(promptDoc, config) {
+  const refs = promptDoc.refFields ?? {};
+  const fmTargets = [...(refs.related_plans ?? []), ...(refs.parent_plan ?? [])];
+  for (const t of fmTargets) {
+    if (typeof t === 'string' && t.trim()) return slugToPlanPath(t.trim(), config);
+  }
+
+  const links = promptDoc.bodyLinks ?? [];
+  const mdLink = links.find(l => /\.md(?:#|$)/.test(l.href ?? ''));
+  if (mdLink) return resolveBodyLink(mdLink.href, promptDoc.path);
+  return null;
+}
+
+// Plan slugs in frontmatter (e.g. `related_plans: [foo-bar]`) resolve to
+// <docs-root>/plans/<slug>.md.
+function slugToPlanPath(s, config) {
+  const cleaned = s.replace(/#.*$/, '').replace(/^\.\//, '');
+  if (cleaned.includes('/') || cleaned.endsWith('.md')) return cleaned;
+  return `${config.docsRootPrefix || 'docs/'}plans/${cleaned}.md`;
+}
+
+// Resolve a markdown body link relative to the prompt's location so e.g.
+// `../plans/foo.md` from docs/prompts/x.md → docs/plans/foo.md.
+function resolveBodyLink(link, promptRepoPath) {
+  const cleaned = link.replace(/#.*$/, '');
+  if (cleaned.startsWith('/')) return cleaned.replace(/^\/+/, '');
+  const promptDir = path.dirname(promptRepoPath);
+  return path.normalize(path.join(promptDir, cleaned));
+}
+
+function renderPromptsVerbose(index, config, { hasStatusFlag, includeArchived }) {
+  let prompts = index.docs.filter(d => d.type === 'prompt');
+  if (!hasStatusFlag && !includeArchived) {
+    prompts = prompts.filter(d => d.status !== 'archived');
+  }
+  if (prompts.length === 0) {
+    process.stdout.write('No prompts.\n');
+    return;
+  }
+
+  prompts.sort((a, b) => (b.updated ?? '').localeCompare(a.updated ?? ''));
+
+  const counts = {};
+  for (const p of prompts) counts[p.status ?? 'unknown'] = (counts[p.status ?? 'unknown'] ?? 0) + 1;
+  const summary = Object.entries(counts).map(([s, n]) => `${n} ${s}`).join(' · ');
+  process.stdout.write(`${prompts.length} prompt${prompts.length === 1 ? '' : 's'} · ${summary}\n\n`);
+
+  for (const p of prompts) {
+    const slug = path.basename(p.path, '.md');
+    const target = findPromptTarget(p, config);
+    const status = (p.status ?? 'unknown').toUpperCase();
+    const arrow = target ? `  ${dim('→')} ${target}` : `  ${dim('→ (no target plan)')}`;
+    process.stdout.write(`  ${green(slug)}  [${status}]\n${arrow}\n`);
+  }
 }
 
 function pendingPromptsOldestFirst(config) {

@@ -70,6 +70,37 @@ describe('dotmd prompts list', () => {
     strictEqual(r.status, 0, r.stderr);
     ok(r.stdout.includes('foo-prompt'), `expected listing to include foo-prompt:\n${r.stdout}`);
   });
+
+  it('`prompts list --verbose` shows target plan from related_plans frontmatter', () => {
+    const file = path.join(promptsDir, 'resume-foo.md');
+    writeFileSync(file, `---\ntype: prompt\nstatus: pending\ncreated: 2025-01-01\nrelated_plans: [foo-plan]\n---\nresume foo\n`);
+    spawnSync('git', ['add', file], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-qm', 'add resume-foo'], { cwd: tmpDir });
+    const r = run(['prompts', 'list', '--verbose']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(r.stdout.includes('resume-foo'), 'lists prompt name');
+    ok(r.stdout.includes('docs/plans/foo-plan.md'), `expected docs/plans/foo-plan.md, got:\n${r.stdout}`);
+  });
+
+  it('`prompts list --verbose` falls back to first body markdown link', () => {
+    const file = path.join(promptsDir, 'resume-bar.md');
+    writeFileSync(file, `---\ntype: prompt\nstatus: pending\ncreated: 2025-01-01\n---\nContinue [bar plan](../plans/bar-plan.md) where we left off.\n`);
+    spawnSync('git', ['add', file], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-qm', 'add resume-bar'], { cwd: tmpDir });
+    const r = run(['prompts', 'list', '--verbose']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(r.stdout.includes('docs/plans/bar-plan.md'), `expected docs/plans/bar-plan.md, got:\n${r.stdout}`);
+  });
+
+  it('`prompts list --verbose` marks prompts with no target', () => {
+    const file = path.join(promptsDir, 'orphan.md');
+    writeFileSync(file, `---\ntype: prompt\nstatus: pending\ncreated: 2025-01-01\n---\nNo target plan referenced.\n`);
+    spawnSync('git', ['add', file], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-qm', 'add orphan'], { cwd: tmpDir });
+    const r = run(['prompts', 'list', '--verbose']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(r.stdout.includes('no target plan'), `expected no-target marker, got:\n${r.stdout}`);
+  });
 });
 
 describe('dotmd prompts next', () => {
