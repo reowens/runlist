@@ -48,10 +48,17 @@ function listDirtyFiles(repoRoot) {
   return result.stdout
     .split('\n')
     .filter(Boolean)
-    .map(line => ({
-      status: line.slice(0, 2),
-      path: line.slice(3),
-    }));
+    .map(line => {
+      const status = line.slice(0, 2);
+      let rawPath = line.slice(3);
+      // Renames/copies render as `R  orig -> new` (and `C  orig -> new`); only
+      // the destination is a real file we can `git add`. Without splitting on
+      // ` -> `, the literal "orig -> new" string is handed to git, which fails
+      // with "did not match any files" and aborts the ship.
+      const arrow = rawPath.indexOf(' -> ');
+      if (arrow !== -1) rawPath = rawPath.slice(arrow + 4);
+      return { status, path: rawPath };
+    });
 }
 
 function findHeldPlanTitle(config) {

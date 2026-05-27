@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { readLeases, findStaleLeases, currentSessionId } from './lease.mjs';
+import { readLeases, findStaleLeases, currentSessionId, STALE_LEASE_AGE_HOURS } from './lease.mjs';
+import { scrubStaleSilently } from './lease-scrub.mjs';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { asString, toRepoPath } from './util.mjs';
 import { green, yellow, red, dim } from './color.mjs';
@@ -67,6 +68,12 @@ function findActionablePrompts(config) {
 }
 
 export function buildHud(config) {
+  // Drop stale lease entries (and flip their plan frontmatter back to
+  // oldStatus) before reading anything. Without this, hud would surface
+  // zombie in-session plans from crashed sessions as "you hold N plans" if
+  // the SessionStart hook sees its own (now-stale) lease from a previous
+  // session that shared the same env-supplied session id.
+  try { scrubStaleSilently(config); } catch { /* hot-path: never break hud */ }
   const session = currentSessionId();
   const leases = readLeases(config);
   const owned = Object.values(leases).filter(l => l.session === session).map(l => l.path);
@@ -115,7 +122,7 @@ export function runHud(argv, config) {
     lines.push(green(`▶ ${hud.prompts.length} pending prompt${hud.prompts.length === 1 ? '' : 's'}: ${previewList(hud.prompts)}  ${dim('(consume: `dotmd prompts use <file>` — do not cat/read)')}`));
   }
   if (hud.stale.length > 0) {
-    lines.push(yellow(`⚠ ${hud.stale.length} stuck lease${hud.stale.length === 1 ? '' : 's'} >24h  ${dim('(run: dotmd release --stale)')}`));
+    lines.push(yellow(`⚠ ${hud.stale.length} stuck lease${hud.stale.length === 1 ? '' : 's'} >${STALE_LEASE_AGE_HOURS}h  ${dim('(run: dotmd release --stale)')}`));
   }
   if (hud.errors > 0) {
     lines.push(red(`✗ ${hud.errors} validation error${hud.errors === 1 ? '' : 's'}  ${dim('(run: dotmd check)')}`));

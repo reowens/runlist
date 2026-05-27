@@ -1126,6 +1126,8 @@ async function main() {
   if (config.presets[command]) {
     const { buildIndex } = await import('../src/index.mjs');
     const { runQuery } = await import('../src/query.mjs');
+    const { scrubStaleSilently } = await import('../src/lease-scrub.mjs');
+    scrubStaleSilently(config);
     const index = buildIndex(config);
     runQuery(index, [...config.presets[command], ...restArgs], config, { preset: command });
     return;
@@ -1138,6 +1140,8 @@ async function main() {
   if (command === 'plans') {
     const { buildIndex } = await import('../src/index.mjs');
     const { runQuery } = await import('../src/query.mjs');
+    const { scrubStaleSilently } = await import('../src/lease-scrub.mjs');
+    scrubStaleSilently(config);
     const index = buildIndex(config);
     const sub = restArgs[0];
     let defaults;
@@ -1209,6 +1213,14 @@ async function main() {
   const { buildIndex } = await import('../src/index.mjs');
   const { renderCompactList, renderVerboseList, renderContext, renderBriefing, renderCheck, renderCoverage, buildCoverage } = await import('../src/render.mjs');
   const { runFocus, runQuery } = await import('../src/query.mjs');
+  // Opportunistic stale-lease scrub for user-facing "what's actionable now"
+  // views. Diagnostic commands (`check`, `coverage`, `stats`, `index`) are
+  // intentionally excluded — they should surface drift, not silently fix it.
+  const SCRUB_READ_COMMANDS = new Set(['list', 'briefing', 'context', 'focus', 'query', 'modules', 'module', 'surfaces']);
+  if (SCRUB_READ_COMMANDS.has(command)) {
+    const { scrubStaleSilently } = await import('../src/lease-scrub.mjs');
+    scrubStaleSilently(config);
+  }
   const index = buildIndex(config);
 
   // Apply --root and --type filters

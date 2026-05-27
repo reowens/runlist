@@ -9,7 +9,8 @@ const LOCK_FILE = 'in-session.lock';
 const LOCK_STALE_MS = 5_000;
 const LOCK_RETRY_MS = 50;
 const LOCK_MAX_WAIT_MS = 2_000;
-const STALE_LEASE_AGE_MS = 24 * 60 * 60 * 1000;
+export const STALE_LEASE_AGE_MS = 4 * 60 * 60 * 1000;
+export const STALE_LEASE_AGE_HOURS = STALE_LEASE_AGE_MS / (60 * 60 * 1000);
 
 const _sleepBuf = new Int32Array(new SharedArrayBuffer(4));
 function syncSleep(ms) { Atomics.wait(_sleepBuf, 0, 0, ms); }

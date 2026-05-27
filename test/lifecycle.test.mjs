@@ -631,7 +631,56 @@ describe('pickup with leases', () => {
     ok(second.stderr.includes('Held by') || second.stderr.includes('--takeover'), `expected conflict message, got: ${second.stderr}`);
   });
 
-  it('cross-session pickup of a >24h-old lease reports stale', () => {
+  it('opportunistic scrub on `dotmd briefing` flips frontmatter and clears the lease', () => {
+    // Read-side command should silently scrub a >4h-old lease and flip the
+    // plan's frontmatter back to its oldStatus. No stderr noise.
+    const docsDir = setupProject();
+    const filePath = writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# Plan\n');
+
+    runCli(['pickup', filePath], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
+    ok(readFileSync(filePath, 'utf8').includes('status: in-session'), 'pickup flips frontmatter to in-session');
+
+    const leaseFile = path.join(tmpDir, '.dotmd', 'in-session.json');
+    const leases = JSON.parse(readFileSync(leaseFile, 'utf8'));
+    const key = Object.keys(leases)[0];
+    leases[key].pickedUpAt = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString();
+    writeFileSync(leaseFile, JSON.stringify(leases, null, 2) + '\n');
+
+    const result = runCli(['briefing'], { CLAUDE_CODE_SESSION_ID: 'sess-OTHER' });
+    strictEqual(result.status, 0, `briefing should succeed: ${result.stderr}`);
+    ok(!result.stderr.includes('scrub') && !result.stderr.includes('release'),
+      `briefing must be silent about scrub work, got stderr: ${result.stderr}`);
+
+    ok(!existsSync(leaseFile) || Object.keys(JSON.parse(readFileSync(leaseFile, 'utf8'))).length === 0,
+      'stale lease should be gone after briefing');
+    ok(readFileSync(filePath, 'utf8').includes('status: active'),
+      'frontmatter should be flipped back to oldStatus (active)');
+  });
+
+  it('opportunistic scrub does NOT run on `dotmd check` (diagnostic, surfaces drift)', () => {
+    // `check` is a diagnostic command: it must show the user that there's a
+    // stale lease, not silently fix it. Validate.mjs's F11 warning depends
+    // on the lease entry persisting through `check`.
+    const docsDir = setupProject();
+    const filePath = writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# Plan\n');
+
+    runCli(['pickup', filePath], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
+    const leaseFile = path.join(tmpDir, '.dotmd', 'in-session.json');
+    const leases = JSON.parse(readFileSync(leaseFile, 'utf8'));
+    const key = Object.keys(leases)[0];
+    leases[key].pickedUpAt = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString();
+    writeFileSync(leaseFile, JSON.stringify(leases, null, 2) + '\n');
+
+    runCli(['check'], { CLAUDE_CODE_SESSION_ID: 'sess-OTHER' });
+    ok(existsSync(leaseFile), 'check must NOT scrub — diagnostic commands surface drift');
+    const after = JSON.parse(readFileSync(leaseFile, 'utf8'));
+    strictEqual(Object.keys(after).length, 1, 'check leaves the stale lease in place for visibility');
+  });
+
+  it('cross-session pickup of a stale lease auto-scrubs and succeeds', () => {
+    // Per release-ergonomics Fix B: opportunistic scrub runs at the start of
+    // pickup, so a lease past the stale threshold is dropped before the
+    // conflict check. The new session acquires fresh without --takeover.
     const docsDir = setupProject();
     const filePath = writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active', '# Plan\n');
 
@@ -639,12 +688,16 @@ describe('pickup with leases', () => {
     const leaseFile = path.join(tmpDir, '.dotmd', 'in-session.json');
     const leases = JSON.parse(readFileSync(leaseFile, 'utf8'));
     const key = Object.keys(leases)[0];
+    // Age the lease well past the 4h stale threshold.
     leases[key].pickedUpAt = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
     writeFileSync(leaseFile, JSON.stringify(leases, null, 2) + '\n');
 
     const second = runCli(['pickup', filePath], { CLAUDE_CODE_SESSION_ID: 'sess-B' });
-    ok(second.status !== 0, 'should fail');
-    ok(second.stderr.includes('Stale') || second.stderr.includes('>24h'), `expected stale message, got: ${second.stderr}`);
+    strictEqual(second.status, 0, `stale lease should auto-scrub and pickup should succeed: ${second.stderr}`);
+    const after = JSON.parse(readFileSync(leaseFile, 'utf8'));
+    const newKey = Object.keys(after)[0];
+    strictEqual(after[newKey].session, 'sess-B', `sess-B should now own the lease, got: ${after[newKey].session}`);
+    ok(!after[newKey].takenOverFrom, 'auto-scrub path should not record takenOverFrom (no --takeover was needed)');
   });
 
   it('--takeover overrides a held lease and records takenOverFrom', () => {
@@ -690,6 +743,17 @@ describe('unpickup', () => {
 
     ok(readFileSync(a, 'utf8').includes('status: active'), 'a flipped to active');
     ok(readFileSync(b, 'utf8').includes('status: planned'), 'b flipped to planned (oldStatus)');
+  });
+
+  it('silent no-op when current session holds nothing (release-ergonomics Fix B)', () => {
+    // Previously printed: "No leases to release for session <UUID>." That's a
+    // verbose no-op success — agents that release before exit shouldn't be
+    // punished with noise when archive already auto-released their lease.
+    setupProject();
+    const result = runCli(['release'], { CLAUDE_CODE_SESSION_ID: 'sess-nothing' });
+    strictEqual(result.status, 0, `silent no-op must exit 0: ${result.stderr}`);
+    strictEqual(result.stdout, '', `must produce no stdout, got: ${result.stdout}`);
+    strictEqual(result.stderr, '', `must produce no stderr, got: ${result.stderr}`);
   });
 
   it('file arg releases that one', () => {

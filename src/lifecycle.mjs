@@ -15,6 +15,8 @@ import {
   readLeases,
   currentSessionId,
   migrateLease,
+  STALE_LEASE_AGE_MS,
+  STALE_LEASE_AGE_HOURS,
 } from './lease.mjs';
 import { buildCard, renderCard } from './pickup-card.mjs';
 import { walkSections, findSection } from './section.mjs';
@@ -245,6 +247,17 @@ export async function runPickup(argv, config, opts = {}) {
   const showFiles = argv.includes('--show-files') || opts.showFiles;
   let input = argv.find(a => !a.startsWith('-'));
 
+  // Opportunistic stale-lease scrub before pickup runs its conflict check.
+  // Without this, a stale lease from a crashed prior session would still
+  // produce 'conflict-stale' and force the agent to pass --takeover even
+  // though we already know the holder is gone.
+  if (!dryRun) {
+    try {
+      const { scrubStaleSilently } = await import('./lease-scrub.mjs');
+      scrubStaleSilently(config);
+    } catch { /* best-effort — never block pickup on scrub failure */ }
+  }
+
   // Interactive: pick from active/planned plans
   if (!input) {
     if (!isInteractive()) die('Usage: dotmd pickup <file>');
@@ -317,7 +330,7 @@ export async function runPickup(argv, config, opts = {}) {
     }
     if (result.outcome === 'conflict-stale') {
       const c = result.conflict;
-      die(`Stale in-session lease from ${c.host}/${c.session} since ${c.pickedUpAt} (>24h old).\nUse --takeover to claim.\n  ${repoPath}`);
+      die(`Stale in-session lease from ${c.host}/${c.session} since ${c.pickedUpAt} (>${STALE_LEASE_AGE_HOURS}h old).\nUse --takeover to claim.\n  ${repoPath}`);
     }
     if (oldStatus !== 'in-session') {
       updateFrontmatter(filePath, { status: 'in-session', updated: today });
@@ -459,7 +472,7 @@ export async function runUnpickup(argv, config, opts = {}) {
     if (dryRun) {
       const staleLeases = Object.values(leases).filter(l => {
         const age = Date.now() - new Date(l.pickedUpAt).getTime();
-        return Number.isNaN(age) || age > 24 * 60 * 60 * 1000;
+        return Number.isNaN(age) || age > STALE_LEASE_AGE_MS;
       });
       for (const l of staleLeases) {
         process.stderr.write(`${dim('[dry-run]')} Would release stale: ${l.path} (${l.session})\n`);
@@ -473,9 +486,10 @@ export async function runUnpickup(argv, config, opts = {}) {
       }
     }
   } else {
-    if (targets.length === 0 && !json) {
-      process.stderr.write(`No leases to release${fileArg ? ` for ${fileArg}` : ` for session ${session}`}.\n`);
-    }
+    // Silent no-op: when the session has nothing to release (already
+    // auto-released by archive, or never held), exit 0 with no output.
+    // Only print when work was actually done. The fileArg path can't reach
+    // here with targets.length === 0 — it would have died at lookup.
     for (const lease of targets) {
       const newStatus = targetStatus(lease);
       if (dryRun) {

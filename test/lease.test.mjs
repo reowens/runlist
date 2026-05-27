@@ -17,6 +17,8 @@ import {
   isPidAlive,
   isLeaseStale,
   leasePathFor,
+  STALE_LEASE_AGE_MS,
+  STALE_LEASE_AGE_HOURS,
 } from '../src/lease.mjs';
 
 let tmpDir;
@@ -321,6 +323,34 @@ describe('withLeaseLock', () => {
       ranInner = true;
     });
     strictEqual(ranInner, true);
+  });
+});
+
+describe('STALE_LEASE_AGE threshold (release-ergonomics Fix B)', () => {
+  beforeEach(() => {
+    setup();
+    process.env.CLAUDE_CODE_SESSION_ID = 'sess-A';
+  });
+
+  it('exports a 4-hour threshold', () => {
+    strictEqual(STALE_LEASE_AGE_HOURS, 4);
+    strictEqual(STALE_LEASE_AGE_MS, 4 * 60 * 60 * 1000);
+  });
+
+  it('flags a 5h-old lease as stale', () => {
+    acquireLease(config, 'docs/plans/foo.md', 'active');
+    const leases = readLeases(config);
+    leases['docs/plans/foo.md'].pickedUpAt = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString();
+    writeLeases(config, leases);
+    strictEqual(findStaleLeases(config).length, 1);
+  });
+
+  it('does NOT flag a 3h-old lease as stale', () => {
+    acquireLease(config, 'docs/plans/foo.md', 'active');
+    const leases = readLeases(config);
+    leases['docs/plans/foo.md'].pickedUpAt = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+    writeLeases(config, leases);
+    strictEqual(findStaleLeases(config).length, 0);
   });
 });
 
