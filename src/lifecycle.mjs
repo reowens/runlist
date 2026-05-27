@@ -49,6 +49,45 @@ export function regenIndex(config) {
 // across re-archives (issue #10 finding #6). The pre-0.39.5 behavior used a
 // UTC timestamp on collision, which made the second archive's path
 // non-deterministic and harder to cross-reference against the original.
+// Closeout skeleton injected by `dotmd archive --closeout-template`. Loose
+// bullet shape (not sub-headings) matches the freeform prose-and-bullets style
+// of existing in-repo closeouts — agents replace bullets with prose when that
+// flows better. The HTML comment is the agent-facing prompt.
+const CLOSEOUT_SKELETON = `## Closeout
+
+<!-- Fill in below. Replace bullets with prose if that flows better. -->
+- **Outcomes:**
+- **Key commits:**
+- **Deferrals:**
+`;
+
+// Plans where to inject the closeout skeleton without writing anything. Returns:
+//   { action: 'skip' }                          — section already present
+//   { action: 'inject', placement, newBody }    — built body with skeleton inserted
+// Placement: just before `## Version History` (so the closeout reads as work
+// content, not appendix); falls back to end-of-body if VH is absent.
+export function planCloseoutInjection(body) {
+  if (/^##\s+Closeout\s*$/mi.test(body)) {
+    return { action: 'skip' };
+  }
+  const vhMatch = body.match(/^##\s+Version History\s*$/mi);
+  if (vhMatch && vhMatch.index !== undefined) {
+    const before = body.slice(0, vhMatch.index).replace(/\s+$/, '');
+    const rest = body.slice(vhMatch.index);
+    return {
+      action: 'inject',
+      placement: 'before `## Version History`',
+      newBody: `${before}\n\n${CLOSEOUT_SKELETON}\n${rest}`,
+    };
+  }
+  const trimmed = body.replace(/\s+$/, '');
+  return {
+    action: 'inject',
+    placement: 'end of body',
+    newBody: `${trimmed}\n\n${CLOSEOUT_SKELETON}`,
+  };
+}
+
 function uniqueArchiveTarget(targetDir, basename) {
   const base = path.join(targetDir, basename);
   if (!existsSync(base)) return base;
@@ -544,7 +583,8 @@ export function runArchive(argv, config, opts = {}) {
   const { dryRun, out = process.stdout } = opts;
   const noIndex = argv.includes('--no-index') || opts.noIndex;
   const showFiles = argv.includes('--show-files') || opts.showFiles;
-  argv = argv.filter(a => a !== '--no-index' && a !== '--show-files');
+  const closeoutTemplate = argv.includes('--closeout-template');
+  argv = argv.filter(a => a !== '--no-index' && a !== '--show-files' && a !== '--closeout-template');
   const input = argv[0];
 
   if (!input) { die('Usage: dotmd archive <file>'); }
@@ -557,9 +597,10 @@ export function runArchive(argv, config, opts = {}) {
   if (relFromRoot.startsWith(config.archiveDir + '/') || relFromRoot.startsWith(config.archiveDir + path.sep)) { die(`Already archived: ${toRepoPath(filePath, config.repoRoot)}`); }
 
   const raw = readFileSync(filePath, 'utf8');
-  const { frontmatter } = extractFrontmatter(raw);
+  const { frontmatter, body } = extractFrontmatter(raw);
   const parsed = parseSimpleFrontmatter(frontmatter);
   const oldStatus = asString(parsed.status) ?? 'unknown';
+  const closeoutAction = closeoutTemplate ? planCloseoutInjection(body) : null;
 
   const today = nowIso();
   const targetDir = path.join(archiveFileRoot, config.archiveDir);
@@ -569,6 +610,11 @@ export function runArchive(argv, config, opts = {}) {
 
   if (dryRun) {
     const prefix = dim('[dry-run]');
+    if (closeoutAction?.action === 'inject') {
+      out.write(`${prefix} Would inject \`## Closeout\` template (${closeoutAction.placement})\n`);
+    } else if (closeoutAction?.action === 'skip') {
+      out.write(`${prefix} \`## Closeout\` section already present — no injection\n`);
+    }
     out.write(`${prefix} Would update frontmatter: status: ${oldStatus} → archived, updated: ${today}\n`);
     out.write(`${prefix} Would move: ${oldRepoPath} → ${newRepoPath}\n`);
     if (config.indexPath && !noIndex) out.write(`${prefix} Would regenerate index\n`);
@@ -592,6 +638,10 @@ export function runArchive(argv, config, opts = {}) {
     return;
   }
 
+  if (closeoutAction?.action === 'inject') {
+    writeFileSync(filePath, `---\n${frontmatter}\n---\n${closeoutAction.newBody}`, 'utf8');
+  }
+
   updateFrontmatter(filePath, { status: 'archived', updated: today });
   appendVersionHistory(filePath, 'Archived.');
 
@@ -609,6 +659,11 @@ export function runArchive(argv, config, opts = {}) {
   if (!noIndex) regenIndex(config);
 
   out.write(`${green('Archived')}: ${oldRepoPath} → ${newRepoPath}\n`);
+  if (closeoutAction?.action === 'inject') {
+    out.write(`Injected \`## Closeout\` template — fill in: outcomes, key commits, deferrals.\n`);
+  } else if (closeoutAction?.action === 'skip') {
+    out.write(dim('(closeout template skipped — `## Closeout` section already present)\n'));
+  }
   if (selfRefsFixed) out.write('Updated references in archived file.\n');
   if (updatedRefCount > 0) out.write(`Updated references in ${updatedRefCount} file(s).\n`);
   if (config.indexPath && !noIndex) out.write('Index regenerated.\n');

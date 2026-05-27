@@ -359,6 +359,13 @@ Options:
                          listing every doc/index path the command touched
                          (deduped, sorted, repo-relative). Lets agents do
                          \`git add\` with the exact set instead of guessing.
+  --closeout-template    Inject a \`## Closeout\` skeleton into the plan body
+                         before archiving — bullets for outcomes, key
+                         commits, deferrals. No-op if a \`## Closeout\`
+                         section already exists. Placed just before
+                         \`## Version History\` if present, else at end
+                         of body. Fill it in after archive (the archived
+                         file is still editable).
   --dry-run, -n          Preview changes without writing anything.`,
 
   coverage: `dotmd coverage — metadata coverage report

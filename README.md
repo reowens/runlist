@@ -577,6 +577,7 @@ dotmd bulk archive docs/old-*.md -n               # preview
 ```bash
 dotmd pickup docs/plans/my-plan.md       # set in-session + print body
 dotmd archive docs/plans/my-plan.md      # fully shipped: archive + auto-release lease
+dotmd archive docs/plans/my-plan.md --closeout-template   # also inject ## Closeout skeleton
 dotmd release docs/plans/my-plan.md      # need more work: release lease, flip to prior status
 dotmd status docs/plans/my-plan.md partial   # shipped + tail deferred (reference successors in body)
 dotmd status docs/plans/my-plan.md awaiting  # stuck on a human decision

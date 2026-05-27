@@ -284,6 +284,100 @@ describe('archive command (dry-run)', () => {
   });
 });
 
+describe('archive --closeout-template (issue #10 finding #5)', () => {
+  it('injects skeleton when plan body lacks `## Closeout`', () => {
+    const docsDir = setupProject();
+    writeDoc(docsDir, 'ship-it.md',
+      'type: plan\nstatus: active\nupdated: 2026-05-26',
+      '# Ship It\n\n## Problem\nBody.\n\n## Version History\n- 2026-05-26 created.\n');
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const result = spawnSync('node',
+      [bin, 'archive', path.join(docsDir, 'ship-it.md'), '--closeout-template', '--config', path.join(tmpDir, 'dotmd.config.mjs')],
+      { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('Injected `## Closeout`'), `expected injection hint; got: ${result.stdout}`);
+
+    const archived = readFileSync(path.join(docsDir, 'archived', 'ship-it.md'), 'utf8');
+    ok(archived.includes('## Closeout'), 'archived file has Closeout section');
+    ok(archived.includes('**Outcomes:**'), 'skeleton has Outcomes bullet');
+    ok(archived.includes('**Key commits:**'), 'skeleton has Key commits bullet');
+    ok(archived.includes('**Deferrals:**'), 'skeleton has Deferrals bullet');
+    // Placement: Closeout sits ABOVE Version History.
+    ok(archived.indexOf('## Closeout') < archived.indexOf('## Version History'),
+      `Closeout should land above Version History; got:\n${archived}`);
+  });
+
+  it('is a no-op when `## Closeout` already exists', () => {
+    const docsDir = setupProject();
+    const originalCloseout = '## Closeout\n\nShipped as 0.39.5. Custom hand-written prose.\n';
+    writeDoc(docsDir, 'already.md',
+      'type: plan\nstatus: active\nupdated: 2026-05-26',
+      `# Already\n\n${originalCloseout}\n## Version History\n- 2026-05-26 created.\n`);
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const result = spawnSync('node',
+      [bin, 'archive', path.join(docsDir, 'already.md'), '--closeout-template', '--config', path.join(tmpDir, 'dotmd.config.mjs')],
+      { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('already present'), `expected idempotent hint; got: ${result.stdout}`);
+
+    const archived = readFileSync(path.join(docsDir, 'archived', 'already.md'), 'utf8');
+    // Hand-written closeout preserved verbatim — skeleton NOT prepended.
+    ok(archived.includes('Custom hand-written prose'), 'original closeout body preserved');
+    ok(!archived.includes('**Outcomes:**'), 'skeleton bullets NOT injected');
+    // Only one `## Closeout` heading in the file.
+    const occurrences = (archived.match(/^##\s+Closeout\s*$/gm) || []).length;
+    strictEqual(occurrences, 1, 'exactly one Closeout heading');
+  });
+
+  it('falls back to end-of-body when no Version History section exists', () => {
+    const docsDir = setupProject();
+    writeDoc(docsDir, 'no-vh.md',
+      'type: plan\nstatus: active\nupdated: 2026-05-26',
+      '# No VH\n\n## Problem\nBody.\n');
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const result = spawnSync('node',
+      [bin, 'archive', path.join(docsDir, 'no-vh.md'), '--closeout-template', '--config', path.join(tmpDir, 'dotmd.config.mjs')],
+      { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+
+    const archived = readFileSync(path.join(docsDir, 'archived', 'no-vh.md'), 'utf8');
+    ok(archived.includes('## Closeout'), 'has Closeout section');
+    // Closeout is the LAST H2 in the body.
+    const lastH2 = archived.match(/^##\s+(.+)$/gm).pop();
+    ok(lastH2.includes('Closeout'), `Closeout should be the trailing H2; last H2 was: ${lastH2}`);
+  });
+
+  it('--dry-run previews the injection without writing', () => {
+    const docsDir = setupProject();
+    const filePath = writeDoc(docsDir, 'preview.md',
+      'type: plan\nstatus: active\nupdated: 2026-05-26',
+      '# Preview\n\n## Problem\nBody.\n');
+    const before = readFileSync(filePath, 'utf8');
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const result = spawnSync('node',
+      [bin, 'archive', filePath, '--closeout-template', '--dry-run', '--config', path.join(tmpDir, 'dotmd.config.mjs')],
+      { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('Would inject `## Closeout`'), `expected dry-run preview line; got: ${result.stdout}`);
+    const after = readFileSync(filePath, 'utf8');
+    strictEqual(after, before, 'file is byte-identical in dry-run');
+  });
+
+  it('plain `dotmd archive` (no flag) does NOT inject — back-compat', () => {
+    const docsDir = setupProject();
+    writeDoc(docsDir, 'no-flag.md',
+      'type: plan\nstatus: active\nupdated: 2026-05-26',
+      '# No Flag\n\n## Problem\nBody.\n');
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const result = spawnSync('node',
+      [bin, 'archive', path.join(docsDir, 'no-flag.md'), '--config', path.join(tmpDir, 'dotmd.config.mjs')],
+      { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    const archived = readFileSync(path.join(docsDir, 'archived', 'no-flag.md'), 'utf8');
+    ok(!archived.includes('## Closeout'), 'no Closeout injected without --closeout-template');
+  });
+});
+
 describe('pickup error affordance (issue #10 finding #1)', () => {
   it('rejects pickup on partial with a concrete recovery hint', () => {
     const docsDir = setupProject();
