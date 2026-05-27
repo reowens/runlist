@@ -246,7 +246,15 @@ export async function runPickup(argv, config, opts = {}) {
   }
 
   const pickupable = new Set(['active', 'planned', 'in-session']);
-  if (oldStatus && !pickupable.has(oldStatus)) die(`Cannot pick up a plan with status '${oldStatus}'. Must be active or planned.\n  ${repoPath}`);
+  if (oldStatus && !pickupable.has(oldStatus)) {
+    die(
+      `Cannot pick up a plan with status '${oldStatus}'. Must be active or planned.\n` +
+      `  ${repoPath}\n` +
+      `\n` +
+      `Recover with:\n` +
+      `  dotmd status ${repoPath} active && dotmd pickup ${repoPath}`,
+    );
+  }
 
   const today = nowIso();
   const leaseOldStatus = oldStatus === 'in-session' ? 'active' : (oldStatus ?? 'active');
@@ -571,6 +579,16 @@ export function runArchive(argv, config, opts = {}) {
     const refCount = countRefsToUpdate(filePath, targetPath, config);
     if (refCount > 0) {
       out.write(`${prefix} Would update references in ${refCount} file(s)\n`);
+    }
+
+    // Preview lease release (only if a lease exists for this plan)
+    if (readLeases(config)[oldRepoPath]) {
+      out.write(`${prefix} Would release in-session lease: ${oldRepoPath}\n`);
+    }
+
+    // Preview onArchive hook fire
+    if (config.hooks?.onArchive) {
+      out.write(`${prefix} Would fire hook: onArchive\n`);
     }
     return;
   }

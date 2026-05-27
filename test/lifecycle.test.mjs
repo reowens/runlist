@@ -260,6 +260,45 @@ describe('archive command (dry-run)', () => {
     // File should still exist at original location
     ok(existsSync(filePath), 'original file still exists');
   });
+
+  it('previews onArchive hook fire when hook is configured (issue #10 finding #11)', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-life-'));
+    spawnSync('git', ['init'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
+    const docsDir = path.join(tmpDir, 'docs');
+    mkdirSync(docsDir, { recursive: true });
+    mkdirSync(path.join(docsDir, 'archived'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const root = 'docs';
+      export function onArchive() {}
+    `);
+    const filePath = writeDoc(docsDir, 'has-hook.md', 'status: active\nupdated: 2025-01-01', '# x');
+
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const result = spawnSync('node', [bin, 'archive', filePath, '--dry-run', '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir, encoding: 'utf8',
+    });
+    strictEqual(result.status, 0, result.stderr);
+    ok(result.stdout.includes('Would fire hook: onArchive'), `expected hook preview, got:\n${result.stdout}`);
+  });
+});
+
+describe('pickup error affordance (issue #10 finding #1)', () => {
+  it('rejects pickup on partial with a concrete recovery hint', () => {
+    const docsDir = setupProject();
+    const filePath = writeDoc(docsDir, 'tail.md', 'type: plan\nstatus: partial\nupdated: 2025-01-01', '# Tail\n');
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const result = spawnSync('node', [bin, 'pickup', filePath, '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir, encoding: 'utf8',
+    });
+    ok(result.status !== 0, 'exits non-zero');
+    ok(result.stderr.includes("status 'partial'"), 'names the offending status');
+    ok(result.stderr.includes('Recover with:'), 'shows recovery section');
+    ok(result.stderr.includes('dotmd status'), 'suggests dotmd status command');
+    ok(result.stderr.includes('dotmd pickup'), 'suggests follow-up pickup');
+    ok(result.stderr.includes('docs/tail.md'), 'reuses the exact repo path');
+  });
 });
 
 describe('archive path boundary', () => {

@@ -205,7 +205,15 @@ function consumePrompt(filePath, config, opts) {
   }
 
   if (dryRun) {
-    process.stderr.write(`${dim('[dry-run]')} Would emit body and archive: ${repoPath} (${status ?? 'unknown'} → archived)\n`);
+    const prefix = dim('[dry-run]');
+    process.stderr.write(`${prefix} Would emit body and archive: ${repoPath} (${status ?? 'unknown'} → archived)\n`);
+    const bytes = Buffer.byteLength(body, 'utf8');
+    const lines = body.split('\n').length;
+    process.stderr.write(`${prefix} body preview (${bytes}B, ${lines} lines):\n`);
+    process.stderr.write(`${dim('---8<---')}\n`);
+    process.stderr.write(body);
+    if (!body.endsWith('\n')) process.stderr.write('\n');
+    process.stderr.write(`${dim('--->8---')}\n`);
     runArchive([filePath], config, { dryRun: true, noIndex, out: process.stderr });
     return;
   }

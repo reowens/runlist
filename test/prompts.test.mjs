@@ -155,6 +155,15 @@ describe('dotmd prompts next', () => {
     const after = readFileSync(file, 'utf8');
     strictEqual(after, before, 'file unchanged');
   });
+
+  it('dry-run previews the body that would be emitted (issue #10 finding #11)', () => {
+    writePrompt('foo', { body: 'this is the unique-needle body content' });
+    const r = run(['prompts', 'next', '--dry-run']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(r.stderr.includes('body preview'), 'shows preview heading');
+    ok(r.stderr.includes('unique-needle'), `expected body content in preview, got stderr:\n${r.stderr}`);
+    strictEqual(r.stdout, '', 'stdout stays empty in dry-run (no piping surprises)');
+  });
 });
 
 describe('dotmd prompts use', () => {
