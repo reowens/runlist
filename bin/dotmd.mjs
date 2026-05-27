@@ -51,8 +51,7 @@ Lifecycle:
   pickup <file> [--takeover]        Pick up a plan (set in-session + print body)
   release [<file>] [--to <s>]       Release in-session lease (alias: unpickup)
   runlist <hub> [next]              Show or walk an ordered group of plans (see \`dotmd help runlist\`)
-  finish <file> [done|active]       Finish a plan (set done or active)
-  status <file> <status>            Transition document status
+  status <file> <status>            Transition document status (deprecated; prefer \`set\`)
   set <status> [<file>]             Unified transition: archive/release/transition in one verb
   archive <file>                    Archive (status + move + update refs)
   bulk archive <f1> <f2> ...        Archive multiple files at once
@@ -139,10 +138,10 @@ plan statuses (each maps to a distinct unstuck-action)
 
 Canonical transitions:
   active → in-session              \`dotmd pickup <file>\`
-  in-session → active              \`dotmd release <file>\`
-  in-session → partial             \`dotmd status <file> partial\` (+ release)
-  in-session → awaiting            \`dotmd status <file> awaiting\` (+ release)
-  any → archived                   \`dotmd archive <file>\`
+  in-session → active              \`dotmd set active\` (auto-releases lease)
+  in-session → partial             \`dotmd set partial\` (auto-releases lease)
+  in-session → awaiting            \`dotmd set awaiting\` (auto-releases lease)
+  any → archived                   \`dotmd set archived <file>\` (or \`dotmd archive\`)
 
 ────────────────────────────────────────────────────────────────────
 doc statuses
@@ -295,17 +294,6 @@ Release the in-session lease(s) and flip frontmatter back to the prior
 status. With no file, releases every lease owned by the current session.
 Identical behavior to \`dotmd unpickup\`; both names route to the same
 implementation. See \`dotmd unpickup --help\` for full option list.`,
-
-  finish: `dotmd finish <file> [done|active] — finish working on a plan
-
-Sets the plan status to done (default) or back to active.
-Only works on plans currently in-session.
-
-Options:
-  --json                 Output as JSON
-  --dry-run, -n          Preview without writing
-
-If no file is given, prompts with a list of in-session plans.`,
 
   set: `dotmd set <status> [<file>] — unified status-transition verb
 
@@ -1160,7 +1148,6 @@ async function main() {
   if (command === 'unpickup' || command === 'release') { const { runUnpickup } = await import('../src/lifecycle.mjs'); await runUnpickup(restArgs, config, { dryRun }); return; }
   if (command === 'runlist') { const { runRunlist } = await import('../src/runlist.mjs'); await runRunlist(restArgs, config, { dryRun }); return; }
   if (command === 'handoff') { die('`dotmd handoff` was removed in 0.31.0. Use `dotmd prompts new <name>` to create a saved prompt instead. The .dotmd/handoffs/ sidecar mechanism no longer exists; see CHANGELOG.'); }
-  if (command === 'finish') { const { runFinish } = await import('../src/lifecycle.mjs'); await runFinish(restArgs, config, { dryRun }); return; }
   if (command === 'status') { const { runStatus } = await import('../src/lifecycle.mjs'); await runStatus(restArgs, config, { dryRun }); return; }
   if (command === 'set') { const { runSet } = await import('../src/lifecycle.mjs'); await runSet(restArgs, config, { dryRun }); return; }
   if (command === 'archive') { const { runArchive } = await import('../src/lifecycle.mjs'); runArchive(restArgs, config, { dryRun }); return; }

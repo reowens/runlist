@@ -268,7 +268,6 @@ export const presets = {
 // export function onRename({ oldPath, newPath, referencesUpdated }) {}
 // export function onLint({ path, fixes }) {}
 // export function onPickup({ path, oldStatus, newStatus }) {}
-// export function onFinish({ path, oldStatus, newStatus }) {}
 
 // AI hooks — override summarization (replaces local MLX model).
 // export function summarizeDoc(body, meta) { return 'Custom summary'; }

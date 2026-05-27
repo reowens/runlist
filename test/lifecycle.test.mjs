@@ -851,6 +851,45 @@ describe('init writes .dotmd/ to .gitignore', () => {
   });
 });
 
+describe('Fix C cleanup tail', () => {
+  function runCli(args) {
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    return spawnSync('node', [bin, ...args, '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir,
+      encoding: 'utf8',
+      env: { ...process.env, PATH: process.env.PATH },
+    });
+  }
+
+  it('`dotmd finish` is dropped — reports unknown command', () => {
+    setupProject();
+    const result = runCli(['finish', 'docs/plans/x.md']);
+    ok(result.status !== 0, 'should fail');
+    ok(/Unknown command: finish/.test(result.stdout) || /Unknown command: finish/.test(result.stderr),
+      `expected unknown-command error, got stdout: ${result.stdout}\nstderr: ${result.stderr}`);
+  });
+
+  it('`dotmd status` prints a deprecation pointer to `dotmd set`', () => {
+    const docsDir = setupProject();
+    const filePath = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# A\n');
+    const result = runCli(['status', filePath, 'partial']);
+    strictEqual(result.status, 0, `status should still succeed: ${result.stderr}`);
+    ok(/deprecated/i.test(result.stderr),
+      `expected deprecation warning on stderr, got: ${result.stderr}`);
+    ok(result.stderr.includes('dotmd set'),
+      `deprecation should point at \`dotmd set\`, got: ${result.stderr}`);
+  });
+
+  it('`dotmd set` does not emit the status-deprecation warning (internal call is suppressed)', () => {
+    const docsDir = setupProject();
+    const filePath = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# A\n');
+    const result = runCli(['set', 'partial', filePath]);
+    strictEqual(result.status, 0, `set should succeed: ${result.stderr}`);
+    ok(!/deprecated/i.test(result.stderr),
+      `set should not surface the status-deprecation warning, got: ${result.stderr}`);
+  });
+});
+
 describe('dotmd set — unified status transition', () => {
   function runCli(args, env = {}) {
     const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');

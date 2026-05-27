@@ -1,11 +1,11 @@
 ---
 description: dotmd-managed plan briefing for this repo. Use when the user asks what's on the plate, references a plan slug, queues work, or wants to pick up / release / archive a plan. Valid plan statuses: in-session, active, planned, blocked, partial, paused, awaiting, queued-after, archived. Valid doc statuses: draft, active, review, reference, deprecated, archived. Valid prompt statuses: pending, shelved, claimed, archived.
 ---
-<!-- dotmd-generated: 0.40.3 -->
+<!-- dotmd-generated: 0.41.0 -->
 
 Run `dotmd context` to get the current plans briefing, then use it to orient yourself.
 
-Plans are managed by **dotmd** (v0.40.3). Config at `dotmd.config.mjs`. Always use `dotmd` directly.
+Plans are managed by **dotmd** (v0.41.0). Config at `dotmd.config.mjs`. Always use `dotmd` directly.
 
 Plan-specific commands:
 - `dotmd context` — briefing with active/paused/ready plans, age tags, next steps
@@ -20,7 +20,8 @@ Plan-specific commands:
 - `dotmd prompts use <file>` — consume a specific prompt (prints body, auto-archives)
 - `dotmd archive <file>` — archive with auto ref-fixing (both directions)
 - `dotmd bulk archive <files>` — archive multiple at once
-- `dotmd status <file> <status>` — transition status
+- `dotmd set <status> [<file>]` — unified transition (archive / release / status bump in one verb; infers path from held lease)
+- `dotmd status <file> <status>` — transition status (legacy; `set` is preferred)
 - `dotmd query --keyword <term>` — find plans by keyword
 
 If the user asks about a specific plan, read its file directly (path is in the briefing or findable via `dotmd query --keyword <term>`).

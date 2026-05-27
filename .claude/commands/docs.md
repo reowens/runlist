@@ -1,9 +1,9 @@
 ---
 description: dotmd-managed docs briefing for this repo. Use when the user asks to list, scaffold, query, validate, archive, or rename non-plan docs (reference docs, ADRs, RFCs, design notes), or asks how the dotmd doc lifecycle works here.
 ---
-<!-- dotmd-generated: 0.40.3 -->
+<!-- dotmd-generated: 0.41.0 -->
 
-All documentation in this repo is managed by **dotmd** (v0.40.3). Docs across 1 root: docs. Config at `dotmd.config.mjs`.
+All documentation in this repo is managed by **dotmd** (v0.41.0). Docs across 1 root: docs. Config at `dotmd.config.mjs`.
 
 Document types: `plan`, `doc`, `prompt`.
 
@@ -27,7 +27,8 @@ Lifecycle:
 - `dotmd prompts new <name> "<body>"` — save a resume-prompt
 - `dotmd prompts next` — consume oldest pending prompt (prints body, auto-archives)
 - `dotmd prompts use <file>` — consume a specific prompt (prints body, auto-archives)
-- `dotmd status <file> <status>` — transition status
+- `dotmd set <status> [<file>]` — unified transition (archive / release / status bump; infers path from held lease)
+- `dotmd status <file> <status>` — transition status (legacy; `set` is preferred)
 - `dotmd archive <file>` — archive with auto ref-fixing
 - `dotmd bulk archive <files>` — archive multiple at once
 - `dotmd touch --git` — bulk-sync updated dates from git history

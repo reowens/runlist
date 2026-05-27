@@ -112,6 +112,10 @@ export async function runStatus(argv, config, opts = {}) {
   const input = argv[0];
   let newStatus = argv[1];
 
+  if (!opts.suppressDeprecation) {
+    process.stderr.write(dim('`dotmd status <file> <status>` is deprecated; prefer `dotmd set <status> [<file>]` (note: <status> first, <file> optional when a lease is held). Removed in a future major.\n'));
+  }
+
   if (!input) { die('Usage: dotmd status <file> <new-status>'); }
 
   const filePath = resolveDocPath(input, config);
@@ -519,66 +523,6 @@ export async function runUnpickup(argv, config, opts = {}) {
   }
 }
 
-export async function runFinish(argv, config, opts = {}) {
-  const { dryRun } = opts;
-  const json = argv.includes('--json');
-  const positional = argv.filter(a => !a.startsWith('-'));
-  let input = positional[0];
-  const targetStatus = positional[1] ?? 'done';
-
-  if (!['done', 'active'].includes(targetStatus)) die(`Invalid finish status: ${targetStatus}. Use 'done' or 'active'.`);
-
-  // Interactive: pick from in-session plans
-  if (!input) {
-    if (!isInteractive()) die('Usage: dotmd finish <file> [done|active]');
-    const index = buildIndex(config);
-    const inSession = index.docs.filter(d => d.status === 'in-session');
-    if (inSession.length === 0) die('No plans currently in-session.');
-    if (inSession.length === 1) {
-      input = inSession[0].path;
-      process.stderr.write(`${dim(`Auto-selected: ${input}`)}\n`);
-    } else {
-      const choice = await promptChoice('Finish which plan:', inSession.map(d => `${d.title} — ${d.path}`));
-      if (!choice) die('No plan selected.');
-      const idx = inSession.findIndex((_, i) => choice === `${inSession[i].title} — ${inSession[i].path}`);
-      if (idx === -1) die('No plan selected.');
-      input = inSession[idx].path;
-    }
-  }
-
-  const filePath = resolveDocPath(input, config);
-  if (!filePath) die(`File not found: ${input}`);
-
-  const raw = readFileSync(filePath, 'utf8');
-  const { frontmatter: fmRaw } = extractFrontmatter(raw);
-  const parsedFm = parseSimpleFrontmatter(fmRaw);
-  const oldStatus = asString(parsedFm.status);
-  const repoPath = toRepoPath(filePath, config.repoRoot);
-
-  if (oldStatus !== 'in-session') die(`Plan is not in-session (current: ${oldStatus}).\n  ${repoPath}`);
-
-  const today = nowIso();
-
-  if (dryRun) {
-    process.stderr.write(`${dim('[dry-run]')} Would update: status: in-session → ${targetStatus}, updated: ${today}\n`);
-  } else {
-    updateFrontmatter(filePath, { status: targetStatus, updated: today });
-    regenIndex(config);
-  }
-
-  if (json) {
-    process.stdout.write(JSON.stringify({ path: repoPath, oldStatus, newStatus: targetStatus }, null, 2) + '\n');
-  } else {
-    process.stdout.write(`${green('✓ Finished')}: ${repoPath} (in-session → ${targetStatus})\n`);
-  }
-
-  if (!dryRun) {
-    try { releaseLease(config, repoPath, { force: true }); } catch (err) { warn(`Could not release lease for ${repoPath}: ${err.message}`); }
-  }
-
-  try { config.hooks.onFinish?.({ path: repoPath, oldStatus, newStatus: targetStatus }); } catch (err) { warn(`Hook 'onFinish' threw: ${err.message}`); }
-}
-
 export function runArchive(argv, config, opts = {}) {
   const { dryRun, out = process.stdout } = opts;
   const noIndex = argv.includes('--no-index') || opts.noIndex;
@@ -747,7 +691,7 @@ export async function runSet(argv, config, opts = {}) {
   const statusArgs = [filePath, newStatus];
   if (noIndex) statusArgs.push('--no-index');
   if (showFiles) statusArgs.push('--show-files');
-  await runStatus(statusArgs, config, { dryRun });
+  await runStatus(statusArgs, config, { dryRun, suppressDeprecation: true });
 
   if (oldStatus === 'in-session' && newStatus !== 'in-session' && !dryRun) {
     const repoPath = toRepoPath(filePath, config.repoRoot);
