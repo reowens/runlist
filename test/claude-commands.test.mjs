@@ -51,6 +51,89 @@ describe('scaffoldClaudeCommands', () => {
     ok(content.includes('<!-- dotmd-generated:'));
   });
 
+  it('appends per-type status vocab to the plans description', async () => {
+    // Fix D: agents arriving via SessionStart should see valid statuses in
+    // the available-skills system reminder, not need a `dotmd statuses list`
+    // discovery round-trip before the first `dotmd status` / `dotmd archive`.
+    setup({ claude: true });
+    const config = await resolveConfig(tmpDir);
+    scaffoldClaudeCommands(tmpDir, config);
+    const content = readFileSync(path.join(tmpDir, '.claude', 'commands', 'plans.md'), 'utf8');
+    const match = content.match(/^---\ndescription:\s*(.+)\n---\n/);
+    ok(match, 'plans.md must have frontmatter description');
+    const desc = match[1];
+
+    // Every declared type from default config must contribute a vocab clause.
+    for (const [type, statusesSet] of config.typeStatuses.entries()) {
+      if (statusesSet.size === 0) continue;
+      ok(desc.includes(`Valid ${type} statuses:`),
+        `plans description should declare valid ${type} statuses; got: ${desc}`);
+      for (const status of statusesSet) {
+        ok(desc.includes(status),
+          `plans description should list ${type} status \`${status}\`; got: ${desc}`);
+      }
+    }
+  });
+
+  it('respects per-type status override from user config', async () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-claude-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+    mkdirSync(path.join(tmpDir, '.claude'));
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const root = 'docs';
+      export const types = {
+        plan: { statuses: ['drafting', 'shipping', 'shipped'] },
+        doc: { statuses: ['active', 'archived'] },
+      };
+    `);
+    const config = await resolveConfig(tmpDir);
+    scaffoldClaudeCommands(tmpDir, config);
+    const content = readFileSync(path.join(tmpDir, '.claude', 'commands', 'plans.md'), 'utf8');
+    const desc = content.match(/^---\ndescription:\s*(.+)\n---\n/)[1];
+    ok(desc.includes('Valid plan statuses: drafting, shipping, shipped'),
+      `plans description should reflect plan override; got: ${desc}`);
+    ok(desc.includes('Valid doc statuses: active, archived'),
+      `plans description should reflect doc override; got: ${desc}`);
+    ok(!desc.includes('in-session'),
+      `plans description should not leak built-in plan statuses when config overrides; got: ${desc}`);
+  });
+
+  it('truncates a type vocab with more than 12 statuses', async () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-claude-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+    mkdirSync(path.join(tmpDir, '.claude'));
+    const manyStatuses = Array.from({ length: 15 }, (_, i) => `s${i}`);
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const root = 'docs';
+      export const types = {
+        plan: { statuses: ${JSON.stringify(manyStatuses)} },
+      };
+    `);
+    const config = await resolveConfig(tmpDir);
+    scaffoldClaudeCommands(tmpDir, config);
+    const content = readFileSync(path.join(tmpDir, '.claude', 'commands', 'plans.md'), 'utf8');
+    const desc = content.match(/^---\ndescription:\s*(.+)\n---\n/)[1];
+    ok(desc.includes('s0') && desc.includes('s11'),
+      `truncated vocab should include first 12 entries; got: ${desc}`);
+    ok(desc.includes('…'), `truncated vocab should end with ellipsis; got: ${desc}`);
+    ok(!desc.includes('s12') && !desc.includes('s14'),
+      `truncated vocab should drop entries past the cap; got: ${desc}`);
+  });
+
+  it('leaves docs.md and baton.md descriptions unchanged (vocab only on plans)', async () => {
+    setup({ claude: true });
+    const config = await resolveConfig(tmpDir);
+    scaffoldClaudeCommands(tmpDir, config);
+    for (const name of ['docs.md', 'baton.md']) {
+      const content = readFileSync(path.join(tmpDir, '.claude', 'commands', name), 'utf8');
+      const desc = content.match(/^---\ndescription:\s*(.+)\n---\n/)[1];
+      ok(!/Valid \w+ statuses:/.test(desc),
+        `${name} description should NOT carry vocab clause; got: ${desc}`);
+    }
+  });
+
   it('emits YAML frontmatter with a description for each command', async () => {
     // Claude Code surfaces this `description:` field in the available-skills
     // system reminder at session start. Without it, the listing shows the

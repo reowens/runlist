@@ -14,21 +14,49 @@ const VERSION_MARKER = `<!-- dotmd-generated: ${pkg.version} -->`;
 const VERSION_REGEX = /<!-- dotmd-generated: ([\d.]+) -->/;
 
 // Trigger sentences surfaced by Claude Code's available-skills system reminder.
-// Keep each ≤200 chars (well under the 1,536-char auto-load truncation limit)
-// and front-load the "when to reach for it" cue so Claude can route to the
-// right slash command without the user having to type the slash.
+// Front-load the "when to reach for it" cue so Claude can route to the right
+// slash command without the user having to type the slash. The plans entry
+// gets a per-type status vocab appended at generation time so agents arrive
+// with the valid `dotmd status` / `dotmd archive` values already in context.
 const SLASH_DESCRIPTIONS = {
   plans: "dotmd-managed plan briefing for this repo. Use when the user asks what's on the plate, references a plan slug, queues work, or wants to pick up / release / archive a plan.",
   docs: "dotmd-managed docs briefing for this repo. Use when the user asks to list, scaffold, query, validate, archive, or rename non-plan docs (reference docs, ADRs, RFCs, design notes), or asks how the dotmd doc lifecycle works here.",
   baton: "Save a resume prompt for the held plan and release the lease — the minimum handoff. Use when the user says hand off / save a resume / wrap up, or when context is getting tight.",
 };
 
-function frontmatterFor(name) {
-  return ['---', `description: ${SLASH_DESCRIPTIONS[name]}`, '---'];
+const VOCAB_TRUNCATE_AT = 12;
+
+// Per-type valid statuses, rendered as one clause per type. Appended to the
+// plans description so it lands in Claude's available-skills listing at
+// SessionStart — no discovery command needed before the first `dotmd status`
+// / `dotmd archive` call. Types with no declared statuses are skipped (the
+// generic global list applies); types with >VOCAB_TRUNCATE_AT statuses are
+// truncated with an ellipsis so the description stays bounded.
+function statusVocabClause(config) {
+  if (!config?.typeStatuses) return '';
+  const parts = [];
+  for (const [type, statusesSet] of config.typeStatuses.entries()) {
+    if (!statusesSet || statusesSet.size === 0) continue;
+    let statuses = [...statusesSet];
+    if (statuses.length > VOCAB_TRUNCATE_AT) {
+      statuses = [...statuses.slice(0, VOCAB_TRUNCATE_AT), '…'];
+    }
+    parts.push(`Valid ${type} statuses: ${statuses.join(', ')}.`);
+  }
+  return parts.join(' ');
+}
+
+function frontmatterFor(name, config) {
+  let description = SLASH_DESCRIPTIONS[name];
+  if (name === 'plans') {
+    const vocab = statusVocabClause(config);
+    if (vocab) description = `${description} ${vocab}`;
+  }
+  return ['---', `description: ${description}`, '---'];
 }
 
 function generatePlansCommand(config) {
-  const lines = [...frontmatterFor('plans'), VERSION_MARKER, ''];
+  const lines = [...frontmatterFor('plans', config), VERSION_MARKER, ''];
   lines.push('Run `dotmd context` to get the current plans briefing, then use it to orient yourself.');
   lines.push('');
   lines.push(`Plans are managed by **dotmd** (v${pkg.version}). Config at \`dotmd.config.mjs\`. Always use \`dotmd\` directly.`);
@@ -65,8 +93,8 @@ function generatePlansCommand(config) {
   return lines.join('\n');
 }
 
-function generateBatonCommand() {
-  const lines = [...frontmatterFor('baton'), VERSION_MARKER, ''];
+function generateBatonCommand(config) {
+  const lines = [...frontmatterFor('baton', config), VERSION_MARKER, ''];
   lines.push('Wrap this session. Minimum required (two commands):');
   lines.push('');
   lines.push('1. **Save the resume prompt.** `dotmd new prompt resume-<plan-slug>` with a 10-20 line body via heredoc: the next concrete decision plus any gotchas. NOT a recap of the plan body. The saved prompt IS the handoff — never print it into chat for copy-paste.');
@@ -89,7 +117,7 @@ function generateDocsCommand(config) {
   const roots = Array.isArray(config.raw?.root) ? config.raw.root : [config.raw?.root ?? 'docs'];
   const rootCount = roots.length;
 
-  const lines = [...frontmatterFor('docs'), VERSION_MARKER, ''];
+  const lines = [...frontmatterFor('docs', config), VERSION_MARKER, ''];
   lines.push(`All documentation in this repo is managed by **dotmd** (v${pkg.version}). Docs across ${rootCount} root${rootCount > 1 ? 's' : ''}: ${roots.join(', ')}. Config at \`dotmd.config.mjs\`.`);
   lines.push('');
 
@@ -157,7 +185,7 @@ export function scaffoldClaudeCommands(cwd, config, opts = {}) {
   const files = [
     { name: 'plans.md', generate: () => generatePlansCommand(config) },
     { name: 'docs.md', generate: () => generateDocsCommand(config) },
-    { name: 'baton.md', generate: () => generateBatonCommand() },
+    { name: 'baton.md', generate: () => generateBatonCommand(config) },
   ];
 
   for (const { name, generate } of files) {
