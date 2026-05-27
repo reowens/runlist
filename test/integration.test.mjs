@@ -60,6 +60,26 @@ describe('CLI integration', () => {
     ok(result.stdout.includes('View & Query:'));
   });
 
+  it('help statuses prints full status vocabulary', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-help-statuses-'));
+    const result = run(['help', 'statuses']);
+    strictEqual(result.status, 0);
+    ok(result.stdout.includes('plan statuses'), 'mentions plan statuses');
+    ok(result.stdout.includes('doc statuses'), 'mentions doc statuses');
+    ok(result.stdout.includes('prompt statuses'), 'mentions prompt statuses');
+    ok(result.stdout.includes('queued-after'), 'covers full plan vocab');
+    ok(result.stdout.includes('shelved'), 'covers full prompt vocab');
+    ok(result.stdout.includes('Canonical transitions'), 'shows transitions');
+  });
+
+  it('help with unknown topic exits non-zero and lists available topics', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-help-bad-'));
+    const result = run(['help', 'nonexistent']);
+    strictEqual(result.status, 1);
+    ok(result.stderr.includes('Unknown help topic'), 'reports unknown topic');
+    ok(result.stderr.includes('statuses'), 'lists statuses as available');
+  });
+
   it('list shows docs grouped by status', () => {
     const docsDir = setupProject();
     const today = new Date().toISOString().slice(0, 10);

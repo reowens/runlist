@@ -68,6 +68,7 @@ Create & Export:
 Setup:
   init                              Create starter config + docs directory
   statuses [list|add|set|remove|migrate]  Manage per-project status taxonomy
+  help statuses                     Full status vocabulary + unstuck-actions + transitions
   watch [command]                   Re-run a command on file changes
   completions <shell>               Shell completion script (bash, zsh)
   journal [--tail N|--errors|--by-command|--session id|--since iso|--json]
@@ -91,6 +92,90 @@ Options:
   json: `dotmd json — full index as JSON
 
 Outputs the complete document index as JSON to stdout.`,
+
+  // Help topic accessed via \`dotmd help statuses\` (not a command — see dispatch
+  // below). Single-source-of-truth for the built-in status vocabulary across all
+  // three doc types. User-defined types/statuses live in config; introspect them
+  // with \`dotmd statuses list\`.
+  'help:statuses': `dotmd help statuses — status vocabulary, unstuck-actions, and transitions
+
+Every document has a \`type:\` field; each type has its own valid statuses.
+Status validation is type-aware (type > root > global). To inspect or edit
+the status taxonomy in a specific project, use \`dotmd statuses list\`.
+
+────────────────────────────────────────────────────────────────────
+plan statuses (each maps to a distinct unstuck-action)
+
+  in-session     A Claude session is working on it now.
+                 Don't pick up unless you own it (auto-reattaches) or pass
+                 --takeover. Stale lease cleanup: \`dotmd release --stale\`.
+
+  active         Ready to be picked up.
+                 \`dotmd pickup <file>\` → in-session.
+
+  planned        Queued for future work, not yet ready to execute.
+                 Transition to active when ready to start.
+
+  blocked        External arrival wait — monitor.
+                 Hardware, vendor delivery, third-party rollout. Quiet
+                 (skipStale) — you can't speed it up by nagging.
+
+  partial        Shipped + deferred tail — spawn successor plans.
+                 Plan body should reference the successor plan(s). Quiet.
+
+  paused         Started but stopped mid-work — re-evaluate to resume.
+                 Short stale window (3 days) so resume-decisions don't decay.
+
+  awaiting       Needs human input/decision — chase the answer.
+                 NOT quiet — generates stale pressure so pings aren't forgotten.
+
+  queued-after   Sequenced behind another plan — check predecessor.
+                 Quiet. Can start once the predecessor ships.
+
+  archived       No longer relevant; auto-moved to archive directory.
+
+Canonical transitions:
+  active → in-session              \`dotmd pickup <file>\`
+  in-session → active              \`dotmd release <file>\`
+  in-session → partial             \`dotmd status <file> partial\` (+ release)
+  in-session → awaiting            \`dotmd status <file> awaiting\` (+ release)
+  any → archived                   \`dotmd archive <file>\`
+
+────────────────────────────────────────────────────────────────────
+doc statuses
+
+  draft          Work-in-progress reference doc.
+  active         Living document, kept up-to-date.
+  review         Awaiting peer review.
+  reference      Stable canonical reference (excluded from stale checks).
+  deprecated     Superseded but kept for history.
+  archived       No longer relevant; moved to archive directory.
+
+────────────────────────────────────────────────────────────────────
+prompt statuses
+
+  pending        Ready for the next session to consume.
+                 \`dotmd prompts use <file>\` prints body + archives atomically.
+                 \`dotmd prompts next\` does the same for the oldest pending.
+
+  shelved        Saved but hidden from \`hud\` / \`briefing\` / \`prompts next\`.
+                 Still listed by \`dotmd prompts list\`.
+                 \`dotmd prompts unshelve <file>\` → pending.
+
+  claimed        Legacy intermediate state (atomic use → archived now).
+
+  archived       Consumed prompt; body preserved in archive directory.
+
+────────────────────────────────────────────────────────────────────
+Related commands:
+  dotmd statuses              Inspect/manage per-project status taxonomy
+  dotmd status <f> <new>      Transition a document's status
+  dotmd briefing              See plans grouped by status
+  dotmd plans --status <s>    Filter live plans by status
+  dotmd hud                   Two-line actionable triage (held / prompts / stuck)
+
+Run \`dotmd statuses list --type plan\` to see the full set (including any
+project-specific custom statuses) with their flags.`,
 
   completions: `dotmd completions <bash|zsh> — output shell completion script
 
@@ -240,6 +325,9 @@ Default plan statuses (each maps to a distinct unstuck-action):
   awaiting       Needs human input/decision — chase the answer
   queued-after   Sequenced behind another plan — check predecessor
   archived       No longer relevant; auto-moved to archive directory
+
+Run \`dotmd help statuses\` for the full vocabulary across all doc types
+(plan, doc, prompt) plus canonical transitions and related commands.
 
 Use --dry-run (-n) to preview changes without writing anything.`,
 
@@ -630,8 +718,8 @@ sorted by status. Supports all query flags (--status, --module, --json,
 --sort, --group, etc.).
 
 Default plan statuses: in-session, active, planned, blocked, partial,
-paused, awaiting, queued-after, archived. Run \`dotmd status --help\` for
-the unstuck-action behind each one.
+paused, awaiting, queued-after, archived. Run \`dotmd help statuses\` for
+the unstuck-action behind each one and canonical transitions.
 
 Examples:
   dotmd plans                          # live plans (default)
@@ -825,6 +913,14 @@ async function main() {
   }
 
   if (command === 'help' || command === '--help' || command === '-h') {
+    const topic = args[1];
+    if (topic) {
+      const key = `help:${topic}`;
+      if (HELP[key]) { process.stdout.write(`${HELP[key]}\n`); return; }
+      if (HELP[topic]) { process.stdout.write(`${HELP[topic]}\n`); return; }
+      process.stderr.write(`Unknown help topic: ${topic}\n\nAvailable topics: statuses\nPer-command help: dotmd <cmd> --help\n`);
+      process.exit(1);
+    }
     process.stdout.write(`${HELP._main}\n`);
     return;
   }
