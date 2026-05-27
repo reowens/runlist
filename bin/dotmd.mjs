@@ -35,6 +35,7 @@ Analyze:
   deps [file] [--json]              Dependency tree or overview
   modules [--sort cleanup] [--json] Module dashboard (plans grouped by module)
   module <name> [--json]            Plans for one module, grouped by status
+  surfaces [--json]                 List configured surface taxonomy
   unblocks <file> [--json]          Show what completes when this doc ships
   diff [file] [--summarize]         Show changes since last updated date
   summary <file> [--json]           AI summary of a document
@@ -491,6 +492,17 @@ Options:
   --json                 Machine-readable shape
 
 Unknown module name suggests close matches (or lists what's available).`,
+
+  surfaces: `dotmd surfaces — list configured surface taxonomy
+
+Prints the values accepted in \`surfaces:\` frontmatter, one per line.
+Source: \`config.taxonomy.surfaces\` in dotmd.config.mjs.
+
+Options:
+  --json                 Machine-readable shape: { surfaces: [...] }
+
+When the project has no taxonomy configured, any surface value is accepted —
+the command says so instead of printing an empty list.`,
 
   doctor: `dotmd doctor — auto-fix everything in one pass
 
@@ -1315,6 +1327,11 @@ async function main() {
       const { runModuleDetail } = await import('../src/modules.mjs');
       runModuleDetail(scoped, restArgs, config);
     }
+    return;
+  }
+  if (command === 'surfaces') {
+    const { runSurfaces } = await import('../src/surfaces.mjs');
+    runSurfaces(restArgs, config);
     return;
   }
   if (command === 'briefing') {

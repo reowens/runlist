@@ -5,9 +5,22 @@ import { toRepoPath, die, warn, nowIso, emitFilesFooter } from './util.mjs';
 import { green, dim, bold } from './color.mjs';
 import { isInteractive, promptText } from './prompt.mjs';
 import { regenIndex } from './lifecycle.mjs';
+import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+
+// Surface-taxonomy hint emitted above the `surfaces:` line in scaffolded docs.
+// Discoverable-by-default: the author sees valid values without leaving the file
+// and without grepping sibling docs (issue #12 trap 1). When the project has no
+// configured taxonomy, fall back to a bare `surfaces:` line.
+function surfacesScaffold(ctx) {
+  const valid = ctx?.validSurfaces;
+  if (Array.isArray(valid) && valid.length > 0) {
+    return `# surfaces — valid: ${valid.join(', ')}\nsurfaces:`;
+  }
+  return 'surfaces:';
+}
 
 const BUILTIN_TEMPLATES = {
   doc: {
@@ -17,13 +30,15 @@ const BUILTIN_TEMPLATES = {
     // it lands in the Overview section. Without it, Overview is left blank
     // and the user fills it in.
     acceptsBody: true,
-    frontmatter: (s, d) => [
+    frontmatter: (s, d, ctx) => [
       'type: doc',
       `status: ${s}`,
       `created: ${d}`,
       `updated: ${d}`,
+      '# modules — real module name(s), or `none` for platform/infra docs',
       'modules:',
-      'surfaces:',
+      '  - none',
+      surfacesScaffold(ctx),
       'domain:',
       'audience: internal',
       'related_plans:',
@@ -54,13 +69,15 @@ ${ctx?.bodyInput?.trim() ?? ''}
     // Body input lands in the Problem section. Plans don't have an Overview;
     // Problem is the established opening section in the build-up shape.
     acceptsBody: true,
-    frontmatter: (s, d) => [
+    frontmatter: (s, d, ctx) => [
       'type: plan',
       `status: ${s}`,
       `created: ${d}`,
       `updated: ${d}`,
-      'surfaces:',
+      surfacesScaffold(ctx),
+      '# modules — real module name(s), or `none` for tooling/infra plans',
       'modules:',
+      '  - none',
       'domain:',
       'audience: internal',
       'parent_plan:',
@@ -164,6 +181,68 @@ Status markers (put in heading text):
   },
 };
 
+// Body inputs from agents often arrive as a full document (frontmatter + body)
+// written to a tempfile and passed via `@path` or stdin. Without this split,
+// `dotmd new` would prepend its scaffold frontmatter and treat the input's
+// frontmatter as literal body content — resulting in two `---` blocks and a
+// duplicated title. We instead parse the leading block (if any), merge its
+// keys onto the scaffold, and use only what follows as body. See issue #12
+// trap 4. Returns `{ frontmatter: object|null, body: string }`.
+function splitBodyFrontmatter(rawBody) {
+  if (!rawBody || typeof rawBody !== 'string') return { frontmatter: null, body: rawBody };
+  if (!rawBody.startsWith('---\n')) return { frontmatter: null, body: rawBody };
+  const { frontmatter: fmText, body } = extractFrontmatter(rawBody);
+  if (!fmText) return { frontmatter: null, body: rawBody };
+  const parsed = parseSimpleFrontmatter(fmText);
+  return { frontmatter: parsed, body };
+}
+
+// Serialize a single frontmatter key/value pair to a YAML block. Mirrors the
+// scaffold's shape so merged output reads naturally next to scaffold defaults.
+function serializeFmEntry(key, value) {
+  if (value === null || value === undefined || value === '') return `${key}:`;
+  if (Array.isArray(value)) {
+    if (value.length === 0) return `${key}:`;
+    return `${key}:\n${value.map(v => `  - ${v}`).join('\n')}`;
+  }
+  if (typeof value === 'string' && value.includes('\n')) {
+    const indented = value.split('\n').map(l => `  ${l}`).join('\n');
+    return `${key}: |\n${indented}`;
+  }
+  return `${key}: ${value}`;
+}
+
+// Replace each key in `overrides` within the scaffold-generated frontmatter
+// string. Keys not present in the scaffold are appended. `type:` is never
+// overwritten — the CLI's type arg wins (warning emitted on conflict).
+function mergeBodyFrontmatter(scaffoldFm, overrides, cliType) {
+  if (!overrides || Object.keys(overrides).length === 0) return scaffoldFm;
+  let fm = scaffoldFm;
+  const appended = [];
+  for (const [key, value] of Object.entries(overrides)) {
+    if (key === 'type') {
+      if (cliType && value && value !== cliType) {
+        warn(`Body frontmatter declares \`type: ${value}\` but CLI arg is \`${cliType}\`; using \`${cliType}\`.`);
+      }
+      continue;
+    }
+    if (key === 'created' || key === 'updated') continue; // scaffold owns timestamps
+    const serialized = serializeFmEntry(key, value);
+    // Match `key:` line + any indented continuation (block-array items or
+    // block-scalar bodies). Indented lines start with whitespace; scaffold keys
+    // never do, so this consumes only the right slice.
+    const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`^${escaped}:.*(\\n[ \\t]+.*)*`, 'm');
+    if (re.test(fm)) {
+      fm = fm.replace(re, serialized);
+    } else {
+      appended.push(serialized);
+    }
+  }
+  if (appended.length > 0) fm = fm + '\n' + appended.join('\n');
+  return fm;
+}
+
 function readBodyInput(source) {
   if (source === '-') {
     try { return readFileSync(0, 'utf8'); } catch (err) { die(`Could not read body from stdin: ${err.message}`); }
@@ -259,6 +338,20 @@ export async function runNew(argv, config, opts = {}) {
   else if (bodyArg !== null) {
     bodyInput = readBodyInput(bodyArg);
     bodyInputSource = bodyArg === '-' ? 'stdin (`-`)' : (bodyArg.startsWith('@') ? `file (\`${bodyArg}\`)` : 'inline body argument');
+  }
+
+  // If the body input has a leading `---…---` frontmatter block, lift its keys
+  // out so they override scaffold defaults; only the content after the closing
+  // `---` is treated as body. The natural agent pattern is to draft a full doc
+  // to a tempfile and pass `@path` — without this, the scaffold ends up with
+  // two `---` blocks. See issue #12 trap 4.
+  let bodyFrontmatter = null;
+  if (bodyInput !== null) {
+    const split = splitBodyFrontmatter(bodyInput);
+    if (split.frontmatter) {
+      bodyFrontmatter = split.frontmatter;
+      bodyInput = split.body;
+    }
   }
 
   if (template.requiresBody && (!bodyInput || !bodyInput.trim())) {
@@ -359,11 +452,13 @@ export async function runNew(argv, config, opts = {}) {
 
   // Generate content
   let content;
-  const tmplCtx = { status, title: docTitle, today, bodyInput };
+  const validSurfaces = config.raw?.taxonomy?.surfaces ?? (config.validSurfaces ? [...config.validSurfaces] : null);
+  const tmplCtx = { status, title: docTitle, today, bodyInput, validSurfaces };
   if (typeof template === 'function') {
     content = template(name, tmplCtx);
   } else {
-    const fm = template.frontmatter(status, today, tmplCtx);
+    let fm = template.frontmatter(status, today, tmplCtx);
+    if (bodyFrontmatter) fm = mergeBodyFrontmatter(fm, bodyFrontmatter, typeName);
     const body = template.body(docTitle, tmplCtx);
     content = `---\n${fm}\n---\n${body}`;
   }

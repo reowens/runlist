@@ -594,6 +594,134 @@ describe('dotmd new — type-first CLI', () => {
       ok(!/Root:.+others:/.test(r.stdout), `explicit --root should suppress hint: ${r.stdout}`);
     });
 
+    it('scaffold defaults modules to `- none` so fresh plans pass dotmd check', () => {
+      // Fix 2 from issue #12: empty `modules:` triggers a hard error when status
+      // is active/planned/blocked. Defaulting to `- none` lets the file validate
+      // immediately; the author replaces it with real modules when applicable.
+      tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-modules-'));
+      mkdirSync(path.join(tmpDir, '.git'));
+      mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+      writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'),
+        `export const root = 'docs';\nexport const taxonomy = { moduleRequiredFor: ['active', 'planned', 'blocked'] };`);
+      const r = run(['new', 'plan', 'tooling-only']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(tmpDir, 'docs', 'plans', 'tooling-only.md'), 'utf8');
+      ok(/^modules:\n  - none$/m.test(content), `expected modules: - none in scaffold; got:\n${content}`);
+      const check = run(['check', 'docs/plans/tooling-only.md']);
+      ok(!/errors: [1-9]/.test(check.stdout), `fresh plan should validate cleanly; got: ${check.stdout}`);
+    });
+
+    it('scaffold emits a surfaces-taxonomy comment when config has one', () => {
+      // Fix 1 from issue #12: surface taxonomy was undiscoverable. The scaffold
+      // now lists valid values inline as a YAML comment so the author sees them
+      // without leaving the file.
+      tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-surface-comment-'));
+      mkdirSync(path.join(tmpDir, '.git'));
+      mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+      writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'),
+        `export const root = 'docs';\nexport const taxonomy = { surfaces: ['web', 'api', 'platform'] };`);
+      const r = run(['new', 'plan', 'with-taxonomy']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(tmpDir, 'docs', 'plans', 'with-taxonomy.md'), 'utf8');
+      ok(content.includes('# surfaces — valid: web, api, platform'),
+        `expected surfaces comment; got:\n${content}`);
+    });
+
+    it('scaffold omits surfaces comment when no taxonomy is configured', () => {
+      const docsDir = setupProject();
+      const r = run(['new', 'plan', 'no-taxonomy']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'plans', 'no-taxonomy.md'), 'utf8');
+      ok(!content.includes('# surfaces —'),
+        `expected no taxonomy comment when none configured; got:\n${content}`);
+    });
+  });
+
+  describe('Fix 4: body input with leading frontmatter merges into scaffold', () => {
+    it('@path body with leading --- block overlays scaffold frontmatter', () => {
+      const docsDir = setupProject();
+      const bodyFile = path.join(tmpDir, 'body.md');
+      writeFileSync(bodyFile, [
+        '---',
+        'status: planned',
+        'modules:',
+        '  - core',
+        'current_state: Drafted via @path with full frontmatter.',
+        'next_step: Wire it up',
+        '---',
+        '',
+        '# Real Title',
+        '',
+        '## Phases',
+        '',
+        '### Phase 1 — Setup ⬜',
+        '',
+        'real body',
+      ].join('\n'));
+      const r = run(['new', 'plan', 'merged-plan', `@${bodyFile}`]);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'plans', 'merged-plan.md'), 'utf8');
+      // Only one frontmatter block — no duplicate `---`
+      const fmBlocks = (content.match(/^---$/gm) ?? []).length;
+      strictEqual(fmBlocks, 2, `expected exactly 2 --- markers (one fm block); got ${fmBlocks}\n${content}`);
+      // Body's frontmatter keys landed in scaffold
+      ok(content.includes('status: planned'), 'status overlaid');
+      ok(/modules:\n  - core/.test(content), 'modules overlaid');
+      ok(content.includes('current_state: Drafted via @path'), 'current_state overlaid');
+      ok(content.includes('next_step: Wire it up'), 'next_step overlaid');
+      // Body content (after second ---) is just the body, not the frontmatter
+      const bodyStart = content.indexOf('\n---\n', 4) + 5;
+      const bodyOnly = content.slice(bodyStart);
+      ok(!bodyOnly.includes('status: planned'), 'body should not contain the frontmatter key');
+      ok(bodyOnly.includes('Real Title'), 'body content preserved');
+    });
+
+    it('plain body without leading --- is unchanged (back-compat)', () => {
+      const docsDir = setupProject();
+      const r = run(['new', 'plan', 'plain-body', 'Just a problem statement.']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'plans', 'plain-body.md'), 'utf8');
+      // Default scaffold frontmatter still in place (status defaulted)
+      ok(content.includes('status: active'), 'status defaulted');
+      // Inline body still slots into Problem
+      ok(content.includes('Just a problem statement.'), 'body preserved');
+    });
+
+    it('body frontmatter `type:` cannot override the CLI type arg', () => {
+      const docsDir = setupProject();
+      const bodyFile = path.join(tmpDir, 'mismatched.md');
+      writeFileSync(bodyFile, '---\ntype: doc\nstatus: active\n---\n\n# Body title\n');
+      const r = run(['new', 'plan', 'cli-wins', `@${bodyFile}`]);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'plans', 'cli-wins.md'), 'utf8');
+      ok(content.includes('type: plan'), `CLI type should win; got:\n${content}`);
+      ok(!content.includes('type: doc'), 'doc type should not leak through');
+    });
+
+    it('body frontmatter does not override scaffold timestamps', () => {
+      const docsDir = setupProject();
+      const bodyFile = path.join(tmpDir, 'stale.md');
+      writeFileSync(bodyFile, '---\ncreated: 2020-01-01T00:00:00Z\nupdated: 2020-01-01T00:00:00Z\n---\n\nbody\n');
+      const r = run(['new', 'plan', 'fresh-dates', `@${bodyFile}`]);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'plans', 'fresh-dates.md'), 'utf8');
+      ok(!content.includes('2020-01-01'), `scaffold should own timestamps; got:\n${content}`);
+    });
+
+    it('body input with `---` only as horizontal rule (not at start) is body-as-is', () => {
+      const docsDir = setupProject();
+      const bodyFile = path.join(tmpDir, 'rule.md');
+      writeFileSync(bodyFile, '# Title\n\nIntro paragraph.\n\n---\n\nSection after rule.\n');
+      const r = run(['new', 'doc', 'with-rule', `@${bodyFile}`]);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'with-rule.md'), 'utf8');
+      // The body's --- (horizontal rule) survives
+      ok(content.includes('Intro paragraph.'), 'pre-rule content kept');
+      ok(content.includes('Section after rule.'), 'post-rule content kept');
+    });
+  });
+
+  describe('legacy templates and customization', () => {
     it('custom template with acceptsBody:true accepts body without error', () => {
       tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-new-'));
       mkdirSync(path.join(tmpDir, '.git'));

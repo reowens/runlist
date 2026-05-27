@@ -444,13 +444,16 @@ export function validatePlanShape(doc, body, frontmatter, config) {
     });
   }
 
-  // 2. current_state length cap (500 chars)
+  // 2. current_state length cap (1500 chars). Was 500; raised because agents
+  // legitimately need ~150-250 words of resume-context (prior incidents, what
+  // shipped, what's verified, where to look) and the prior cap forced a
+  // truncate-and-move-to-body retry loop on non-trivial plans.
   const currentState = typeof frontmatter.current_state === 'string' ? frontmatter.current_state : '';
-  if (currentState.length > 500) {
+  if (currentState.length > 1500) {
     doc.warnings.push({
       path: doc.path,
       level: 'warning',
-      message: `\`current_state\` is ${currentState.length} chars (cap: 500). Long prose belongs in the body.`,
+      message: `\`current_state\` is ${currentState.length} chars (cap: 1500). Long prose belongs in the body.`,
     });
   }
 

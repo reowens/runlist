@@ -9,8 +9,8 @@ import { bold, green, dim } from './color.mjs';
 // are deliberately under the cap so a fix-then-edit cycle doesn't reintroduce
 // the warning on the next few-word touch-up.
 const FIELDS = [
-  { name: 'current_state', cap: 500, target: 300, heading: '## Current State' },
-  { name: 'next_step',     cap: 300, target: 200, heading: '## Next Step' },
+  { name: 'current_state', cap: 1500, target: 1200, heading: '## Current State' },
+  { name: 'next_step',     cap: 300,  target: 200,  heading: '## Next Step' },
 ];
 
 export function runFrontmatterFix(config, opts = {}) {

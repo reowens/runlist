@@ -397,7 +397,7 @@ describe('doctor --frontmatter-fix', () => {
 
   it('shrinks current_state and inserts a `## Current State` section', () => {
     setupPlanProject();
-    writeLongPlan('long-cs', 612);
+    writeLongPlan('long-cs', 1700);
     const planPath = path.join(tmpDir, 'docs', 'plans', 'long-cs.md');
 
     const result = run(['doctor', '--frontmatter-fix']);
@@ -434,7 +434,7 @@ describe('doctor --frontmatter-fix', () => {
 
   it('--dry-run does not modify files', () => {
     setupPlanProject();
-    writeLongPlan('preview', 612);
+    writeLongPlan('preview', 1700);
     const planPath = path.join(tmpDir, 'docs', 'plans', 'preview.md');
     const before = readFileSync(planPath, 'utf8');
 
@@ -447,7 +447,7 @@ describe('doctor --frontmatter-fix', () => {
 
   it('clears the validatePlanShape warning after the fix', () => {
     setupPlanProject();
-    writeLongPlan('verify', 612, 342);
+    writeLongPlan('verify', 1700, 342);
 
     // Sanity-check: pre-fix, `check` reports both length warnings.
     const before = run(['check']);
@@ -458,7 +458,7 @@ describe('doctor --frontmatter-fix', () => {
     strictEqual(fix.status, 0, `stderr: ${fix.stderr}`);
 
     const after = run(['check']);
-    ok(!after.stdout.includes('cap: 500') && !after.stdout.includes('cap: 300'),
+    ok(!after.stdout.includes('cap: 1500') && !after.stdout.includes('cap: 300'),
       `post-fix should clear length warnings; got: ${after.stdout}`);
   });
 });

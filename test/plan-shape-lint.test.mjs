@@ -47,15 +47,15 @@ describe('plan-shape lint', () => {
     ok(w.message.includes('500'), 'reports actual length');
   });
 
-  it('warns when current_state exceeds 500 chars', () => {
+  it('warns when current_state exceeds 1500 chars', () => {
     const docsDir = setupProject();
-    const longText = 'x'.repeat(700);
+    const longText = 'x'.repeat(1700);
     writeDoc(docsDir, 'plan.md', `type: plan\nstatus: active\nupdated: 2026-05-13\ncurrent_state: ${longText}`);
 
     const idx = checkJson();
     const w = idx.warnings.find(x => x.message.includes('current_state') && x.message.includes('chars'));
     ok(w, 'expected current_state warning');
-    ok(w.message.includes('700'));
+    ok(w.message.includes('1700'));
   });
 
   it('warns when surface is used (F18: singular is universally deprecated)', () => {
