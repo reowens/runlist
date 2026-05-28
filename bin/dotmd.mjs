@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { resolveConfig } from '../src/config.mjs';
 import { die, warn, levenshtein } from '../src/util.mjs';
-import { recordCliInvocation } from '../src/journal.mjs';
+import { recordCliInvocation, recordGlobalError } from '../src/journal.mjs';
 import { findRepeatFailureHint } from '../src/hints.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1260,7 +1260,13 @@ async function main() {
     const { scrubStaleSilently } = await import('../src/lease-scrub.mjs');
     scrubStaleSilently(config);
   }
-  const index = buildIndex(config);
+  // `dotmd check` is the one shared-buildIndex command that should auto-heal a
+  // drifted index block (frontmatter edits by direct Edit/Write, `lint --fix`,
+  // etc. leave the README out of sync; demanding the user run `dotmd index`
+  // each time was pure noise). Print/dry-run/read-only callers (`json`, `list`,
+  // `query`, `index --print`, ...) stay opt-out so they never mutate disk.
+  const AUTO_HEAL_INDEX_COMMANDS = new Set(['check']);
+  const index = buildIndex(config, { autoHealIndex: AUTO_HEAL_INDEX_COMMANDS.has(command) });
 
   // Apply --root and --type filters
   const rootFilter = rootArg;
@@ -1552,6 +1558,17 @@ function _journalExit(err) {
       version: pkg.version,
     });
   } catch { /* never break exit on journal failure */ }
+  if (err) {
+    try {
+      recordGlobalError({
+        config: _resolvedConfig,
+        startMs: _startMs,
+        args: _invocationArgs,
+        err,
+        version: pkg.version,
+      });
+    } catch { /* never break exit on error-log failure */ }
+  }
 }
 
 main()

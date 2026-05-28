@@ -21,7 +21,7 @@ import { checkClaudeCommands } from './claude-commands.mjs';
 // error COUNT, so the warning-only passes are pure overhead there. Preserves
 // the invariant that hud's "✗ N validation errors" line matches `dotmd check`.
 export function buildIndex(config, opts = {}) {
-  const { fast = false, errorsOnly = false } = opts;
+  const { fast = false, errorsOnly = false, autoHealIndex = false } = opts;
   const skipWarningOnlyChecks = fast || errorsOnly;
   const docs = collectDocFiles(config).map(f => parseDocFile(f, config, { fast }));
   if (!fast) {
@@ -95,7 +95,15 @@ export function buildIndex(config, opts = {}) {
   }
 
   if (!fast && config.indexPath) {
-    const indexCheck = checkIndex(transformedDocs, config);
+    // `autoHealIndex` is opt-in from the caller (currently `dotmd check` and
+    // `dotmd hud`). When true, drift triggers an in-place rewrite and a
+    // warning instead of the old "Run `dotmd index`" error — closing the
+    // class of nags produced by mutation paths that skip `regenIndex`
+    // (`lint --fix`, direct file edits, etc). `transformedDocs` here is
+    // always the canonical full set; CLI-level `--root`/`--type` filtering
+    // runs after `buildIndex` returns, so a rewrite is safe. Off by default
+    // so dry-run / print modes never mutate disk as a side effect.
+    const indexCheck = checkIndex(transformedDocs, config, { autoHeal: autoHealIndex });
     warnings.push(...indexCheck.warnings);
     errors.push(...indexCheck.errors);
   }

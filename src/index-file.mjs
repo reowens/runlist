@@ -80,7 +80,19 @@ export function writeIndex(content, config) {
   writeFileSync(config.indexPath, content, 'utf8');
 }
 
-export function checkIndex(docs, config) {
+// `autoHeal: true` rewrites the index in place when drift is detected and
+// downgrades the result to a warning ("Auto-regenerated stale index block").
+// Drift happens when frontmatter changes (status/title/current_state/module)
+// arrive via paths that don't call `regenIndex` — direct file edits, `lint
+// --fix`, `frontmatter-fix`, `bulk-tag`, etc. The README block is fully
+// generated content; treating drift as an error forced the user to run
+// `dotmd index` themselves every session. Callers inside `buildIndex` pass
+// `autoHeal: true` because the docs there are always the canonical full set
+// (filtering happens later in the CLI dispatcher). Direct callers with a
+// filtered/synthetic docs list omit it to keep the old error semantics —
+// auto-overwriting from a partial doc list would clobber valid content.
+export function checkIndex(docs, config, opts = {}) {
+  const { autoHeal = false } = opts;
   const warnings = [];
   const errors = [];
 
@@ -98,7 +110,16 @@ export function checkIndex(docs, config) {
   const index = { docs };
   const expected = renderIndexFile(index, config);
   if (expected !== current) {
-    errors.push({ path: config.indexPath, level: 'error', message: 'Generated index block is stale. Run `dotmd index`.' });
+    if (autoHeal) {
+      try {
+        writeFileSync(config.indexPath, expected, 'utf8');
+        warnings.push({ path: config.indexPath, level: 'warning', message: 'Auto-regenerated stale index block.' });
+      } catch (err) {
+        errors.push({ path: config.indexPath, level: 'error', message: `Could not auto-regenerate stale index block: ${err.message}` });
+      }
+    } else {
+      errors.push({ path: config.indexPath, level: 'error', message: 'Generated index block is stale. Run `dotmd index`.' });
+    }
   }
 
   return { warnings, errors };

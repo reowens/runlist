@@ -76,6 +76,8 @@ function generatePlansCommand(config, version) {
   lines.push('- `dotmd unblocks <file>` — what depends on / is blocked by a plan');
   lines.push('- `dotmd actionable` — ready plans with next steps (what to promote)');
   lines.push('- `dotmd query --keyword <term>` — find plans by keyword');
+  lines.push('- `dotmd runlist <hub>` — show ordered children of a runlist hub (→ marks next pickup)');
+  lines.push('- `dotmd runlist next <hub>` — pick up the next non-archived child of a runlist hub');
 
   if (config.raw?.glossary) {
     lines.push('- `dotmd glossary <term>` — domain term lookup with related plans');
@@ -86,6 +88,7 @@ function generatePlansCommand(config, version) {
   lines.push('');
   lines.push('If the user asks to change a plan\'s status, use `dotmd set <status> <file>`.');
   lines.push('If the user asks to archive a plan, use `dotmd set archived <file>` (or `dotmd archive <file>`).');
+  lines.push('If the user references a runlist by name — e.g. "what\'s next on <X> runlist", "<X> runlist status", "pick up the next in <X>" — use `dotmd runlist next <X>` (or `dotmd runlist <X>` first to inspect the ordering). Do NOT fall back to `dotmd context` for runlist-scoped questions.');
   lines.push('');
   lines.push('**Saved prompts (`docs/prompts/*.md`):** if the user references a file under `docs/prompts/` — e.g. "resume via docs/prompts/foo.md", "use this prompt", "load that one" — consume it with `dotmd use <file>` (atomically prints the body and archives the prompt so it cannot be double-consumed). Do NOT `cat` it, read it with the file-reading tool, or copy its body into chat. To pick the oldest pending prompt without naming a file, run `dotmd use` with no arg.');
   lines.push('');

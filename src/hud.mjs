@@ -205,7 +205,11 @@ export function buildHud(config) {
   // still run, so the error count matches `dotmd check`'s.
   let errors = 0;
   try {
-    const index = buildIndex(config, { errorsOnly: true });
+    // `autoHealIndex: true` mirrors `dotmd check` — drift from non-regen
+    // mutation paths (`lint --fix`, direct file edits, etc.) heals silently
+    // at SessionStart so the agent doesn't open every session with a
+    // spurious "Run `dotmd index`" error in the hud error count.
+    const index = buildIndex(config, { errorsOnly: true, autoHealIndex: true });
     errors = index.errors.length;
   } catch { /* swallow — bad config shouldn't break the SessionStart hook */ }
 

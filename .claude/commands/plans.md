@@ -22,10 +22,13 @@ Plan-specific commands:
 - `dotmd unblocks <file>` — what depends on / is blocked by a plan
 - `dotmd actionable` — ready plans with next steps (what to promote)
 - `dotmd query --keyword <term>` — find plans by keyword
+- `dotmd runlist <hub>` — show ordered children of a runlist hub (→ marks next pickup)
+- `dotmd runlist next <hub>` — pick up the next non-archived child of a runlist hub
 
 If the user asks about a specific plan, read its file directly (path is in the briefing or findable via `dotmd query --keyword <term>`).
 
 If the user asks to change a plan's status, use `dotmd set <status> <file>`.
 If the user asks to archive a plan, use `dotmd set archived <file>` (or `dotmd archive <file>`).
+If the user references a runlist by name — e.g. "what's next on <X> runlist", "<X> runlist status", "pick up the next in <X>" — use `dotmd runlist next <X>` (or `dotmd runlist <X>` first to inspect the ordering). Do NOT fall back to `dotmd context` for runlist-scoped questions.
 
 **Saved prompts (`docs/prompts/*.md`):** if the user references a file under `docs/prompts/` — e.g. "resume via docs/prompts/foo.md", "use this prompt", "load that one" — consume it with `dotmd use <file>` (atomically prints the body and archives the prompt so it cannot be double-consumed). Do NOT `cat` it, read it with the file-reading tool, or copy its body into chat. To pick the oldest pending prompt without naming a file, run `dotmd use` with no arg.

@@ -132,6 +132,51 @@ describe('checkIndex', () => {
     const result = checkIndex(index.docs, config);
     strictEqual(result.errors.length, 0);
   });
+
+  it('auto-heals stale index when buildIndex is called with autoHealIndex: true', async () => {
+    const docsDir = setup();
+    writeDoc(docsDir, 'a.md', 'status: active\nupdated: 2025-01-01', '# A\n\n**Status:** ok');
+    const config = await resolveConfig(tmpDir);
+    const { buildIndex } = await import('../src/index.mjs');
+    // Opt in: rewrites the stale on-disk block, returns a warning, no error.
+    const index = buildIndex(config, { autoHealIndex: true });
+    const expected = renderIndexFile(index, config);
+    const onDisk = readFileSync(config.indexPath, 'utf8');
+    strictEqual(onDisk, expected, 'buildIndex should leave the file in sync');
+    const followUp = checkIndex(index.docs, config, { autoHeal: true });
+    strictEqual(followUp.errors.length, 0);
+    strictEqual(followUp.warnings.length, 0);
+  });
+
+  it('buildIndex without autoHealIndex leaves a drifted file untouched', async () => {
+    const docsDir = setup();
+    writeDoc(docsDir, 'a.md', 'status: active\nupdated: 2025-01-01', '# A\n\n**Status:** ok');
+    const config = await resolveConfig(tmpDir);
+    const { buildIndex } = await import('../src/index.mjs');
+    const before = readFileSync(config.indexPath, 'utf8');
+    const index = buildIndex(config);
+    const after = readFileSync(config.indexPath, 'utf8');
+    strictEqual(after, before, 'no opt-in → no mutation');
+    ok(index.errors.some(e => /stale/.test(e.message)),
+      'should still surface the stale error for callers that want it');
+  });
+
+  it('auto-heal rewrites a drifted file and emits a warning', async () => {
+    const docsDir = setup();
+    writeDoc(docsDir, 'a.md', 'status: active\nupdated: 2025-01-01', '# A\n\n**Status:** ok');
+    const config = await resolveConfig(tmpDir);
+    const { buildIndex } = await import('../src/index.mjs');
+    const index = buildIndex(config);
+    // Drift the file: overwrite the generated block region with a stale stub.
+    writeFileSync(config.indexPath, '# Docs\n\n<!-- START -->\n\nold content\n\n<!-- END -->\n', 'utf8');
+    const result = checkIndex(index.docs, config, { autoHeal: true });
+    strictEqual(result.errors.length, 0, 'should not error');
+    ok(result.warnings.some(w => /auto-regenerated/i.test(w.message)),
+      'should emit auto-regenerated warning');
+    const expected = renderIndexFile(index, config);
+    const onDisk = readFileSync(config.indexPath, 'utf8');
+    strictEqual(onDisk, expected, 'file should now match the rendered output');
+  });
 });
 
 describe('writeIndex', () => {
