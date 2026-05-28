@@ -552,12 +552,40 @@ export function runArchive(argv, config, opts = {}) {
 
   const archiveFileRoot = findFileRoot(filePath, config);
   const relFromRoot = path.relative(archiveFileRoot, filePath);
-  if (relFromRoot.startsWith(config.archiveDir + '/') || relFromRoot.startsWith(config.archiveDir + path.sep)) { die(`Already archived: ${toRepoPath(filePath, config.repoRoot)}`); }
+  // Segment-membership covers both single-root (`<root>/archived/foo.md`) and
+  // multi-root (`<type-root>/archived/foo.md`) layouts. The older
+  // startsWith-only check missed nested cases where archived/ wasn't the first
+  // segment under the resolved root.
+  const inArchiveDir = relFromRoot.split(path.sep).includes(config.archiveDir);
 
   const raw = readFileSync(filePath, 'utf8');
   const { frontmatter, body } = extractFrontmatter(raw);
   const parsed = parseSimpleFrontmatter(frontmatter);
   const oldStatus = asString(parsed.status) ?? 'unknown';
+
+  // Heal stuck frontmatter (issue #13): file is under archiveDir/ but its
+  // status hasn't been flipped. Flip in place; don't try to move (it's already
+  // archived on disk) and don't refuse — refusal leaves the drift permanent.
+  if (inArchiveDir) {
+    if (oldStatus === 'archived') {
+      die(`Already archived: ${toRepoPath(filePath, config.repoRoot)}`);
+    }
+    const today = nowIso();
+    const repoPathHeal = toRepoPath(filePath, config.repoRoot);
+    if (dryRun) {
+      const prefix = dim('[dry-run]');
+      out.write(`${prefix} Would heal frontmatter in place: status: ${oldStatus} → archived, updated: ${today}\n`);
+      out.write(`${prefix} Would skip git mv (file already under \`${config.archiveDir}/\`)\n`);
+      return;
+    }
+    updateFrontmatter(filePath, { status: 'archived', updated: today });
+    appendVersionHistory(filePath, `Archived (frontmatter healed in place from \`${oldStatus}\`).`);
+    if (!noIndex) regenIndex(config);
+    out.write(`${green('✓ Healed')}: ${repoPathHeal} (${oldStatus} → archived; file already under \`${config.archiveDir}/\`)\n`);
+    if (showFiles) emitFilesFooter([repoPathHeal, config.indexPath], config);
+    return;
+  }
+
   const closeoutAction = closeoutTemplate ? planCloseoutInjection(body) : null;
 
   const today = nowIso();

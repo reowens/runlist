@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { capitalize, toSlug, truncate, warn, suggestCandidates } from './util.mjs';
+import { capitalize, toSlug, truncate, warn, suggestCandidates, isArchivedPath } from './util.mjs';
 import { renderProgressBar, formatCurrentState } from './render.mjs';
 import { computeDaysSinceUpdate, computeIsStale } from './validate.mjs';
 import { getGitLastModifiedBatch } from './git.mjs';
@@ -176,14 +176,15 @@ export function filterDocs(docs, filters, config) {
 
   if (filters.types?.length) result = result.filter(d => filters.types.includes(d.type));
   if (filters.statuses?.length) result = result.filter(d => filters.statuses.includes(d.status));
-  // --exclude-archived strips terminal/archive statuses unless the caller
-  // explicitly opted back in with --include-archived.
+  // --exclude-archived strips terminal/archive statuses AND any file physically
+  // located under `archiveDir/` (issue #13: status can drift out of sync with
+  // the file's directory; the path is the source of truth for "is archived").
   if (filters.excludeArchived && !filters.includeArchived) {
     const archived = new Set([
       ...(config.lifecycle?.archiveStatuses ?? []),
       ...(config.lifecycle?.terminalStatuses ?? []),
     ]);
-    result = result.filter(d => !archived.has(d.status));
+    result = result.filter(d => !archived.has(d.status) && !isArchivedPath(d.path, config));
   }
 
   if (filters.keyword) {

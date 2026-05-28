@@ -218,6 +218,27 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
     }
   }
 
+  // Inverse archive drift (issue #13): a doc whose path is under
+  // `<dir>/<archiveDir>/` but whose status is NOT an archive status. Without
+  // this check, the file is invisible to default queries (the path is below
+  // an archive bucket so it's filtered out by `--exclude-archived`), yet its
+  // `status: pending` (or similar) still makes it surface in pending-prompt
+  // scans. The heal is to flip the frontmatter via `dotmd <type-or-set>
+  // archive`, which now restores in place rather than failing.
+  if (doc.status && !config.lifecycle.archiveStatuses.has(doc.status)) {
+    const parentSegments = path.dirname(doc.path).split('/');
+    if (parentSegments.includes(config.archiveDir)) {
+      const heal = doc.type === 'prompt'
+        ? `dotmd prompts archive ${doc.path}`
+        : `dotmd set archived ${doc.path}`;
+      doc.errors.push({
+        path: doc.path,
+        level: 'error',
+        message: `File is under \`${config.archiveDir}/\` but \`status: ${doc.status}\` is not an archive status. Run \`${heal}\` to heal the frontmatter in place, or move the file out of the archive directory.`,
+      });
+    }
+  }
+
   // Validate reference fields resolve to existing files. Terminal statuses
   // (archived, deprecated, etc.) document historical state — their refs may
   // legitimately point at moved/deleted targets and shouldn't gate the

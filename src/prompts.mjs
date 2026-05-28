@@ -1,7 +1,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
-import { asString, toRepoPath, die, resolveDocPath } from './util.mjs';
+import { asString, toRepoPath, die, resolveDocPath, isArchivedPath } from './util.mjs';
 import { buildIndex } from './index.mjs';
 import { runQuery } from './query.mjs';
 import { runArchive, runStatus } from './lifecycle.mjs';
@@ -120,7 +120,11 @@ function renderPromptsVerbose(index, config, { hasStatusFlag, includeArchived })
 
 export function pendingPromptsOldestFirst(config) {
   const index = buildIndex(config);
-  const prompts = index.docs.filter(d => d.type === 'prompt' && d.status === 'pending');
+  const prompts = index.docs.filter(d =>
+    d.type === 'prompt'
+    && d.status === 'pending'
+    && !isArchivedPath(d.path, config),
+  );
 
   return prompts
     .map(d => {

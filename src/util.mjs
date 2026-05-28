@@ -55,6 +55,16 @@ export function toRepoPath(absolutePath, repoRoot) {
   return path.relative(repoRoot, absolutePath).split(path.sep).join('/');
 }
 
+// True when any path segment equals `config.archiveDir`. Covers both
+// `docs/plans/archived/foo.md` and `docs/prompts/archived/foo.md` regardless
+// of whether the layout is single-root or flat-array. Read-side commands use
+// this to skip files whose frontmatter `status:` has drifted out of sync with
+// their archive location (issue #13).
+export function isArchivedPath(repoPath, config) {
+  if (!repoPath || !config?.archiveDir) return false;
+  return repoPath.split('/').includes(config.archiveDir);
+}
+
 // Emit a `files: a b c` line to stderr listing every doc / index path
 // the command touched (deduped, sorted, repo-relative). Lets agents do
 // `git add` with the exact set instead of guessing. Opt-in via
