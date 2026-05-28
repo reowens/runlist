@@ -47,6 +47,35 @@ function run(args) {
   });
 }
 
+describe('modules-required gate (opt-in via taxonomy.modules)', () => {
+  it('skips the modules-required error when taxonomy.modules is unset', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-mod-off-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, 'docs', 'plans'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';`);
+    // Plan with `partial` (a moduleRequiredFor status) and no modules — must
+    // NOT trip the validator when the project doesn't enumerate modules.
+    writeFileSync(path.join(tmpDir, 'docs', 'plans', 'p.md'),
+      '---\ntype: plan\nstatus: partial\nupdated: 2026-05-28\n---\n# P\n');
+    const r = run(['check', '--verbose']);
+    ok(!r.stdout.includes('is required'),
+      `no modules-required error expected in no-taxonomy mode. stdout: ${r.stdout}`);
+  });
+
+  it('fires the modules-required error when taxonomy.modules IS set', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-mod-on-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, 'docs', 'plans'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'),
+      `export const root = 'docs';\nexport const taxonomy = { modules: ['payments', 'catalog'] };`);
+    writeFileSync(path.join(tmpDir, 'docs', 'plans', 'p.md'),
+      '---\ntype: plan\nstatus: partial\nupdated: 2026-05-28\n---\n# P\n');
+    const r = run(['check', '--verbose']);
+    ok(r.stdout.includes('`modules` is required'),
+      `modules-required error expected when taxonomy.modules is set. stdout: ${r.stdout}`);
+  });
+});
+
 describe('body link validation', () => {
   it('warns about broken body links', () => {
     const docsDir = setupProject();

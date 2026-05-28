@@ -117,8 +117,13 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
     doc.errors.push({ path: doc.path, level: 'error', message: '`modules` must be a YAML list when present.' });
   }
 
-  if (config.moduleRequiredStatuses.has(doc.status) && !doc.modules?.length) {
-    doc.errors.push({ path: doc.path, level: 'error', message: '`modules` is required for active/ready/planned/blocked docs; use a real module, `platform`, or `none`.' });
+  // modules-required gate: only fires when the project has actively declared
+  // a module taxonomy (`taxonomy.modules` is an array). Repos with no product
+  // modules (CLIs, dev tooling, single-domain apps) shouldn't be forced to
+  // sprinkle `modules: [none]` on every plan as a sentinel. Mirrors the
+  // long-standing `taxonomy.surfaces` opt-in semantics.
+  if (config.validModules && config.moduleRequiredStatuses.has(doc.status) && !doc.modules?.length) {
+    doc.errors.push({ path: doc.path, level: 'error', message: '`modules` is required for this status; declare a real module from `taxonomy.modules`, or `none` as the explicit no-module sentinel.' });
   }
 
   if (config.validSurfaces && !config.lifecycle.skipWarningsFor.has(doc.status)) {

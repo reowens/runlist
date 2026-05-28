@@ -66,6 +66,11 @@ const DEFAULTS = {
 
   taxonomy: {
     surfaces: null,
+    // modules: when null (default), the project doesn't enumerate product
+    // modules — the modules-required validator silently skips. When set to
+    // an array, modules are taxonomy-enforced AND moduleRequiredFor activates.
+    // Mirrors the long-standing semantics of `taxonomy.surfaces`.
+    modules: null,
     moduleRequiredFor: ['partial', 'paused', 'awaiting', 'queued-after'],
   },
 
@@ -444,6 +449,9 @@ export async function resolveConfig(cwd, explicitConfigPath) {
   const validSurfaces = config.taxonomy.surfaces
     ? new Set(config.taxonomy.surfaces)
     : null;
+  const validModules = config.taxonomy.modules
+    ? new Set(config.taxonomy.modules)
+    : null;
   const moduleRequiredStatuses = new Set(config.taxonomy.moduleRequiredFor);
 
   const indexPath = config.index?.path
@@ -497,6 +505,7 @@ export async function resolveConfig(cwd, explicitConfigPath) {
     lifecycle: { archiveStatuses, skipStaleFor, skipWarningsFor, terminalStatuses, filedStatuses },
 
     validSurfaces,
+    validModules,
     moduleRequiredStatuses,
 
     indexPath,
