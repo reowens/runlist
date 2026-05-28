@@ -40,6 +40,7 @@
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "preversion": "npm test",
+    "version": "node bin/dotmd.mjs hud >/dev/null 2>&1; git add .claude/commands docs/docs.md 2>/dev/null; true",
     "postversion": "git push origin main --tags && gh release create v$npm_package_version --generate-notes --title v$npm_package_version && sleep 5 && gh run watch $(gh run list --workflow=publish.yml --limit 1 --json databaseId --jq '.[0].databaseId') --exit-status && sleep 10 && npm cache clean --force && npm install -g dotmd-cli@$npm_package_version"
   },
   "engines": {

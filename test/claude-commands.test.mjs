@@ -156,19 +156,26 @@ describe('scaffoldClaudeCommands', () => {
     }
   });
 
-  it('still detects outdated banner when frontmatter pushes it off line 1', () => {
+  it('still detects outdated banner when frontmatter pushes it off line 1', async () => {
     // Regression: VERSION_REGEX was line-1-anchored. After moving the banner
     // below frontmatter, the regex was loosened — this test pins that it can
     // still detect old version markers wherever they sit in the file.
+    // Banner regex no longer drives a warning (slash-command staleness is
+    // silently self-healed by `dotmd hud`), but the parser still needs to
+    // recognize banners wherever they sit. Pin parser behavior via
+    // scaffoldClaudeCommands instead.
     setup({ claude: true });
     mkdirSync(path.join(tmpDir, '.claude', 'commands'), { recursive: true });
     writeFileSync(
       path.join(tmpDir, '.claude', 'commands', 'plans.md'),
       '---\ndescription: stale\n---\n<!-- dotmd-generated: 0.0.1 -->\nold body\n',
     );
-    const warnings = checkClaudeCommands(tmpDir);
-    ok(warnings.length > 0, 'should detect outdated banner under frontmatter');
-    ok(warnings[0].message.includes('0.0.1'));
+    const config = await resolveConfig(tmpDir);
+    const results = scaffoldClaudeCommands(tmpDir, config);
+    const plans = results.find(r => r.name === 'plans.md');
+    ok(plans, 'parser sees plans.md');
+    strictEqual(plans.action, 'updated', 'detects the outdated banner');
+    strictEqual(plans.from, '0.0.1');
   });
 
   it('reports action: created for new files', async () => {
@@ -213,36 +220,37 @@ describe('scaffoldClaudeCommands', () => {
   });
 });
 
-describe('checkClaudeCommands', () => {
-  it('returns empty array when .claude/commands does not exist', () => {
+describe('checkClaudeCommands (silent self-heal contract)', () => {
+  // checkClaudeCommands intentionally returns [] in all cases — stale stamps
+  // are healed by `dotmd hud` on SessionStart and by the npm-version `version`
+  // script during release. Surfacing a warning at `dotmd check` time was pure
+  // noise (the user had no action to take). These tests pin the silence.
+
+  it('returns empty when .claude/commands does not exist', () => {
     setup({ claude: false });
-    const warnings = checkClaudeCommands(tmpDir);
-    strictEqual(warnings.length, 0);
+    strictEqual(checkClaudeCommands(tmpDir).length, 0);
   });
 
-  it('returns empty array when files are current version', async () => {
+  it('returns empty when files are current version', async () => {
     setup({ claude: true });
     const config = await resolveConfig(tmpDir);
     scaffoldClaudeCommands(tmpDir, config);
-    const warnings = checkClaudeCommands(tmpDir);
-    strictEqual(warnings.length, 0);
+    strictEqual(checkClaudeCommands(tmpDir).length, 0);
   });
 
-  it('returns warning when file version is outdated', () => {
+  it('returns empty even when stamp is outdated (heal lives elsewhere)', () => {
     setup({ claude: true });
     mkdirSync(path.join(tmpDir, '.claude', 'commands'), { recursive: true });
     writeFileSync(path.join(tmpDir, '.claude', 'commands', 'plans.md'), '<!-- dotmd-generated: 0.0.1 -->\nold');
-    const warnings = checkClaudeCommands(tmpDir);
-    ok(warnings.length > 0);
-    ok(warnings[0].message.includes('outdated'));
+    strictEqual(checkClaudeCommands(tmpDir).length, 0,
+      'no warning fired — hud / doctor / release-script handle the heal');
   });
 
-  it('does not warn about files without version marker', () => {
+  it('returns empty for user-managed (no version marker) files', () => {
     setup({ claude: true });
     mkdirSync(path.join(tmpDir, '.claude', 'commands'), { recursive: true });
     writeFileSync(path.join(tmpDir, '.claude', 'commands', 'plans.md'), '# User-managed');
-    const warnings = checkClaudeCommands(tmpDir);
-    strictEqual(warnings.length, 0);
+    strictEqual(checkClaudeCommands(tmpDir).length, 0);
   });
 });
 

@@ -229,22 +229,12 @@ export function refreshStaleSlashCommands(config) {
   return results.filter(r => r.action === 'updated');
 }
 
-export function checkClaudeCommands(cwd, opts = {}) {
-  const { version = pkg.version } = opts;
-  const commandsDir = path.join(cwd, '.claude', 'commands');
-  if (!existsSync(commandsDir)) return [];
-
-  const warnings = [];
-  for (const name of ['plans.md', 'docs.md', 'baton.md']) {
-    const filePath = path.join(commandsDir, name);
-    const installedVersion = getInstalledVersion(filePath);
-    if (installedVersion && installedVersion !== version) {
-      warnings.push({
-        path: `.claude/commands/${name}`,
-        level: 'warning',
-        message: `Claude command outdated (v${installedVersion} → v${version}). Run \`dotmd doctor\` to update.`,
-      });
-    }
-  }
-  return warnings;
+// Intentionally returns []. Slash-command stamp drift is auto-healed every
+// time `dotmd hud` runs (SessionStart hook), and `dotmd doctor` regens them
+// on demand. Surfacing a warning at `dotmd check` time was pure noise — it
+// fired on every release until the next session, despite the user having no
+// action to take (the heal is automatic). Kept the function for API stability
+// in case downstream callers import it.
+export function checkClaudeCommands(_cwd, _opts = {}) {
+  return [];
 }
