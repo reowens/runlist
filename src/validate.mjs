@@ -112,9 +112,18 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
   }
 
   if (config.validSurfaces && !config.lifecycle.skipWarningsFor.has(doc.status)) {
+    const knownSurfaces = [...config.validSurfaces];
     for (const surface of doc.surfaces) {
       if (!config.validSurfaces.has(surface)) {
-        doc.warnings.push({ path: doc.path, level: 'warning', message: `Unknown surface \`${surface}\`; expected a known surface taxonomy value.` });
+        const suggestions = suggestCandidates(surface, knownSurfaces, 3);
+        const hint = suggestions.length
+          ? ` Did you mean: ${suggestions.map(s => `\`${s}\``).join(' | ')}?`
+          : '';
+        doc.warnings.push({
+          path: doc.path,
+          level: 'warning',
+          message: `Unknown surface \`${surface}\`; expected a known surface taxonomy value.${hint} Run \`dotmd surfaces\` to list all valid values.`,
+        });
       }
     }
   }
@@ -456,13 +465,17 @@ export function validatePlanShape(doc, body, frontmatter, config) {
   if (config.lifecycle.terminalStatuses.has(doc.status) || config.lifecycle.archiveStatuses.has(doc.status)) return;
   if (config.lifecycle.skipWarningsFor.has(doc.status)) return;
 
-  // 1. next_step length cap (300 chars)
+  // 1. next_step length cap (800 chars). Was 300; raised in parallel with
+  // current_state for the same reason: agents need to encode "what to do next"
+  // with enough specificity (which file, which decision, which branch) that
+  // 300 chars often forced truncation into the body where the briefing
+  // doesn't read it.
   const nextStep = typeof frontmatter.next_step === 'string' ? frontmatter.next_step : '';
-  if (nextStep.length > 300) {
+  if (nextStep.length > 800) {
     doc.warnings.push({
       path: doc.path,
       level: 'warning',
-      message: `\`next_step\` is ${nextStep.length} chars (cap: 300). Long prose belongs in the body — keep next_step as a 1-2 line pointer.`,
+      message: `\`next_step\` is ${nextStep.length} chars (cap: 800). Long prose belongs in the body — keep next_step as a 1-2 sentence pointer.`,
     });
   }
 

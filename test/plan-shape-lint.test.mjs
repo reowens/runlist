@@ -36,15 +36,25 @@ function checkJson() {
 afterEach(() => { if (tmpDir) rmSync(tmpDir, { recursive: true, force: true }); });
 
 describe('plan-shape lint', () => {
-  it('warns when next_step exceeds 300 chars', () => {
+  it('warns when next_step exceeds 800 chars', () => {
     const docsDir = setupProject();
-    const longText = 'x'.repeat(500);
+    const longText = 'x'.repeat(900);
     writeDoc(docsDir, 'plan.md', `type: plan\nstatus: active\nupdated: 2026-05-13\nnext_step: ${longText}`);
 
     const idx = checkJson();
     const w = idx.warnings.find(x => x.message.includes('next_step') && x.message.includes('chars'));
     ok(w, `expected next_step warning, got: ${JSON.stringify(idx.warnings)}`);
-    ok(w.message.includes('500'), 'reports actual length');
+    ok(w.message.includes('900'), 'reports actual length');
+  });
+
+  it('does NOT warn when next_step fits in the 800-char cap', () => {
+    const docsDir = setupProject();
+    const fits = 'x'.repeat(750);
+    writeDoc(docsDir, 'plan.md', `type: plan\nstatus: active\nupdated: 2026-05-13\nnext_step: ${fits}`);
+
+    const idx = checkJson();
+    const w = idx.warnings.find(x => x.message.includes('next_step') && x.message.includes('chars'));
+    ok(!w, '750 chars should fit under the 800 cap');
   });
 
   it('warns when current_state exceeds 1500 chars', () => {

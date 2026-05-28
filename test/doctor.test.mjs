@@ -421,7 +421,7 @@ describe('doctor --frontmatter-fix', () => {
 
   it('shrinks next_step independently of current_state', () => {
     setupPlanProject();
-    writeLongPlan('long-ns', 100, 342);
+    writeLongPlan('long-ns', 100, 900);
     const planPath = path.join(tmpDir, 'docs', 'plans', 'long-ns.md');
 
     const result = run(['doctor', '--frontmatter-fix']);
@@ -447,7 +447,7 @@ describe('doctor --frontmatter-fix', () => {
 
   it('clears the validatePlanShape warning after the fix', () => {
     setupPlanProject();
-    writeLongPlan('verify', 1700, 342);
+    writeLongPlan('verify', 1700, 900);
 
     // Sanity-check: pre-fix, `check --verbose` reports both length warnings.
     const before = run(['check', '--verbose']);
@@ -458,7 +458,7 @@ describe('doctor --frontmatter-fix', () => {
     strictEqual(fix.status, 0, `stderr: ${fix.stderr}`);
 
     const after = run(['check', '--verbose']);
-    ok(!after.stdout.includes('cap: 1500') && !after.stdout.includes('cap: 300'),
+    ok(!after.stdout.includes('cap: 1500') && !after.stdout.includes('cap: 800'),
       `post-fix should clear length warnings; got: ${after.stdout}`);
   });
 });

@@ -10,7 +10,7 @@ import { bold, green, dim } from './color.mjs';
 // the warning on the next few-word touch-up.
 const FIELDS = [
   { name: 'current_state', cap: 1500, target: 1200, heading: '## Current State' },
-  { name: 'next_step',     cap: 300,  target: 200,  heading: '## Next Step' },
+  { name: 'next_step',     cap: 800,  target: 600,  heading: '## Next Step' },
 ];
 
 export function runFrontmatterFix(config, opts = {}) {

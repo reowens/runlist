@@ -445,6 +445,19 @@ describe('archived/terminal status suppresses noise validators', () => {
     const result = run(['check', '--verbose']);
     ok(result.stdout.includes('Unknown surface'),
       `live plan with unknown surface should warn. stdout: ${result.stdout}`);
+    ok(result.stdout.includes('dotmd surfaces'),
+      `unknown-surface warning should hint at the lookup command. stdout: ${result.stdout}`);
+  });
+
+  it('unknown-surface warning suggests close matches via did-you-mean', () => {
+    const root = setupArchivedProject();
+    writeFileSync(path.join(root, 'docs', 'live.md'),
+      '---\ntype: plan\nstatus: active\nupdated: 2025-01-01\nmodule: foo\nsurface: frontent\ncurrent_state: x\nnext_step: y\n---\n# Live\n');
+    const result = run(['check', '--verbose']);
+    ok(result.stdout.includes('Did you mean'),
+      `unknown-surface warning should include did-you-mean. stdout: ${result.stdout}`);
+    ok(result.stdout.includes('frontend'),
+      `did-you-mean should propose 'frontend' for typo 'frontent'. stdout: ${result.stdout}`);
   });
 
   it('does NOT flag broken body links in archived docs', () => {
