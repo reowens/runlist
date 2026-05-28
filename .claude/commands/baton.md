@@ -1,7 +1,7 @@
 ---
 description: Save a resume prompt for the active plan and close it out — the minimum handoff. Use when the user says hand off / save a resume / wrap up, or when context is getting tight.
 ---
-<!-- dotmd-generated: 0.48.3 -->
+<!-- dotmd-generated: 0.48.4 -->
 
 Wrap this session. Two commands:
 
