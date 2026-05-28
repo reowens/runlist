@@ -58,6 +58,10 @@ const DEFAULTS = {
     skipStaleFor: ['archived', 'reference', 'partial', 'queued-after'],
     skipWarningsFor: ['archived', 'partial', 'queued-after'],
     terminalStatuses: ['archived', 'deprecated', 'reference'],
+    // F15: opt-in per-status `{ filed: true }` in `types.<type>.statuses`
+    // populates this map (status → dirName). Empty by default — archive: true
+    // remains a separate primitive untouched.
+    filedStatuses: {},
   },
 
   taxonomy: {
@@ -126,6 +130,12 @@ function normalizeRichStatuses(config, userConfig) {
     skipWarningsFor: [],
     terminalStatuses: [],
     moduleRequiredFor: [],
+    // F15: status-name → directory-name (defaults to the status name verbatim).
+    // Filed statuses move docs into <root>/<dirName>/ on transition INTO the
+    // status, and back to flat <root>/ on transition OUT. Separate from
+    // archive: true to avoid touching that long-standing primitive's
+    // semantics.
+    filedStatuses: {},
     staleDays: {},
     statusOrder: [],
     context: { expanded: [], listed: [], counted: [] },
@@ -177,6 +187,11 @@ function normalizeRichStatuses(config, userConfig) {
       if ((p.skipWarnings || quietImpliesSkipWarnings) && !derived.skipWarningsFor.includes(name)) derived.skipWarningsFor.push(name);
       if (p.terminal && !derived.terminalStatuses.includes(name)) derived.terminalStatuses.push(name);
       if (p.requiresModule && !derived.moduleRequiredFor.includes(name)) derived.moduleRequiredFor.push(name);
+      if (p.filed && !derived.filedStatuses[name]) {
+        // dirName defaults to the status name; users can override with
+        // `filed: 'custom-dir'` (string form) instead of `filed: true`.
+        derived.filedStatuses[name] = typeof p.filed === 'string' ? p.filed : name;
+      }
 
       if (!derived.statusOrder.includes(name)) derived.statusOrder.push(name);
     }
@@ -221,6 +236,9 @@ function applyDerivedConfig(config, userConfig, derived) {
   }
   if (!userConfig.lifecycle?.terminalStatuses && derived.terminalStatuses.length) {
     config.lifecycle.terminalStatuses = derived.terminalStatuses;
+  }
+  if (!userConfig.lifecycle?.filedStatuses && Object.keys(derived.filedStatuses).length) {
+    config.lifecycle.filedStatuses = derived.filedStatuses;
   }
 
   // taxonomy.moduleRequiredFor
@@ -442,6 +460,9 @@ export async function resolveConfig(cwd, explicitConfigPath) {
   const skipStaleFor = new Set(lifecycle.skipStaleFor);
   const skipWarningsFor = new Set(lifecycle.skipWarningsFor);
   const terminalStatuses = new Set(lifecycle.terminalStatuses);
+  // F15: filedStatuses keyed by status name, value = directory name. Empty
+  // object when no status opts in via `filed: true` (or `filed: '<dirname>'`).
+  const filedStatuses = new Map(Object.entries(lifecycle.filedStatuses ?? {}));
 
   // Warn if rootStatuses keys don't match any configured root
   for (const rootKey of Object.keys(rootStatusesRaw)) {
@@ -473,7 +494,7 @@ export async function resolveConfig(cwd, explicitConfigPath) {
     rootValidStatuses,
     staleDaysByStatus,
 
-    lifecycle: { archiveStatuses, skipStaleFor, skipWarningsFor, terminalStatuses },
+    lifecycle: { archiveStatuses, skipStaleFor, skipWarningsFor, terminalStatuses, filedStatuses },
 
     validSurfaces,
     moduleRequiredStatuses,

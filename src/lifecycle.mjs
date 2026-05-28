@@ -168,9 +168,22 @@ export async function runStatus(argv, config, opts = {}) {
   const today = nowIso();
   const archiveDir = path.join(fileRoot, config.archiveDir);
   const relFromRoot = path.relative(fileRoot, filePath);
+  const relSegments = relFromRoot.split(path.sep);
   const inArchive = relFromRoot.startsWith(config.archiveDir + '/') || relFromRoot.startsWith(config.archiveDir + path.sep);
   const isArchiving = config.lifecycle.archiveStatuses.has(newStatus) && !inArchive;
   const isUnarchiving = !config.lifecycle.archiveStatuses.has(newStatus) && inArchive;
+
+  // F15 filing: a status with `filed: true` lives in `<root>/<dirName>/`. The
+  // current parent dir under root tells us whether the file is in some
+  // "bucket" right now. Archiving keeps its own path; filing is a separate
+  // primitive that fires only when the new status is filed (and isn't an
+  // archive transition — archive wins by being earlier in the conditional).
+  const filedStatuses = config.lifecycle.filedStatuses ?? new Map();
+  const newFiledDir = filedStatuses.get(newStatus) ?? null;
+  const oldFiledDir = oldStatus ? (filedStatuses.get(oldStatus) ?? null) : null;
+  const currentBucket = relSegments.length > 1 ? relSegments[0] : null;
+  const isFiling = !isArchiving && !isUnarchiving && newFiledDir && currentBucket !== newFiledDir;
+  const isUnfiling = !isArchiving && !isUnarchiving && !newFiledDir && oldFiledDir && currentBucket === oldFiledDir;
   let finalPath = filePath;
 
   if (dryRun) {
@@ -186,7 +199,17 @@ export async function runStatus(argv, config, opts = {}) {
       process.stdout.write(`${prefix} Would move: ${toRepoPath(filePath, config.repoRoot)} → ${toRepoPath(targetPath, config.repoRoot)}\n`);
       finalPath = targetPath;
     }
-    if ((isArchiving || isUnarchiving) && config.indexPath) {
+    if (isFiling) {
+      const targetPath = path.join(fileRoot, newFiledDir, path.basename(filePath));
+      process.stdout.write(`${prefix} Would file: ${toRepoPath(filePath, config.repoRoot)} → ${toRepoPath(targetPath, config.repoRoot)}\n`);
+      finalPath = targetPath;
+    }
+    if (isUnfiling) {
+      const targetPath = path.join(fileRoot, path.basename(filePath));
+      process.stdout.write(`${prefix} Would unfile: ${toRepoPath(filePath, config.repoRoot)} → ${toRepoPath(targetPath, config.repoRoot)}\n`);
+      finalPath = targetPath;
+    }
+    if ((isArchiving || isUnarchiving || isFiling || isUnfiling) && config.indexPath) {
       process.stdout.write(`${prefix} Would regenerate index\n`);
     }
     process.stdout.write(`${prefix} ${toRepoPath(finalPath, config.repoRoot)}: ${oldStatus ?? 'unknown'} → ${newStatus}\n`);
@@ -205,6 +228,24 @@ export async function runStatus(argv, config, opts = {}) {
   }
 
   if (isUnarchiving) {
+    const targetPath = path.join(fileRoot, path.basename(filePath));
+    if (existsSync(targetPath)) { die(`Target already exists: ${toRepoPath(targetPath, config.repoRoot)}`); }
+    const result = gitMv(filePath, targetPath, config.repoRoot);
+    if (result.status !== 0) { die(result.stderr || 'git mv failed.'); }
+    finalPath = targetPath;
+  }
+
+  if (isFiling) {
+    const targetDir = path.join(fileRoot, newFiledDir);
+    mkdirSync(targetDir, { recursive: true });
+    const targetPath = path.join(targetDir, path.basename(filePath));
+    if (existsSync(targetPath)) { die(`Target already exists: ${toRepoPath(targetPath, config.repoRoot)}`); }
+    const result = gitMv(filePath, targetPath, config.repoRoot);
+    if (result.status !== 0) { die(result.stderr || 'git mv failed.'); }
+    finalPath = targetPath;
+  }
+
+  if (isUnfiling) {
     const targetPath = path.join(fileRoot, path.basename(filePath));
     if (existsSync(targetPath)) { die(`Target already exists: ${toRepoPath(targetPath, config.repoRoot)}`); }
     const result = gitMv(filePath, targetPath, config.repoRoot);

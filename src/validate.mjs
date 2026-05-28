@@ -19,6 +19,11 @@ const BUILTIN_TYPE_DIR_NAMES = ['plans', 'prompts'];
 function liveTypeDirsForRoots(config) {
   const set = new Set();
   const roots = config.docsRoots || (config.docsRoot ? [config.docsRoot] : []);
+  // F15: filed-status bucket dirs are "live" too — a doc whose status is
+  // an archive status but whose parent dir is a filed bucket should still
+  // trigger the archive-drift warning (the file needs to move into the
+  // archive bucket).
+  const filedDirs = [...((config.lifecycle?.filedStatuses?.values?.()) ?? [])];
   for (const root of roots) {
     const rootRel = path.relative(config.repoRoot, root).split(path.sep).join('/');
     // The root itself is a live dir (covers flat-array layouts where the
@@ -39,6 +44,11 @@ function liveTypeDirsForRoots(config) {
       if (tmpl.dir && path.basename(rootRel) !== tmpl.dir) {
         set.add(rootRel ? `${rootRel}/${tmpl.dir}` : tmpl.dir);
       }
+    }
+    // F15: filed bucket dirs joined to each root.
+    for (const dirName of filedDirs) {
+      if (path.basename(rootRel) === dirName) continue;
+      set.add(rootRel ? `${rootRel}/${dirName}` : dirName);
     }
   }
   return set;
