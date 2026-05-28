@@ -1,12 +1,13 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { readLeases, findStaleLeases, currentSessionId } from './lease.mjs';
+import { readLeases, findStaleLeases, currentSessionId, isLeaseStale, STALE_LEASE_AGE_MS } from './lease.mjs';
 import { scrubStaleSilently } from './lease-scrub.mjs';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { asString, toRepoPath } from './util.mjs';
-import { dim } from './color.mjs';
+import { dim, yellow } from './color.mjs';
 import { buildIndex } from './index.mjs';
 import { refreshStaleSlashCommands } from './claude-commands.mjs';
+import { readJournalEntries, journalFilePath } from './journal.mjs';
 
 const MAX_PREVIEW = 5;
 
@@ -67,6 +68,121 @@ function findActionablePrompts(config) {
   return found.sort();
 }
 
+// F17b: hud reads journal. Three additive sections, gated on
+// existsSync(journalFilePath). Silent-when-clean — sections are omitted when
+// they have nothing to say. Caps keep hud single-screen even when the journal
+// is dense.
+
+const PREVIOUS_SELF_CAP = 3;
+const FLEET_CAP = 5;
+const REJECTIONS_CAP = 3;
+const FLEET_WINDOW_MS = 24 * 60 * 60 * 1000;
+const REJECTIONS_WINDOW_MS = 60 * 60 * 1000;
+
+function relTime(ts, now = Date.now()) {
+  const t = new Date(ts).getTime();
+  if (!Number.isFinite(t)) return '?';
+  const delta = Math.max(0, now - t);
+  const sec = Math.floor(delta / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  return `${Math.floor(hr / 24)}d ago`;
+}
+
+// Coarse error-class for rejection grouping. Most dotmd die() messages follow
+// `<class>: <variable detail>` (e.g. "File not found: docs/foo.md", "Already
+// archived: docs/plans/x.md", "Too many arguments to status"). Take the chunk
+// before the first colon, cap at 6 words, normalize whitespace. Cheap;
+// good-enough until a proper taxonomy emerges from real journal data.
+function errorClass(err) {
+  if (typeof err !== 'string') return '';
+  const flat = err.replace(/\s+/g, ' ').trim();
+  if (!flat) return '';
+  const prefix = flat.split(':')[0];
+  return prefix.split(' ').slice(0, 6).join(' ');
+}
+
+export function buildJournalSections(config, now = Date.now()) {
+  const journalFile = journalFilePath(config);
+  if (!existsSync(journalFile)) return { previousSelf: [], fleet: [], recentRejections: [] };
+
+  let entries;
+  try { entries = readJournalEntries(config); }
+  catch { return { previousSelf: [], fleet: [], recentRejections: [] }; }
+  if (!entries.length) return { previousSelf: [], fleet: [], recentRejections: [] };
+
+  const sid = currentSessionId();
+  const leases = readLeases(config);
+  const leaseBySession = new Map();
+  for (const lease of Object.values(leases)) {
+    if (!lease?.session) continue;
+    if (!leaseBySession.has(lease.session)) leaseBySession.set(lease.session, []);
+    leaseBySession.get(lease.session).push(lease);
+  }
+
+  // 1. Previous self: this sid's last N entries (excluding the current
+  // invocation, which is recorded only at process exit so it isn't in the
+  // file yet). Newest-first.
+  const previousSelf = entries
+    .filter(e => e?.sid === sid)
+    .slice(-PREVIOUS_SELF_CAP)
+    .reverse()
+    .map(e => ({
+      argv: Array.isArray(e.argv) ? e.argv : [],
+      exit: e.exit ?? 0,
+      ts: e.ts,
+      ago: relTime(e.ts, now),
+    }));
+
+  // 2. Fleet: per-other-sid summary for entries in the last 24h.
+  const fleetCutoff = now - FLEET_WINDOW_MS;
+  const bySid = new Map();
+  for (const e of entries) {
+    if (!e?.sid || e.sid === sid) continue;
+    const t = new Date(e.ts).getTime();
+    if (!Number.isFinite(t) || t < fleetCutoff) continue;
+    if (!bySid.has(e.sid)) bySid.set(e.sid, { count: 0, lastTs: 0 });
+    const row = bySid.get(e.sid);
+    row.count++;
+    if (t > row.lastTs) row.lastTs = t;
+  }
+  const fleet = [...bySid.entries()].map(([otherSid, row]) => {
+    const myLeases = leaseBySession.get(otherSid) ?? [];
+    const stalest = myLeases.find(isLeaseStale);
+    return {
+      sid: otherSid,
+      cmds: row.count,
+      lastAgo: relTime(new Date(row.lastTs).toISOString(), now),
+      holding: myLeases.map(l => l.path),
+      stale: Boolean(stalest),
+    };
+  }).sort((a, b) => b.cmds - a.cmds).slice(0, FLEET_CAP);
+
+  // 3. Recent rejections: top error-class groups for exit!=0 entries in the
+  // last hour. Group key = `${cmd} :: ${errClass}`.
+  const rejCutoff = now - REJECTIONS_WINDOW_MS;
+  const groups = new Map();
+  for (const e of entries) {
+    if ((e?.exit ?? 0) === 0) continue;
+    const t = new Date(e.ts).getTime();
+    if (!Number.isFinite(t) || t < rejCutoff) continue;
+    const cmd = e.argv?.[0] ?? '(none)';
+    const cls = errorClass(e.err);
+    if (!cls) continue;
+    const key = `${cmd} :: ${cls}`;
+    if (!groups.has(key)) groups.set(key, { cmd, cls, count: 0 });
+    groups.get(key).count++;
+  }
+  const recentRejections = [...groups.values()]
+    .sort((a, b) => b.count - a.count)
+    .slice(0, REJECTIONS_CAP);
+
+  return { previousSelf, fleet, recentRejections };
+}
+
 export function buildHud(config) {
   // Drop stale lease entries (and flip their plan frontmatter back to
   // oldStatus) before reading anything. Without this, hud would surface
@@ -93,7 +209,9 @@ export function buildHud(config) {
     errors = index.errors.length;
   } catch { /* swallow — bad config shouldn't break the SessionStart hook */ }
 
-  return { owned, stale, prompts, errors };
+  const { previousSelf, fleet, recentRejections } = buildJournalSections(config);
+
+  return { owned, stale, prompts, errors, previousSelf, fleet, recentRejections };
 }
 
 export function runHud(argv, config) {
@@ -129,6 +247,35 @@ export function runHud(argv, config) {
     const to = refreshed[0].to;
     const names = refreshed.map(r => r.name).join(', ');
     lines.push(dim(`↻ slash commands refreshed (v${from} → v${to}): ${names}`));
+  }
+
+  // F17b: three journal-aware sections. Silent-when-clean: each block emits
+  // only when it has entries.
+  if (hud.previousSelf?.length) {
+    lines.push(dim('— previous self —'));
+    for (const e of hud.previousSelf) {
+      const cmd = (e.argv ?? []).join(' ');
+      const exitTag = e.exit === 0 ? '' : `, exit ${e.exit}`;
+      lines.push(dim(`  ${cmd} (${e.ago}${exitTag})`));
+    }
+  }
+
+  if (hud.fleet?.length) {
+    lines.push(dim('— fleet (last 24h) —'));
+    for (const f of hud.fleet) {
+      const heldTag = f.holding?.length
+        ? ` · holding ${f.holding.map(p => path.basename(p, '.md')).join(', ')}`
+        : '';
+      const staleTag = f.stale ? yellow(' [stale]') : '';
+      lines.push(dim(`  session ${f.sid} · ${f.cmds} cmds · last ${f.lastAgo}${heldTag}`) + staleTag);
+    }
+  }
+
+  if (hud.recentRejections?.length) {
+    lines.push(dim('— recent rejections (last 1h) —'));
+    for (const r of hud.recentRejections) {
+      lines.push(dim(`  ${r.count}× "${r.cls}" on \`${r.cmd}\``));
+    }
   }
 
   process.stdout.write(lines.join('\n') + '\n');
