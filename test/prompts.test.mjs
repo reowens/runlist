@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import { ok, strictEqual, match } from 'node:assert';
-import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync, rmSync, chmodSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -163,6 +163,24 @@ describe('dotmd prompts next', () => {
     ok(r.stderr.includes('body preview'), 'shows preview heading');
     ok(r.stderr.includes('unique-needle'), `expected body content in preview, got stderr:\n${r.stderr}`);
     strictEqual(r.stdout, '', 'stdout stays empty in dry-run (no piping surprises)');
+  });
+
+  // Regression: if the archive step fails (read-only archive dir here), the
+  // body must NOT have already been emitted to stdout. Otherwise
+  // `claude "$(dotmd prompts next)"` consumes the body and the prompt stays
+  // pending in docs/prompts/ — the failure mode that motivated the reorder.
+  it('does not emit body when archive fails', { skip: process.platform === 'win32' }, () => {
+    const file = writePrompt('foo', { body: 'unique-must-not-leak' });
+    const archivedDir = path.join(docsDir, 'archived');
+    chmodSync(archivedDir, 0o555);
+    try {
+      const r = run(['prompts', 'next']);
+      ok(r.status !== 0, 'archive failure exits non-zero');
+      strictEqual(r.stdout, '', `stdout must stay empty when archive fails, got:\n${r.stdout}`);
+      ok(existsSync(file), 'source file still in docs/prompts/');
+    } finally {
+      chmodSync(archivedDir, 0o755);
+    }
   });
 });
 

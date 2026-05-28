@@ -226,10 +226,17 @@ export function consumePrompt(filePath, config, opts) {
     return;
   }
 
+  // Archive BEFORE emitting the body. If runArchive throws (git mv failure,
+  // hook crash, anything), the body must not have already gone to stdout —
+  // otherwise `claude "$(dotmd prompts next)"` consumes the prompt without it
+  // ever being archived, and the next session sees the same prompt as pending.
+  // Body is already in memory from extractFrontmatter, so the source file
+  // can move out from under us safely.
+  runArchive([filePath], config, { noIndex, showFiles, out: process.stderr });
+
   process.stdout.write(body);
   if (!body.endsWith('\n')) process.stdout.write('\n');
 
-  runArchive([filePath], config, { noIndex, showFiles, out: process.stderr });
   process.stderr.write(`${green('✓ Consumed')}: ${repoPath}\n`);
 }
 
