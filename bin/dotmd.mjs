@@ -636,16 +636,17 @@ Types and their default destinations:
 \`<name>\` is slugified for the filename.
 
 Body input (all built-in types — required for prompt, optional for plan/doc):
-  @path                  Read body from a file (preferred for multi-line bodies)
-  -                      Read body from stdin (heredoc-friendly for agents)
-  --message "<text>"     Explicit inline body
+  piped stdin            Auto-consumed when stdin is piped/redirected (no flag needed)
+  @path                  Read body from a file
+  -                      Explicit stdin marker (equivalent to piped stdin)
+  --body "<text>"        Explicit inline body (alias: --message)
   <text>                 Inline body as 3rd positional
 
-Tip for agents: prefer \`@path\` or \`-\` for multi-line bodies. Inline bodies
-put the entire content on the bash command line, which (a) breaks under shell
-quoting for backticks/dollar-signs and (b) trips PreToolUse hooks that scan
-command strings for forbidden literals (destructive-git patterns, etc.).
-\`@/tmp/foo.md\` sidesteps both.
+Tip for agents: prefer piped stdin or \`@path\` for multi-line bodies. Inline
+bodies put the entire content on the bash command line, which (a) breaks
+under shell quoting for backticks/dollar-signs and (b) trips PreToolUse hooks
+that scan command strings for forbidden literals (destructive-git patterns,
+etc.). \`cat /tmp/foo.md | dotmd new …\` and \`@/tmp/foo.md\` both sidestep both.
 
 For plan/doc, a single-section body lands under the type's first scaffolded
 section (e.g. \`## Problem\` for plans). If the body already authors
@@ -656,12 +657,13 @@ the title + your body is emitted — no duplicated empty outline below
 Examples:
   dotmd new plan auth-revamp
   dotmd new prompt resume-foo @/tmp/draft.md
-  dotmd new prompt resume-foo - <<'EOF'
+  cat /tmp/draft.md | dotmd new prompt resume-foo
+  dotmd new prompt resume-foo <<'EOF'
   multi-line
   prompt body
   EOF
   dotmd new prompt cleanup-tomorrow "look at remaining lint warnings"
-  dotmd new plan full-spec - <<'EOF'
+  dotmd new plan full-spec <<'EOF'
   ## Problem
   …
   ## Phases

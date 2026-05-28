@@ -302,8 +302,8 @@ export const types = {
     strictEqual(first.status, 0, `hud failed: ${first.stderr}`);
     ok(/dotmd: managing/.test(first.stdout),
       `expected primer line on first run; got: ${first.stdout}`);
-    ok(/dotmd new prompt/.test(first.stdout),
-      `primer should mention the handoff command; got: ${first.stdout}`);
+    ok(/dotmd new/.test(first.stdout) && /prompt/.test(first.stdout),
+      `primer should mention the create command and the prompt type; got: ${first.stdout}`);
     ok(existsSync(path.join(tmpDir, '.dotmd', 'primer-shown')),
       'primer marker should be created after first run');
 

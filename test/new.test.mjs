@@ -157,21 +157,37 @@ describe('dotmd new — type-first CLI', () => {
       ok(r.stderr.includes('requires a body'), 'reports missing body');
     });
 
-    it('accepts body via --message', () => {
+    it('accepts body via --body (canonical flag)', () => {
       const docsDir = setupProject();
-      const r = run(['new', 'prompt', 'flag-body', '--message', 'message-flag content']);
+      const r = run(['new', 'prompt', 'flag-body', '--body', 'body-flag content']);
       strictEqual(r.status, 0, `stderr: ${r.stderr}`);
       const content = readFileSync(path.join(docsDir, 'prompts', 'flag-body.md'), 'utf8');
-      ok(content.includes('message-flag content'));
+      ok(content.includes('body-flag content'));
     });
 
-    it('accepts body via - (stdin)', () => {
+    it('accepts body via --message (back-compat alias)', () => {
+      const docsDir = setupProject();
+      const r = run(['new', 'prompt', 'msg-alias', '--message', 'message-alias content']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'prompts', 'msg-alias.md'), 'utf8');
+      ok(content.includes('message-alias content'));
+    });
+
+    it('accepts body via - (explicit stdin marker)', () => {
       const docsDir = setupProject();
       const r = run(['new', 'prompt', 'stdin-body', '-'], { input: 'piped\nbody\n' });
       strictEqual(r.status, 0, `stderr: ${r.stderr}`);
       const content = readFileSync(path.join(docsDir, 'prompts', 'stdin-body.md'), 'utf8');
       ok(content.includes('piped'));
       ok(content.includes('body'));
+    });
+
+    it('auto-consumes piped stdin when no body arg/flag is given', () => {
+      const docsDir = setupProject();
+      const r = run(['new', 'prompt', 'auto-stdin'], { input: 'piped body via auto-detect\n' });
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'prompts', 'auto-stdin.md'), 'utf8');
+      ok(content.includes('piped body via auto-detect'));
     });
 
     it('accepts body via @path', () => {
@@ -388,7 +404,7 @@ describe('dotmd new — type-first CLI', () => {
   });
 
   describe('body-input acceptance across built-in templates (issue #9)', () => {
-    // The CLI accepts `-`, `@path`, `--message`, and inline body for any
+    // The CLI accepts piped stdin, `-`, `@path`, `--body`, and inline body for any
     // template that opts in via `acceptsBody`. All built-ins (doc, plan,
     // prompt) now accept body. The fail-fast guard still fires on custom
     // templates that opt out — covered by the "rejects body when custom
@@ -427,12 +443,21 @@ describe('dotmd new — type-first CLI', () => {
         `body should land under Overview: ${content}`);
     });
 
-    it('`doc` accepts --message body', () => {
+    it('`doc` accepts --body flag', () => {
       const docsDir = setupProject();
-      const r = run(['new', 'doc', 'from-msg', '--message', 'flag-passed body']);
+      const r = run(['new', 'doc', 'from-body', '--body', 'flag-passed body']);
       strictEqual(r.status, 0, `stderr: ${r.stderr}`);
-      const content = readFileSync(path.join(docsDir, 'from-msg.md'), 'utf8');
+      const content = readFileSync(path.join(docsDir, 'from-body.md'), 'utf8');
       ok(content.includes('flag-passed body'));
+    });
+
+    it('`doc` auto-consumes piped stdin into Overview without `-`', () => {
+      const docsDir = setupProject();
+      const r = run(['new', 'doc', 'piped-doc'], { input: 'piped doc overview\n' });
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'piped-doc.md'), 'utf8');
+      ok(/## Overview\s*\n\s*piped doc overview/.test(content),
+        `auto-piped body should land under Overview: ${content}`);
     });
 
     it('`doc` without body leaves Overview blank (regression)', () => {

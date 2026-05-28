@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, fstatSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { toRepoPath, die, warn, nowIso, emitFilesFooter } from './util.mjs';
@@ -26,7 +26,7 @@ const BUILTIN_TEMPLATES = {
   doc: {
     description: 'Reference doc, design note, module overview — build-up shape lite',
     defaultStatus: 'active',
-    // Body input optional. When passed (inline / --message / @file / stdin),
+    // Body input optional. When passed (inline / --body / @file / stdin),
     // it lands in the Overview section. Without it, Overview is left blank
     // and the user fills it in.
     acceptsBody: true,
@@ -263,12 +263,18 @@ export async function runNew(argv, config, opts = {}) {
   let status = null;
   let title = null;
   let rootName = opts.root ?? null;
-  let messageFlag = null;
+  let bodyFlag = null;
+  let bodyFlagName = null; // tracks which spelling the caller used, for error attribution
   let showFiles = opts.showFiles ?? false;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--status' && argv[i + 1]) { status = argv[++i]; continue; }
     if (argv[i] === '--title' && argv[i + 1]) { title = argv[++i]; continue; }
-    if (argv[i] === '--message' && argv[i + 1]) { messageFlag = argv[++i]; continue; }
+    // --body is the canonical flag; --message is a back-compat alias.
+    if ((argv[i] === '--body' || argv[i] === '--message') && argv[i + 1]) {
+      bodyFlagName = argv[i];
+      bodyFlag = argv[++i];
+      continue;
+    }
     if (argv[i] === '--root' && argv[i + 1]) { rootName = argv[++i]; continue; }
     if (argv[i] === '--config') { i++; continue; }
     if (argv[i] === '--show-files') { showFiles = true; continue; }
@@ -304,7 +310,7 @@ export async function runNew(argv, config, opts = {}) {
       name = await promptText(`${typeName} name: `);
       if (!name) die('No name provided.');
     } else {
-      die(`Usage: dotmd new <type> <name> [body]\n       types: ${[...knownTypes].join(', ')}\n       body: inline text | "-" (stdin) | "@path" (file) | --message "..."`);
+      die(`Usage: dotmd new <type> <name> [body]\n       types: ${[...knownTypes].join(', ')}\n       body: inline text | piped stdin (auto) | "@path" (file) | --body "..."`);
     }
   }
 
@@ -331,13 +337,31 @@ export async function runNew(argv, config, opts = {}) {
     die(`Invalid status \`${status}\` for type \`${typeName}\`\nValid: ${[...effective].join(', ')}`);
   }
 
-  // Body input resolution: messageFlag > bodyArg > nothing
+  // Body input resolution: --body flag > positional bodyArg > auto-piped-stdin > nothing
   let bodyInput = null;
   let bodyInputSource = null;
-  if (messageFlag !== null) { bodyInput = readBodyInput(messageFlag); bodyInputSource = '--message'; }
+  if (bodyFlag !== null) { bodyInput = readBodyInput(bodyFlag); bodyInputSource = bodyFlagName; }
   else if (bodyArg !== null) {
     bodyInput = readBodyInput(bodyArg);
     bodyInputSource = bodyArg === '-' ? 'stdin (`-`)' : (bodyArg.startsWith('@') ? `file (\`${bodyArg}\`)` : 'inline body argument');
+  } else if (template.acceptsBody || template.requiresBody) {
+    // Auto-consume piped or redirected stdin so agents don't need the `-`
+    // placeholder for the most common pattern (`cat draft.md | dotmd new …`,
+    // `dotmd new … < draft.md`, or a `<<'EOF'` heredoc). We probe stdin via
+    // fstatSync rather than `!isTTY` so a closed/inherited fd doesn't trigger
+    // a blocking read of an empty stream. We accept FIFO (shell pipes), regular
+    // file (shell redirection / heredoc), and socket (Node spawnSync `input:`
+    // delivers stdin as an AF_UNIX socket).
+    try {
+      const stat = fstatSync(0);
+      if (stat.isFIFO() || stat.isFile() || stat.isSocket()) {
+        const piped = readFileSync(0, 'utf8');
+        if (piped.length > 0) {
+          bodyInput = piped;
+          bodyInputSource = 'piped stdin';
+        }
+      }
+    } catch { /* stdin not introspectable — skip auto-consume */ }
   }
 
   // If the body input has a leading `---…---` frontmatter block, lift its keys
@@ -355,7 +379,7 @@ export async function runNew(argv, config, opts = {}) {
   }
 
   if (template.requiresBody && (!bodyInput || !bodyInput.trim())) {
-    die(`\`${typeName}\` template requires a body. Pass inline, --message "...", - for stdin, or @path for a file.`);
+    die(`\`${typeName}\` template requires a body. Pipe stdin (\`cat draft.md | dotmd new ${typeName} <slug>\`), pass @path, --body "...", or inline text.`);
   }
 
   // Fail-fast when the user passes body input to a template that doesn't

@@ -142,7 +142,7 @@ export function runHud(argv, config) {
   // by `dotmd init`) so subsequent sessions stay silent.
   const primerMarker = path.join(config.repoRoot, '.dotmd', 'primer-shown');
   if (!existsSync(primerMarker)) {
-    lines.push(dim('dotmd: managing this repo\'s docs. Use `dotmd new prompt` for handoffs (never hand-write docs/prompts/*.md). `dotmd plans` shows the queue. `dotmd --help` for more.'));
+    lines.push(dim('dotmd: managing this repo\'s docs. Save in one shot: `cat draft.md | dotmd new <type> <slug>` (or `dotmd new <type> <slug> @path`). Types: plan, doc, prompt. `dotmd plans` shows the queue.'));
     try {
       mkdirSync(path.dirname(primerMarker), { recursive: true });
       writeFileSync(primerMarker, '');

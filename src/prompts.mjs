@@ -248,7 +248,7 @@ function runPromptsArchive(argv, config, opts = {}) {
 
 async function runPromptsNew(argv, config, opts = {}) {
   if (!argv[0] || argv[0].startsWith('-')) {
-    die('Usage: dotmd prompts new <slug> [body]\n       body: inline text | "-" (stdin) | "@path" (file) | --message "..."');
+    die('Usage: dotmd prompts new <slug> [body]\n       body: inline text | piped stdin (auto) | "@path" (file) | --body "..."');
   }
   return runNew(['prompt', ...argv], config, opts);
 }
