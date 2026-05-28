@@ -123,6 +123,44 @@ updated: 2026-05-26`);
   });
 });
 
+describe('dotmd runlist <hub> slug resolution', () => {
+  it('accepts a bare slug (no path, no .md) for a plan under docs/plans/', () => {
+    const plans = setupProject();
+    writeDoc(plans, 'hub.md', `type: plan
+status: active
+title: Hub
+updated: 2026-05-26
+runlist:
+  - one.md`);
+    writeDoc(plans, 'one.md', `type: plan
+status: active
+title: One
+parent_plan: hub.md
+updated: 2026-05-26`);
+    const r = run(['hub']);
+    strictEqual(r.status, 0, `bare slug should resolve: ${r.stderr}`);
+    match(r.stdout, /runlist: docs\/plans\/hub.md/);
+  });
+
+  it('accepts <slug>.md (no path prefix)', () => {
+    const plans = setupProject();
+    writeDoc(plans, 'hub.md', `type: plan
+status: active
+title: Hub
+updated: 2026-05-26
+runlist:
+  - one.md`);
+    writeDoc(plans, 'one.md', `type: plan
+status: active
+title: One
+parent_plan: hub.md
+updated: 2026-05-26`);
+    const r = run(['hub.md']);
+    strictEqual(r.status, 0, `<slug>.md should resolve: ${r.stderr}`);
+    match(r.stdout, /runlist: docs\/plans\/hub.md/);
+  });
+});
+
 describe('dotmd runlist next <hub>', () => {
   it('picks up the first non-archived child', () => {
     const plans = setupProject();

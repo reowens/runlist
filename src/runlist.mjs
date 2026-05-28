@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import {
@@ -13,6 +13,34 @@ import {
 import { bold, cyan, dim, green, red, yellow } from './color.mjs';
 
 const PICKUPABLE_STATUSES = new Set(['active', 'planned', 'in-session']);
+
+// resolveDocPath only tries cwd / repo-root / docs-root joins, so bare plan
+// slugs like `clear-the-deck` don't resolve when plans live under
+// `<docsRoot>/plans/`. The other commands (`dotmd set <slug>`, `dotmd plans`)
+// take slugs — runlist should too. Try the direct resolve first, then
+// fall back to `<root>/plans/<slug>.md` under each configured doc root.
+function resolveHubInput(input, config) {
+  const direct = resolveDocPath(input, config);
+  if (direct) return direct;
+
+  if (!input.endsWith('.md')) {
+    const withExt = resolveDocPath(input + '.md', config);
+    if (withExt) return withExt;
+  }
+
+  const slugFile = input.endsWith('.md') ? input : `${input}.md`;
+  const roots = config.docsRoots || (config.docsRoot ? [config.docsRoot] : []);
+  for (const root of roots) {
+    const candidate = path.join(root, 'plans', slugFile);
+    if (existsSync(candidate)) return candidate;
+    // Multi-root layouts may already have a `plans` root, so also try the
+    // root itself.
+    const rootCandidate = path.join(root, slugFile);
+    if (existsSync(rootCandidate)) return rootCandidate;
+  }
+
+  return null;
+}
 
 // Read a hub plan's `runlist:` and resolve each entry to a repo-relative path
 // plus its current status. Missing files are reported with `missing: true`;
@@ -112,7 +140,7 @@ export async function runRunlist(argv, config, opts = {}) {
       : 'Usage: dotmd runlist <hub-plan>');
   }
 
-  const hubAbs = resolveDocPath(hubInput, config);
+  const hubAbs = resolveHubInput(hubInput, config);
   if (!hubAbs) die(`Hub plan not found: ${hubInput}`);
   const hubRepoPath = toRepoPath(hubAbs, config.repoRoot);
 

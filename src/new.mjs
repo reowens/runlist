@@ -22,6 +22,23 @@ function surfacesScaffold(ctx) {
   return 'surfaces:';
 }
 
+// Module-taxonomy parallel of surfacesScaffold. When `taxonomy.modules` is set,
+// scaffold lists valid values + a `- none` placeholder so the validator's
+// modules-required check passes by default and the author can swap to a real
+// module from the listed taxonomy. When unset, the project doesn't enumerate
+// modules — drop the placeholder entirely so new plans aren't sprinkled with a
+// meaningless sentinel.
+function modulesScaffold(ctx, kind /* 'doc' | 'plan' */) {
+  const valid = ctx?.validModules;
+  if (Array.isArray(valid) && valid.length > 0) {
+    const comment = kind === 'plan'
+      ? `# modules — valid: ${valid.join(', ')} (or \`none\` for tooling/infra plans)`
+      : `# modules — valid: ${valid.join(', ')} (or \`none\` for platform/infra docs)`;
+    return `${comment}\nmodules:\n  - none`;
+  }
+  return 'modules:';
+}
+
 const BUILTIN_TEMPLATES = {
   doc: {
     description: 'Reference doc, design note, module overview — build-up shape lite',
@@ -35,9 +52,7 @@ const BUILTIN_TEMPLATES = {
       `status: ${s}`,
       `created: ${d}`,
       `updated: ${d}`,
-      '# modules — real module name(s), or `none` for platform/infra docs',
-      'modules:',
-      '  - none',
+      modulesScaffold(ctx, 'doc'),
       surfacesScaffold(ctx),
       'domain:',
       'audience: internal',
@@ -75,9 +90,7 @@ ${ctx?.bodyInput?.trim() ?? ''}
       `created: ${d}`,
       `updated: ${d}`,
       surfacesScaffold(ctx),
-      '# modules — real module name(s), or `none` for tooling/infra plans',
-      'modules:',
-      '  - none',
+      modulesScaffold(ctx, 'plan'),
       'domain:',
       'audience: internal',
       'parent_plan:',
@@ -477,7 +490,8 @@ export async function runNew(argv, config, opts = {}) {
   // Generate content
   let content;
   const validSurfaces = config.raw?.taxonomy?.surfaces ?? (config.validSurfaces ? [...config.validSurfaces] : null);
-  const tmplCtx = { status, title: docTitle, today, bodyInput, validSurfaces };
+  const validModules = config.raw?.taxonomy?.modules ?? (config.validModules ? [...config.validModules] : null);
+  const tmplCtx = { status, title: docTitle, today, bodyInput, validSurfaces, validModules };
   if (typeof template === 'function') {
     content = template(name, tmplCtx);
   } else {

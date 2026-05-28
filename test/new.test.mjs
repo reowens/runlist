@@ -619,21 +619,48 @@ describe('dotmd new — type-first CLI', () => {
       ok(!/Root:.+others:/.test(r.stdout), `explicit --root should suppress hint: ${r.stdout}`);
     });
 
-    it('scaffold defaults modules to `- none` so fresh plans pass dotmd check', () => {
-      // Fix 2 from issue #12: empty `modules:` triggers a hard error when status
-      // is active/planned/blocked. Defaulting to `- none` lets the file validate
-      // immediately; the author replaces it with real modules when applicable.
+    it('scaffold defaults modules to `- none` when taxonomy.modules is configured', () => {
+      // When the project opts into module taxonomy, the scaffold writes
+      // `modules:\n  - none` so the validator's modules-required check passes
+      // out of the box; the author swaps in a real module when applicable.
       tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-modules-'));
       mkdirSync(path.join(tmpDir, '.git'));
       mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
       writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'),
-        `export const root = 'docs';\nexport const taxonomy = { moduleRequiredFor: ['active', 'planned', 'blocked'] };`);
+        `export const root = 'docs';\nexport const taxonomy = { modules: ['core', 'platform'], moduleRequiredFor: ['active', 'planned', 'blocked'] };`);
       const r = run(['new', 'plan', 'tooling-only']);
       strictEqual(r.status, 0, `stderr: ${r.stderr}`);
       const content = readFileSync(path.join(tmpDir, 'docs', 'plans', 'tooling-only.md'), 'utf8');
       ok(/^modules:\n  - none$/m.test(content), `expected modules: - none in scaffold; got:\n${content}`);
       const check = run(['check', 'docs/plans/tooling-only.md']);
       ok(!/errors: [1-9]/.test(check.stdout), `fresh plan should validate cleanly; got: ${check.stdout}`);
+    });
+
+    it('scaffold omits the `- none` placeholder when taxonomy.modules is unset', () => {
+      // When no module taxonomy is declared (the default), the validator's
+      // modules-required gate is skipped — and scaffolding shouldn't sprinkle
+      // a meaningless `- none` sentinel on every fresh plan.
+      const docsDir = setupProject();
+      const r = run(['new', 'plan', 'no-modules-taxonomy']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'plans', 'no-modules-taxonomy.md'), 'utf8');
+      ok(/^modules:\s*$/m.test(content),
+        `expected bare modules: line; got:\n${content}`);
+      ok(!/^\s+- none$/m.test(content),
+        `expected no placeholder - none entry; got:\n${content}`);
+    });
+
+    it('scaffold emits a modules-taxonomy comment when config has one', () => {
+      tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-modules-comment-'));
+      mkdirSync(path.join(tmpDir, '.git'));
+      mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+      writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'),
+        `export const root = 'docs';\nexport const taxonomy = { modules: ['core', 'platform'] };`);
+      const r = run(['new', 'plan', 'with-mod-taxonomy']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(tmpDir, 'docs', 'plans', 'with-mod-taxonomy.md'), 'utf8');
+      ok(content.includes('# modules — valid: core, platform'),
+        `expected modules comment; got:\n${content}`);
     });
 
     it('scaffold emits a surfaces-taxonomy comment when config has one', () => {
