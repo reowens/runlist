@@ -1,11 +1,11 @@
 ---
 description: dotmd-managed plan briefing for this repo. Use when the user asks what's on the plate, references a plan slug, queues work, or wants to start / close / archive a plan. Valid plan statuses: in-session, active, planned, blocked, partial, paused, awaiting, queued-after, archived. Valid doc statuses: draft, active, review, reference, deprecated, archived. Valid prompt statuses: pending, shelved, claimed, archived.
 ---
-<!-- dotmd-generated: 0.45.1 -->
+<!-- dotmd-generated: 0.48.0 -->
 
 Run `dotmd context` to get the current plans briefing, then use it to orient yourself.
 
-Plans are managed by **dotmd** (v0.45.1). Config at `dotmd.config.mjs`. Always use `dotmd` directly.
+Plans are managed by **dotmd** (v0.48.0). Config at `dotmd.config.mjs`. Always use `dotmd` directly.
 
 Plan-specific commands:
 - `dotmd context` — briefing with active/paused/ready plans, age tags, next steps
