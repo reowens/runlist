@@ -186,14 +186,14 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
       doc.warnings.push({
         path: doc.path,
         level: 'warning',
-        message: `\`status: in-session\` but no active lease found (last session may have crashed without releasing). Run \`dotmd set active ${doc.path}\` to clear and re-queue.`,
+        message: `\`status: in-session\` but no session is actually working on this (previous session may have crashed). Run \`dotmd set active ${doc.path}\` to clear and re-queue.`,
       });
     } else if (isLeaseStale(lease)) {
       const ageHours = Math.floor((Date.now() - new Date(lease.pickedUpAt).getTime()) / (1000 * 60 * 60));
       doc.warnings.push({
         path: doc.path,
         level: 'warning',
-        message: `\`status: in-session\` but lease is stale (last touched ${ageHours}h ago, >${STALE_LEASE_AGE_HOURS}h threshold). Run \`dotmd set active ${doc.path}\` to clear and re-queue.`,
+        message: `\`status: in-session\` but last activity was ${ageHours}h ago (>${STALE_LEASE_AGE_HOURS}h, looks abandoned). Run \`dotmd set active ${doc.path}\` to clear and re-queue.`,
       });
     }
   }

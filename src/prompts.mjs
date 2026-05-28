@@ -118,7 +118,7 @@ function renderPromptsVerbose(index, config, { hasStatusFlag, includeArchived })
   }
 }
 
-function pendingPromptsOldestFirst(config) {
+export function pendingPromptsOldestFirst(config) {
   const index = buildIndex(config);
   const prompts = index.docs.filter(d => d.type === 'prompt' && d.status === 'pending');
 
@@ -192,7 +192,7 @@ function runPromptsUse(argv, config, opts = {}) {
   consumePrompt(filePath, config, { ...opts, noIndex, showFiles });
 }
 
-function consumePrompt(filePath, config, opts) {
+export function consumePrompt(filePath, config, opts) {
   const { dryRun, noIndex, showFiles } = opts;
   const raw = readFileSync(filePath, 'utf8');
   const { frontmatter, body } = extractFrontmatter(raw);

@@ -247,13 +247,12 @@ describe('checkClaudeCommands', () => {
 });
 
 describe('generated content teaches prompt consumption', () => {
-  it('plans.md tells Claude to consume docs/prompts/ files via `dotmd prompts use`', async () => {
+  it('plans.md tells Claude to consume docs/prompts/ files via top-level `dotmd use`', async () => {
     setup({ claude: true });
     const config = await resolveConfig(tmpDir);
     scaffoldClaudeCommands(tmpDir, config);
     const content = readFileSync(path.join(tmpDir, '.claude', 'commands', 'plans.md'), 'utf8');
-    ok(content.includes('dotmd prompts use'), 'mentions `dotmd prompts use`');
-    ok(content.includes('dotmd prompts next'), 'mentions `dotmd prompts next`');
+    ok(content.includes('dotmd use'), 'mentions `dotmd use`');
     ok(content.includes('docs/prompts/'), 'mentions docs/prompts/ convention');
     ok(/do not\s+`?cat`?/i.test(content), 'warns against cat/read');
   });
@@ -286,13 +285,13 @@ describe('generated content teaches prompt consumption', () => {
     }
   });
 
-  it('docs.md mentions the prompts subcommands', async () => {
+  it('docs.md teaches prompt creation and consumption via the flat verbs', async () => {
     setup({ claude: true });
     const config = await resolveConfig(tmpDir);
     scaffoldClaudeCommands(tmpDir, config);
     const content = readFileSync(path.join(tmpDir, '.claude', 'commands', 'docs.md'), 'utf8');
-    ok(content.includes('dotmd prompts use'), 'mentions `dotmd prompts use`');
-    ok(content.includes('dotmd prompts new'), 'mentions `dotmd prompts new`');
+    ok(content.includes('dotmd use'), 'mentions `dotmd use` (top-level consumer)');
+    ok(content.includes('dotmd new prompt'), 'mentions `dotmd new prompt` (top-level save)');
   });
 
   it('every `dotmd <verb>` in generated templates points at a real command', async () => {

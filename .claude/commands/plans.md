@@ -1,32 +1,31 @@
 ---
 description: dotmd-managed plan briefing for this repo. Use when the user asks what's on the plate, references a plan slug, queues work, or wants to pick up / release / archive a plan. Valid plan statuses: in-session, active, planned, blocked, partial, paused, awaiting, queued-after, archived. Valid doc statuses: draft, active, review, reference, deprecated, archived. Valid prompt statuses: pending, shelved, claimed, archived.
 ---
-<!-- dotmd-generated: 0.43.0 -->
+<!-- dotmd-generated: 0.44.0 -->
 
 Run `dotmd context` to get the current plans briefing, then use it to orient yourself.
 
-Plans are managed by **dotmd** (v0.43.0). Config at `dotmd.config.mjs`. Always use `dotmd` directly.
+Plans are managed by **dotmd** (v0.44.0). Config at `dotmd.config.mjs`. Always use `dotmd` directly.
 
 Plan-specific commands:
 - `dotmd context` — briefing with active/paused/ready plans, age tags, next steps
-- `dotmd pickup <file>` — pick up a plan (set in-session + print body)
-- `dotmd release` — release current session's leases (alias: unpickup)
-- `dotmd health` — plan velocity, aging, checklist progress, pipeline view
-- `dotmd unblocks <file>` — what depends on / is blocked by a plan
-- `dotmd actionable` — ready plans with next steps (what to promote)
+- `dotmd set <status> [<file>]` — single status verb. Use this to start, transition, or close any plan:
+    - `dotmd set in-session <file>` — start work on a plan (acquires the lease + prints body)
+    - `dotmd set <status> [<file>]` — transition to any other status; if you held the lease it releases automatically
+    - `dotmd set archived <file>` — close out (same as `dotmd archive`)
+- `dotmd archive <file>` — explicit archive with ref-fixing (equivalent to `set archived`)
+- `dotmd bulk archive <files>` — archive multiple at once
 - `dotmd new plan <name>` — scaffold with full phase structure
-- `dotmd prompts new <name> "<body>"` — save a resume-prompt to docs/prompts/
+- `dotmd prompts new <name>` — save a resume-prompt to docs/prompts/ (pipe stdin or @path for body)
 - `dotmd prompts next` — consume oldest pending prompt (prints body, auto-archives)
 - `dotmd prompts use <file>` — consume a specific prompt (prints body, auto-archives)
-- `dotmd archive <file>` — archive with auto ref-fixing (both directions)
-- `dotmd bulk archive <files>` — archive multiple at once
-- `dotmd set <status> [<file>]` — unified transition (archive / release / status bump in one verb; infers path from held lease)
-- `dotmd status <file> <status>` — transition status (legacy; `set` is preferred)
+- `dotmd unblocks <file>` — what depends on / is blocked by a plan
+- `dotmd actionable` — ready plans with next steps (what to promote)
 - `dotmd query --keyword <term>` — find plans by keyword
 
 If the user asks about a specific plan, read its file directly (path is in the briefing or findable via `dotmd query --keyword <term>`).
 
-If the user asks to change a plan's status, use `dotmd status <file> <status>`.
-If the user asks to archive a plan, use `dotmd archive <file>`.
+If the user asks to change a plan's status, use `dotmd set <status> <file>`.
+If the user asks to archive a plan, use `dotmd set archived <file>` (or `dotmd archive <file>`).
 
 **Saved prompts (`docs/prompts/*.md`):** if the user references a file under `docs/prompts/` — e.g. "resume via docs/prompts/foo.md", "use this prompt", "load that one" — consume it with `dotmd prompts use <file>` (atomically prints the body and archives the prompt so it cannot be double-consumed). Do NOT `cat` it, read it with the file-reading tool, or copy its body into chat. To pick the oldest pending prompt without naming a file, use `dotmd prompts next`.

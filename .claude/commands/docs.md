@@ -1,15 +1,14 @@
 ---
 description: dotmd-managed docs briefing for this repo. Use when the user asks to list, scaffold, query, validate, archive, or rename non-plan docs (reference docs, ADRs, RFCs, design notes), or asks how the dotmd doc lifecycle works here.
 ---
-<!-- dotmd-generated: 0.43.0 -->
+<!-- dotmd-generated: 0.44.0 -->
 
-All documentation in this repo is managed by **dotmd** (v0.43.0). Docs across 1 root: docs. Config at `dotmd.config.mjs`.
+All documentation in this repo is managed by **dotmd** (v0.44.0). Docs across 1 root: docs. Config at `dotmd.config.mjs`.
 
 Document types: `plan`, `doc`, `prompt`.
 
 Commands for working with docs:
 - `dotmd context` — LLM-oriented briefing across all types
-- `dotmd check` — validate frontmatter, refs, body links (target: 0 errors)
 - `dotmd doctor` — auto-fix everything in one pass (refs, lint, dates, index)
 - `dotmd query [filters]` — search by status, keyword, module, surface, type, staleness
 - `dotmd health` — plan pipeline, velocity, aging

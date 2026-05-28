@@ -61,7 +61,7 @@ describe('dotmd hud', () => {
     ok(/dotmd:/.test(r.stdout), `expected primer line; got: ${r.stdout}`);
     ok(/set <status>/.test(r.stdout), `primer should name the set verb; got: ${r.stdout}`);
     ok(/new <type>/.test(r.stdout), `primer should name the new verb; got: ${r.stdout}`);
-    ok(/prompts/.test(r.stdout), `primer should name prompts; got: ${r.stdout}`);
+    ok(/\buse\b/.test(r.stdout), `primer should name the use verb; got: ${r.stdout}`);
   });
 
   it('does NOT show owned/prompts/stale/errors in stdout', () => {
@@ -77,8 +77,10 @@ describe('dotmd hud', () => {
 
     const r = runCli(['hud']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
+    // The plan-state lines were arrow-prefixed (`▶`, `⚠`, `✗`); none should remain.
+    ok(!/[▶⚠✗]/.test(r.stdout), `stdout should not carry plan-state arrows; got: ${r.stdout}`);
     ok(!/You hold/.test(r.stdout), `stdout should not mention held leases; got: ${r.stdout}`);
-    ok(!/pending prompt/.test(r.stdout), `stdout should not list pending prompts; got: ${r.stdout}`);
+    ok(!/\d+ pending prompt/.test(r.stdout), `stdout should not list a pending-prompt count; got: ${r.stdout}`);
     ok(!/validation error/.test(r.stdout), `stdout should not surface error counts; got: ${r.stdout}`);
     ok(!/stuck lease/.test(r.stdout), `stdout should not surface stuck leases; got: ${r.stdout}`);
   });

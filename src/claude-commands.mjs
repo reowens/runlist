@@ -19,9 +19,9 @@ function markerFor(version) { return `<!-- dotmd-generated: ${version} -->`; }
 // gets a per-type status vocab appended at generation time so agents arrive
 // with the valid `dotmd status` / `dotmd archive` values already in context.
 const SLASH_DESCRIPTIONS = {
-  plans: "dotmd-managed plan briefing for this repo. Use when the user asks what's on the plate, references a plan slug, queues work, or wants to pick up / release / archive a plan.",
+  plans: "dotmd-managed plan briefing for this repo. Use when the user asks what's on the plate, references a plan slug, queues work, or wants to start / close / archive a plan.",
   docs: "dotmd-managed docs briefing for this repo. Use when the user asks to list, scaffold, query, validate, archive, or rename non-plan docs (reference docs, ADRs, RFCs, design notes), or asks how the dotmd doc lifecycle works here.",
-  baton: "Save a resume prompt for the held plan and release the lease — the minimum handoff. Use when the user says hand off / save a resume / wrap up, or when context is getting tight.",
+  baton: "Save a resume prompt for the active plan and close it out — the minimum handoff. Use when the user says hand off / save a resume / wrap up, or when context is getting tight.",
 };
 
 const VOCAB_TRUNCATE_AT = 12;
@@ -64,15 +64,15 @@ function generatePlansCommand(config, version) {
   lines.push('Plan-specific commands:');
   lines.push('- `dotmd context` — briefing with active/paused/ready plans, age tags, next steps');
   lines.push('- `dotmd set <status> [<file>]` — single status verb. Use this to start, transition, or close any plan:');
-  lines.push('    - `dotmd set in-session <file>` — start work on a plan (acquires the lease + prints body)');
-  lines.push('    - `dotmd set <status> [<file>]` — transition to any other status; if you held the lease it releases automatically');
+  lines.push('    - `dotmd set in-session <file>` — start work on a plan (marks in-session + prints body)');
+  lines.push('    - `dotmd set <status> [<file>]` — transition to any other status; closes out the in-session marker automatically');
   lines.push('    - `dotmd set archived <file>` — close out (same as `dotmd archive`)');
   lines.push('- `dotmd archive <file>` — explicit archive with ref-fixing (equivalent to `set archived`)');
   lines.push('- `dotmd bulk archive <files>` — archive multiple at once');
   lines.push('- `dotmd new plan <name>` — scaffold with full phase structure');
-  lines.push('- `dotmd prompts new <name>` — save a resume-prompt to docs/prompts/ (pipe stdin or @path for body)');
-  lines.push('- `dotmd prompts next` — consume oldest pending prompt (prints body, auto-archives)');
-  lines.push('- `dotmd prompts use <file>` — consume a specific prompt (prints body, auto-archives)');
+  lines.push('- `dotmd new prompt <name>` — save a resume-prompt to docs/prompts/ (pipe stdin or @path for body)');
+  lines.push('- `dotmd use` — consume oldest pending prompt (prints body, auto-archives)');
+  lines.push('- `dotmd use <file>` — open any doc by type: prompt → consume, plan → start work, doc → read');
   lines.push('- `dotmd unblocks <file>` — what depends on / is blocked by a plan');
   lines.push('- `dotmd actionable` — ready plans with next steps (what to promote)');
   lines.push('- `dotmd query --keyword <term>` — find plans by keyword');
@@ -87,7 +87,7 @@ function generatePlansCommand(config, version) {
   lines.push('If the user asks to change a plan\'s status, use `dotmd set <status> <file>`.');
   lines.push('If the user asks to archive a plan, use `dotmd set archived <file>` (or `dotmd archive <file>`).');
   lines.push('');
-  lines.push('**Saved prompts (`docs/prompts/*.md`):** if the user references a file under `docs/prompts/` — e.g. "resume via docs/prompts/foo.md", "use this prompt", "load that one" — consume it with `dotmd prompts use <file>` (atomically prints the body and archives the prompt so it cannot be double-consumed). Do NOT `cat` it, read it with the file-reading tool, or copy its body into chat. To pick the oldest pending prompt without naming a file, use `dotmd prompts next`.');
+  lines.push('**Saved prompts (`docs/prompts/*.md`):** if the user references a file under `docs/prompts/` — e.g. "resume via docs/prompts/foo.md", "use this prompt", "load that one" — consume it with `dotmd use <file>` (atomically prints the body and archives the prompt so it cannot be double-consumed). Do NOT `cat` it, read it with the file-reading tool, or copy its body into chat. To pick the oldest pending prompt without naming a file, run `dotmd use` with no arg.');
   lines.push('');
 
   return lines.join('\n');
@@ -100,12 +100,12 @@ function generateBatonCommand(config, version) {
   lines.push('1. **Save the resume prompt.** `dotmd new prompt resume-<plan-slug>` — pipe stdin or pass `@path`. 10-20 line body: the next concrete decision plus any gotchas. NOT a recap of the plan body. The saved prompt IS the handoff — never print it into chat for copy-paste.');
   lines.push('');
   lines.push('2. **Close out via `dotmd set <status>`.** Pick the status that matches reality:');
-  lines.push('    - `dotmd set active <file>` — work continues, release the lease back to the queue');
+  lines.push('    - `dotmd set active <file>` — work continues, return the plan to the active queue');
   lines.push('    - `dotmd set archived <file>` — fully shipped (also: `dotmd archive <file>`)');
   lines.push('    - `dotmd set paused <file>` / `awaiting <file>` / `partial <file>` / `blocked <file>` — when the status really changed');
-  lines.push('  `set` releases the held lease automatically when transitioning out of `in-session`.');
+  lines.push('  `set` clears the in-session marker automatically when transitioning to any other status.');
   lines.push('');
-  lines.push('If you don\'t already know which plan you hold: `dotmd hud --json` and read `.owned`. Do NOT use `dotmd plans --status in-session` — that lists every session\'s holdings, not just yours.');
+  lines.push('If you don\'t already know which plan you have in-session: `dotmd hud --json` and read `.owned`. Do NOT use `dotmd plans --status in-session` — that lists every session\'s in-session plans, not just yours.');
   lines.push('');
   lines.push('The next session\'s `dotmd hud` (SessionStart hook) surfaces the pending prompt automatically.');
   lines.push('');
@@ -149,10 +149,10 @@ function generateDocsCommand(config, version) {
   lines.push('Lifecycle:');
   lines.push('- `dotmd new plan <name>` — scaffold new plan');
   lines.push('- `dotmd new doc <name>` — scaffold reference doc');
-  lines.push('- `dotmd prompts new <name> "<body>"` — save a resume-prompt');
-  lines.push('- `dotmd prompts next` — consume oldest pending prompt (prints body, auto-archives)');
-  lines.push('- `dotmd prompts use <file>` — consume a specific prompt (prints body, auto-archives)');
-  lines.push('- `dotmd set <status> [<file>]` — unified transition (archive / release / status bump; infers path from held lease)');
+  lines.push('- `dotmd new prompt <name>` — save a resume-prompt (pipe stdin or @path for body)');
+  lines.push('- `dotmd use` — consume oldest pending prompt (prints body, auto-archives)');
+  lines.push('- `dotmd use <file>` — open any doc by type: prompt → consume, plan → start work, doc → read');
+  lines.push('- `dotmd set <status> [<file>]` — unified transition (archive / status bump; infers path from your active in-session plan)');
   lines.push('- `dotmd status <file> <status>` — transition status (legacy; `set` is preferred)');
   lines.push('- `dotmd archive <file>` — archive with auto ref-fixing');
   lines.push('- `dotmd bulk archive <files>` — archive multiple at once');
@@ -161,7 +161,7 @@ function generateDocsCommand(config, version) {
   lines.push('- `dotmd fix-refs` — repair broken references and body links');
   lines.push('- `dotmd rename <old> <new>` — rename doc + update all references');
   lines.push('');
-  lines.push('**Saved prompts (`docs/prompts/*.md`):** if the user references a file under `docs/prompts/` — e.g. "resume via docs/prompts/foo.md", "use this prompt" — consume it with `dotmd prompts use <file>` (prints the body and archives atomically). Do NOT `cat` it or read it with the file-reading tool. To pick the oldest pending prompt without naming a file, use `dotmd prompts next`.');
+  lines.push('**Saved prompts (`docs/prompts/*.md`):** if the user references a file under `docs/prompts/` — e.g. "resume via docs/prompts/foo.md", "use this prompt" — consume it with `dotmd use <file>` (prints the body and archives atomically). Do NOT `cat` it or read it with the file-reading tool. To pick the oldest pending prompt without naming a file, run `dotmd use` with no arg.');
   lines.push('');
 
   return lines.join('\n');

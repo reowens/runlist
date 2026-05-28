@@ -19,8 +19,9 @@ Common commands:
   briefing              Full briefing with plan counts + next steps
   set <status> [file]   Transition status (start work, finish, archive — all via target status)
   new <type> <name>     Create plan/doc/prompt (pipe stdin or @path for body)
+  use [<file>]          Open a doc by type: prompt → consume, plan → start, doc → read
+                        (no file: consume oldest pending prompt)
   archive <file>        Close out a plan (status → archived, move, update refs)
-  prompts [next|use|new]  Manage saved prompts
 
 More help:
   dotmd help all        Full command list
@@ -42,8 +43,8 @@ View & Query:
   focus [status] [--json]           Detailed view for one status group
   query [filters] [--json]          Filtered search (--status, --keyword, --stale, etc.)
   plans                             Live plans (excludes archived; --include-archived for all)
-  prompts [list|next|use|archive|new]
-                                    Manage saved prompts (default: list pending)
+  use [<file>]                      Open a doc by type: prompt → consume, plan → start, doc → read
+  prompts [list|archive|new|shelve] Prompt admin (list / archive / save / shelve). Use \`dotmd use\` to consume.
   stale                             Stale docs (preset)
   actionable                        Docs with next steps (preset)
 
@@ -67,7 +68,7 @@ Validate & Fix:
   fix-refs [--dry-run]              Auto-fix broken reference paths + body links
 
 Lifecycle:
-  set <status> [<file>]             Unified transition: archive/release/start/transition in one verb
+  set <status> [<file>]             Unified transition: start work, change status, close out, archive — all via target status
   runlist <hub> [next]              Show or walk an ordered group of plans (see \`dotmd help runlist\`)
   status <file> <status>            Transition document status (deprecated; prefer \`set\`)
   archive <file>                    Archive (status + move + update refs)
@@ -1177,6 +1178,15 @@ async function main() {
   if (command === 'prompts') {
     const { runPrompts } = await import('../src/prompts.mjs');
     await runPrompts(restArgs, config, { dryRun, verbose });
+    return;
+  }
+  // Top-level `dotmd use [file]` — the single "start engaging with this doc"
+  // verb. Dispatches by the target doc's type: prompt → consume + archive,
+  // plan → acquire lease + print, doc → print. With no file: consume oldest
+  // pending prompt. See src/use.mjs for the dispatch table.
+  if (command === 'use') {
+    const { runUse } = await import('../src/use.mjs');
+    await runUse(restArgs, config, { dryRun });
     return;
   }
 

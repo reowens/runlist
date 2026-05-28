@@ -122,7 +122,7 @@ export function runHud(argv, config) {
   // hud's job is purely to remind the agent which verbs exist, since that's
   // the one thing the agent reaches for `--help` to recover. Keep it tight:
   // one line, the minimum verb set.
-  lines.push(dim('dotmd: plans|briefing  set <status> [<file>]  new <type> <slug>  prompts next|use|new  archive <file>'));
+  lines.push(dim('dotmd: plans|briefing  set <status> [<file>]  new <type> <slug>  use [<file>]  archive <file>  (use [no-arg] → oldest pending prompt)'));
 
   if (refreshed.length > 0) {
     const from = refreshed[0].from;

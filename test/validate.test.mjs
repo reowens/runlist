@@ -564,51 +564,50 @@ describe('F11: stale-lease warning for in-session plans', () => {
     writeFileSync(path.join(leaseDir, 'in-session.json'), JSON.stringify(leases, null, 2) + '\n');
   }
 
-  it('warns when an in-session plan has no matching lease entry', () => {
+  it('warns when an in-session plan has no live session working on it', () => {
     const dir = setupPlanProject();
     writeFileSync(path.join(dir, 'orphan.md'),
       '---\ntype: plan\nstatus: in-session\nupdated: 2025-01-01\nmodule: foo\ncurrent_state: x\nnext_step: y\n---\n# orphan\n');
     const result = run(['check', '--verbose']);
-    ok(result.stdout.includes('no active lease found'),
-      `expected stale-lease warning, got: ${result.stdout}`);
+    ok(result.stdout.includes('no session is actually working on this'),
+      `expected no-active-session warning, got: ${result.stdout}`);
     ok(result.stdout.includes('dotmd set active docs/plans/orphan.md'),
       `expected set-active fix suggestion, got: ${result.stdout}`);
   });
 
-  it('does not warn when an in-session plan has a fresh lease', () => {
+  it('does not warn when an in-session plan has a fresh live session', () => {
     const dir = setupPlanProject();
     writeFileSync(path.join(dir, 'held.md'),
       '---\ntype: plan\nstatus: in-session\nupdated: 2025-01-01\nmodule: foo\ncurrent_state: x\nnext_step: y\n---\n# held\n');
     writeLease('docs/plans/held.md', new Date().toISOString());
     const result = run(['check', '--verbose']);
-    ok(!result.stdout.includes('no active lease found'),
-      `fresh lease should suppress no-lease warning: ${result.stdout}`);
-    ok(!result.stdout.includes('lease is stale'),
-      `fresh lease should not be flagged stale: ${result.stdout}`);
+    ok(!result.stdout.includes('no session is actually working'),
+      `fresh session should suppress warning: ${result.stdout}`);
+    ok(!result.stdout.includes('looks abandoned'),
+      `fresh session should not be flagged abandoned: ${result.stdout}`);
   });
 
-  it('warns with stale-variant message when lease is older than 24h', () => {
+  it('warns with abandoned-variant message when the in-session marker is older than 24h', () => {
     const dir = setupPlanProject();
     writeFileSync(path.join(dir, 'rotting.md'),
       '---\ntype: plan\nstatus: in-session\nupdated: 2025-01-01\nmodule: foo\ncurrent_state: x\nnext_step: y\n---\n# rotting\n');
-    // 48h ago — well past the 24h threshold.
     const stale = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
     writeLease('docs/plans/rotting.md', stale);
     const result = run(['check', '--verbose']);
-    ok(result.stdout.includes('lease is stale'),
-      `expected stale-variant warning, got: ${result.stdout}`);
+    ok(result.stdout.includes('looks abandoned'),
+      `expected abandoned-variant warning, got: ${result.stdout}`);
     ok(result.stdout.includes('48h ago'),
-      `stale message should name the age, got: ${result.stdout}`);
+      `abandoned message should name the age, got: ${result.stdout}`);
   });
 
-  it('does not warn when status is active even without a lease (regression)', () => {
+  it('does not warn when status is active even without an in-session marker (regression)', () => {
     const dir = setupPlanProject();
     writeFileSync(path.join(dir, 'queued.md'),
       '---\ntype: plan\nstatus: active\nupdated: 2025-01-01\nmodule: foo\ncurrent_state: x\nnext_step: y\n---\n# queued\n');
     const result = run(['check', '--verbose']);
-    ok(!result.stdout.includes('no active lease found'),
-      `non-in-session status must not trigger lease warning: ${result.stdout}`);
-    ok(!result.stdout.includes('lease is stale'), result.stdout);
+    ok(!result.stdout.includes('no session is actually working'),
+      `non-in-session status must not trigger warning: ${result.stdout}`);
+    ok(!result.stdout.includes('looks abandoned'), result.stdout);
   });
 });
 

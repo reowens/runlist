@@ -115,7 +115,7 @@ export async function runStatus(argv, config, opts = {}) {
   let newStatus = argv[1];
 
   if (!opts.suppressDeprecation) {
-    process.stderr.write(dim('`dotmd status <file> <status>` is deprecated; prefer `dotmd set <status> [<file>]` (note: <status> first, <file> optional when a lease is held). Removed in a future major.\n'));
+    process.stderr.write(dim('`dotmd status <file> <status>` is deprecated; prefer `dotmd set <status> [<file>]` (note: <status> first; <file> optional when a plan is in-session). Removed in a future major.\n'));
   }
 
   if (!input) { die('Usage: dotmd status <file> <new-status>'); }
@@ -326,11 +326,11 @@ export async function runPickup(argv, config, opts = {}) {
     leaseOutcome = result.outcome;
     if (result.outcome === 'conflict-alive') {
       const c = result.conflict;
-      die(`Held by ${c.host}/${c.session} (pid ${c.pid}) since ${c.pickedUpAt}.\nUse --takeover to override.\n  ${repoPath}`);
+      die(`Plan is in-session with ${c.host}/${c.session} (pid ${c.pid}) since ${c.pickedUpAt}.\nUse --takeover to override.\n  ${repoPath}`);
     }
     if (result.outcome === 'conflict-stale') {
       const c = result.conflict;
-      die(`Stale in-session lease from ${c.host}/${c.session} since ${c.pickedUpAt} (>${STALE_LEASE_AGE_HOURS}h old).\nUse --takeover to claim.\n  ${repoPath}`);
+      die(`Plan flagged in-session by ${c.host}/${c.session} since ${c.pickedUpAt} (>${STALE_LEASE_AGE_HOURS}h ago, looks abandoned).\nUse --takeover to claim.\n  ${repoPath}`);
     }
     if (oldStatus !== 'in-session') {
       updateFrontmatter(filePath, { status: 'in-session', updated: today });
@@ -370,7 +370,7 @@ export async function runPickup(argv, config, opts = {}) {
       process.stderr.write(`${green('▶ Picked up')}: ${repoPath} (${oldStatus ?? 'unset'} → in-session)\n\n`);
     }
     if (fullBody) {
-      const header = `[dotmd] holding ${repoPath} — close with: dotmd set <status> ${repoPath}\n---\n`;
+      const header = `[dotmd] in-session: ${repoPath} — close with: dotmd set <status> ${repoPath}\n---\n`;
       process.stdout.write(header);
       const content = (body ?? '').trim();
       if (content) process.stdout.write(content + '\n');

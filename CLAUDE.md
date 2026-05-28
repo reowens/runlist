@@ -37,15 +37,15 @@ To finish work, archive directly: `dotmd archive <plan-file>`. The legacy `done`
 `dotmd set <status> [<file>]` is the single status verb. It handles starting, transitioning, and closing a plan based on the target status.
 
 1. Get oriented: `dotmd briefing`
-2. Start work on a plan: `dotmd set in-session <plan-file>` (acquires the lease + prints content)
+2. Start work on a plan: `dotmd set in-session <plan-file>` (marks in-session + prints content). Equivalent: `dotmd use <plan-file>`.
 3. When done — pick the closure status that matches reality:
    - Fully shipped → `dotmd set archived <plan-file>` (also: `dotmd archive <plan-file>`)
    - Shipped + tail deferred → `dotmd set partial <plan-file>` (reference the successor plan in the body)
    - Need more work later → `dotmd set active <plan-file>`
    - Stuck on a human decision → `dotmd set awaiting <plan-file>`
-   `set` automatically releases the held lease when transitioning out of `in-session`.
+   `set` automatically clears the in-session marker when transitioning to any other status.
 4. To see plans: `dotmd plans` (live), `dotmd plans --status active`, `dotmd plans --status in-session`
-5. Re-attaching: `dotmd set in-session` on a plan you already own (e.g., after `/clear`) silently re-attaches. One held by another live session refuses; a stale lease (dead pid or >24h) suggests `--takeover`.
+5. Re-attaching: `dotmd set in-session` on a plan your session already has marked in-session silently re-attaches. A plan that another live session is working on refuses; a plan flagged in-session with no live activity (dead pid or >24h) suggests `--takeover`.
 
 ### Resume prompts (saved for future sessions)
 
@@ -57,7 +57,7 @@ dotmd prompts new resume-<plan-slug> - <<'EOF'
 EOF
 ```
 
-The prompt lands under `docs/prompts/<name>.md` with `status: pending`. The next session runs `dotmd hud` (the SessionStart hook), sees the pending prompt, and consumes it with `dotmd prompts use <file>` (or `dotmd prompts next` for the oldest). That command atomically prints the body and archives the prompt so it can't be double-consumed.
+The prompt lands under `docs/prompts/<name>.md` with `status: pending`. The next session runs `dotmd hud` (the SessionStart hook), sees the pending prompt, and consumes it with `dotmd use <file>` (or `dotmd use` with no arg for the oldest). That command atomically prints the body and archives the prompt so it can't be double-consumed.
 
 Use this whenever you'd otherwise print a multi-line "here's how to resume" block.
 
@@ -112,7 +112,7 @@ dotmd new prompt cleanup "look at remaining lint warnings"   # inline body (one-
 
 All four body-input modes (`@path`, stdin, `--message`, inline) work for every body-accepting type (`plan`, `doc`, `prompt`). **Default to `@path` or `-` for multi-line bodies.** Inline puts the entire body on the bash command line — heredoc is brittle for content with backticks, and PreToolUse hooks that scan commands for forbidden literals (e.g. destructive-git patterns) will fire on prose that just *describes* the rule. `@/tmp/foo.md` sidesteps both.
 
-Saved prompts have their own status vocab (`pending`, `shelved`, `claimed`, `archived`) and a dedicated command family (`dotmd prompts list|next|use|archive|shelve|unshelve`). `dotmd prompts next` prints + claims the oldest pending prompt — useful when a session boots and needs an instruction. `shelved` is the "saved but not next" bucket: visible in `dotmd prompts list`, but hidden from `hud`/`briefing` and skipped by `prompts next`. Use `dotmd prompts shelve <file>` / `unshelve <file>` to flip.
+Saved prompts have their own status vocab (`pending`, `shelved`, `claimed`, `archived`). Consume one with `dotmd use [<file>]` (no arg = oldest pending). Admin verbs live under `dotmd prompts list|archive|shelve|unshelve`. `shelved` is the "saved but not next" bucket: visible in `dotmd prompts list`, but hidden from `hud`/`briefing` and skipped by `dotmd use`. Use `dotmd prompts shelve <file>` / `unshelve <file>` to flip.
 
 ### Querying by type
 

@@ -357,12 +357,15 @@ describe('F14: shelved prompt status', () => {
     ok(after.includes('status: pending'), `status should flip back:\n${after}`);
   });
 
-  it('`hud` does not surface shelved prompts in the pending count', () => {
+  it('`dotmd use` skips shelved prompts when picking the oldest pending', () => {
+    // HUD no longer surfaces prompt counts; the load-bearing assertion moved
+    // to `dotmd use` (the canonical consumer): shelved prompts must not be
+    // returned as "oldest pending".
     writePrompt('parked', { status: 'shelved' });
-    const r = run(['hud']);
-    strictEqual(r.status, 0, r.stderr);
-    ok(!r.stdout.includes('pending prompt'),
-      `hud should not flag shelved as pending:\n${r.stdout}`);
+    const r = run(['use']);
+    ok(r.status !== 0, 'should refuse with no pending prompts');
+    ok(/No pending prompts/.test(r.stderr ?? r.stdout),
+      `expected "No pending prompts"; got: ${r.stderr}\n${r.stdout}`);
   });
 });
 
