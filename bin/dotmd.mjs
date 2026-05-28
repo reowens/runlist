@@ -1189,6 +1189,15 @@ async function main() {
     await runUse(restArgs, config, { dryRun });
     return;
   }
+  // `dotmd next` is a top-level alias for `dotmd use` with no arg — consume
+  // the oldest pending prompt. Wired separately so agents who reach for the
+  // literal verb "next" don't bounce off an Unknown-command. Any positional
+  // arg is ignored (a named file goes through `use`).
+  if (command === 'next') {
+    const { runUse } = await import('../src/use.mjs');
+    await runUse(restArgs.filter(a => a.startsWith('-')), config, { dryRun });
+    return;
+  }
 
   // Commands that handle their own index building
   if (command === 'diff') { const { runDiff } = await import('../src/diff.mjs'); runDiff(restArgs, config); return; }
