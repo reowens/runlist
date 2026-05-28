@@ -6,6 +6,7 @@ import path from 'node:path';
 import { resolveConfig } from '../src/config.mjs';
 import { die, warn, levenshtein } from '../src/util.mjs';
 import { recordCliInvocation } from '../src/journal.mjs';
+import { findRepeatFailureHint } from '../src/hints.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1556,7 +1557,15 @@ function _journalExit(err) {
 main()
   .then(() => { _journalExit(null); })
   .catch(err => {
-    process.stderr.write(`${err.message}\n`);
+    let out = err.message;
+    // F17c: append a repeat-failure tip when the journal shows this same shape
+    // has already failed in this session within the lookup window. Lookup is
+    // a no-op when the journal is disabled or DOTMD_NO_HINTS=1.
+    try {
+      const hint = findRepeatFailureHint(_invocationArgs, _resolvedConfig);
+      if (hint) out = `${out}\n\nTip: ${hint}`;
+    } catch { /* hint must never break error reporting */ }
+    process.stderr.write(`${out}\n`);
     process.exitCode = 1;
     _journalExit(err);
   });
