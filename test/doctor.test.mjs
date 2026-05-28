@@ -247,6 +247,19 @@ describe('doctor command', () => {
     ok(result.stdout.includes('auto-fix everything'), 'shows doctor help');
     ok(result.stdout.includes('--statuses'), 'mentions --statuses mode');
   });
+
+  it('doctor --project reports CLI/dependency skew inputs', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-doctor-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';`);
+    writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify({ devDependencies: { 'dotmd-cli': '^0.42.1' } }));
+
+    const result = run(['doctor', '--project']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('running CLI version'), result.stdout);
+    ok(result.stdout.includes('^0.42.1'), result.stdout);
+  });
 });
 
 describe('doctor --statuses', () => {

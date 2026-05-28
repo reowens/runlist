@@ -153,6 +153,30 @@ describe('CLI integration', () => {
     ok(result.stdout.includes('BRIEFING'), 'outputs briefing header');
   });
 
+  it('context --json --compact emits bounded agent context instead of docsByType', () => {
+    const docsDir = setupProject();
+    const today = new Date().toISOString().slice(0, 10);
+    writeDoc(docsDir, 'ctx.md', `type: plan\nstatus: active\nupdated: ${today}\ntitle: Context Doc\ncurrent_state: Working\nnext_step: Do the thing`, '# Context Doc\n');
+
+    const result = run(['context', '--json', '--compact']);
+    strictEqual(result.status, 0, result.stderr);
+    const parsed = JSON.parse(result.stdout);
+    ok(parsed.countsByStatus, 'has counts');
+    ok(parsed.plans.active.length === 1, 'has bounded active list');
+    ok(!('docsByType' in parsed), 'does not dump full docsByType');
+  });
+
+  it('agent-context is an alias for compact context JSON', () => {
+    const docsDir = setupProject();
+    const today = new Date().toISOString().slice(0, 10);
+    writeDoc(docsDir, 'ctx.md', `type: plan\nstatus: active\nupdated: ${today}\ntitle: Context Doc\ncurrent_state: Working\nnext_step: Do the thing`, '# Context Doc\n');
+
+    const result = run(['agent-context']);
+    strictEqual(result.status, 0, result.stderr);
+    const parsed = JSON.parse(result.stdout);
+    ok(parsed.plans.active[0].path.endsWith('ctx.md'), 'returns compact plan item');
+  });
+
   it('--verbose prints config details and doc count', () => {
     const docsDir = setupProject();
     const today = new Date().toISOString().slice(0, 10);

@@ -71,6 +71,18 @@ describe('dotmd prompts list', () => {
     ok(r.stdout.includes('foo-prompt'), `expected listing to include foo-prompt:\n${r.stdout}`);
   });
 
+  it('`prompts list` puts the next consumed pending prompt first and marks it', () => {
+    writePrompt('newer', { created: '2025-06-01' });
+    writePrompt('older', { created: '2025-01-01' });
+    const r = run(['prompts', 'list']);
+    strictEqual(r.status, 0, r.stderr);
+    const olderIdx = r.stdout.indexOf('older');
+    const newerIdx = r.stdout.indexOf('newer');
+    ok(olderIdx > -1 && newerIdx > -1, `expected both prompts:\n${r.stdout}`);
+    ok(olderIdx < newerIdx, `oldest pending should be first:\n${r.stdout}`);
+    match(r.stdout, /\[NEXT\].*older/);
+  });
+
   it('`prompts list --verbose` shows target plan from related_plans frontmatter', () => {
     const file = path.join(promptsDir, 'resume-foo.md');
     writeFileSync(file, `---\ntype: prompt\nstatus: pending\ncreated: 2025-01-01\nrelated_plans: [foo-plan]\n---\nresume foo\n`);

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { resolveConfig } from '../src/config.mjs';
-import { die, warn, levenshtein } from '../src/util.mjs';
+import { die, warn, levenshtein, isArchivedPath } from '../src/util.mjs';
 import { recordCliInvocation, recordGlobalError } from '../src/journal.mjs';
 import { findRepeatFailureHint } from '../src/hints.mjs';
 
@@ -18,6 +18,7 @@ const HELP = {
 Common commands:
   plans                 Live plans (excludes archived)
   briefing              Full briefing with plan counts + next steps
+  agent-context         Compact bounded JSON context for agents
   set <status> [file]   Transition status (start work, finish, archive — all via target status)
   new <type> <name>     Create plan/doc/prompt (pipe stdin or @path for body)
   use [<file>]          Open a doc by type: prompt → consume, plan → start, doc → read
@@ -40,7 +41,8 @@ View & Query:
   hud [--json]                      Two-line actionable triage (held / prompts / stuck) — silent when clean
   list [--verbose] [--json]         List docs grouped by status (default command)
   briefing [--json]                 Full briefing with plan status counts + next steps
-  context [--summarize] [--json]    Full briefing (LLM-oriented)
+  context [--summarize] [--json]    Full briefing (LLM-oriented; use --json --compact for bounded JSON)
+  agent-context [--json]            Compact bounded JSON context for agents
   focus [status] [--json]           Detailed view for one status group
   query [filters] [--json]          Filtered search (--status, --keyword, --stale, etc.)
   plans                             Live plans (excludes archived; --include-archived for all)
@@ -65,6 +67,7 @@ Analyze:
 
 Validate & Fix:
   doctor [--apply]                  Auto-fix everything: refs, lint, dates, index (preview by default)
+  self-check                        Project/version skew diagnostic (alias: doctor --project)
   lint [--fix]                      Check and auto-fix frontmatter issues
   fix-refs [--dry-run]              Auto-fix broken reference paths + body links
 
@@ -479,12 +482,20 @@ Options:
 
   context: `dotmd context — full briefing (LLM-oriented)
 
-Generates a compact status briefing designed for AI/LLM consumption.
+Generates a status briefing designed for AI/LLM consumption. The default
+JSON form is the full index grouped by type/status; use --compact for bounded
+agent-safe JSON.
 
 Options:
   --json                 Output as JSON
+  --compact              With --json, return counts + bounded next-action lists
   --summarize            Add AI summaries for expanded docs
   --model <name>         Model for AI summaries`,
+
+  'agent-context': `dotmd agent-context — compact bounded JSON for agents
+
+Equivalent to \`dotmd context --json --compact\`. Returns counts,
+validation totals, pending prompt next item, and bounded plan action lists.`,
 
   stats: `dotmd stats — doc health dashboard
 
@@ -615,9 +626,11 @@ Modes:
                          / \`## Next Step\` body section (created above
                          the first H2 if absent, appended otherwise).
                          Plans only; honors --dry-run.
+  --project              Report CLI/project version skew, generated command
+                         drift, and detectable deprecated command mentions.
 
 --apply (or --yes) opts into writes for the default auto-fix pass.
-Sub-modes (--statuses, --migrate-*, --frontmatter-fix) keep their
+Sub-modes (--statuses, --migrate-*, --frontmatter-fix, --project) keep their
 existing contracts: they write by default and honor --dry-run.`,
 
   'fix-refs': `dotmd fix-refs — auto-fix broken reference paths
@@ -1230,6 +1243,11 @@ async function main() {
   if (command === 'rename') { const { runRename } = await import('../src/rename.mjs'); await runRename(restArgs, config, { dryRun }); return; }
   if (command === 'migrate') { const { runMigrate } = await import('../src/migrate.mjs'); runMigrate(restArgs, config, { dryRun }); return; }
   if (command === 'fix-refs') { const { runFixRefs } = await import('../src/fix-refs.mjs'); runFixRefs(restArgs, config, { dryRun }); return; }
+  if (command === 'self-check') {
+    const { runDoctor } = await import('../src/doctor.mjs');
+    runDoctor(['--project', ...restArgs], config, { dryRun });
+    return;
+  }
   if (command === 'doctor') {
     // 0.37.0 (F4): the default auto-fix loop previews by default; --apply
     // (alias --yes) writes. Explicit --dry-run still works and wins over
@@ -1237,7 +1255,7 @@ async function main() {
     // auto-fix path — sub-modes (--statuses, --migrate-template,
     // --migrate-prompts) keep their existing "write unless --dry-run"
     // contract because they're explicit one-shots the user opted into.
-    const subMode = args.includes('--statuses') || args.includes('--migrate-template') || args.includes('--migrate-prompts') || args.includes('--frontmatter-fix');
+    const subMode = args.includes('--statuses') || args.includes('--migrate-template') || args.includes('--migrate-prompts') || args.includes('--frontmatter-fix') || args.includes('--project');
     const explicitApply = args.includes('--apply') || args.includes('--yes');
     const explicitDryRun = args.includes('--dry-run') || args.includes('-n');
     const doctorDryRun = subMode ? dryRun : (explicitDryRun || !explicitApply);
@@ -1255,7 +1273,7 @@ async function main() {
   // Opportunistic stale-lease scrub for user-facing "what's actionable now"
   // views. Diagnostic commands (`check`, `coverage`, `stats`, `index`) are
   // intentionally excluded — they should surface drift, not silently fix it.
-  const SCRUB_READ_COMMANDS = new Set(['list', 'briefing', 'context', 'focus', 'query', 'modules', 'module', 'surfaces']);
+  const SCRUB_READ_COMMANDS = new Set(['list', 'briefing', 'context', 'agent-context', 'focus', 'query', 'modules', 'module', 'surfaces']);
   if (SCRUB_READ_COMMANDS.has(command)) {
     const { scrubStaleSilently } = await import('../src/lease-scrub.mjs');
     scrubStaleSilently(config);
@@ -1436,6 +1454,55 @@ async function main() {
     runSurfaces(restArgs, config);
     return;
   }
+
+  function compactDoc(d) {
+    return {
+      path: d.path,
+      title: d.title,
+      status: d.status,
+      type: d.type,
+      nextStep: d.nextStep ?? null,
+      blockers: d.blockers ?? [],
+      daysSinceUpdate: d.daysSinceUpdate ?? null,
+    };
+  }
+
+  function buildCompactAgentContext(idx) {
+    const activeStatuses = new Set(['in-session', 'active', 'ready', 'planned', 'awaiting', 'blocked']);
+    const active = idx.docs.filter(d => d.type === 'plan' && activeStatuses.has(d.status));
+    const stale = idx.docs.filter(d => d.isStale && !config.lifecycle.skipStaleFor.has(d.status));
+    const awaiting = idx.docs.filter(d => d.status === 'awaiting');
+    const blocked = idx.docs.filter(d => d.status === 'blocked' || d.blockers?.length);
+    const pendingPrompts = idx.docs
+      .filter(d => d.type === 'prompt' && d.status === 'pending' && !isArchivedPath(d.path, config))
+      .sort((a, b) => (a.created ?? '').localeCompare(b.created ?? '') || (a.updated ?? '').localeCompare(b.updated ?? ''));
+    return {
+      generatedAt: new Date().toISOString(),
+      countsByStatus: idx.countsByStatus,
+      countsByType: idx.countsByType,
+      errors: {
+        count: idx.errors.length,
+        items: idx.errors.slice(0, 10).map(e => ({ path: e.path, message: e.message })),
+      },
+      warnings: { count: idx.warnings.length },
+      prompts: {
+        pending: pendingPrompts.length,
+        next: pendingPrompts[0] ? compactDoc(pendingPrompts[0]) : null,
+      },
+      plans: {
+        active: active.slice(0, 12).map(compactDoc),
+        awaiting: awaiting.slice(0, 8).map(compactDoc),
+        blocked: blocked.slice(0, 8).map(compactDoc),
+        stale: stale.slice(0, 12).map(compactDoc),
+      },
+    };
+  }
+
+  if (command === 'agent-context') {
+    process.stdout.write(JSON.stringify(buildCompactAgentContext(index), null, 2) + '\n');
+    return;
+  }
+
   if (command === 'briefing') {
     if (args.includes('--json')) {
       const plans = index.docs.filter(d => d.type === 'plan');
@@ -1456,10 +1523,15 @@ async function main() {
 
   if (command === 'context') {
     const summarize = args.includes('--summarize');
+    const compact = args.includes('--compact');
     const modelIdx = args.indexOf('--model');
     const model = modelIdx !== -1 && args[modelIdx + 1] ? args[modelIdx + 1] : undefined;
 
     if (args.includes('--json')) {
+      if (compact) {
+        process.stdout.write(JSON.stringify(buildCompactAgentContext(index), null, 2) + '\n');
+        return;
+      }
       const byStatus = {};
       for (const doc of index.docs) {
         const s = doc.status ?? 'unknown';

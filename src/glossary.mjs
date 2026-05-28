@@ -4,8 +4,12 @@ import { buildIndex } from './index.mjs';
 import { die, warn, suggestCandidates } from './util.mjs';
 import { bold, dim, green, yellow } from './color.mjs';
 
+function sectionHeadingRegex(sectionHeading) {
+  return new RegExp(`^##\\s+${sectionHeading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'm');
+}
+
 function parseGlossaryTable(content, sectionHeading) {
-  const headingRegex = new RegExp(`^##\\s+${sectionHeading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'm');
+  const headingRegex = sectionHeadingRegex(sectionHeading);
   const match = content.match(headingRegex);
   if (!match) return { found: false, entries: [] };
 

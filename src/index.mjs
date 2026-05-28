@@ -6,6 +6,7 @@ import { asString, normalizeStringList, normalizeBlockers, mergeUniqueStrings, t
 import { validateDoc, validatePlanShape, validateDocShape, checkBidirectionalReferences, checkGitStaleness, checkRunlistBackPointers, computeDaysSinceUpdate, computeIsStale, computeChecklistCompletionRate, enrichRefErrorSuggestions } from './validate.mjs';
 import { checkIndex } from './index-file.mjs';
 import { checkClaudeCommands } from './claude-commands.mjs';
+import { checkGlossaryConfig } from './glossary-check.mjs';
 
 // `fast: true` skips every pass that produces warnings/errors — the rendered
 // index file consumes only status/title/snapshot/etc., not the validation
@@ -124,6 +125,9 @@ export function buildIndex(config, opts = {}) {
 
     const claudeWarnings = checkClaudeCommands(config.repoRoot);
     warnings.push(...claudeWarnings);
+
+    const glossaryWarnings = checkGlossaryConfig(config);
+    warnings.push(...glossaryWarnings);
   }
 
   return {

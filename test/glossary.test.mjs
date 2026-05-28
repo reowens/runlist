@@ -191,4 +191,19 @@ export const glossary = { path: 'docs/glossary.md', section: 'Terminology' };`);
     strictEqual(result.status, 1);
     ok(result.stderr.includes('not found'));
   });
+
+  it('dotmd check warns when configured glossary section is missing', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-gloss-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+export const root = 'docs';
+export const glossary = { path: 'docs/glossary.md', section: 'Terminology' };`);
+    writeFileSync(path.join(tmpDir, 'docs', 'glossary.md'), '---\ntype: doc\nstatus: active\nupdated: 2026-05-28\ntitle: Glossary\nsummary: Terms\n---\n# Glossary\n\n## Product Terms\n\n| Term | Meaning |\n| ---- | ------- |\n| Widget | Thing |\n');
+    const result = run(['check', '--verbose']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('Glossary config points at section'), result.stdout);
+    ok(result.stdout.includes('Terminology'), result.stdout);
+    ok(result.stdout.includes('Product Terms'), result.stdout);
+  });
 });

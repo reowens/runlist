@@ -38,9 +38,16 @@ function runPromptsList(argv, config, opts = {}) {
   const hasStatusFlag = argv.includes('--status');
   const includeArchived = argv.includes('--include-archived');
   const sub = argv[0];
+  const json = argv.includes('--json');
 
-  if (opts.verbose && !argv.includes('--json')) {
+  if (opts.verbose && !json) {
     renderPromptsVerbose(index, config, { hasStatusFlag, includeArchived });
+    return;
+  }
+
+  const hasPositionalFilter = argv.some(a => !a.startsWith('-') && a !== 'list');
+  if (!json && !hasStatusFlag && !includeArchived && !hasPositionalFilter && sub !== 'status' && !argv.some(a => a.startsWith('--sort') || a.startsWith('--limit') || a === '--all')) {
+    renderPromptQueueList(index, config);
     return;
   }
 
@@ -55,6 +62,34 @@ function runPromptsList(argv, config, opts = {}) {
     defaults = ['--type', 'prompt', '--exclude-archived', '--sort', 'updated', '--limit', '10'];
   }
   runQuery(index, [...defaults, ...extras], config, { preset: 'prompts' });
+}
+
+function renderPromptQueueList(index, config) {
+  const queue = pendingPromptsOldestFirst(config);
+  const queuedPaths = new Set(queue.map(q => q.doc.path));
+  const others = index.docs
+    .filter(d => d.type === 'prompt' && !queuedPaths.has(d.path) && !isArchivedPath(d.path, config) && d.status !== 'archived')
+    .sort((a, b) => (b.updated ?? '').localeCompare(a.updated ?? '') || (a.title ?? a.path).localeCompare(b.title ?? b.path));
+  const prompts = [...queue.map(q => q.doc), ...others];
+
+  if (prompts.length === 0) {
+    process.stdout.write('No prompts.\n');
+    return;
+  }
+
+  const counts = {};
+  for (const p of prompts) counts[p.status ?? 'unknown'] = (counts[p.status ?? 'unknown'] ?? 0) + 1;
+  const summary = Object.entries(counts).map(([s, n]) => `${n} ${s}`).join(' · ');
+  process.stdout.write(dim(`${prompts.length} prompts · ${summary}`) + '\n\n');
+
+  const maxSlug = Math.min(36, Math.max(...prompts.map(p => path.basename(p.path, '.md').length)));
+  for (let i = 0; i < prompts.length; i++) {
+    const p = prompts[i];
+    const slug = path.basename(p.path, '.md').padEnd(maxSlug);
+    const marker = i === 0 && p.status === 'pending' ? green('[NEXT]') : '      ';
+    const status = `[${(p.status ?? 'unknown').toUpperCase()}]`;
+    process.stdout.write(`  ${marker} ${slug} ${status}\n`);
+  }
 }
 
 // Resolve a prompt's "target plan" for `prompts list --verbose`. Order:

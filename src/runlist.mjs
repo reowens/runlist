@@ -45,12 +45,7 @@ function resolveHubInput(input, config) {
 // Read a hub plan's `runlist:` and resolve each entry to a repo-relative path
 // plus its current status. Missing files are reported with `missing: true`;
 // callers decide how to render them. Pure: no IO beyond file reads.
-function readRunlistChildren(hubAbsPath, config) {
-  const raw = readFileSync(hubAbsPath, 'utf8');
-  const { frontmatter: fmRaw } = extractFrontmatter(raw);
-  const fm = parseSimpleFrontmatter(fmRaw);
-  const refs = normalizeStringList(fm.runlist);
-
+function resolveRunlistRefs(refs, hubAbsPath, config) {
   const hubDir = path.dirname(hubAbsPath);
   const out = [];
   for (const ref of refs) {
@@ -79,6 +74,45 @@ function readRunlistChildren(hubAbsPath, config) {
   return out;
 }
 
+function detectBodyRunlistRefs(body) {
+  if (!body) return [];
+  const sectionRe = /^##\s+(Order of operations|Runlist|Execution order|Implementation order|Plan order)\s*$/gim;
+  const refs = [];
+  let match;
+  while ((match = sectionRe.exec(body)) !== null) {
+    const start = match.index + match[0].length;
+    const rest = body.slice(start);
+    const next = rest.search(/^##\s+/m);
+    const section = next >= 0 ? rest.slice(0, next) : rest;
+
+    const linkRe = /\[[^\]]+\]\(([^)]+\.md(?:#[^)]+)?)\)/g;
+    let link;
+    while ((link = linkRe.exec(section)) !== null) refs.push(link[1]);
+
+    const checklistRe = /^\s*[-*]\s+\[[ xX]\]\s+([^\s)]+\.md(?:#[^\s)]+)?)/gm;
+    let item;
+    while ((item = checklistRe.exec(section)) !== null) refs.push(item[1]);
+  }
+  return [...new Set(refs)];
+}
+
+function readRunlistChildren(hubAbsPath, config) {
+  const raw = readFileSync(hubAbsPath, 'utf8');
+  const { frontmatter: fmRaw, body } = extractFrontmatter(raw);
+  const fm = parseSimpleFrontmatter(fmRaw);
+  const refs = normalizeStringList(fm.runlist);
+
+  if (refs.length > 0) {
+    return { children: resolveRunlistRefs(refs, hubAbsPath, config), source: 'frontmatter' };
+  }
+
+  const bodyRefs = detectBodyRunlistRefs(body);
+  return {
+    children: resolveRunlistRefs(bodyRefs, hubAbsPath, config),
+    source: bodyRefs.length > 0 ? 'body' : 'empty',
+  };
+}
+
 const STATUS_TAG_COLORS = {
   'in-session': (s) => bold(red(s)),
   'active': green,
@@ -100,8 +134,11 @@ function renderRunlist(hubRepoPath, children, opts = {}) {
   const lines = [];
   lines.push(bold(`runlist: ${hubRepoPath}`));
   if (children.length === 0) {
-    lines.push(dim('  (empty — add child plan paths to the hub plan\'s `runlist:` field)'));
+    lines.push(dim('  (empty — add child plan paths to the hub plan\'s `runlist:` field, or add markdown links under `## Order of operations`)'));
     return lines.join('\n') + '\n';
+  }
+  if (opts.source === 'body') {
+    lines.push(dim('  (from body links — add these paths to frontmatter `runlist:` to make the order canonical)'));
   }
 
   const archiveStatuses = opts.archiveStatuses ?? new Set(['archived']);
@@ -144,18 +181,20 @@ export async function runRunlist(argv, config, opts = {}) {
   if (!hubAbs) die(`Hub plan not found: ${hubInput}`);
   const hubRepoPath = toRepoPath(hubAbs, config.repoRoot);
 
-  const children = readRunlistChildren(hubAbs, config);
+  const runlist = readRunlistChildren(hubAbs, config);
+  const { children, source } = runlist;
   const archiveStatuses = config.lifecycle?.archiveStatuses ?? new Set(['archived']);
 
   if (sub === 'show') {
     if (json) {
       process.stdout.write(JSON.stringify({
         hub: hubRepoPath,
+        source,
         children,
       }, null, 2) + '\n');
       return;
     }
-    process.stdout.write(renderRunlist(hubRepoPath, children, { archiveStatuses }));
+    process.stdout.write(renderRunlist(hubRepoPath, children, { archiveStatuses, source }));
     return;
   }
 

@@ -376,6 +376,80 @@ export function renderCheck(index, config, opts = {}) {
   return defaultRenderer(index);
 }
 
+export function classifyIssueAction(issue) {
+  const message = issue?.message ?? '';
+  const file = issue?.path ?? '<file>';
+
+  if (/Missing frontmatter `status`/.test(message)) {
+    return { action: `dotmd bulk-tag ${file}`, fixable: false, label: 'missing status' };
+  }
+  if (/Missing frontmatter `updated`/.test(message) || /frontmatter `updated: .*` is behind git history/.test(message)) {
+    return { action: 'dotmd touch --git', fixable: true, label: 'dates' };
+  }
+  if (/`(?:module|surface):` \(singular\) is deprecated/.test(message) || /camelCase|nextStep|currentState|auditLevel/.test(message)) {
+    return { action: 'dotmd lint --fix', fixable: true, label: 'frontmatter migrations' };
+  }
+  if (/Unknown surface/.test(message)) {
+    return { action: 'dotmd surfaces', fixable: false, label: 'taxonomy' };
+  }
+  if (/Glossary config points at section|Glossary file configured/.test(message)) {
+    return { action: 'edit dotmd.config.mjs glossary.path/glossary.section', fixable: false, label: 'glossary config' };
+  }
+  if (/under `.*\/` but `status: .*` is not an archive status/.test(message)) {
+    return { action: message.match(/Run `([^`]+)`/)?.[1] ?? `dotmd set archived ${file}`, fixable: true, label: 'archive drift' };
+  }
+  if (/`status: .*` but file is a direct child/.test(message)) {
+    return { action: `dotmd archive ${file}`, fixable: true, label: 'archive drift' };
+  }
+  if (/`current_state` is \d+ chars|`next_step` is \d+ chars/.test(message)) {
+    return { action: 'dotmd doctor --frontmatter-fix', fixable: true, label: 'long frontmatter' };
+  }
+  if (/`modules` is required/.test(message)) {
+    return { action: `edit ${file} modules: or run dotmd lint --fix if scaffolded empty`, fixable: false, label: 'module metadata' };
+  }
+  if (/entry `.*` does not resolve|body link `.*` does not resolve/.test(message)) {
+    return { action: 'dotmd fix-refs --dry-run', fixable: true, label: 'references' };
+  }
+
+  return { action: `edit ${file}`, fixable: false, label: 'manual review' };
+}
+
+export function renderManualFixes(index) {
+  const issues = [...(index.errors ?? []), ...(index.warnings ?? [])];
+  const groups = new Map();
+  for (const issue of issues) {
+    const item = classifyIssueAction(issue);
+    const key = `${item.fixable ? 'fixable' : 'manual'}:${item.action}`;
+    if (!groups.has(key)) groups.set(key, { ...item, paths: new Set() });
+    groups.get(key).paths.add(issue.path);
+  }
+  if (groups.size === 0) return '';
+
+  const manual = [...groups.values()].filter(g => !g.fixable);
+  const fixable = [...groups.values()].filter(g => g.fixable);
+  const lines = [];
+
+  if (fixable.length > 0) {
+    lines.push('Fixable actions');
+    for (const group of fixable) {
+      const count = group.paths.size;
+      lines.push(`- ${group.action} (${count} ${count === 1 ? 'file' : 'files'}: ${[...group.paths].slice(0, 3).join(', ')}${count > 3 ? ', ...' : ''})`);
+    }
+    lines.push('');
+  }
+
+  if (manual.length > 0) {
+    lines.push('Manual fixes remaining');
+    for (const group of manual) {
+      const count = group.paths.size;
+      lines.push(`- ${group.action} (${count} ${count === 1 ? 'file' : 'files'}: ${[...group.paths].slice(0, 3).join(', ')}${count > 3 ? ', ...' : ''})`);
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
 function _renderCheck(index, opts = {}) {
   const { errorsOnly, noCollapse, verbose } = opts;
   const lines = ['Check', ''];
@@ -390,6 +464,10 @@ function _renderCheck(index, opts = {}) {
       lines.push(`- ${issue.path}: ${issue.message}`);
     }
     lines.push('');
+    const actions = renderManualFixes({ errors: index.errors, warnings: [] }).trimEnd();
+    if (actions) {
+      lines.push(actions);
+    }
   }
 
   // Warnings: terse by default — print count + pointer. The full per-doc list
@@ -415,7 +493,7 @@ function _renderCheck(index, opts = {}) {
       }
       lines.push('');
     } else {
-      lines.push(dim(`Run \`dotmd check --verbose\` for per-doc detail, or \`dotmd doctor\` to auto-fix where possible.`));
+      lines.push(dim(`Run \`dotmd check --verbose\` for per-doc detail. \`dotmd doctor\` auto-fixes supported issues; remaining issues need the suggested manual command.`));
       lines.push('');
     }
   }

@@ -1,14 +1,17 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { fixBrokenRefs } from './fix-refs.mjs';
 import { runLint } from './lint.mjs';
 import { runTouch } from './lifecycle.mjs';
-import { buildIndex } from './index.mjs';
+import { buildIndex, collectDocFiles } from './index.mjs';
 import { renderIndexFile, writeIndex } from './index-file.mjs';
-import { renderCheck } from './render.mjs';
+import { renderCheck, renderManualFixes } from './render.mjs';
 import { bold, dim, green, yellow } from './color.mjs';
-import { scaffoldClaudeCommands } from './claude-commands.mjs';
+import { checkClaudeCommands, scaffoldClaudeCommands } from './claude-commands.mjs';
 import { runMigrateTemplate } from './migrate-template.mjs';
 import { runMigratePrompts } from './migrate-prompts.mjs';
 import { runFrontmatterFix } from './frontmatter-fix.mjs';
+import { toRepoPath } from './util.mjs';
 
 // Tunable thresholds for `dotmd doctor --statuses` conflation detection.
 // MIN_BUCKET_SIZE: only flag buckets with at least this many docs (small buckets aren't worth nagging).
@@ -40,6 +43,10 @@ const CUE_LABELS = {
 };
 
 export function runDoctor(argv, config, opts = {}) {
+  if (argv.includes('--project')) {
+    runDoctorProject(config, { json: argv.includes('--json') });
+    return;
+  }
   if (argv.includes('--statuses')) {
     runDoctorStatuses(config, { json: argv.includes('--json') });
     return;
@@ -118,6 +125,67 @@ export function runDoctor(argv, config, opts = {}) {
   process.stdout.write('\n' + bold('6. Remaining issues:') + '\n');
   const freshIndex = buildIndex(config);
   process.stdout.write(renderCheck(freshIndex, config));
+  const manual = renderManualFixes(freshIndex);
+  if (manual.trim()) {
+    process.stdout.write('\n' + bold('Closeout guidance') + '\n');
+    process.stdout.write(manual);
+  }
+}
+
+function readJsonIfPresent(filePath) {
+  try {
+    return JSON.parse(readFileSync(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function findDeprecatedCommandMentions(config) {
+  const docs = collectDocFiles(config);
+  const matches = [];
+  for (const filePath of docs) {
+    let raw = '';
+    try { raw = readFileSync(filePath, 'utf8'); } catch { continue; }
+    if (/\bdotmd status\b/.test(raw) || /\bdotmd pickup\b/.test(raw)) {
+      matches.push(toRepoPath(filePath, config.repoRoot));
+    }
+  }
+  return matches;
+}
+
+function runDoctorProject(config, { json = false } = {}) {
+  const cliPackage = readJsonIfPresent(new URL('../package.json', import.meta.url));
+  const repoPackage = readJsonIfPresent(path.join(config.repoRoot, 'package.json'));
+  const depVersion = repoPackage?.dependencies?.['dotmd-cli']
+    ?? repoPackage?.devDependencies?.['dotmd-cli']
+    ?? repoPackage?.dependencies?.dotmd
+    ?? repoPackage?.devDependencies?.dotmd
+    ?? null;
+  const claudeCommandWarnings = checkClaudeCommands(config.repoRoot);
+  const deprecatedCommandMentions = findDeprecatedCommandMentions(config);
+  const result = {
+    cliVersion: cliPackage?.version ?? null,
+    packageDependency: depVersion,
+    claudeCommandWarnings,
+    deprecatedCommandMentions,
+  };
+
+  if (json) {
+    process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+    return result;
+  }
+
+  process.stdout.write(bold('dotmd doctor --project') + '\n\n');
+  process.stdout.write(`- running CLI version: ${result.cliVersion ?? 'unknown'}\n`);
+  process.stdout.write(`- package dependency: ${result.packageDependency ?? '(none found)'}\n`);
+  process.stdout.write(`- stale Claude commands: ${claudeCommandWarnings.length}\n`);
+  if (deprecatedCommandMentions.length) {
+    process.stdout.write(`- docs mentioning deprecated commands: ${deprecatedCommandMentions.length}\n`);
+    for (const file of deprecatedCommandMentions.slice(0, 10)) process.stdout.write(`  - ${file}\n`);
+  } else {
+    process.stdout.write('- docs mentioning deprecated commands: 0\n');
+  }
+  return result;
 }
 
 export function analyzeStatusBuckets(docs) {

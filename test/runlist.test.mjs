@@ -87,6 +87,33 @@ updated: 2026-05-26`);
     match(r.stdout, /\(empty/);
   });
 
+  it('uses markdown links under body order sections as a transient runlist', () => {
+    const plans = setupProject();
+    writeDoc(plans, 'hub.md', `type: plan
+status: active
+title: Hub
+updated: 2026-05-26`, `# Hub
+
+## Order of operations
+
+- [First](one.md)
+- [Second](two.md)
+`);
+    writeDoc(plans, 'one.md', `type: plan
+status: archived
+title: One
+updated: 2026-05-25`);
+    writeDoc(plans, 'two.md', `type: plan
+status: active
+title: Two
+updated: 2026-05-26`);
+    const r = run(['docs/plans/hub.md']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    match(r.stdout, /from body links/);
+    match(r.stdout, /1\. \[archived\] docs\/plans\/one\.md/);
+    match(r.stdout, /→\s+2\. \[active\] docs\/plans\/two\.md/);
+  });
+
   it('flags missing refs without erroring out the show command', () => {
     const plans = setupProject();
     writeDoc(plans, 'hub.md', `type: plan

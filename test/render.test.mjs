@@ -288,6 +288,17 @@ describe('renderCheck', () => {
     ok(result.includes('Check failed'), 'shows failure message');
   });
 
+  it('suggests manual actions for non-doctor-fixable errors', () => {
+    const index = {
+      docs: [makeDoc()],
+      errors: [{ path: 'docs/bad.md', message: 'Missing frontmatter `status`.' }],
+      warnings: [],
+    };
+    const result = renderCheck(index, makeConfig());
+    ok(result.includes('Manual fixes remaining'), result);
+    ok(result.includes('dotmd bulk-tag docs/bad.md'), result);
+  });
+
   it('shows warnings when present (verbose)', () => {
     const index = {
       docs: [makeDoc()],
