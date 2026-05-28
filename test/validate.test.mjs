@@ -571,10 +571,8 @@ describe('F11: stale-lease warning for in-session plans', () => {
     const result = run(['check', '--verbose']);
     ok(result.stdout.includes('no active lease found'),
       `expected stale-lease warning, got: ${result.stdout}`);
-    ok(result.stdout.includes('dotmd release docs/plans/orphan.md'),
-      `expected release fix suggestion, got: ${result.stdout}`);
-    ok(result.stdout.includes('dotmd status docs/plans/orphan.md active'),
-      `expected status fix suggestion, got: ${result.stdout}`);
+    ok(result.stdout.includes('dotmd set active docs/plans/orphan.md'),
+      `expected set-active fix suggestion, got: ${result.stdout}`);
   });
 
   it('does not warn when an in-session plan has a fresh lease', () => {

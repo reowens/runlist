@@ -63,19 +63,18 @@ function generatePlansCommand(config, version) {
   lines.push('');
   lines.push('Plan-specific commands:');
   lines.push('- `dotmd context` — briefing with active/paused/ready plans, age tags, next steps');
-  lines.push('- `dotmd pickup <file>` — pick up a plan (set in-session + print body)');
-  lines.push('- `dotmd release` — release current session\'s leases (alias: unpickup)');
-  lines.push('- `dotmd health` — plan velocity, aging, checklist progress, pipeline view');
-  lines.push('- `dotmd unblocks <file>` — what depends on / is blocked by a plan');
-  lines.push('- `dotmd actionable` — ready plans with next steps (what to promote)');
+  lines.push('- `dotmd set <status> [<file>]` — single status verb. Use this to start, transition, or close any plan:');
+  lines.push('    - `dotmd set in-session <file>` — start work on a plan (acquires the lease + prints body)');
+  lines.push('    - `dotmd set <status> [<file>]` — transition to any other status; if you held the lease it releases automatically');
+  lines.push('    - `dotmd set archived <file>` — close out (same as `dotmd archive`)');
+  lines.push('- `dotmd archive <file>` — explicit archive with ref-fixing (equivalent to `set archived`)');
+  lines.push('- `dotmd bulk archive <files>` — archive multiple at once');
   lines.push('- `dotmd new plan <name>` — scaffold with full phase structure');
-  lines.push('- `dotmd prompts new <name> "<body>"` — save a resume-prompt to docs/prompts/');
+  lines.push('- `dotmd prompts new <name>` — save a resume-prompt to docs/prompts/ (pipe stdin or @path for body)');
   lines.push('- `dotmd prompts next` — consume oldest pending prompt (prints body, auto-archives)');
   lines.push('- `dotmd prompts use <file>` — consume a specific prompt (prints body, auto-archives)');
-  lines.push('- `dotmd archive <file>` — archive with auto ref-fixing (both directions)');
-  lines.push('- `dotmd bulk archive <files>` — archive multiple at once');
-  lines.push('- `dotmd set <status> [<file>]` — unified transition (archive / release / status bump in one verb; infers path from held lease)');
-  lines.push('- `dotmd status <file> <status>` — transition status (legacy; `set` is preferred)');
+  lines.push('- `dotmd unblocks <file>` — what depends on / is blocked by a plan');
+  lines.push('- `dotmd actionable` — ready plans with next steps (what to promote)');
   lines.push('- `dotmd query --keyword <term>` — find plans by keyword');
 
   if (config.raw?.glossary) {
@@ -85,8 +84,8 @@ function generatePlansCommand(config, version) {
   lines.push('');
   lines.push('If the user asks about a specific plan, read its file directly (path is in the briefing or findable via `dotmd query --keyword <term>`).');
   lines.push('');
-  lines.push('If the user asks to change a plan\'s status, use `dotmd status <file> <status>`.');
-  lines.push('If the user asks to archive a plan, use `dotmd archive <file>`.');
+  lines.push('If the user asks to change a plan\'s status, use `dotmd set <status> <file>`.');
+  lines.push('If the user asks to archive a plan, use `dotmd set archived <file>` (or `dotmd archive <file>`).');
   lines.push('');
   lines.push('**Saved prompts (`docs/prompts/*.md`):** if the user references a file under `docs/prompts/` — e.g. "resume via docs/prompts/foo.md", "use this prompt", "load that one" — consume it with `dotmd prompts use <file>` (atomically prints the body and archives the prompt so it cannot be double-consumed). Do NOT `cat` it, read it with the file-reading tool, or copy its body into chat. To pick the oldest pending prompt without naming a file, use `dotmd prompts next`.');
   lines.push('');
@@ -96,15 +95,15 @@ function generatePlansCommand(config, version) {
 
 function generateBatonCommand(config, version) {
   const lines = [...frontmatterFor('baton', config), markerFor(version), ''];
-  lines.push('Wrap this session. Minimum required (two commands):');
+  lines.push('Wrap this session. Two commands:');
   lines.push('');
-  lines.push('1. **Save the resume prompt.** `dotmd new prompt resume-<plan-slug>` with a 10-20 line body via heredoc: the next concrete decision plus any gotchas. NOT a recap of the plan body. The saved prompt IS the handoff — never print it into chat for copy-paste.');
+  lines.push('1. **Save the resume prompt.** `dotmd new prompt resume-<plan-slug>` — pipe stdin or pass `@path`. 10-20 line body: the next concrete decision plus any gotchas. NOT a recap of the plan body. The saved prompt IS the handoff — never print it into chat for copy-paste.');
   lines.push('');
-  lines.push('2. **Release the lease.** `dotmd release` — or `dotmd archive <file>` if the work is fully shipped (archive auto-releases).');
-  lines.push('');
-  lines.push('Optional, only when genuinely needed:');
-  lines.push('- Status really changed (paused / awaiting / partial / blocked): `dotmd status <file> <status>` BEFORE `dotmd release`.');
-  lines.push('- Plan dashboard text is misleading the user: edit `next_step:` in the plan frontmatter. Cosmetic — the next session reads the resume prompt, not the plan frontmatter.');
+  lines.push('2. **Close out via `dotmd set <status>`.** Pick the status that matches reality:');
+  lines.push('    - `dotmd set active <file>` — work continues, release the lease back to the queue');
+  lines.push('    - `dotmd set archived <file>` — fully shipped (also: `dotmd archive <file>`)');
+  lines.push('    - `dotmd set paused <file>` / `awaiting <file>` / `partial <file>` / `blocked <file>` — when the status really changed');
+  lines.push('  `set` releases the held lease automatically when transitioning out of `in-session`.');
   lines.push('');
   lines.push('If you don\'t already know which plan you hold: `dotmd hud --json` and read `.owned`. Do NOT use `dotmd plans --status in-session` — that lists every session\'s holdings, not just yours.');
   lines.push('');
@@ -131,7 +130,6 @@ function generateDocsCommand(config, version) {
 
   lines.push('Commands for working with docs:');
   lines.push('- `dotmd context` — LLM-oriented briefing across all types');
-  lines.push('- `dotmd check` — validate frontmatter, refs, body links (target: 0 errors)');
   lines.push('- `dotmd doctor` — auto-fix everything in one pass (refs, lint, dates, index)');
   lines.push('- `dotmd query [filters]` — search by status, keyword, module, surface, type, staleness');
   lines.push('- `dotmd health` — plan pipeline, velocity, aging');

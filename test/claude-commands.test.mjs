@@ -271,11 +271,11 @@ describe('generated content teaches prompt consumption', () => {
     const content = readFileSync(path.join(tmpDir, '.claude', 'commands', 'baton.md'), 'utf8');
 
     const newPromptIdx = content.indexOf('dotmd new prompt');
-    const releaseIdx = content.indexOf('dotmd release');
+    const setIdx = content.indexOf('dotmd set');
     ok(newPromptIdx > -1, 'baton must mention `dotmd new prompt`');
-    ok(releaseIdx > -1, 'baton must mention `dotmd release`');
-    ok(newPromptIdx < releaseIdx,
-      '`dotmd new prompt` must appear before `dotmd release` (prompt is step 1)');
+    ok(setIdx > -1, 'baton must mention `dotmd set` (single status verb)');
+    ok(newPromptIdx < setIdx,
+      '`dotmd new prompt` must appear before `dotmd set` (prompt is step 1, closure is step 2)');
 
     const planListIdx = content.indexOf('dotmd plans --status in-session');
     if (planListIdx > -1) {

@@ -14,6 +14,26 @@ const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 
 const HELP = {
   _main: `dotmd v${pkg.version} — frontmatter markdown document manager
 
+Common commands:
+  plans                 Live plans (excludes archived)
+  briefing              Full briefing with plan counts + next steps
+  set <status> [file]   Transition status (start work, finish, archive — all via target status)
+  new <type> <name>     Create plan/doc/prompt (pipe stdin or @path for body)
+  archive <file>        Close out a plan (status → archived, move, update refs)
+  prompts [next|use|new]  Manage saved prompts
+
+More help:
+  dotmd help all        Full command list
+  dotmd help statuses   Status vocabulary + transitions
+  dotmd <cmd> --help    Per-command details
+
+Global flags: --config <path>  --root <name>  --type <t,…>  --dry-run/-n  --verbose  --version`,
+
+  // Full command list — opt-in via \`dotmd help all\`. Kept exhaustive so the
+  // top-level \`--help\` can stay terse without losing discoverability. When you
+  // add a new command, add it here too.
+  'help:all': `dotmd v${pkg.version} — full command list
+
 View & Query:
   hud [--json]                      Two-line actionable triage (held / prompts / stuck) — silent when clean
   list [--verbose] [--json]         List docs grouped by status (default command)
@@ -42,17 +62,14 @@ Analyze:
   glossary <term> [--list] [--json] Look up domain terms + related docs
 
 Validate & Fix:
-  check [--fix] [--errors-only] [--json]  Validate frontmatter and references
   doctor [--apply]                  Auto-fix everything: refs, lint, dates, index (preview by default)
   lint [--fix]                      Check and auto-fix frontmatter issues
   fix-refs [--dry-run]              Auto-fix broken reference paths + body links
 
 Lifecycle:
-  pickup <file> [--takeover]        Pick up a plan (set in-session + print body)
-  release [<file>] [--to <s>]       Release in-session lease (alias: unpickup)
+  set <status> [<file>]             Unified transition: archive/release/start/transition in one verb
   runlist <hub> [next]              Show or walk an ordered group of plans (see \`dotmd help runlist\`)
   status <file> <status>            Transition document status (deprecated; prefer \`set\`)
-  set <status> [<file>]             Unified transition: archive/release/transition in one verb
   archive <file>                    Archive (status + move + update refs)
   bulk archive <f1> <f2> ...        Archive multiple files at once
   ship [patch|minor|major]          Regen + commit + bump in one step (default: patch)
@@ -1042,7 +1059,7 @@ async function main() {
       const key = `help:${topic}`;
       if (HELP[key]) { process.stdout.write(`${HELP[key]}\n`); return; }
       if (HELP[topic]) { process.stdout.write(`${HELP[topic]}\n`); return; }
-      process.stderr.write(`Unknown help topic: ${topic}\n\nAvailable topics: statuses\nPer-command help: dotmd <cmd> --help\n`);
+      process.stderr.write(`Unknown help topic: ${topic}\n\nAvailable topics: all, statuses\nPer-command help: dotmd <cmd> --help\n`);
       process.exit(1);
     }
     process.stdout.write(`${HELP._main}\n`);

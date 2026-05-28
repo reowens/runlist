@@ -1,9 +1,9 @@
 ---
 description: dotmd-managed docs briefing for this repo. Use when the user asks to list, scaffold, query, validate, archive, or rename non-plan docs (reference docs, ADRs, RFCs, design notes), or asks how the dotmd doc lifecycle works here.
 ---
-<!-- dotmd-generated: 0.42.1 -->
+<!-- dotmd-generated: 0.43.0 -->
 
-All documentation in this repo is managed by **dotmd** (v0.42.1). Docs across 1 root: docs. Config at `dotmd.config.mjs`.
+All documentation in this repo is managed by **dotmd** (v0.43.0). Docs across 1 root: docs. Config at `dotmd.config.mjs`.
 
 Document types: `plan`, `doc`, `prompt`.
 

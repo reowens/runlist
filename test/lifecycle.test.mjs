@@ -389,8 +389,8 @@ describe('pickup error affordance (issue #10 finding #1)', () => {
     ok(result.status !== 0, 'exits non-zero');
     ok(result.stderr.includes("status 'partial'"), 'names the offending status');
     ok(result.stderr.includes('Recover with:'), 'shows recovery section');
-    ok(result.stderr.includes('dotmd status'), 'suggests dotmd status command');
-    ok(result.stderr.includes('dotmd pickup'), 'suggests follow-up pickup');
+    ok(result.stderr.includes('dotmd set active'), 'suggests dotmd set active');
+    ok(result.stderr.includes('dotmd set in-session'), 'suggests dotmd set in-session');
     ok(result.stderr.includes('docs/tail.md'), 'reuses the exact repo path');
   });
 });
@@ -1015,14 +1015,18 @@ describe('dotmd set — unified status transition', () => {
       `expected multi-lease error, got: ${result.stderr}`);
   });
 
-  it('refuses `set in-session` and points at pickup', () => {
+  it('`set in-session <file>` acquires a lease (replaces pickup)', () => {
+    // `set` is the single status verb now — `set in-session` delegates to
+    // the same lease-acquisition path that `pickup` exposed directly. The
+    // verb collapse is intentional: agents reach for one verb to transition
+    // a plan into ANY status, including in-session.
     const docsDir = setupProject();
     const filePath = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# A\n');
 
     const result = runCli(['set', 'in-session', filePath]);
-    ok(result.status !== 0, 'should fail');
-    ok(result.stderr.includes('dotmd pickup'),
-      `expected pickup pointer, got: ${result.stderr}`);
+    strictEqual(result.status, 0, `set in-session failed: ${result.stderr}`);
+    const content = readFileSync(filePath, 'utf8');
+    ok(/status: in-session/.test(content), `frontmatter should flip to in-session: ${content}`);
   });
 
   it('rejects an invalid status with suggestion', () => {

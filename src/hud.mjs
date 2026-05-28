@@ -1,10 +1,10 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { readLeases, findStaleLeases, currentSessionId, STALE_LEASE_AGE_HOURS } from './lease.mjs';
+import { readLeases, findStaleLeases, currentSessionId } from './lease.mjs';
 import { scrubStaleSilently } from './lease-scrub.mjs';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { asString, toRepoPath } from './util.mjs';
-import { green, yellow, red, dim } from './color.mjs';
+import { dim } from './color.mjs';
 import { buildIndex } from './index.mjs';
 import { refreshStaleSlashCommands } from './claude-commands.mjs';
 
@@ -115,18 +115,15 @@ export function runHud(argv, config) {
   }
 
   const lines = [];
-  if (hud.owned.length > 0) {
-    lines.push(green(`▶ You hold ${hud.owned.length} plan${hud.owned.length === 1 ? '' : 's'}: ${previewList(hud.owned)}`));
-  }
-  if (hud.prompts.length > 0) {
-    lines.push(green(`▶ ${hud.prompts.length} pending prompt${hud.prompts.length === 1 ? '' : 's'}: ${previewList(hud.prompts)}  ${dim('(consume: `dotmd prompts use <file>` — do not cat/read)')}`));
-  }
-  if (hud.stale.length > 0) {
-    lines.push(yellow(`⚠ ${hud.stale.length} stuck lease${hud.stale.length === 1 ? '' : 's'} >${STALE_LEASE_AGE_HOURS}h  ${dim('(run: dotmd release --stale)')}`));
-  }
-  if (hud.errors > 0) {
-    lines.push(red(`✗ ${hud.errors} validation error${hud.errors === 1 ? '' : 's'}  ${dim('(run: dotmd check)')}`));
-  }
+
+  // Always-on command primer. Replaces the prior plan-state / prompts /
+  // stuck-leases / validation-errors lines — those signals belong inside
+  // their own commands (`plans`, `prompts`), not in the SessionStart hook.
+  // hud's job is purely to remind the agent which verbs exist, since that's
+  // the one thing the agent reaches for `--help` to recover. Keep it tight:
+  // one line, the minimum verb set.
+  lines.push(dim('dotmd: plans|briefing  set <status> [<file>]  new <type> <slug>  prompts next|use|new  archive <file>'));
+
   if (refreshed.length > 0) {
     const from = refreshed[0].from;
     const to = refreshed[0].to;
@@ -134,21 +131,5 @@ export function runHud(argv, config) {
     lines.push(dim(`↻ slash commands refreshed (v${from} → v${to}): ${names}`));
   }
 
-  // Teach-once primer for fresh installs. The first session that runs hud in
-  // a dotmd-managed repo gets one line explaining what dotmd is and how to
-  // hand off — without this, a clean repo emits nothing and Claude has no
-  // signal that dotmd is the prompt/handoff machinery here. Gated on a
-  // marker under .dotmd/ (already the per-repo state dir, already gitignored
-  // by `dotmd init`) so subsequent sessions stay silent.
-  const primerMarker = path.join(config.repoRoot, '.dotmd', 'primer-shown');
-  if (!existsSync(primerMarker)) {
-    lines.push(dim('dotmd: managing this repo\'s docs. Save in one shot: `cat draft.md | dotmd new <type> <slug>` (or `dotmd new <type> <slug> @path`). Types: plan, doc, prompt. `dotmd plans` shows the queue.'));
-    try {
-      mkdirSync(path.dirname(primerMarker), { recursive: true });
-      writeFileSync(primerMarker, '');
-    } catch { /* best-effort — failed marker write just means the primer reprints next session */ }
-  }
-
-  if (lines.length === 0) return; // silent when clean
   process.stdout.write(lines.join('\n') + '\n');
 }

@@ -303,11 +303,11 @@ export async function runPickup(argv, config, opts = {}) {
   const pickupable = new Set(['active', 'planned', 'in-session']);
   if (oldStatus && !pickupable.has(oldStatus)) {
     die(
-      `Cannot pick up a plan with status '${oldStatus}'. Must be active or planned.\n` +
+      `Cannot start work on a plan with status '${oldStatus}'. Must be active or planned.\n` +
       `  ${repoPath}\n` +
       `\n` +
       `Recover with:\n` +
-      `  dotmd status ${repoPath} active && dotmd pickup ${repoPath}`,
+      `  dotmd set active ${repoPath} && dotmd set in-session ${repoPath}`,
     );
   }
 
@@ -370,7 +370,7 @@ export async function runPickup(argv, config, opts = {}) {
       process.stderr.write(`${green('▶ Picked up')}: ${repoPath} (${oldStatus ?? 'unset'} → in-session)\n\n`);
     }
     if (fullBody) {
-      const header = `[dotmd] holding ${repoPath} — release with: dotmd release ${repoPath}\n---\n`;
+      const header = `[dotmd] holding ${repoPath} — close with: dotmd set <status> ${repoPath}\n---\n`;
       process.stdout.write(header);
       const content = (body ?? '').trim();
       if (content) process.stdout.write(content + '\n');
@@ -665,8 +665,14 @@ export async function runSet(argv, config, opts = {}) {
 
   if (!newStatus) die('Usage: dotmd set <status> [<path>]');
 
+  // `set in-session` acquires a lease + prints the plan body (same as the
+  // legacy `pickup` verb). Delegated so `set` is the single status verb.
   if (newStatus === 'in-session') {
-    die('To acquire an in-session lease, use `dotmd pickup <file>`. `dotmd set` is for releasing/transitioning a held lease.');
+    const pickArgs = input ? [input] : [];
+    if (argv.includes('--takeover')) pickArgs.push('--takeover');
+    if (noIndex) pickArgs.push('--no-index');
+    if (showFiles) pickArgs.push('--show-files');
+    return runPickup(pickArgs, config, { dryRun });
   }
 
   if (!input) {

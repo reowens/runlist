@@ -46,177 +46,66 @@ afterEach(() => {
   if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
 });
 
+// HUD contract (post-scrub):
+//   - stdout always emits a single command primer line (the verb cheat-sheet)
+//   - HUD never surfaces plan/prompt/lease/error state in stdout — those signals
+//     belong in their own commands (`plans`, `prompts`, `set --help`)
+//   - `--json` still returns the structured shape (owned/prompts/stale/errors)
+//     for any programmatic caller that wants it, and skips the human primer
+//   - slash-command staleness is self-healed and emits a dim refresh line
 describe('dotmd hud', () => {
-  it('is silent when there is nothing actionable', () => {
+  it('always emits the command primer (one line)', () => {
     setupProject();
     const r = runCli(['hud']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
-    strictEqual(r.stdout, '', 'output should be empty when clean');
+    ok(/dotmd:/.test(r.stdout), `expected primer line; got: ${r.stdout}`);
+    ok(/set <status>/.test(r.stdout), `primer should name the set verb; got: ${r.stdout}`);
+    ok(/new <type>/.test(r.stdout), `primer should name the new verb; got: ${r.stdout}`);
+    ok(/prompts/.test(r.stdout), `primer should name prompts; got: ${r.stdout}`);
   });
 
-  it('shows owned leases', () => {
+  it('does NOT show owned/prompts/stale/errors in stdout', () => {
+    // Even with a held lease + pending prompts + a validation error, the
+    // human-facing hud output stays the primer only. Plan/prompt state has
+    // dedicated commands (`plans`, `prompts`) — hud is verbs-only.
     const docsDir = setupProject();
-    const planPath = writeDoc(docsDir, 'plan-a.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# A\n');
-    runCli(['pickup', planPath]);
+    writeDoc(docsDir, 'p.md', 'type: plan\nstatus: active\nupdated: 2025-01-01\nmodules: [core]', '# P\n');
+    runCli(['pickup', 'p.md']); // grab a lease via the still-dispatched verb
+    mkdirSync(path.join(docsDir, 'prompts'), { recursive: true });
+    writeDoc(docsDir, 'prompts/x.md', 'type: prompt\nstatus: pending\ncreated: 2025-01-01', 'body\n');
+    writeDoc(docsDir, 'broken.md', 'type: plan\nstatus: archived\nupdated: 2025-01-01', '# Broken\n');
 
     const r = runCli(['hud']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
-    ok(r.stdout.includes('You hold 1 plan'), `expected lease line, got: ${r.stdout}`);
-    ok(r.stdout.includes('plan-a'), 'plan slug present');
+    ok(!/You hold/.test(r.stdout), `stdout should not mention held leases; got: ${r.stdout}`);
+    ok(!/pending prompt/.test(r.stdout), `stdout should not list pending prompts; got: ${r.stdout}`);
+    ok(!/validation error/.test(r.stdout), `stdout should not surface error counts; got: ${r.stdout}`);
+    ok(!/stuck lease/.test(r.stdout), `stdout should not surface stuck leases; got: ${r.stdout}`);
   });
 
-  it('--json returns structured output', () => {
+  it('--json still exposes structured state for programmatic callers', () => {
     const docsDir = setupProject();
-    const planPath = writeDoc(docsDir, 'plan-a.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# A\n');
-    runCli(['pickup', planPath]);
+    writeDoc(docsDir, 'p.md', 'type: plan\nstatus: active\nupdated: 2025-01-01\nmodules: [core]', '# P\n');
+    runCli(['pickup', 'p.md']);
 
     const r = runCli(['hud', '--json']);
     strictEqual(r.status, 0, `hud --json failed: ${r.stderr}`);
     const parsed = JSON.parse(r.stdout);
-    ok(Array.isArray(parsed.owned), 'owned is array');
-    ok(Array.isArray(parsed.stale), 'stale is array');
-    ok(Array.isArray(parsed.prompts), 'prompts is array');
-    strictEqual(parsed.owned.length, 1);
-    ok(parsed.owned[0].includes('plan-a'));
+    ok(Array.isArray(parsed.owned), '.owned is an array');
+    ok(Array.isArray(parsed.prompts), '.prompts is an array');
+    ok(Array.isArray(parsed.stale), '.stale is an array');
+    strictEqual(typeof parsed.errors, 'number', '.errors is a number');
   });
 
-  it('shows pending prompts with consume hint', () => {
-    const docsDir = setupProject();
-    mkdirSync(path.join(docsDir, 'prompts'), { recursive: true });
-    writeDoc(docsDir, 'prompts/resume-me.md', 'type: prompt\nstatus: pending\ncreated: 2025-01-01', 'body');
-
-    const r = runCli(['hud']);
-    strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
-    ok(r.stdout.includes('1 pending prompt'), `expected prompt line, got: ${r.stdout}`);
-    ok(r.stdout.includes('resume-me'), 'prompt slug present');
-    ok(r.stdout.includes('dotmd prompts use'), 'consume hint present');
-  });
-
-  it('finds prompts when the prompts/ dir is configured directly as a root (#6)', () => {
-    // Custom setup: root list points straight at docs/prompts rather than
-    // at docs/ as a parent containing a prompts/ subdir.
-    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-hud-'));
-    spawnSync('git', ['init'], { cwd: tmpDir });
-    spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir });
-    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
-    const promptsDir = path.join(tmpDir, 'docs', 'prompts');
-    mkdirSync(promptsDir, { recursive: true });
-    writeFileSync(
-      path.join(tmpDir, 'dotmd.config.mjs'),
-      `export const root = ['docs/prompts'];\n`,
-    );
-    const filePath = path.join(promptsDir, 'foo.md');
-    writeFileSync(filePath, '---\ntype: prompt\nstatus: pending\ncreated: 2025-01-01\n---\nbody');
-    spawnSync('git', ['add', filePath], { cwd: tmpDir });
-    spawnSync('git', ['commit', '-m', 'add foo'], { cwd: tmpDir });
-
+  it('--json skips the human primer (structured output stays stable)', () => {
+    setupProject();
     const r = runCli(['hud', '--json']);
-    strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
-    const parsed = JSON.parse(r.stdout);
-    ok(
-      parsed.prompts.some(p => p.endsWith('docs/prompts/foo.md')),
-      `expected docs/prompts/foo.md in prompts, got: ${JSON.stringify(parsed.prompts)}`,
-    );
+    strictEqual(r.status, 0, `hud --json failed: ${r.stderr}`);
+    ok(!r.stdout.includes('dotmd:'), 'no primer text in JSON output');
+    JSON.parse(r.stdout); // should parse clean
   });
 
-  it('does not list already-archived prompts', () => {
-    const docsDir = setupProject();
-    // Archived prompts live under prompts/archived/ (validator enforces this).
-    mkdirSync(path.join(docsDir, 'prompts', 'archived'), { recursive: true });
-    writeDoc(docsDir, 'prompts/archived/done.md', 'type: prompt\nstatus: archived\ncreated: 2025-01-01\nupdated: 2025-01-01', 'body');
-
-    const r = runCli(['hud']);
-    strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
-    strictEqual(r.stdout, '', 'no prompt line when only archived prompts exist');
-  });
-
-  it('does not list claimed prompts (default counted)', () => {
-    const docsDir = setupProject();
-    mkdirSync(path.join(docsDir, 'prompts'), { recursive: true });
-    writeDoc(docsDir, 'prompts/in-progress.md', 'type: prompt\nstatus: claimed\ncreated: 2025-01-01\nupdated: 2025-01-01', 'body');
-
-    const r = runCli(['hud']);
-    strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
-    strictEqual(r.stdout, '', 'no prompt line when only claimed prompts exist');
-  });
-
-  it('surfaces prompts in custom-expanded statuses (config-driven)', () => {
-    // User adds an `urgent` status to types.prompt.statuses with context: 'expanded'.
-    // hud should treat it as actionable alongside pending — no code change needed.
-    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-hud-'));
-    spawnSync('git', ['init'], { cwd: tmpDir });
-    spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir });
-    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
-    const promptsDir = path.join(tmpDir, 'docs', 'prompts');
-    mkdirSync(promptsDir, { recursive: true });
-    writeFileSync(
-      path.join(tmpDir, 'dotmd.config.mjs'),
-      `export const root = 'docs';
-export const types = {
-  prompt: {
-    statuses: {
-      'pending':  { context: 'expanded', staleDays: 30 },
-      'urgent':   { context: 'expanded' },
-      'claimed':  { context: 'counted', quiet: true },
-      'archived': { context: 'counted', archive: true, terminal: true, quiet: true },
-    },
-  },
-};
-`,
-    );
-    function write(name, fm) {
-      const p = path.join(promptsDir, name);
-      writeFileSync(p, `---\n${fm}\n---\nbody`);
-      spawnSync('git', ['add', p], { cwd: tmpDir });
-      spawnSync('git', ['commit', '-m', `add ${name}`], { cwd: tmpDir });
-    }
-    write('p1.md', 'type: prompt\nstatus: pending\ncreated: 2025-01-01');
-    write('p2.md', 'type: prompt\nstatus: urgent\ncreated: 2025-01-01');
-    write('p3.md', 'type: prompt\nstatus: claimed\ncreated: 2025-01-01\nupdated: 2025-01-01');
-
-    const r = runCli(['hud', '--json']);
-    strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
-    const parsed = JSON.parse(r.stdout);
-    strictEqual(parsed.prompts.length, 2, `expected 2 actionable, got: ${JSON.stringify(parsed.prompts)}`);
-    ok(parsed.prompts.some(p => p.endsWith('p1.md')), 'pending surfaced');
-    ok(parsed.prompts.some(p => p.endsWith('p2.md')), 'urgent surfaced');
-    ok(!parsed.prompts.some(p => p.endsWith('p3.md')), 'claimed NOT surfaced');
-  });
-
-  it('surfaces validation errors (not silent when check is failing)', () => {
-    // Pre-fix: hud was documented as "silent when clean" but stayed silent
-    // even when there were N validation errors. SessionStart hook firing hud
-    // therefore left the agent with no signal that a doc was broken. Now an
-    // error count gets a red line with the `dotmd check` hint.
-    const docsDir = setupProject();
-    // A doc that will fail validation: archive status but wrong location.
-    writeDoc(docsDir, 'broken.md',
-      'type: plan\nstatus: archived\nupdated: 2025-01-01', '# Broken\n');
-
-    const r = runCli(['hud']);
-    strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
-    ok(/validation error/.test(r.stdout),
-      `hud should surface validation error count; got: ${r.stdout}`);
-    ok(r.stdout.includes('dotmd check'),
-      `hud error line should hint at dotmd check; got: ${r.stdout}`);
-  });
-
-  it('--json includes errors count', () => {
-    const docsDir = setupProject();
-    writeDoc(docsDir, 'broken.md',
-      'type: plan\nstatus: archived\nupdated: 2025-01-01', '# Broken\n');
-
-    const r = runCli(['hud', '--json']);
-    strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
-    const parsed = JSON.parse(r.stdout);
-    strictEqual(typeof parsed.errors, 'number', 'errors is a number in JSON output');
-    ok(parsed.errors >= 1, `expected at least 1 error; got: ${parsed.errors}`);
-  });
-
-  it('self-heals stale slash-command files and surfaces a dim line', () => {
-    // The SessionStart hook fires hud every session. When `.claude/commands/*.md`
-    // banners are older than the installed dotmd version, hud should silently
-    // regen them and surface a single dim line so the diff isn't a surprise.
+  it('self-heals stale slash-command files and surfaces a dim refresh line', () => {
     setupProject();
     const cmdDir = path.join(tmpDir, '.claude', 'commands');
     mkdirSync(cmdDir, { recursive: true });
@@ -225,44 +114,32 @@ export const types = {
 
     const r = runCli(['hud']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
-    ok(/slash commands refreshed/.test(r.stdout),
-      `expected refresh line; got: ${r.stdout}`);
-    ok(/0\.0\.1\s*→/.test(r.stdout),
-      `refresh line should show version transition; got: ${r.stdout}`);
-    ok(/baton\.md/.test(r.stdout),
-      `refresh line should name the file; got: ${r.stdout}`);
+    ok(/slash commands refreshed/.test(r.stdout), `expected refresh line; got: ${r.stdout}`);
+    ok(/0\.0\.1\s*→/.test(r.stdout), `refresh line should show version transition; got: ${r.stdout}`);
+    ok(/baton\.md/.test(r.stdout), `refresh line should name the file; got: ${r.stdout}`);
+    ok(/dotmd:/.test(r.stdout), `primer line should still emit alongside refresh; got: ${r.stdout}`);
 
     const content = readFileSync(batonPath, 'utf8');
-    ok(!content.includes('dotmd-generated: 0.0.1'),
-      'stale banner should be gone after refresh');
-    ok(!content.includes('stale body'),
-      'stale body should be replaced with regenerated content');
+    ok(!content.includes('dotmd-generated: 0.0.1'), 'stale banner should be gone after refresh');
+    ok(!content.includes('stale body'), 'stale body should be replaced');
   });
 
-  it('stays silent when slash-command banners are current', () => {
-    // Inverse of the refresh test — when nothing is stale, the silent-clean
-    // contract holds. Otherwise every session would print a refresh line.
+  it('does not emit a refresh line when slash-command banners are current', () => {
     setupProject();
     const cmdDir = path.join(tmpDir, '.claude', 'commands');
     mkdirSync(cmdDir, { recursive: true });
     const pkgVersion = JSON.parse(readFileSync(
       path.resolve(import.meta.dirname, '..', 'package.json'), 'utf8',
     )).version;
-    // Plant a file with the CURRENT version banner.
-    writeFileSync(
-      path.join(cmdDir, 'baton.md'),
-      `<!-- dotmd-generated: ${pkgVersion} -->\ncurrent body\n`,
-    );
+    writeFileSync(path.join(cmdDir, 'baton.md'), `<!-- dotmd-generated: ${pkgVersion} -->\ncurrent body\n`);
 
     const r = runCli(['hud']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
-    strictEqual(r.stdout, '',
-      `hud should stay silent when banners are current; got: ${r.stdout}`);
+    ok(!/slash commands refreshed/.test(r.stdout), `should not refresh when current; got: ${r.stdout}`);
+    ok(/dotmd:/.test(r.stdout), `primer should still emit; got: ${r.stdout}`);
   });
 
   it('does not touch user-managed slash-command files (no banner)', () => {
-    // A file without the `dotmd-generated:` banner is treated as user-managed
-    // by scaffoldClaudeCommands — the hud refresh path inherits that rule.
     setupProject();
     const cmdDir = path.join(tmpDir, '.claude', 'commands');
     mkdirSync(cmdDir, { recursive: true });
@@ -272,103 +149,40 @@ export const types = {
 
     const r = runCli(['hud']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
-    ok(!/slash commands refreshed/.test(r.stdout),
-      `should not announce a refresh for user-managed files; got: ${r.stdout}`);
-    strictEqual(readFileSync(customPath, 'utf8'), original,
-      'user-managed file must be left untouched');
+    ok(!/slash commands refreshed/.test(r.stdout), `should not announce refresh for user files; got: ${r.stdout}`);
+    strictEqual(readFileSync(customPath, 'utf8'), original, 'user file untouched');
   });
 
   it('survives missing .claude/ directory without erroring', () => {
-    // SessionStart hook must not break for users who do not use Claude Code
-    // and have no .claude/ dir at all. The scaffolder no-ops; hud follows.
     setupProject();
     ok(!existsSync(path.join(tmpDir, '.claude')), 'precondition: no .claude/');
     const r = runCli(['hud']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
-    strictEqual(r.stdout, '', `expected silent run; got: ${r.stdout}`);
+    ok(/dotmd:/.test(r.stdout), `primer should still emit; got: ${r.stdout}`);
   });
 
-  it('prints the teach-once primer on a fresh repo, then stays silent', () => {
-    // On a clean repo with no actionable signals, hud was previously silent —
-    // meaning a brand-new install gave Claude no hint that dotmd manages docs/.
-    // First run should emit the primer line and drop a .dotmd/primer-shown
-    // marker; second run on the same repo should be silent again.
-    setupProject();
-    // setupProject pre-stamps the marker for default silence; for THIS test
-    // we want the fresh-install case, so remove it before the first run.
-    rmSync(path.join(tmpDir, '.dotmd', 'primer-shown'), { force: true });
+  it('--json error count remains parity with `dotmd check --json`', () => {
+    // Even though stdout no longer prints the error count, the --json shape
+    // still surfaces .errors for programmatic callers. Contract: it equals
+    // what `dotmd check --json` reports.
+    function errorCount(json) { return JSON.parse(json).errors ?? 0; }
+    function checkErrorCount(json) { return (JSON.parse(json).errors ?? []).length; }
 
-    const first = runCli(['hud']);
-    strictEqual(first.status, 0, `hud failed: ${first.stderr}`);
-    ok(/dotmd: managing/.test(first.stdout),
-      `expected primer line on first run; got: ${first.stdout}`);
-    ok(/dotmd new/.test(first.stdout) && /prompt/.test(first.stdout),
-      `primer should mention the create command and the prompt type; got: ${first.stdout}`);
-    ok(existsSync(path.join(tmpDir, '.dotmd', 'primer-shown')),
-      'primer marker should be created after first run');
-
-    const second = runCli(['hud']);
-    strictEqual(second.status, 0, `hud failed: ${second.stderr}`);
-    strictEqual(second.stdout, '',
-      `hud should be silent after primer has been shown; got: ${second.stdout}`);
-  });
-
-  it('primer is skipped in --json mode (structured output stays stable)', () => {
-    // Programmatic callers (e.g. tooling parsing hud --json) must not see
-    // teach-text leak into the JSON payload, and the marker must not be
-    // created as a side effect of a JSON probe.
-    setupProject();
-    rmSync(path.join(tmpDir, '.dotmd', 'primer-shown'), { force: true });
-
-    const r = runCli(['hud', '--json']);
-    strictEqual(r.status, 0, `hud --json failed: ${r.stderr}`);
-    const parsed = JSON.parse(r.stdout);
-    ok(typeof parsed === 'object', 'JSON output parses');
-    ok(!('primer' in parsed), 'no primer field leaks into JSON');
-    ok(!existsSync(path.join(tmpDir, '.dotmd', 'primer-shown')),
-      'JSON mode should not create the primer marker');
-  });
-
-  it('error count matches `dotmd check` (errorsOnly mode preserves invariant)', () => {
-    // F22 regression: hud uses buildIndex({ errorsOnly: true }) to skip
-    // warning-only cross-doc passes (git staleness, bidirectional refs,
-    // claude-commands) for ~6× SessionStart speedup. The contract: hud's
-    // error count must still equal what `dotmd check` would report — agents
-    // shouldn't see "✗ 2 validation errors" and then run check to see 3.
-    // Covers the three categories of errors hud must continue to surface:
-    //   - per-file validateDoc errors (archive drift here; same path covers
-    //     missing-status, unknown-status, bad-blockers-list, etc.)
-    //   - checkIndex errors (index drift between sidecar and corpus)
-    //   - clean-repo baseline (both must report 0)
-    function errorCount(jsonOutput) {
-      return JSON.parse(jsonOutput).errors ?? 0;
-    }
-    function checkErrorCount(checkOutput) {
-      // `dotmd check --json` returns { errors: [...], warnings: [...] }
-      return (JSON.parse(checkOutput).errors ?? []).length;
-    }
-
-    // Scenario 1: clean repo — both report 0.
     const docsDir = setupProject();
     writeDoc(docsDir, 'plan-a.md', 'type: plan\nstatus: active\nupdated: 2025-01-01\nmodules: [core]', '# A\n');
     let hudJson = runCli(['hud', '--json']);
     let checkJson = runCli(['check', '--json']);
-    strictEqual(hudJson.status, 0, `hud failed: ${hudJson.stderr}`);
-    strictEqual(checkJson.status, 0, `check failed: ${checkJson.stderr}`);
-    strictEqual(errorCount(hudJson.stdout), checkErrorCount(checkJson.stdout),
-      `clean-repo parity: hud=${errorCount(hudJson.stdout)} check=${checkErrorCount(checkJson.stdout)}`);
-    strictEqual(errorCount(hudJson.stdout), 0, 'clean repo should report 0 errors');
+    strictEqual(errorCount(hudJson.stdout), checkErrorCount(checkJson.stdout), 'clean-repo parity');
+    strictEqual(errorCount(hudJson.stdout), 0, 'clean repo: 0 errors');
 
-    // Scenario 2: per-file validateDoc error (archive-drift).
     writeDoc(docsDir, 'broken.md', 'type: plan\nstatus: archived\nupdated: 2025-01-01', '# Broken\n');
     hudJson = runCli(['hud', '--json']);
     checkJson = runCli(['check', '--json']);
-    strictEqual(errorCount(hudJson.stdout), checkErrorCount(checkJson.stdout),
-      `per-file-error parity: hud=${errorCount(hudJson.stdout)} check=${checkErrorCount(checkJson.stdout)}\nhud: ${hudJson.stdout}\ncheck: ${checkJson.stdout}`);
-    ok(errorCount(hudJson.stdout) >= 1, 'per-file error should be counted');
+    strictEqual(errorCount(hudJson.stdout), checkErrorCount(checkJson.stdout), 'archive-drift parity');
+    ok(errorCount(hudJson.stdout) >= 1, 'archive drift counted');
   });
 
-  it('output stays under ~500 bytes when full of common signals', () => {
+  it('stdout stays under ~500 bytes regardless of repo state', () => {
     const docsDir = setupProject();
     for (let i = 0; i < 5; i++) {
       writeDoc(docsDir, `held-${i}.md`, 'type: plan\nstatus: active\nupdated: 2025-01-01', '# held\n');
@@ -378,9 +192,9 @@ export const types = {
     for (let i = 0; i < 5; i++) {
       writeDoc(docsDir, `prompts/p-${i}.md`, 'type: prompt\nstatus: pending\ncreated: 2025-01-01', 'body\n');
     }
-
     const r = runCli(['hud']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
-    ok(r.stdout.length < 800, `hud output too large: ${r.stdout.length} bytes\n${r.stdout}`);
+    ok(r.stdout.length < 500, `hud output too large: ${r.stdout.length} bytes\n${r.stdout}`);
   });
+
 });

@@ -54,10 +54,23 @@ describe('CLI integration', () => {
     ok(/^\d+\.\d+\.\d+/.test(result.stdout.trim()), `got: ${result.stdout}`);
   });
 
-  it('--help prints usage', () => {
+  it('--help prints a terse top-level usage with a pointer to the full list', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-help-'));
     const result = run(['--help']);
-    ok(result.stdout.includes('View & Query:'));
+    ok(result.stdout.includes('Common commands:'), 'has Common commands section');
+    ok(result.stdout.includes('dotmd help all'), 'points at full command list');
+    // Keep the top-level terse — full categorized list lives under `help all`.
+    ok(result.stdout.split('\n').length < 30,
+      `top-level --help should stay under 30 lines; got ${result.stdout.split('\n').length}`);
+  });
+
+  it('help all prints the full categorized command list', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-help-all-'));
+    const result = run(['help', 'all']);
+    strictEqual(result.status, 0);
+    ok(result.stdout.includes('View & Query:'), 'has View & Query section');
+    ok(result.stdout.includes('Analyze:'), 'has Analyze section');
+    ok(result.stdout.includes('Lifecycle:'), 'has Lifecycle section');
   });
 
   it('help statuses prints full status vocabulary', () => {

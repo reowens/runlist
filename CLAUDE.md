@@ -34,18 +34,18 @@ To finish work, archive directly: `dotmd archive <plan-file>`. The legacy `done`
 
 ### Working with plans (for Claude instances)
 
-1. Get oriented: `dotmd briefing` (compact 5-10 line summary)
-2. Pick up a plan: `dotmd pickup <plan-file>` (sets in-session + prints content + writes session lease)
-3. When done — pick the right closure status:
-   - Fully shipped → `dotmd archive <plan-file>` (auto-releases lease)
-   - Shipped + tail deferred (with successor plans referenced) → `dotmd status <plan-file> partial` then `dotmd release`
-   - Need more work later → `dotmd release` (flips back to prior status — usually `active`)
-   - Stuck on a human decision → `dotmd status <plan-file> awaiting` then `dotmd release`
-4. To see all plans: `dotmd plans`
-5. To see available plans: `dotmd plans --status active`
-6. To see what's in flight: `dotmd plans --status in-session`
-7. Picking up an `in-session` plan that you already own (e.g., after `/clear` or auto-compaction) silently re-attaches — no conflict. Picking up one held by another live session refuses; a stale lease (dead pid or >24h) suggests `--takeover`.
-8. If your Claude Code `~/.claude/settings.json` has the `SessionEnd` hook configured (`dotmd release`), graceful session-end auto-releases your leases. Otherwise call `dotmd release` before finishing the session.
+`dotmd set <status> [<file>]` is the single status verb. It handles starting, transitioning, and closing a plan based on the target status.
+
+1. Get oriented: `dotmd briefing`
+2. Start work on a plan: `dotmd set in-session <plan-file>` (acquires the lease + prints content)
+3. When done — pick the closure status that matches reality:
+   - Fully shipped → `dotmd set archived <plan-file>` (also: `dotmd archive <plan-file>`)
+   - Shipped + tail deferred → `dotmd set partial <plan-file>` (reference the successor plan in the body)
+   - Need more work later → `dotmd set active <plan-file>`
+   - Stuck on a human decision → `dotmd set awaiting <plan-file>`
+   `set` automatically releases the held lease when transitioning out of `in-session`.
+4. To see plans: `dotmd plans` (live), `dotmd plans --status active`, `dotmd plans --status in-session`
+5. Re-attaching: `dotmd set in-session` on a plan you already own (e.g., after `/clear`) silently re-attaches. One held by another live session refuses; a stale lease (dead pid or >24h) suggests `--takeover`.
 
 ### Resume prompts (saved for future sessions)
 
@@ -82,7 +82,7 @@ Then:
 - `dotmd runlist <hub>` — show the children + their statuses in order. First non-archived child is marked `→` (that's the next pickup target).
 - `dotmd runlist next <hub>` — pick up the first non-archived child. If it's not in a pickup-able status (`active` / `planned` / `in-session`), the command stops with a runlist-aware error so you resolve the blocker before continuing.
 
-Each child should set `parent_plan:` pointing back at the hub — `dotmd check` warns when it doesn't. Order is authoritative from `runlist:`; `parent_plan` keeps the existing reverse-link semantics (pickup-card Related:, graph).
+Each child should set `parent_plan:` pointing back at the hub — `dotmd doctor` warns when it doesn't. Order is authoritative from `runlist:`; `parent_plan` keeps the existing reverse-link semantics (pickup-card Related:, graph).
 
 ### Creating documents
 
