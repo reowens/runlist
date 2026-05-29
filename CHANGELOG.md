@@ -5,6 +5,10 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
 
 ## Unreleased
 
+No unreleased changes.
+
+## 0.49.1 — 2026-05-28
+
 ### Changed
 
 - **Journal and error logs rotate on dotmd version change.** The active
