@@ -243,7 +243,7 @@ export function consumePrompt(filePath, config, opts) {
   if (docType !== 'prompt') {
     die(`Not a prompt (type: ${docType ?? 'unknown'}): ${repoPath}`);
   }
-  if (status === 'archived') {
+  if (status === 'archived' || isArchivedPath(repoPath, config)) {
     die(`Already consumed: ${repoPath}`);
   }
 
@@ -267,12 +267,13 @@ export function consumePrompt(filePath, config, opts) {
   // ever being archived, and the next session sees the same prompt as pending.
   // Body is already in memory from extractFrontmatter, so the source file
   // can move out from under us safely.
-  runArchive([filePath], config, { noIndex, showFiles, out: process.stderr });
+  const archiveResult = runArchive([filePath], config, { noIndex, showFiles, out: process.stderr });
 
   process.stdout.write(body);
   if (!body.endsWith('\n')) process.stdout.write('\n');
 
-  process.stderr.write(`${green('✓ Consumed')}: ${repoPath}\n`);
+  const consumedPath = archiveResult?.newRepoPath ?? repoPath;
+  process.stderr.write(`${green('✓ Consumed')}: ${consumedPath}\n`);
 }
 
 function runPromptsArchive(argv, config, opts = {}) {

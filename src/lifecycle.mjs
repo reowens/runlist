@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
-import { asString, toRepoPath, die, warn, resolveDocPath, resolveRefPath, escapeRegex, nowIso, suggestCandidates, emitFilesFooter } from './util.mjs';
+import { asString, toRepoPath, die, warn, resolveDocPath, resolveRefPath, escapeRegex, nowIso, suggestCandidates, emitFilesFooter, isArchivedPath } from './util.mjs';
 import { gitMv, getGitLastModified, getGitLastModifiedBatch } from './git.mjs';
 import { buildIndex, collectDocFiles } from './index.mjs';
 import { renderIndexFile, writeIndex } from './index-file.mjs';
@@ -169,7 +169,7 @@ export async function runStatus(argv, config, opts = {}) {
   const archiveDir = path.join(fileRoot, config.archiveDir);
   const relFromRoot = path.relative(fileRoot, filePath);
   const relSegments = relFromRoot.split(path.sep);
-  const inArchive = relFromRoot.startsWith(config.archiveDir + '/') || relFromRoot.startsWith(config.archiveDir + path.sep);
+  const inArchive = isArchivedPath(toRepoPath(filePath, config.repoRoot), config);
   const isArchiving = config.lifecycle.archiveStatuses.has(newStatus) && !inArchive;
   const isUnarchiving = !config.lifecycle.archiveStatuses.has(newStatus) && inArchive;
 
@@ -620,8 +620,15 @@ export function runArchive(argv, config, opts = {}) {
     appendVersionHistory(filePath, `Archived (frontmatter healed in place from \`${oldStatus}\`).`);
     if (!noIndex) regenIndex(config);
     out.write(`${green('✓ Healed')}: ${repoPathHeal} (${oldStatus} → archived; file already under \`${config.archiveDir}/\`)\n`);
-    if (showFiles) emitFilesFooter([repoPathHeal, config.indexPath], config);
-    return;
+    const touched = [repoPathHeal];
+    if (config.indexPath && !noIndex) touched.push(config.indexPath);
+    if (showFiles) emitFilesFooter(touched, config);
+    return {
+      action: 'healed',
+      oldRepoPath: repoPathHeal,
+      newRepoPath: repoPathHeal,
+      touched,
+    };
   }
 
   const closeoutAction = closeoutTemplate ? planCloseoutInjection(body) : null;
@@ -701,7 +708,12 @@ export function runArchive(argv, config, opts = {}) {
 
   try { config.hooks.onArchive?.({ path: newRepoPath, oldStatus }, { oldPath: oldRepoPath, newPath: newRepoPath }); } catch (err) { warn(`Hook 'onArchive' threw: ${err.message}`); }
 
-  return { touched };
+  return {
+    action: 'archived',
+    oldRepoPath,
+    newRepoPath,
+    touched,
+  };
 }
 
 // Unified status-transition verb. Collapses status/archive/release into one
@@ -763,9 +775,7 @@ export async function runSet(argv, config, opts = {}) {
   const parsedFm = parseSimpleFrontmatter(fmRaw);
   const oldStatus = asString(parsedFm.status);
 
-  const fileRoot = findFileRoot(filePath, config);
-  const relFromRoot = path.relative(fileRoot, filePath);
-  const inArchive = relFromRoot.startsWith(config.archiveDir + '/') || relFromRoot.startsWith(config.archiveDir + path.sep);
+  const inArchive = isArchivedPath(toRepoPath(filePath, config.repoRoot), config);
 
   if (config.lifecycle.archiveStatuses.has(newStatus) && !inArchive) {
     const archiveArgs = [filePath];
@@ -807,11 +817,7 @@ export function runBulkArchive(argv, config, opts = {}) {
     }
   }
 
-  const unique = [...new Set(matched)].filter(f => {
-    const root = findFileRoot(f, config);
-    const rel = path.relative(root, f);
-    return !rel.startsWith(config.archiveDir + '/') && !rel.startsWith(config.archiveDir + path.sep);
-  });
+  const unique = [...new Set(matched)].filter(f => !isArchivedPath(toRepoPath(f, config.repoRoot), config));
   if (unique.length === 0) die('No matching files found (already-archived files are excluded).');
 
   process.stdout.write(`${unique.length} file(s) to archive:\n`);

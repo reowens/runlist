@@ -208,6 +208,8 @@ describe('dotmd prompts use', () => {
     ok(r.stdout.includes('target body'));
     ok(!r.stdout.includes('older body'));
     ok(!existsSync(target), 'target archived');
+    ok(r.stderr.includes('Consumed: docs/archived/target.md'),
+      `consume confirmation should name the archived path, not the stale source path:\n${r.stderr}`);
   });
 
   it('refuses non-prompt files', () => {
@@ -226,6 +228,20 @@ describe('dotmd prompts use', () => {
     const r = run(['prompts', 'use', file]);
     ok(r.status !== 0);
     ok(r.stderr.includes('Already consumed'));
+  });
+
+  it('refuses prompts physically under archived/ even when frontmatter drifted', () => {
+    const archivedDir = path.join(docsDir, 'archived');
+    mkdirSync(archivedDir, { recursive: true });
+    const file = path.join(archivedDir, 'drifted.md');
+    writeFileSync(file, `---\ntype: prompt\nstatus: pending\ncreated: 2025-01-01\n---\nSTALE BODY\n`);
+    spawnSync('git', ['add', file], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-qm', 'add drifted archived prompt'], { cwd: tmpDir });
+
+    const r = run(['prompts', 'use', file]);
+    ok(r.status !== 0, 'archived-path prompt must not be consumed');
+    ok(r.stderr.includes('Already consumed: docs/archived/drifted.md'), r.stderr);
+    strictEqual(r.stdout, '', 'body must not leak from a physically archived prompt');
   });
 
   it('errors when file argument missing', () => {

@@ -7,6 +7,18 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
 
 ### Fixed
 
+- **Prompt consumption now reports and respects the actual archived path.**
+  `dotmd use` / `dotmd prompts use` no longer prints `Consumed:` with the
+  stale pre-move path after archiving. Prompt consumption also refuses files
+  physically under an `archived/` directory even when their frontmatter drifted
+  back to `status: pending`, so archived prompts cannot leak their body again.
+  Lifecycle commands now share the same archive-path predicate for archive,
+  status, set, and bulk archive flows.
+
+## 0.49.3 — 2026-05-29
+
+### Fixed
+
 - **`dotmd new` rejects auto-piped/heredoc bodies on templates that do not
   accept body input.** The fail-fast guard already caught explicit inline,
   `--body`, `@path`, and `-` body sources, but bare piped stdin was only probed
