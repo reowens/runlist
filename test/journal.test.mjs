@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import { ok, strictEqual } from 'node:assert';
-import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync, rmSync, statSync, utimesSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -128,6 +128,52 @@ describe('journal: rotation', () => {
     ok(existsSync(journalBackup), 'backup should be created');
     const newSize = statSync(journalFile).size;
     ok(newSize < before, `new file should be small (got ${newSize})`);
+  });
+
+  it('rotates on version change so active journal starts at current version', () => {
+    mkdirSync(path.dirname(journalFile), { recursive: true });
+    writeFileSync(journalFile, JSON.stringify({
+      ts: new Date().toISOString(),
+      sid: 'pre',
+      pid: 0,
+      argv: ['old'],
+      exit: 0,
+      ms: 1,
+      v: '0.0.0',
+    }) + '\n');
+
+    const r = run(['plans'], { DOTMD_JOURNAL: '1' });
+    strictEqual(r.status, 0, r.stderr);
+    ok(existsSync(journalBackup), 'old-version journal should be backed up');
+    const oldLines = readFileSync(journalBackup, 'utf8').trim().split('\n');
+    strictEqual(JSON.parse(oldLines[0]).v, '0.0.0');
+
+    const lines = readFileSync(journalFile, 'utf8').trim().split('\n');
+    strictEqual(lines.length, 1, `expected only current-version entry, got:\n${readFileSync(journalFile, 'utf8')}`);
+    const entry = JSON.parse(lines[0]);
+    strictEqual(entry.argv[0], 'plans');
+    ok(entry.v && entry.v !== '0.0.0', `expected current package version, got ${entry.v}`);
+  });
+
+  it('prunes stale rotation backups on write', () => {
+    const first = run(['plans'], { DOTMD_JOURNAL: '1' });
+    strictEqual(first.status, 0, first.stderr);
+
+    writeFileSync(journalBackup, JSON.stringify({
+      ts: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000).toISOString(),
+      sid: 'old-backup',
+      pid: 0,
+      argv: ['old'],
+      exit: 0,
+      ms: 1,
+      v: '0.0.0',
+    }) + '\n');
+    const old = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000);
+    utimesSync(journalBackup, old, old);
+
+    const second = run(['plans'], { DOTMD_JOURNAL: '1' });
+    strictEqual(second.status, 0, second.stderr);
+    ok(!existsSync(journalBackup), 'stale backup should be pruned');
   });
 });
 

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, appendFileSync, statSync, renameSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, appendFileSync, statSync, renameSync, readFileSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { currentSessionId } from './lease.mjs';
@@ -8,6 +8,7 @@ const JOURNAL_FILE = 'journal.jsonl';
 const JOURNAL_BACKUP = 'journal.jsonl.1';
 const ROTATE_SIZE_BYTES = 5 * 1024 * 1024;
 const ROTATE_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const BACKUP_RETENTION_MS = ROTATE_AGE_MS;
 
 const ERROR_LOG_FILE = 'dotmd-errors.log';
 const ERROR_LOG_BACKUP = 'dotmd-errors.log.1';
@@ -26,10 +27,31 @@ export function journalBackupPath(config) {
   return path.join(config.repoRoot, JOURNAL_DIR, JOURNAL_BACKUP);
 }
 
-function maybeRotate(file, backup) {
+function firstEntryVersion(file) {
+  try {
+    const sample = readFileSync(file, 'utf8');
+    const nl = sample.indexOf('\n');
+    const first = nl >= 0 ? sample.slice(0, nl) : sample;
+    if (!first.trim()) return null;
+    const obj = JSON.parse(first);
+    return obj?.v == null ? null : String(obj.v);
+  } catch {
+    return null;
+  }
+}
+
+function maybeRotate(file, backup, nextEntry = null) {
+  pruneStaleBackup(backup);
   if (!existsSync(file)) return;
   let st;
   try { st = statSync(file); } catch { return; }
+  if (nextEntry?.v) {
+    const existingVersion = firstEntryVersion(file);
+    if (existingVersion !== String(nextEntry.v)) {
+      try { renameSync(file, backup); } catch {}
+      return;
+    }
+  }
   if (st.size > ROTATE_SIZE_BYTES) {
     try { renameSync(file, backup); } catch {}
     return;
@@ -50,6 +72,16 @@ function maybeRotate(file, backup) {
   } catch {}
 }
 
+function pruneStaleBackup(backup) {
+  if (!existsSync(backup)) return;
+  try {
+    const st = statSync(backup);
+    if ((Date.now() - st.mtimeMs) > BACKUP_RETENTION_MS) {
+      try { unlinkSync(backup); } catch {}
+    }
+  } catch {}
+}
+
 export function appendJournalEntry(config, entry) {
   if (!isJournalEnabled(config)) return;
   if (!config?.repoRoot) return;
@@ -57,7 +89,7 @@ export function appendJournalEntry(config, entry) {
     const dir = path.join(config.repoRoot, JOURNAL_DIR);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     const file = journalFilePath(config);
-    maybeRotate(file, journalBackupPath(config));
+    maybeRotate(file, journalBackupPath(config), entry);
     // O_APPEND is atomic for writes under PIPE_BUF (4KB on Linux, 512B on
     // macOS). Entries are well under either threshold, so concurrent CLI
     // invocations interleave cleanly without locking.
@@ -143,7 +175,7 @@ export function recordGlobalError({ config, startMs, args, err, version }) {
     const dir = globalErrorLogDir();
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     const file = globalErrorLogPath();
-    maybeRotate(file, globalErrorLogBackupPath());
+    maybeRotate(file, globalErrorLogBackupPath(), entry);
     appendFileSync(file, JSON.stringify(entry) + '\n', { flag: 'a' });
   } catch {
     // Logging must never break exit.

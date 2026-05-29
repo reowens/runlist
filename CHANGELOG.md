@@ -5,7 +5,14 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
 
 ## Unreleased
 
-No unreleased changes.
+### Changed
+
+- **Journal and error logs rotate on dotmd version change.** The active
+  `.dotmd/journal.jsonl` and global `dotmd-errors.log` now start fresh when
+  the installed dotmd version changes, with the previous log preserved as `.1`
+  for up to 30 days. Stale backups are pruned lazily on write. This keeps
+  `hud`, repeat-failure hints, and post-upgrade analysis focused on
+  current-version behavior instead of stale pre-upgrade failures.
 
 ## 0.49.0 — 2026-05-28
 

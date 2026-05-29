@@ -283,8 +283,10 @@ Reader options:
   --json              Emit selected entries as a JSON array
 
 Storage:
-  Rotates to .dotmd/journal.jsonl.1 at >5MB or oldest entry >30 days.
-  Single backup retained; older history is dropped on rotation.
+  Rotates to .dotmd/journal.jsonl.1 on dotmd version change, at >5MB,
+  or when the oldest entry is >30 days.
+  Single backup retained for up to 30 days; older history is dropped on
+  rotation or pruned after the retention window.
 
 Examples:
   DOTMD_JOURNAL=1 dotmd plans

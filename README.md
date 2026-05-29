@@ -335,8 +335,10 @@ Each invocation appends one JSON line:
 `{ts, sid, pid, argv, exit, ms, v, err?}`. Writes are atomic via
 `O_APPEND` (entries are well under `PIPE_BUF`), so concurrent sessions
 interleave cleanly without locking. Lazy rotation to
-`.dotmd/journal.jsonl.1` at >5MB or oldest entry >30 days; one backup
-retained.
+`.dotmd/journal.jsonl.1` on version change, at >5MB, or when the oldest
+entry is >30 days; one backup retained and pruned after 30 days.
+Version-change rotation keeps agent-facing journal summaries focused on the
+currently installed dotmd.
 
 Read it back with `dotmd journal`:
 
