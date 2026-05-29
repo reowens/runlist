@@ -5,6 +5,18 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
 
 ## Unreleased
 
+### Fixed
+
+- **`dotmd new` rejects auto-piped/heredoc bodies on templates that do not
+  accept body input.** The fail-fast guard already caught explicit inline,
+  `--body`, `@path`, and `-` body sources, but bare piped stdin was only probed
+  for body-accepting templates. In projects with a custom `templates.plan` that
+  drops `ctx.bodyInput`, `dotmd new plan foo <<EOF` could still scaffold the
+  placeholder plan and lose the body. Piped stdin is now probed for every
+  template so non-body templates reject it instead of silently discarding it.
+
+## 0.49.2 — 2026-05-29
+
 ### Changed
 
 - **`dotmd ship` stages `CHANGELOG.md`.** Release changelog edits are now

@@ -512,6 +512,28 @@ describe('dotmd new — type-first CLI', () => {
       }
     });
 
+    it('rejects auto-piped stdin when a custom template opts out', () => {
+      tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-new-'));
+      mkdirSync(path.join(tmpDir, '.git'));
+      mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+      writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+        export const templates = {
+          'plan': {
+            description: 'Override built-in plan, opted out of body input',
+            defaultStatus: 'active',
+            frontmatter: (s, d) => \`type: plan\\nstatus: \${s}\\ncreated: \${d}\\nupdated: \${d}\`,
+            body: (t) => \`\\n# \${t}\\n\`,
+          },
+        };
+        export const root = 'docs';
+      `);
+      const r = run(['new', 'plan', 'stdin-opted-out'], { input: 'heredoc body that must not disappear\n' });
+      strictEqual(r.status, 1, `should fail. stderr: ${r.stderr}`);
+      ok(r.stderr.includes('does not accept body input'), `expected fail-fast error, got: ${r.stderr}`);
+      ok(r.stderr.includes('piped stdin'), `error should attribute input source: ${r.stderr}`);
+      ok(!existsSync(path.join(tmpDir, 'docs', 'plans', 'stdin-opted-out.md')), 'should not scaffold when stdin body is rejected');
+    });
+
     it('config override of built-in `plan` auto-inherits acceptsBody when body fn references ctx.bodyInput', () => {
       // Agent-first DX: a project copy-pastes a customized `plan` template
       // that DOES interpolate ctx.bodyInput, but forgets to set acceptsBody.

@@ -366,14 +366,16 @@ export async function runNew(argv, config, opts = {}) {
   else if (bodyArg !== null) {
     bodyInput = readBodyInput(bodyArg);
     bodyInputSource = bodyArg === '-' ? 'stdin (`-`)' : (bodyArg.startsWith('@') ? `file (\`${bodyArg}\`)` : 'inline body argument');
-  } else if (template.acceptsBody || template.requiresBody) {
+  } else {
     // Auto-consume piped or redirected stdin so agents don't need the `-`
     // placeholder for the most common pattern (`cat draft.md | dotmd new …`,
     // `dotmd new … < draft.md`, or a `<<'EOF'` heredoc). We probe stdin via
     // fstatSync rather than `!isTTY` so a closed/inherited fd doesn't trigger
     // a blocking read of an empty stream. We accept FIFO (shell pipes), regular
     // file (shell redirection / heredoc), and socket (Node spawnSync `input:`
-    // delivers stdin as an AF_UNIX socket).
+    // delivers stdin as an AF_UNIX socket). Probe this even for templates that
+    // don't accept bodies so the fail-fast guard below can reject accidental
+    // heredoc/input instead of silently scaffolding without it.
     try {
       const stat = fstatSync(0);
       if (stat.isFIFO() || stat.isFile() || stat.isSocket()) {
