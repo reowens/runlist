@@ -30,6 +30,7 @@ describe('isAllowed', () => {
     ok(isAllowed('dotmd.config.mjs'));
     ok(isAllowed('README.md'));
     ok(isAllowed('CLAUDE.md'));
+    ok(isAllowed('CHANGELOG.md'));
     ok(isAllowed('.gitignore'));
   });
 

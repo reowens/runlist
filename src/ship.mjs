@@ -20,6 +20,7 @@ const ALLOWLIST_PATTERNS = [
   /^package(?:-lock)?\.json$/,
   /^README\.md$/,
   /^CLAUDE\.md$/,
+  /^CHANGELOG\.md$/,
   /^\.gitignore$/,
 ];
 

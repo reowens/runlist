@@ -5,7 +5,11 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
 
 ## Unreleased
 
-No unreleased changes.
+### Changed
+
+- **`dotmd ship` stages `CHANGELOG.md`.** Release changelog edits are now
+  included in the ship allowlist, matching README and CLAUDE release-doc
+  handling.
 
 ## 0.49.1 — 2026-05-28
 
