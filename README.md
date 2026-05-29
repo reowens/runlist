@@ -128,7 +128,7 @@ Every document can have a `type` field in its frontmatter. Types determine which
 |------|---------|----------------|
 | `plan` | Execution plans | `in-session`, `active`, `planned`, `blocked`, `partial`, `paused`, `awaiting`, `queued-after`, `archived` |
 | `doc` | Design docs, specs, ADRs, RFCs, reference material | `draft`, `active`, `review`, `reference`, `deprecated`, `archived` |
-| `prompt` | Saved prompts that seed future Claude sessions | `pending`, `shelved`, `claimed`, `archived` |
+| `prompt` | Saved prompts that seed future Claude sessions | `pending`, `held`, `shelved`, `claimed`, `archived` |
 
 Documents without a `type` field use the global `statuses.order` from config.
 
@@ -206,7 +206,7 @@ dotmd glossary <term>        Look up domain terms + related docs
 dotmd watch [command]        Re-run a command on file changes
 dotmd diff [file]            Show changes since last updated date
 dotmd new <type> <name>      Create a new doc (type: doc, plan, or prompt)
-dotmd prompts [sub]          Manage saved prompts (list, next, use, shelve, archive, new)
+dotmd prompts [sub]          Manage saved prompts (list, next, use, hold, archive, new)
 dotmd journal [flags]        View opt-in command-usage journal (DOTMD_JOURNAL=1)
 dotmd init                   Create starter config + docs directory
 dotmd completions <shell>    Output shell completion script (bash, zsh)
@@ -303,16 +303,17 @@ dotmd prompts                     # list pending prompts (default)
 dotmd prompts list --all          # all statuses
 dotmd prompts next                # print body of oldest pending + auto-archive (one-shot)
 dotmd prompts use <file>          # print body of a specific prompt + auto-archive
-dotmd prompts shelve <file>       # park a prompt (status → shelved): kept in list,
-                                  # hidden from hud/briefing, skipped by `next`
-dotmd prompts unshelve <file>     # move a shelved prompt back to pending
+dotmd prompts hold <file>         # park a prompt (status → held) under prompts/held/:
+                                  # kept in list, hidden from hud/briefing, skipped by `next`
+dotmd prompts unhold <file>       # move a held prompt back to pending
+dotmd prompts shelve <file>       # legacy alias for `hold`
 dotmd prompts archive <file>      # archive without printing the body
 dotmd prompts new <name> [body]   # alias for `dotmd new prompt`
 ```
 
-`dotmd hud` surfaces pending prompts on session start (alongside held leases), so a saved prompt acts as a self-addressed reminder: write it now, the next session sees it. Shelved prompts are kept out of the SessionStart surface — use them for "saved but not next."
+`dotmd hud` surfaces pending prompts on session start (alongside held leases), so a saved prompt acts as a self-addressed reminder: write it now, the next session sees it. Held prompts are kept out of the SessionStart surface — use them for "saved but not next."
 
-Statuses: `pending` (drafted, awaiting a session), `shelved` (saved but parked — visible in `prompts list`, hidden from `hud`/`briefing`, skipped by `prompts next`), `archived` (consumed or filed away). `claimed` is reserved for a future "in-flight" state but is currently a synonym for archived in practice.
+Statuses: `pending` (drafted, awaiting a session), `held` (saved but parked under `prompts/held/` — visible in `prompts list`, hidden from `hud`/`briefing`, skipped by `prompts next`), `archived` (consumed or filed away). `shelved` is a legacy spelling accepted for older files; `claimed` is reserved for a future "in-flight" state but is currently a synonym for archived in practice.
 
 ### Command Journal (opt-in)
 

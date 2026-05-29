@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { asString, die, resolveDocPath, toRepoPath } from './util.mjs';
-import { consumePrompt, pendingPromptsOldestFirst } from './prompts.mjs';
+import { consumePrompt, pendingPromptsOldestFirst, resolvePromptInput } from './prompts.mjs';
 import { runPickup } from './lifecycle.mjs';
 
 // Top-level `dotmd use [file]` — the single "start engaging with this doc"
@@ -22,7 +22,7 @@ export async function runUse(argv, config, opts = {}) {
     return consumePrompt(head.abs, config, opts);
   }
 
-  const filePath = resolveDocPath(positional, config);
+  const filePath = resolveDocPath(positional, config) ?? resolvePromptInput(positional, config, { dieOnMiss: false });
   if (!filePath) die(`File not found: ${positional}`);
 
   const raw = readFileSync(filePath, 'utf8');

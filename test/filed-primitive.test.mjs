@@ -68,28 +68,25 @@ function run(args) {
 afterEach(() => { if (tmpDir) rmSync(tmpDir, { recursive: true, force: true }); });
 
 describe('F15: filed-primitive', () => {
-  it('transition INTO a filed status moves the file into <root>/<status>/', () => {
+  it('transition INTO a filed status moves the file into the type folder bucket', () => {
     setupFiledProject();
     const file = writePlan('alpha');
     const r = run(['set', 'backlog', file]);
     strictEqual(r.status, 0, `set backlog should succeed: ${r.stderr}`);
-    const expected = path.join(docsDir, 'backlog','alpha.md');
+    const expected = path.join(plansDir, 'backlog','alpha.md');
     ok(existsSync(expected), `expected file at ${expected}, stderr=${r.stderr}`);
     ok(!existsSync(file), 'original flat file should have moved');
     match(readFileSync(expected, 'utf8'), /status: backlog/);
   });
 
-  it('transition OUT of a filed status moves the file back to <root>/', () => {
+  it('transition OUT of a filed status moves the file back to the type folder', () => {
     setupFiledProject();
     const file = writePlan('beta');
     run(['set', 'backlog', file]);  // file in plans/backlog/beta.md
-    const filed = path.join(docsDir, 'backlog','beta.md');
+    const filed = path.join(plansDir, 'backlog','beta.md');
     const r = run(['set', 'active', filed]);
     strictEqual(r.status, 0, `set active should succeed: ${r.stderr}`);
-    // unfiling returns to docsRoot (not type-subdir) — symmetric with the
-    // filing target. Could revisit if/when the symmetric un-filing rule is
-    // "return to wherever new docs of this type are scaffolded by default."
-    const back = path.join(docsDir, 'beta.md');
+    const back = path.join(plansDir, 'beta.md');
     ok(existsSync(back), `expected file back at ${back}, stderr=${r.stderr}`);
     ok(!existsSync(filed), 'filed location should be empty');
     match(readFileSync(back, 'utf8'), /status: active/);
@@ -99,7 +96,7 @@ describe('F15: filed-primitive', () => {
     setupFiledProject();
     const file = writePlan('gamma');
     run(['set', 'backlog', file]);
-    const filed = path.join(docsDir, 'backlog','gamma.md');
+    const filed = path.join(plansDir, 'backlog','gamma.md');
     const r = run(['set', 'archived', filed]);
     strictEqual(r.status, 0, `set archived should succeed: ${r.stderr}`);
     const archived = path.join(docsDir, 'archived', 'gamma.md');
@@ -126,6 +123,25 @@ describe('F15: filed-primitive', () => {
     strictEqual(r.status, 0, `archive transition should succeed: ${r.stderr}`);
     const expected = path.join(docsDir, 'archived', 'classic.md');
     ok(existsSync(expected), `expected classic archive at ${expected}`);
+  });
+
+  it('default paused plans move into docs/plans/held/', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-held-plan-'));
+    spawnSync('git', ['init', '-q'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.email', 't@t.com'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.name', 'T'], { cwd: tmpDir });
+    docsDir = path.join(tmpDir, 'docs');
+    plansDir = path.join(docsDir, 'plans');
+    mkdirSync(plansDir, { recursive: true });
+    configPath = path.join(tmpDir, 'dotmd.config.mjs');
+    writeFileSync(configPath, `export const root = 'docs';\n`);
+    const file = writePlan('pause-me');
+
+    const r = run(['set', 'paused', file]);
+    strictEqual(r.status, 0, `set paused should succeed: ${r.stderr}`);
+    const expected = path.join(plansDir, 'held', 'pause-me.md');
+    ok(existsSync(expected), `expected paused plan at ${expected}`);
+    match(readFileSync(expected, 'utf8'), /status: paused/);
   });
 
   it('docs in filed bucket dirs do not trigger archive-drift validator errors', () => {

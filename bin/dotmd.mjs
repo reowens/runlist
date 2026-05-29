@@ -44,7 +44,7 @@ const FLAG_SPECS = {
   prompts: {
     flags: new Set(['--json', '--status', '--include-archived', '--sort', '--limit', '--all', '--no-index', '--show-files', '--body', '--message', '--title']),
     values: new Set(['--status', '--sort', '--limit', '--body', '--message', '--title']),
-    subcommands: new Set(['list', 'next', 'use', 'resume', 'archive', 'new', 'shelve', 'unshelve', 'status']),
+    subcommands: new Set(['list', 'next', 'use', 'resume', 'archive', 'new', 'hold', 'unhold', 'shelve', 'unshelve', 'status']),
   },
 };
 
@@ -65,12 +65,12 @@ const HELP = {
 
 Common commands:
   plans                 Live plans (excludes archived)
-  prompts               Prompt queue/admin (list, next, archive, new, shelve)
+  prompts               Prompt queue/admin (list, next, archive, new, hold)
   briefing              Full briefing with plan counts + next steps
   agent-context         Compact bounded JSON context for agents
   set <status> [file]   Transition status (start work, finish, archive — all via target status)
   new <type> <name>     Create plan/doc/prompt (pipe stdin or @path for body)
-  use [<file>]          Open a doc by type: prompt → consume, plan → start, doc → read
+  use [<file-or-prompt-slug>] Open a doc by type: prompt → consume, plan → start, doc → read
                         (no file: consume oldest pending prompt)
   archive <file>        Close out a plan (status → archived, move, update refs)
 
@@ -95,8 +95,8 @@ View & Query:
   focus [status] [--json]           Detailed view for one status group
   query [filters] [--json]          Filtered search (--status, --keyword, --stale, etc.)
   plans                             Live plans (excludes archived; --include-archived for all)
-  use [<file>]                      Open a doc by type: prompt → consume, plan → start, doc → read
-  prompts [list|archive|new|shelve] Prompt admin (list / archive / save / shelve). Use \`dotmd use\` to consume.
+  use [<file-or-prompt-slug>]       Open a doc by type: prompt → consume, plan → start, doc → read
+  prompts [list|archive|new|hold] Prompt admin (list / archive / save / hold). Use \`dotmd use\` to consume.
   stale                             Stale docs (preset)
   actionable                        Docs with next steps (preset)
 
@@ -235,9 +235,13 @@ prompt statuses
                  \`dotmd prompts use <file>\` prints body + archives atomically.
                  \`dotmd prompts next\` does the same for the oldest pending.
 
-  shelved        Saved but hidden from \`hud\` / \`briefing\` / \`prompts next\`.
+  held           Saved under prompts/held/ and hidden from \`hud\` /
+                 \`briefing\` / \`prompts next\`.
                  Still listed by \`dotmd prompts list\`.
-                 \`dotmd prompts unshelve <file>\` → pending.
+                 \`dotmd prompts unhold <file>\` → pending.
+
+  shelved        Legacy spelling for held prompts. \`dotmd prompts shelve\`
+                 now writes \`status: held\`.
 
   claimed        Legacy intermediate state (atomic use → archived now).
 
@@ -920,10 +924,11 @@ Subcommands:
   resume <file-or-slug>      Alias for \`use\` — same behavior, easier name
                              when continuing a session
   archive <file-or-slug>     Archive a prompt without printing its body
-  shelve <file-or-slug>      Park a prompt (status → shelved): kept in list,
-                             hidden from hud/briefing pending surfaces, skipped
-                             by \`prompts next\`. Use for "saved but not next."
-  unshelve <file-or-slug>    Move a shelved prompt back to pending.
+  hold <file-or-slug>        Park a prompt (status → held) under prompts/held/:
+                             kept in list, hidden from hud/briefing pending
+                             surfaces, skipped by \`prompts next\`.
+  unhold <file-or-slug>      Move a held prompt back to pending.
+  shelve / unshelve          Legacy aliases for hold / unhold.
   new <slug> [body]          Create a new prompt (alias for
                              \`dotmd new prompt <slug> [body]\`)
 
@@ -931,7 +936,7 @@ Subcommands:
 slug matching a prompt basename, or a unique substring of a prompt
 path. Ambiguous substrings error with the candidate list.
 
-Default prompt statuses: pending, shelved, claimed, archived.
+Default prompt statuses: pending, held, shelved, claimed, archived.
 
 Examples:
   dotmd prompts                        # pending prompts (default)

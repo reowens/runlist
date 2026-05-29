@@ -212,6 +212,24 @@ describe('dotmd prompts use', () => {
       `consume confirmation should name the archived path, not the stale source path:\n${r.stderr}`);
   });
 
+  it('top-level `dotmd use <slug>` resolves prompt basenames and consumes atomically', () => {
+    writePrompt('resume-from-slug', { body: 'slug body' });
+    const r = run(['use', 'resume-from-slug']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(r.stdout.includes('slug body'), `expected prompt body:\n${r.stdout}`);
+    ok(!existsSync(path.join(promptsDir, 'resume-from-slug.md')), 'source archived');
+    ok(existsSync(path.join(docsDir, 'archived', 'resume-from-slug.md')), 'archived target exists');
+    ok(r.stderr.includes('Consumed: docs/archived/resume-from-slug.md'), r.stderr);
+  });
+
+  it('top-level `dotmd use <slug>.md` resolves prompt basenames and consumes atomically', () => {
+    writePrompt('resume-with-ext', { body: 'ext body' });
+    const r = run(['use', 'resume-with-ext.md']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(r.stdout.includes('ext body'), `expected prompt body:\n${r.stdout}`);
+    ok(existsSync(path.join(docsDir, 'archived', 'resume-with-ext.md')), 'archived target exists');
+  });
+
   it('refuses non-prompt files', () => {
     const file = path.join(docsDir, 'plan.md');
     writeFileSync(file, '---\ntype: plan\nstatus: active\n---\n# plan body\n');
@@ -359,55 +377,70 @@ describe('dotmd prompts archive', () => {
   });
 });
 
-describe('F14: shelved prompt status', () => {
+describe('F14: held prompt status', () => {
   beforeEach(setupProject);
 
-  it('`prompts list` shows shelved prompts alongside pending', () => {
-    writePrompt('parked', { status: 'shelved' });
+  it('`prompts list` shows held prompts alongside pending', () => {
+    writePrompt('parked', { status: 'held' });
     writePrompt('active-one', { status: 'pending' });
     const r = run(['prompts', 'list', '--include-archived']);
     strictEqual(r.status, 0, r.stderr);
-    ok(r.stdout.includes('parked'), `list should show shelved prompt:\n${r.stdout}`);
+    ok(r.stdout.includes('parked'), `list should show held prompt:\n${r.stdout}`);
     ok(r.stdout.includes('active-one'), `list should still show pending:\n${r.stdout}`);
   });
 
-  it('`prompts next` skips shelved and only consumes pending', () => {
-    writePrompt('shelf', { status: 'shelved', created: '2025-01-01', body: 'shelf body' });
+  it('`prompts next` skips held and only consumes pending', () => {
+    writePrompt('shelf', { status: 'held', created: '2025-01-01', body: 'shelf body' });
     writePrompt('hot', { status: 'pending', created: '2025-06-01', body: 'hot body' });
     const r = run(['prompts', 'next']);
     strictEqual(r.status, 0, r.stderr);
     ok(r.stdout.includes('hot body'), `should consume the pending one:\n${r.stdout}`);
-    ok(!r.stdout.includes('shelf body'), `must not consume shelved:\n${r.stdout}`);
+    ok(!r.stdout.includes('shelf body'), `must not consume held:\n${r.stdout}`);
   });
 
-  it('`prompts next` reports empty queue when only shelved prompts exist', () => {
-    writePrompt('only-shelved', { status: 'shelved' });
+  it('`prompts next` reports empty queue when only held prompts exist', () => {
+    writePrompt('only-held', { status: 'held' });
     const r = run(['prompts', 'next']);
     ok(r.status !== 0, 'non-zero exit when no pending');
     ok(r.stderr.includes('No pending prompts'), `expected empty-queue error:\n${r.stderr}`);
   });
 
-  it('`prompts shelve` flips status pending → shelved', () => {
+  it('`prompts hold` flips status pending → held and moves under prompts/held/', () => {
     const file = writePrompt('todo-later', { status: 'pending' });
-    const r = run(['prompts', 'shelve', 'todo-later']);
+    const r = run(['prompts', 'hold', 'todo-later']);
     strictEqual(r.status, 0, r.stderr);
-    const after = readFileSync(file, 'utf8');
-    ok(after.includes('status: shelved'), `status should flip:\n${after}`);
+    const held = path.join(promptsDir, 'held', 'todo-later.md');
+    ok(!existsSync(file), 'source prompt should move out of the pending folder');
+    ok(existsSync(held), 'held prompt should live under prompts/held/');
+    const after = readFileSync(held, 'utf8');
+    ok(after.includes('status: held'), `status should flip:\n${after}`);
   });
 
-  it('`prompts unshelve` flips status shelved → pending', () => {
-    const file = writePrompt('back-on-deck', { status: 'shelved' });
-    const r = run(['prompts', 'unshelve', 'back-on-deck']);
+  it('`prompts unhold` flips status held → pending and moves back to prompts/', () => {
+    const file = writePrompt('back-on-deck', { status: 'pending' });
+    run(['prompts', 'hold', 'back-on-deck']);
+    const held = path.join(promptsDir, 'held', 'back-on-deck.md');
+    const r = run(['prompts', 'unhold', 'back-on-deck']);
     strictEqual(r.status, 0, r.stderr);
     const after = readFileSync(file, 'utf8');
     ok(after.includes('status: pending'), `status should flip back:\n${after}`);
+    ok(!existsSync(held), 'held path should be empty after unhold');
   });
 
-  it('`dotmd use` skips shelved prompts when picking the oldest pending', () => {
+  it('legacy `prompts shelve` aliases to hold', () => {
+    const file = writePrompt('legacy-shelve', { status: 'pending' });
+    const r = run(['prompts', 'shelve', 'legacy-shelve']);
+    strictEqual(r.status, 0, r.stderr);
+    const held = path.join(promptsDir, 'held', 'legacy-shelve.md');
+    ok(!existsSync(file), 'source prompt should move');
+    ok(readFileSync(held, 'utf8').includes('status: held'), 'legacy alias writes canonical held status');
+  });
+
+  it('`dotmd use` skips held prompts when picking the oldest pending', () => {
     // HUD no longer surfaces prompt counts; the load-bearing assertion moved
-    // to `dotmd use` (the canonical consumer): shelved prompts must not be
+    // to `dotmd use` (the canonical consumer): held prompts must not be
     // returned as "oldest pending".
-    writePrompt('parked', { status: 'shelved' });
+    writePrompt('parked', { status: 'held' });
     const r = run(['use']);
     ok(r.status !== 0, 'should refuse with no pending prompts');
     ok(/No pending prompts/.test(r.stderr ?? r.stdout),

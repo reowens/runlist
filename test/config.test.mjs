@@ -33,6 +33,7 @@ describe('resolveConfig', () => {
     ok(config.validStatuses.has('draft'));      // doc-specific
     ok(config.validStatuses.has('review'));     // doc-specific
     ok(config.validStatuses.has('deprecated')); // doc-specific
+    ok(config.validStatuses.has('held'));       // prompt-specific
     ok(config.validTypes.has('plan'));
     ok(config.validTypes.has('doc'));
     ok(config.validTypes.has('prompt'));
@@ -77,6 +78,21 @@ describe('resolveConfig', () => {
     ok(!terminalStatuses.has('done'), 'done dropped from terminalStatuses');
     ok(!skipStaleFor.has('done'));
     ok(!skipWarningsFor.has('done'));
+  });
+
+  it('default filed statuses move held prompts and paused plans into held buckets', async () => {
+    const config = await resolveConfig(tmpDir);
+    strictEqual(config.lifecycle.filedStatuses.get('held'), 'held');
+    strictEqual(config.lifecycle.filedStatuses.get('shelved'), 'held');
+    strictEqual(config.lifecycle.filedStatuses.get('paused'), 'held');
+  });
+
+  it('user lifecycle.filedStatuses replaces defaults so projects can opt out', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const lifecycle = { filedStatuses: {} };
+    `);
+    const config = await resolveConfig(tmpDir);
+    strictEqual(config.lifecycle.filedStatuses.size, 0);
   });
 
   it('new plan statuses require module by default', async () => {

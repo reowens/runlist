@@ -11,6 +11,7 @@ const CONFIG_FILENAMES = ['dotmd.config.mjs', '.dotmd.config.mjs', 'dotmd.config
 const REPLACE_KEYS = new Set([
   'statuses.staleDays',
   'statuses.rootStatuses',
+  'lifecycle.filedStatuses',
   'presets',
   'context',
 ]);
@@ -36,8 +37,8 @@ const DEFAULTS = {
       staleDays: { draft: 30, active: 14, review: 14 },
     },
     prompt: {
-      statuses: ['pending', 'shelved', 'claimed', 'archived'],
-      context: { expanded: ['pending'], listed: ['shelved'], counted: ['claimed', 'archived'] },
+      statuses: ['pending', 'held', 'shelved', 'claimed', 'archived'],
+      context: { expanded: ['pending'], listed: ['held', 'shelved'], counted: ['claimed', 'archived'] },
       staleDays: { pending: 30 },
     },
   },
@@ -58,10 +59,10 @@ const DEFAULTS = {
     skipStaleFor: ['archived', 'reference', 'partial', 'queued-after'],
     skipWarningsFor: ['archived', 'partial', 'queued-after'],
     terminalStatuses: ['archived', 'deprecated', 'reference'],
-    // F15: opt-in per-status `{ filed: true }` in `types.<type>.statuses`
-    // populates this map (status → dirName). Empty by default — archive: true
-    // remains a separate primitive untouched.
-    filedStatuses: {},
+    // F15: per-status filing buckets (status → dirName). Built-in held/paused
+    // statuses file under the owning type folder; archive remains a separate
+    // primitive untouched.
+    filedStatuses: { held: 'held', shelved: 'held', paused: 'held' },
   },
 
   taxonomy: {

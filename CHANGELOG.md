@@ -5,8 +5,25 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
 
 ## Unreleased
 
+### Changed
+
+- **Prompt shelving is now prompt holding.** `dotmd prompts hold <prompt>` is
+  the canonical "saved but not next" verb. It writes `status: held` and moves
+  the file under `docs/prompts/held/`; `dotmd prompts unhold <prompt>` moves it
+  back to `docs/prompts/`. The old `shelve` / `unshelve` spellings remain as
+  compatibility aliases and write the canonical `held` status.
+- **Filed statuses now live under the document type folder.** A filed plan
+  status moves into `docs/plans/<bucket>/` and filed prompts move into
+  `docs/prompts/<bucket>/`, rather than using a root-level bucket. The default
+  `paused` plan status now files to `docs/plans/held/`, matching the prompt
+  hold primitive.
+
 ### Fixed
 
+- **Top-level `dotmd use <prompt-slug>` now resolves prompt slugs reliably.**
+  `dotmd use resume-foo` and `dotmd use resume-foo.md` now share the same
+  basename / substring resolver as `dotmd prompts use`, then consume and
+  archive the prompt atomically.
 - **Prompt consumption now reports and respects the actual archived path.**
   `dotmd use` / `dotmd prompts use` no longer prints `Consumed:` with the
   stale pre-move path after archiving. Prompt consumption also refuses files

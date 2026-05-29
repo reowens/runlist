@@ -49,6 +49,11 @@ function liveTypeDirsForRoots(config) {
     for (const dirName of filedDirs) {
       if (path.basename(rootRel) === dirName) continue;
       set.add(rootRel ? `${rootRel}/${dirName}` : dirName);
+      for (const typeDir of BUILTIN_TYPE_DIR_NAMES) {
+        if (path.basename(rootRel) === typeDir) continue;
+        const typeRoot = rootRel ? `${rootRel}/${typeDir}` : typeDir;
+        set.add(`${typeRoot}/${dirName}`);
+      }
     }
   }
   return set;

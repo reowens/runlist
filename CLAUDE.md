@@ -14,7 +14,7 @@ Every document has a `type:` field in its frontmatter. Types determine which sta
 |------|---------|----------|
 | `plan` | Execution plans that Claude sessions work on | `in-session`, `active`, `planned`, `blocked`, `partial`, `paused`, `awaiting`, `queued-after`, `archived` |
 | `doc` | Reference material, design docs, specs, ADRs, RFCs, investigations | `draft`, `active`, `review`, `reference`, `deprecated`, `archived` |
-| `prompt` | Saved prompts that seed future sessions (body required) | `pending`, `shelved`, `claimed`, `archived` |
+| `prompt` | Saved prompts that seed future sessions (body required) | `pending`, `held`, `shelved`, `claimed`, `archived` |
 
 ### Plan statuses explained
 
@@ -112,7 +112,7 @@ dotmd new prompt cleanup "look at remaining lint warnings"   # inline body (one-
 
 All four body-input modes (`@path`, stdin, `--message`, inline) work for every body-accepting type (`plan`, `doc`, `prompt`). **Default to `@path` or `-` for multi-line bodies.** Inline puts the entire body on the bash command line — heredoc is brittle for content with backticks, and PreToolUse hooks that scan commands for forbidden literals (e.g. destructive-git patterns) will fire on prose that just *describes* the rule. `@/tmp/foo.md` sidesteps both.
 
-Saved prompts have their own status vocab (`pending`, `shelved`, `claimed`, `archived`). Consume one with `dotmd use [<file>]` (no arg = oldest pending). Admin verbs live under `dotmd prompts list|archive|shelve|unshelve`. `shelved` is the "saved but not next" bucket: visible in `dotmd prompts list`, but hidden from `hud`/`briefing` and skipped by `dotmd use`. Use `dotmd prompts shelve <file>` / `unshelve <file>` to flip.
+Saved prompts have their own status vocab (`pending`, `held`, `shelved`, `claimed`, `archived`). Consume one with `dotmd use [<file-or-slug>]` (no arg = oldest pending). Admin verbs live under `dotmd prompts list|archive|hold|unhold`. `held` is the "saved but not next" bucket: visible in `dotmd prompts list`, but hidden from `hud`/`briefing` and skipped by no-arg `dotmd use`. Use `dotmd prompts hold <file>` / `unhold <file>` to flip; `shelve` / `unshelve` remain legacy aliases.
 
 ### Querying by type
 

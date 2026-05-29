@@ -11,7 +11,7 @@ import { green, dim } from './color.mjs';
 // `resume` is an alias for `use` — agents reach for "resume" when continuing a
 // session; `use` reads as internal mechanics. Both names stay valid; the
 // canonical output ("Consumed: …") is unchanged.
-const SUBCOMMANDS = new Set(['list', 'next', 'use', 'resume', 'archive', 'new', 'shelve', 'unshelve']);
+const SUBCOMMANDS = new Set(['list', 'next', 'use', 'resume', 'archive', 'new', 'hold', 'unhold', 'shelve', 'unshelve']);
 
 export async function runPrompts(argv, config, opts = {}) {
   const sub = argv[0];
@@ -28,8 +28,10 @@ export async function runPrompts(argv, config, opts = {}) {
     case 'resume':   return runPromptsUse(rest, config, opts);
     case 'archive':  return runPromptsArchive(rest, config, opts);
     case 'new':      return runPromptsNew(rest, config, opts);
-    case 'shelve':   return runPromptsShelve(rest, config, opts);
-    case 'unshelve': return runPromptsUnshelve(rest, config, opts);
+    case 'hold':     return runPromptsHold(rest, config, opts);
+    case 'unhold':   return runPromptsUnhold(rest, config, opts);
+    case 'shelve':   return runPromptsHold(rest, config, opts);
+    case 'unshelve': return runPromptsUnhold(rest, config, opts);
   }
 }
 
@@ -190,7 +192,8 @@ function runPromptsNext(argv, config, opts = {}) {
 // path + '.md', exact basename match across type: prompt docs, substring
 // match across type: prompt docs. Returns the absolute path or dies with a
 // helpful message (no match / ambiguous match).
-function resolvePromptInput(input, config) {
+export function resolvePromptInput(input, config, options = {}) {
+  const dieOnMiss = options.dieOnMiss !== false;
   const direct = resolveDocPath(input, config);
   if (direct) return direct;
 
@@ -201,7 +204,10 @@ function resolvePromptInput(input, config) {
 
   const index = buildIndex(config);
   const prompts = index.docs.filter(d => d.type === 'prompt');
-  if (prompts.length === 0) die(`No prompts in the index.`);
+  if (prompts.length === 0) {
+    if (dieOnMiss) die(`No prompts in the index.`);
+    return null;
+  }
 
   const slug = input.replace(/\.md$/, '');
 
@@ -219,7 +225,8 @@ function resolvePromptInput(input, config) {
     die(`Multiple prompts match "${input}":\n${bySubstring.map(d => '  ' + d.path).join('\n')}`);
   }
 
-  die(`No prompt found matching: ${input}`);
+  if (dieOnMiss) die(`No prompt found matching: ${input}`);
+  return null;
 }
 
 function runPromptsUse(argv, config, opts = {}) {
@@ -300,16 +307,16 @@ async function runPromptsNew(argv, config, opts = {}) {
   return runNew(['prompt', ...argv], config, opts);
 }
 
-async function runPromptsShelve(argv, config, opts = {}) {
+async function runPromptsHold(argv, config, opts = {}) {
   const input = argv.find(a => !a.startsWith('-'));
-  if (!input) die('Usage: dotmd prompts shelve <file-or-slug>');
+  if (!input) die('Usage: dotmd prompts hold <file-or-slug>');
   const filePath = resolvePromptInput(input, config);
-  return runStatus([filePath, 'shelved'], config, opts);
+  return runStatus([filePath, 'held'], config, opts);
 }
 
-async function runPromptsUnshelve(argv, config, opts = {}) {
+async function runPromptsUnhold(argv, config, opts = {}) {
   const input = argv.find(a => !a.startsWith('-'));
-  if (!input) die('Usage: dotmd prompts unshelve <file-or-slug>');
+  if (!input) die('Usage: dotmd prompts unhold <file-or-slug>');
   const filePath = resolvePromptInput(input, config);
   return runStatus([filePath, 'pending'], config, opts);
 }

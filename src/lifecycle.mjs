@@ -26,6 +26,23 @@ function findFileRoot(filePath, config) {
   return roots.find(r => filePath.startsWith(r + '/')) ?? config.docsRoot;
 }
 
+function defaultTypeDir(docType, config) {
+  if (docType === 'plan') return 'plans';
+  if (docType === 'prompt') return 'prompts';
+  const templateDir = config.raw?.templates?.[docType]?.dir;
+  return typeof templateDir === 'string' && templateDir ? templateDir : null;
+}
+
+function findFilingRoot(filePath, fileRoot, docType, config) {
+  const dirName = defaultTypeDir(docType, config);
+  if (!dirName) return fileRoot;
+  if (path.basename(fileRoot) === dirName) return fileRoot;
+
+  const relSegments = path.relative(fileRoot, filePath).split(path.sep);
+  if (relSegments[0] === dirName) return path.join(fileRoot, dirName);
+  return fileRoot;
+}
+
 // Best-effort index regen for any doc-set or doc-status mutation. The
 // generated block groups by status and embeds per-doc snapshots, so any
 // change that affects what would render leaves the index stale. Wrapped
@@ -167,8 +184,9 @@ export async function runStatus(argv, config, opts = {}) {
 
   const today = nowIso();
   const archiveDir = path.join(fileRoot, config.archiveDir);
-  const relFromRoot = path.relative(fileRoot, filePath);
-  const relSegments = relFromRoot.split(path.sep);
+  const filingRoot = findFilingRoot(filePath, fileRoot, docType, config);
+  const relFromFilingRoot = path.relative(filingRoot, filePath);
+  const relSegments = relFromFilingRoot.split(path.sep);
   const inArchive = isArchivedPath(toRepoPath(filePath, config.repoRoot), config);
   const isArchiving = config.lifecycle.archiveStatuses.has(newStatus) && !inArchive;
   const isUnarchiving = !config.lifecycle.archiveStatuses.has(newStatus) && inArchive;
@@ -200,12 +218,12 @@ export async function runStatus(argv, config, opts = {}) {
       finalPath = targetPath;
     }
     if (isFiling) {
-      const targetPath = path.join(fileRoot, newFiledDir, path.basename(filePath));
+      const targetPath = path.join(filingRoot, newFiledDir, path.basename(filePath));
       process.stdout.write(`${prefix} Would file: ${toRepoPath(filePath, config.repoRoot)} → ${toRepoPath(targetPath, config.repoRoot)}\n`);
       finalPath = targetPath;
     }
     if (isUnfiling) {
-      const targetPath = path.join(fileRoot, path.basename(filePath));
+      const targetPath = path.join(filingRoot, path.basename(filePath));
       process.stdout.write(`${prefix} Would unfile: ${toRepoPath(filePath, config.repoRoot)} → ${toRepoPath(targetPath, config.repoRoot)}\n`);
       finalPath = targetPath;
     }
@@ -236,7 +254,7 @@ export async function runStatus(argv, config, opts = {}) {
   }
 
   if (isFiling) {
-    const targetDir = path.join(fileRoot, newFiledDir);
+    const targetDir = path.join(filingRoot, newFiledDir);
     mkdirSync(targetDir, { recursive: true });
     const targetPath = path.join(targetDir, path.basename(filePath));
     if (existsSync(targetPath)) { die(`Target already exists: ${toRepoPath(targetPath, config.repoRoot)}`); }
@@ -246,7 +264,7 @@ export async function runStatus(argv, config, opts = {}) {
   }
 
   if (isUnfiling) {
-    const targetPath = path.join(fileRoot, path.basename(filePath));
+    const targetPath = path.join(filingRoot, path.basename(filePath));
     if (existsSync(targetPath)) { die(`Target already exists: ${toRepoPath(targetPath, config.repoRoot)}`); }
     const result = gitMv(filePath, targetPath, config.repoRoot);
     if (result.status !== 0) { die(result.stderr || 'git mv failed.'); }
