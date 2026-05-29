@@ -15,7 +15,7 @@ import {
   readLeases,
   currentSessionId,
   migrateLease,
-  STALE_LEASE_AGE_MS,
+  isLeaseReclaimable,
   STALE_LEASE_AGE_HOURS,
 } from './lease.mjs';
 import { buildCard, renderCard } from './pickup-card.mjs';
@@ -292,7 +292,7 @@ export async function runPickup(argv, config, opts = {}) {
   // Without this, a stale lease from a crashed prior session would still
   // produce 'conflict-stale' and force the agent to pass --takeover even
   // though we already know the holder is gone.
-  if (!dryRun) {
+  if (!dryRun && !takeover) {
     try {
       const { scrubStaleSilently } = await import('./lease-scrub.mjs');
       scrubStaleSilently(config);
@@ -511,10 +511,7 @@ export async function runUnpickup(argv, config, opts = {}) {
   if (targets === null) {
     // --stale path
     if (dryRun) {
-      const staleLeases = Object.values(leases).filter(l => {
-        const age = Date.now() - new Date(l.pickedUpAt).getTime();
-        return Number.isNaN(age) || age > STALE_LEASE_AGE_MS;
-      });
+      const staleLeases = Object.values(leases).filter(l => isLeaseReclaimable(l, { currentSession: session }));
       for (const l of staleLeases) {
         process.stderr.write(`${dim('[dry-run]')} Would release stale: ${l.path} (${l.session})\n`);
       }

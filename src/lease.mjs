@@ -100,18 +100,28 @@ export function isPidAlive(pid, host) {
   }
 }
 
+export function isLeasePidDead(lease) {
+  if (!lease || lease.host !== os.hostname()) return false;
+  if (!Number.isInteger(lease.pid) || lease.pid <= 0) return false;
+  return !isPidAlive(lease.pid, lease.host);
+}
+
 export function isLeaseStale(lease) {
   const t = new Date(lease.pickedUpAt).getTime();
   if (Number.isNaN(t)) return true;
   return Date.now() - t > STALE_LEASE_AGE_MS;
-  // Note: pid liveness is intentionally NOT used here. dotmd's own CLI pid is
-  // dead the moment the process exits, so it's not a useful signal for "is the
-  // session that wrote this lease still active." Use age and explicit takeover.
 }
 
-export function findStaleLeases(config) {
+export function isLeaseReclaimable(lease, opts = {}) {
+  if (isLeaseStale(lease)) return true;
+  const currentSession = opts.currentSession ?? currentSessionId();
+  if (lease?.session === currentSession) return false;
+  return isLeasePidDead(lease);
+}
+
+export function findStaleLeases(config, opts = {}) {
   const leases = readLeases(config);
-  return Object.values(leases).filter(isLeaseStale);
+  return Object.values(leases).filter(l => isLeaseReclaimable(l, opts));
 }
 
 export function acquireLease(config, repoPath, oldStatus, opts = {}) {
@@ -129,8 +139,7 @@ export function acquireLease(config, repoPath, oldStatus, opts = {}) {
     }
 
     if (existing && !opts.takeover) {
-      const ageMs = Date.now() - new Date(existing.pickedUpAt).getTime();
-      const stale = Number.isNaN(ageMs) || ageMs > STALE_LEASE_AGE_MS;
+      const stale = isLeaseReclaimable(existing, { currentSession: session });
       return {
         outcome: stale ? 'conflict-stale' : 'conflict-alive',
         conflict: existing,
@@ -189,12 +198,13 @@ export function releaseAllForSession(config, sessionId, opts = {}) {
   });
 }
 
-export function releaseStale(config) {
+export function releaseStale(config, opts = {}) {
   return withLeaseLock(config, () => {
     const leases = readLeases(config);
     const released = [];
+    const currentSession = opts.currentSession ?? currentSessionId();
     for (const [key, lease] of Object.entries(leases)) {
-      if (isLeaseStale(lease)) {
+      if (isLeaseReclaimable(lease, { currentSession })) {
         released.push(lease);
         delete leases[key];
       }

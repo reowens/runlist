@@ -15,7 +15,9 @@ import {
   findStaleLeases,
   migrateLease,
   isPidAlive,
+  isLeasePidDead,
   isLeaseStale,
+  isLeaseReclaimable,
   leasePathFor,
   STALE_LEASE_AGE_MS,
   STALE_LEASE_AGE_HOURS,
@@ -119,6 +121,30 @@ describe('acquireLease', () => {
     strictEqual(result.conflict.session, 'sess-A');
   });
 
+  it('cross-session with dead same-host pid reports conflict-stale', () => {
+    acquireLease(config, 'docs/plans/foo.md', 'active');
+    const leases = readLeases(config);
+    leases['docs/plans/foo.md'].pid = 999999999;
+    writeLeases(config, leases);
+
+    process.env.CLAUDE_CODE_SESSION_ID = 'sess-B';
+    const result = acquireLease(config, 'docs/plans/foo.md', 'active');
+    strictEqual(result.outcome, 'conflict-stale');
+    strictEqual(result.conflict.session, 'sess-A');
+  });
+
+  it('same-session re-attach ignores the prior dead command pid', () => {
+    acquireLease(config, 'docs/plans/foo.md', 'active');
+    const leases = readLeases(config);
+    leases['docs/plans/foo.md'].pid = 999999999;
+    writeLeases(config, leases);
+
+    const result = acquireLease(config, 'docs/plans/foo.md', 'active');
+    strictEqual(result.outcome, 'reattached');
+    strictEqual(result.lease.session, 'sess-A');
+    strictEqual(result.lease.pid, process.pid);
+  });
+
   it('--takeover replaces the lease and records takenOverFrom', () => {
     acquireLease(config, 'docs/plans/foo.md', 'active');
     const original = readLeases(config)['docs/plans/foo.md'];
@@ -190,11 +216,35 @@ describe('findStaleLeases / releaseStale', () => {
 
   it('does NOT flag a fresh lease as stale (pid alive or not)', () => {
     acquireLease(config, 'docs/plans/foo.md', 'active');
-    // Even with a forged-dead pid, freshness wins (pid is informational only).
+    // Even with a forged-dead pid, freshness wins for the current session.
     const leases = readLeases(config);
     leases['docs/plans/foo.md'].pid = 999999999;
     writeLeases(config, leases);
 
+    const stale = findStaleLeases(config);
+    strictEqual(stale.length, 0);
+  });
+
+  it('flags a fresh dead-pid lease held by a different same-host session', () => {
+    acquireLease(config, 'docs/plans/foo.md', 'active');
+    const leases = readLeases(config);
+    leases['docs/plans/foo.md'].pid = 999999999;
+    writeLeases(config, leases);
+
+    process.env.CLAUDE_CODE_SESSION_ID = 'sess-B';
+    const stale = findStaleLeases(config);
+    strictEqual(stale.length, 1);
+    strictEqual(stale[0].path, 'docs/plans/foo.md');
+  });
+
+  it('does NOT flag a fresh dead-pid lease from another host', () => {
+    acquireLease(config, 'docs/plans/foo.md', 'active');
+    const leases = readLeases(config);
+    leases['docs/plans/foo.md'].host = 'some-other-host.local';
+    leases['docs/plans/foo.md'].pid = 999999999;
+    writeLeases(config, leases);
+
+    process.env.CLAUDE_CODE_SESSION_ID = 'sess-B';
     const stale = findStaleLeases(config);
     strictEqual(stale.length, 0);
   });
@@ -371,5 +421,22 @@ describe('isPidAlive', () => {
     strictEqual(isPidAlive(0, os.hostname()), false);
     strictEqual(isPidAlive(-5, os.hostname()), false);
     strictEqual(isPidAlive('not-a-number', os.hostname()), false);
+  });
+});
+
+describe('isLeasePidDead / isLeaseReclaimable', () => {
+  it('treats dead same-host pids as reclaimable only for a different session', () => {
+    const lease = {
+      path: 'docs/plans/foo.md',
+      oldStatus: 'active',
+      session: 'sess-A',
+      pid: 999999999,
+      host: os.hostname(),
+      pickedUpAt: new Date().toISOString(),
+    };
+
+    strictEqual(isLeasePidDead(lease), true);
+    strictEqual(isLeaseReclaimable(lease, { currentSession: 'sess-A' }), false);
+    strictEqual(isLeaseReclaimable(lease, { currentSession: 'sess-B' }), true);
   });
 });

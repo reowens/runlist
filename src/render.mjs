@@ -360,7 +360,7 @@ export function renderBriefing(index, config) {
   try {
     const staleLeases = findStaleLeases(config);
     if (staleLeases.length > 0) {
-      lines.push(yellow(`Stuck in-session: ${staleLeases.length} (>1d or dead pid, run \`dotmd release --stale\`)`));
+      lines.push(yellow(`Stuck in-session: ${staleLeases.length} (>4h or dead same-host pid, run \`dotmd release --stale\`)`));
     }
   } catch {}
 

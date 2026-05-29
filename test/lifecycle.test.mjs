@@ -621,11 +621,17 @@ describe('pickup with leases', () => {
     ok(second.stdout.includes('Plan body'), 'still prints body');
   });
 
-  it('cross-session pickup of a fresh lease blocks with --takeover suggestion', () => {
+  it('cross-session pickup of a live-pid lease blocks with --takeover suggestion', () => {
     const docsDir = setupProject();
     const filePath = writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active', '# Plan\n');
 
     runCli(['pickup', filePath], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
+    const leaseFile = path.join(tmpDir, '.dotmd', 'in-session.json');
+    const leases = JSON.parse(readFileSync(leaseFile, 'utf8'));
+    const key = Object.keys(leases)[0];
+    leases[key].pid = process.pid;
+    writeFileSync(leaseFile, JSON.stringify(leases, null, 2) + '\n');
+
     const second = runCli(['pickup', filePath], { CLAUDE_CODE_SESSION_ID: 'sess-B' });
     ok(second.status !== 0, 'should fail');
     ok(second.stderr.includes('Held by') || second.stderr.includes('--takeover'), `expected conflict message, got: ${second.stderr}`);
@@ -698,6 +704,25 @@ describe('pickup with leases', () => {
     const newKey = Object.keys(after)[0];
     strictEqual(after[newKey].session, 'sess-B', `sess-B should now own the lease, got: ${after[newKey].session}`);
     ok(!after[newKey].takenOverFrom, 'auto-scrub path should not record takenOverFrom (no --takeover was needed)');
+  });
+
+  it('cross-session pickup of a dead-pid lease auto-scrubs and succeeds', () => {
+    const docsDir = setupProject();
+    const filePath = writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active', '# Plan\n');
+
+    runCli(['pickup', filePath], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
+    const leaseFile = path.join(tmpDir, '.dotmd', 'in-session.json');
+    const leases = JSON.parse(readFileSync(leaseFile, 'utf8'));
+    const key = Object.keys(leases)[0];
+    leases[key].pid = 999999999;
+    writeFileSync(leaseFile, JSON.stringify(leases, null, 2) + '\n');
+
+    const second = runCli(['pickup', filePath], { CLAUDE_CODE_SESSION_ID: 'sess-B' });
+    strictEqual(second.status, 0, `dead-pid lease should auto-scrub and pickup should succeed: ${second.stderr}`);
+    const after = JSON.parse(readFileSync(leaseFile, 'utf8'));
+    const newKey = Object.keys(after)[0];
+    strictEqual(after[newKey].session, 'sess-B', `sess-B should now own the lease, got: ${after[newKey].session}`);
+    ok(!after[newKey].takenOverFrom, 'dead-pid auto-scrub path should not record takenOverFrom');
   });
 
   it('--takeover overrides a held lease and records takenOverFrom', () => {
@@ -805,6 +830,24 @@ describe('unpickup', () => {
     const result = runCli(['unpickup', '--stale'], { CLAUDE_CODE_SESSION_ID: 'sess-B' });
     strictEqual(result.status, 0, `--stale failed: ${result.stderr}`);
     ok(!existsSync(leaseFile), 'stale lease cleared');
+    ok(readFileSync(a, 'utf8').includes('status: active'));
+  });
+
+  it('--stale releases fresh dead-pid leases held by another session', () => {
+    const docsDir = setupProject();
+    const a = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active', '');
+    runCli(['pickup', a], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
+
+    const leaseFile = path.join(tmpDir, '.dotmd', 'in-session.json');
+    const leases = JSON.parse(readFileSync(leaseFile, 'utf8'));
+    const key = Object.keys(leases)[0];
+    leases[key].pid = 999999999;
+    writeFileSync(leaseFile, JSON.stringify(leases, null, 2) + '\n');
+
+    const result = runCli(['release', '--stale'], { CLAUDE_CODE_SESSION_ID: 'sess-B' });
+    strictEqual(result.status, 0, `--stale failed: ${result.stderr}`);
+    ok(result.stdout.includes('(stale)'), `expected stale release output, got: ${result.stdout}`);
+    ok(!existsSync(leaseFile), 'dead-pid lease cleared');
     ok(readFileSync(a, 'utf8').includes('status: active'));
   });
 
