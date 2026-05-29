@@ -11,6 +11,15 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
   included in the ship allowlist, matching README and CLAUDE release-doc
   handling.
 
+### Fixed
+
+- **`dotmd new` preserves inline bodies that start with frontmatter.** A quoted
+  positional body beginning with `---` was being mistaken for a dash-prefixed
+  flag and dropped before scaffold/frontmatter merge. Those bodies now flow
+  through the same merge path as `@path` and stdin input, so fields like
+  `current_state` and `next_step` land in frontmatter and the scoped body is
+  preserved.
+
 ## 0.49.1 — 2026-05-28
 
 ### Changed

@@ -271,6 +271,16 @@ function readBodyInput(source) {
 export async function runNew(argv, config, opts = {}) {
   const { dryRun } = opts;
 
+  const knownTypes = new Set(Object.keys(BUILTIN_TEMPLATES));
+  // Also include any custom templates from config
+  for (const k of Object.keys(config.raw?.templates ?? {})) knownTypes.add(k);
+
+  const hasNameForBody = args => {
+    if (args.length >= 2 && knownTypes.has(args[0])) return true;
+    if (args.length >= 1 && !knownTypes.has(args[0])) return true;
+    return false;
+  };
+
   // Parse args. Pull out flags first.
   const positional = [];
   let status = null;
@@ -296,17 +306,16 @@ export async function runNew(argv, config, opts = {}) {
       return;
     }
     // Treat `-` alone (stdin marker) as a positional, not a flag.
-    if (!argv[i].startsWith('-') || argv[i] === '-') positional.push(argv[i]);
+    // Once the type/name have been collected, a positional body may itself
+    // start with `---` frontmatter. Preserve it instead of dropping it as an
+    // unknown flag; the leading frontmatter merge below will handle it.
+    if (!argv[i].startsWith('-') || argv[i] === '-' || hasNameForBody(positional)) positional.push(argv[i]);
   }
 
   // Resolve type vs name:
   //   `dotmd new plan auth-revamp`     → type=plan, name=auth-revamp
   //   `dotmd new auth-revamp`          → type=doc (default), name=auth-revamp
   //   `dotmd new prompt foo "body"`    → type=prompt, name=foo, bodyArg="body"
-  const knownTypes = new Set(Object.keys(BUILTIN_TEMPLATES));
-  // Also include any custom templates from config
-  for (const k of Object.keys(config.raw?.templates ?? {})) knownTypes.add(k);
-
   let typeName, name, bodyArg = null;
   if (positional.length >= 1 && knownTypes.has(positional[0])) {
     typeName = positional[0];

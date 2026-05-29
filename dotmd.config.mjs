@@ -3,6 +3,8 @@
 
 export const root = 'docs';
 
+export const journal = true;
+
 export const index = {
   path: 'docs/docs.md',
   startMarker: '<!-- GENERATED:dotmd:start -->',

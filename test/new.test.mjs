@@ -728,6 +728,31 @@ describe('dotmd new — type-first CLI', () => {
       ok(bodyOnly.includes('Real Title'), 'body content preserved');
     });
 
+    it('inline positional body with leading --- block overlays scaffold frontmatter', () => {
+      const docsDir = setupProject();
+      const body = [
+        '---',
+        'status: planned',
+        'current_state: Scoped plan drafted inline.',
+        'next_step: Run the scoped implementation.',
+        '---',
+        '',
+        '## Problem',
+        '',
+        'real scoped plan body',
+      ].join('\n');
+      const r = run(['new', 'plan', 'inline-frontmatter', body]);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'plans', 'inline-frontmatter.md'), 'utf8');
+      ok(content.includes('status: planned'), 'status overlaid');
+      ok(content.includes('current_state: Scoped plan drafted inline.'), 'current_state overlaid');
+      ok(content.includes('next_step: Run the scoped implementation.'), 'next_step overlaid');
+      ok(content.includes('real scoped plan body'), 'body content preserved');
+      const bodyStart = content.indexOf('\n---\n', 4) + 5;
+      const bodyOnly = content.slice(bodyStart);
+      ok(!bodyOnly.includes('current_state: Scoped plan drafted inline.'), 'frontmatter should not leak into body');
+    });
+
     it('plain body without leading --- is unchanged (back-compat)', () => {
       const docsDir = setupProject();
       const r = run(['new', 'plan', 'plain-body', 'Just a problem statement.']);
