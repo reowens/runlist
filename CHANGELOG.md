@@ -5,17 +5,38 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
 
 ## Unreleased
 
-F6 from `docs/audit-example-project.md`. The last open polish item: `dotmd stats` flat-counted `partial: 84` whether the docs were `plan/partial` (work shipped + tail deferred) or `doc/partial` (incomplete reference material). Now per-type.
+No unreleased changes.
+
+## 0.49.0 — 2026-05-28
+
+Agent-usability release from issues #14 and #15. Focus: make the command
+surface easier for short-lived coding agents to discover, script, and recover
+from.
 
 ### Added
 
-- **`buildIndex` exposes `countsByType` alongside `countsByStatus`. (Audit F6.)** Same input docs, keyed by `type` first: `{ plan: { active: 1, partial: 1, … }, doc: { active: 1, partial: 2, … }, prompt: { … }, unknown: { … } }`. The flat `countsByStatus` stays as the sum across types — back-compat for any external consumer; no removal.
-- **`dotmd stats` renders the Status block per type when 2+ types have docs.** `Plans: active: 34  partial: 22`, `Docs: active: 125  partial: 62`. Single-type corpora keep the existing flat line — no needless `Plans:` header on a plans-only repo. Type order follows `config.validTypes` declaration order; untyped docs render last under `Untyped:`.
-- **`dotmd stats --json` includes `countsByType`** alongside the existing `countsByStatus`. Both populated; tooling can pick whichever shape it prefers.
+- **`dotmd finish` aliases `dotmd release`.** Existing agent docs and closeout loops that say `finish` now route to the same implementation as `release` / `unpickup`.
+- **`dotmd agent-context` and `dotmd context --json --compact`.** Both emit bounded JSON for agents instead of the larger full-context shape.
+- **`dotmd self-check`.** Alias for `dotmd doctor --project`, intended for quick project/version skew diagnostics.
+- **`dotmd prompts list` highlights the next prompt.** Pending prompts sort with the next item first and mark it as `[NEXT]`.
+
+### Changed
+
+- **Top-level help surfaces prompt and lifecycle commands.** Initial help now includes `prompts`; `help all` lists `pickup`, `release`, and `unpickup`.
+- **Text `hud` shows compact actionable state.** When there is something to act on, `hud` prints one bounded state line for held plans, pending prompts, stuck leases, and validation errors.
+- **Unknown flags fail non-zero on agent-facing commands.** Typos such as `dotmd plans --zzznotaflag` now fail instead of being silently ignored.
+- **`check` / `doctor` output separates fixable and manual work.** The text output gives clearer remediation guidance for agent loops.
+- **Glossary diagnostics warn on config drift.** A missing configured glossary section now points at likely recovery paths.
+
+### Fixed
+
+- **Dead same-host pid leases are reclaimable.** `release --stale`, `hud`, and pickup scrub now treat a lease held by another session with a dead same-host pid as stuck even if it is younger than the 4-hour age threshold. Same-session reattach still ignores the old command pid, so an agent does not immediately clear its own fresh lease.
+- **Runlist body links can act as transient runlists.** `dotmd runlist <hub>` now understands markdown links in ordered body sections when no `runlist:` frontmatter exists.
+- **`--takeover` keeps takeover history.** Explicit takeover bypasses the opportunistic dead-pid scrub so `takenOverFrom` is still recorded.
 
 ### Tests
 
-6 new (`test/index.test.mjs` covers the typed shape + untyped bucket; `test/stats.test.mjs` covers flat vs grouped render and JSON exposure). 945 → 951 passing.
+1068 passing at release.
 
 ## 0.39.5 — 2026-05-26
 
@@ -502,15 +523,16 @@ Or just delete `.dotmd/handoffs/` if the queued state is no longer needed.
 ### Added
 
 - **Session leases.** `dotmd pickup` now writes a per-session lease at `<repoRoot>/.dotmd/in-session.json` recording who holds each `in-session` plan (session id, pid, host, prior status, timestamp). Session id is sourced from `$CLAUDE_CODE_SESSION_ID` (set by Claude Code) with fallbacks to `$CLAUDE_SESSION_ID`, `$TERM_SESSION_ID`, and a `shell:<user>@<host>` last resort. The lease enables silent re-attach across `/clear` and auto-compaction (same-session pickup of a plan you already hold no longer errors), distinguishes live conflicts from stale leases, and gives the next agent a clear takeover path. Lease writes are atomic (sibling temp + rename) and serialised by an advisory lockfile with a 5s stale-lock timeout.
-- **`dotmd unpickup [<file>]`.** Releases in-session leases and flips frontmatter back to the recorded prior status. With no args, releases every lease owned by the current session — the form intended for a Claude Code `SessionEnd` hook. Flags: `--to <status>` (override target), `--all` (release every lease), `--stale` (release leases with dead pid or >24h old), `--force` (override cross-session refusal), `--json`, `--dry-run`. Manual-edit fallback: if the plan's status is `in-session` but no lease exists, `--to <status>` flips it anyway with a warning. Calls a new `hooks.onUnpickup` config callback on each release.
-- **`dotmd pickup --takeover`.** Force-claim a plan held by another session (typical use: the prior holder crashed or the lease is >24h old). Records `takenOverFrom: { session, pid, pickedUpAt }` on the new lease for an audit trail.
-- **`dotmd briefing` surfaces stuck leases.** When `findStaleLeases` returns non-empty, the briefing prints `Stuck in-session: N (>1d or dead pid, run \`dotmd unpickup --stale\`)`.
+- **`dotmd unpickup [<file>]`.** Releases in-session leases and flips frontmatter back to the recorded prior status. With no args, releases every lease owned by the current session — the form intended for a Claude Code `SessionEnd` hook. Flags: `--to <status>` (override target), `--all` (release every lease), `--stale` (release leases stale under the then-current lease rule), `--force` (override cross-session refusal), `--json`, `--dry-run`. Manual-edit fallback: if the plan's status is `in-session` but no lease exists, `--to <status>` flips it anyway with a warning. Calls a new `hooks.onUnpickup` config callback on each release.
+- **`dotmd pickup --takeover`.** Force-claim a plan held by another session (typical use: the prior holder crashed or the lease is stale). Records `takenOverFrom: { session, pid, pickedUpAt }` on the new lease for an audit trail.
+- **`dotmd briefing` surfaces stuck leases.** When `findStaleLeases` returns non-empty, the briefing prints a stuck in-session hint with the stale count and release command.
+- **Correction:** 0.17.0 documented dead-pid reclamation too broadly. Current behavior as of 0.49.0 is dead same-host pid or age over 4 hours; historical 0.17.x builds primarily used age-based staleness.
 - **`dotmd init` ensures `.dotmd/` is gitignored.** Creates `.gitignore` if missing, appends `.dotmd/` if absent, and is idempotent on re-run.
 - **README "Session leases & unpickup" section** documenting the lease semantics, the session-id resolution order, the `SessionEnd` hook recipe for `~/.claude/settings.json`, and the takeover workflow.
 
 ### Changed
 
-- `dotmd pickup` no longer hard-rejects a plan whose status is already `in-session`. It defers the decision to the lease layer: same session → silent re-attach (prints body, no frontmatter rewrite); different session, live pid → refuses with `Held by <host>/<session> …`; different session, dead pid or >24h → suggests `--takeover`.
+- `dotmd pickup` no longer hard-rejects a plan whose status is already `in-session`. It defers the decision to the lease layer: same session → silent re-attach (prints body, no frontmatter rewrite); different session, live pid → refuses with `Held by <host>/<session> …`; different session, stale by the then-current lease rule → suggests `--takeover`.
 - `dotmd finish` / `dotmd archive` / `dotmd rename` auto-release (or migrate) the corresponding lease so the common closeout paths don't leave orphan state.
 
 ### Tests

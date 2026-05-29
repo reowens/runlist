@@ -45,7 +45,7 @@ To finish work, archive directly: `dotmd archive <plan-file>`. The legacy `done`
    - Stuck on a human decision → `dotmd set awaiting <plan-file>`
    `set` automatically clears the in-session marker when transitioning to any other status.
 4. To see plans: `dotmd plans` (live), `dotmd plans --status active`, `dotmd plans --status in-session`
-5. Re-attaching: `dotmd set in-session` on a plan your session already has marked in-session silently re-attaches. A plan that another live session is working on refuses; a plan flagged in-session with no live activity (dead pid or >24h) suggests `--takeover`.
+5. Re-attaching: `dotmd set in-session` on a plan your session already has marked in-session silently re-attaches. A plan that another live session is working on refuses; a plan flagged in-session with no live activity is reclaimable when the same-host pid is dead or the lease is older than 4 hours.
 
 ### Resume prompts (saved for future sessions)
 

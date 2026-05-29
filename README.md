@@ -188,7 +188,7 @@ dotmd actionable             List docs with next steps
 dotmd index [--print]        Generate/update docs.md index block
 dotmd hud                    Actionable triage (silent when clean — ideal SessionStart hook)
 dotmd pickup <file>          Pick up a plan (in-session + print body)
-dotmd release [<file>]       Release in-session lease (alias: unpickup)
+dotmd release [<file>]       Release in-session lease (aliases: unpickup, finish)
 dotmd status <file> <status> Transition document status
 dotmd archive <file>         Archive (status + move + update refs)
 dotmd bulk archive <files>   Archive multiple files at once
@@ -583,7 +583,9 @@ dotmd status docs/plans/my-plan.md partial   # shipped + tail deferred (referenc
 dotmd status docs/plans/my-plan.md awaiting  # stuck on a human decision
 ```
 
-`finish` is a legacy command that defaults to `status: done`, which is no longer in the default plan vocabulary as of 0.16. Use `archive` (fully shipped) or `release` + `status` (anything else). If you need it back, add `done` to `types.plan.statuses` in your config.
+`finish` is an alias for `release`, kept for older agent instructions that use
+that verb for closeout. To fully close shipped work, archive it. To keep working
+later, release it back to the prior status or use `dotmd set <status> <file>`.
 
 ### Session leases & release
 
@@ -596,8 +598,8 @@ distinct outcomes when a plan is already `in-session`:
   re-prints the body. No conflict.
 - **Cross-session conflict.** If another live session holds the plan,
   pickup refuses with `Held by <host>/<session> (pid <pid>) since <time>`.
-- **Stale lease.** If the holder's pid is dead (or the lease is >24h old),
-  pickup refuses but suggests `--takeover`.
+- **Reclaimable lease.** If the holder's same-host pid is dead, or the lease is
+  older than 4 hours, pickup can reclaim it without `--takeover`.
 
 Releasing leases (both names work; `release` is the recommended verb):
 
@@ -605,13 +607,13 @@ Releasing leases (both names work; `release` is the recommended verb):
 dotmd release                     # release every lease owned by current session
 dotmd release docs/plans/foo.md   # release that one (refuses cross-session)
 dotmd release --to planned        # override target status (default: lease.oldStatus)
-dotmd release --stale             # release leases with dead pid or >24h old
+dotmd release --stale             # release leases with dead same-host pid or >4h old
 dotmd release --all               # release every lease (administrative)
 dotmd release --json              # { released: [...], skipped: [...] }
 ```
 
-`finish`, `archive`, and `rename` auto-release / migrate the lease, so the
-common closeout paths are covered without ceremony.
+`finish` is the same as `release`. `archive` and `rename` auto-release or
+migrate the lease, so the common closeout paths are covered without ceremony.
 
 **Session id resolution** (in order, first wins):
 
@@ -666,7 +668,7 @@ either is silent.
 
 `dotmd check` also catches the symmetric failure mode: a plan whose
 frontmatter claims `status: in-session` but whose lease either doesn't
-exist (last session crashed before releasing) or is stale (>24h since
+exist (last session crashed before releasing) or is stale (>4h since
 pickup). Each warning names the exact unstuck command
 (`dotmd release <plan>` or `dotmd status <plan> active`), so plans
 don't sit stuck in-session indefinitely. Always-on — legit concurrent
