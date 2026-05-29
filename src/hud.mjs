@@ -246,6 +246,13 @@ export function runHud(argv, config) {
   // one line, the minimum verb set.
   lines.push(dim('dotmd: plans|briefing  set <status> [<file>]  new <type> <slug>  use [<file>]  archive <file>  (use [no-arg] → oldest pending prompt)'));
 
+  const state = [];
+  if (hud.owned?.length) state.push(`held: ${hud.owned.length} (${previewList(hud.owned)})`);
+  if (hud.prompts?.length) state.push(`prompts: ${hud.prompts.length} (${previewList(hud.prompts)})`);
+  if (hud.stale?.length) state.push(`stuck: ${hud.stale.length} (${previewList(hud.stale)})`);
+  if (hud.errors > 0) state.push(`errors: ${hud.errors} (run dotmd check)`);
+  if (state.length) lines.push(yellow(state.join(' · ')));
+
   if (refreshed.length > 0) {
     const from = refreshed[0].from;
     const to = refreshed[0].to;

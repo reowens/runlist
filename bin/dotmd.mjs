@@ -12,11 +12,60 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
 
+const QUERY_FLAGS = new Set([
+  '--type', '--status', '--keyword', '--owner', '--surface', '--module',
+  '--domain', '--audience', '--execution-mode', '--updated-since', '--limit',
+  '--sort', '--group', '--all', '--include-archived', '--exclude-archived',
+  '--stale', '--has-next-step', '--has-blockers', '--checklist-open', '--json',
+  '--git', '--summarize', '--summarize-limit', '--model',
+]);
+const QUERY_VALUE_FLAGS = new Set([
+  '--type', '--status', '--keyword', '--owner', '--surface', '--module',
+  '--domain', '--audience', '--execution-mode', '--updated-since', '--limit',
+  '--sort', '--group', '--summarize-limit', '--model',
+]);
+
+const FLAG_SPECS = {
+  plans: { flags: QUERY_FLAGS, values: QUERY_VALUE_FLAGS, subcommands: new Set(['status']) },
+  query: { flags: QUERY_FLAGS, values: QUERY_VALUE_FLAGS },
+  stale: { flags: QUERY_FLAGS, values: QUERY_VALUE_FLAGS },
+  actionable: { flags: QUERY_FLAGS, values: QUERY_VALUE_FLAGS },
+  list: { flags: new Set(['--json', '--verbose']), values: new Set() },
+  briefing: { flags: new Set(['--json']), values: new Set() },
+  context: { flags: new Set(['--json', '--compact', '--summarize', '--model']), values: new Set(['--model']) },
+  'agent-context': { flags: new Set(['--json']), values: new Set() },
+  hud: { flags: new Set(['--json']), values: new Set() },
+  check: { flags: new Set(['--fix', '--errors-only', '--no-collapse', '--json', '--verbose']), values: new Set() },
+  doctor: { flags: new Set(['--apply', '--yes', '--dry-run', '-n', '--statuses', '--migrate-template', '--migrate-prompts', '--frontmatter-fix', '--project', '--json', '--include-archived']), values: new Set() },
+  runlist: { flags: new Set(['--json', '--takeover', '--full', '--no-index', '--show-files']), values: new Set(), subcommands: new Set(['next']) },
+  release: { flags: new Set(['--json', '--all', '--stale', '--to', '--force', '--no-index', '--show-files']), values: new Set(['--to']) },
+  unpickup: { flags: new Set(['--json', '--all', '--stale', '--to', '--force', '--no-index', '--show-files']), values: new Set(['--to']) },
+  finish: { flags: new Set(['--json', '--all', '--stale', '--to', '--force', '--no-index', '--show-files']), values: new Set(['--to']) },
+  prompts: {
+    flags: new Set(['--json', '--status', '--include-archived', '--sort', '--limit', '--all', '--no-index', '--show-files', '--body', '--message', '--title']),
+    values: new Set(['--status', '--sort', '--limit', '--body', '--message', '--title']),
+    subcommands: new Set(['list', 'next', 'use', 'resume', 'archive', 'new', 'shelve', 'unshelve', 'status']),
+  },
+};
+
+function validateKnownFlags(command, argv, config) {
+  const spec = FLAG_SPECS[command] ?? (config?.presets?.[command] ? { flags: QUERY_FLAGS, values: QUERY_VALUE_FLAGS } : null);
+  if (!spec) return;
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (spec.subcommands?.has(arg)) continue;
+    if (!arg.startsWith('-')) continue;
+    if (!spec.flags.has(arg)) die(`Unknown flag for \`dotmd ${command}\`: ${arg}`);
+    if (spec.values.has(arg)) i += 1;
+  }
+}
+
 const HELP = {
   _main: `dotmd v${pkg.version} — frontmatter markdown document manager
 
 Common commands:
   plans                 Live plans (excludes archived)
+  prompts               Prompt queue/admin (list, next, archive, new, shelve)
   briefing              Full briefing with plan counts + next steps
   agent-context         Compact bounded JSON context for agents
   set <status> [file]   Transition status (start work, finish, archive — all via target status)
@@ -72,8 +121,11 @@ Validate & Fix:
   fix-refs [--dry-run]              Auto-fix broken reference paths + body links
 
 Lifecycle:
+  pickup <file>                      Acquire an in-session lease and start work
+  release [<file>]                   Release held in-session work (alias: unpickup, finish)
   set <status> [<file>]             Unified transition: start work, change status, close out, archive — all via target status
   runlist <hub> [next]              Show or walk an ordered group of plans (see \`dotmd help runlist\`)
+  unpickup [<file>]                  Release held in-session work
   status <file> <status>            Transition document status (deprecated; prefer \`set\`)
   archive <file>                    Archive (status + move + update refs)
   bulk archive <f1> <f2> ...        Archive multiple files at once
@@ -317,6 +369,11 @@ Release the in-session lease(s) and flip frontmatter back to the prior
 status. With no file, releases every lease owned by the current session.
 Identical behavior to \`dotmd unpickup\`; both names route to the same
 implementation. See \`dotmd unpickup --help\` for full option list.`,
+
+  finish: `dotmd finish [<file>] [--to <s>] — alias of dotmd release
+
+Compatibility alias for docs and agent loops that use "finish" for releasing
+in-session work. Same behavior as \`dotmd release\` / \`dotmd unpickup\`.`,
 
   ship: `dotmd ship [patch|minor|major] — regen + commit + bump in one step
 
@@ -1156,6 +1213,8 @@ async function main() {
     process.stderr.write(`Repo root: ${config.repoRoot}\n`);
   }
 
+  validateKnownFlags(command, restArgs, config);
+
   // Preset aliases (user config can override built-in commands below)
   if (config.presets[command]) {
     const { buildIndex } = await import('../src/index.mjs');
@@ -1227,7 +1286,7 @@ async function main() {
   if (command === 'hud') { const { runHud } = await import('../src/hud.mjs'); runHud(restArgs, config); return; }
   if (command === 'journal') { const { runJournal } = await import('../src/journal-read.mjs'); runJournal(restArgs, config); return; }
   if (command === 'pickup') { const { runPickup } = await import('../src/lifecycle.mjs'); await runPickup(restArgs, config, { dryRun }); return; }
-  if (command === 'unpickup' || command === 'release') { const { runUnpickup } = await import('../src/lifecycle.mjs'); await runUnpickup(restArgs, config, { dryRun }); return; }
+  if (command === 'unpickup' || command === 'release' || command === 'finish') { const { runUnpickup } = await import('../src/lifecycle.mjs'); await runUnpickup(restArgs, config, { dryRun }); return; }
   if (command === 'runlist') { const { runRunlist } = await import('../src/runlist.mjs'); await runRunlist(restArgs, config, { dryRun }); return; }
   if (command === 'handoff') { die('`dotmd handoff` was removed in 0.31.0. Use `dotmd prompts new <name>` to create a saved prompt instead. The .dotmd/handoffs/ sidecar mechanism no longer exists; see CHANGELOG.'); }
   if (command === 'status') { const { runStatus } = await import('../src/lifecycle.mjs'); await runStatus(restArgs, config, { dryRun }); return; }

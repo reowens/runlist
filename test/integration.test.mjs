@@ -58,6 +58,7 @@ describe('CLI integration', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-help-'));
     const result = run(['--help']);
     ok(result.stdout.includes('Common commands:'), 'has Common commands section');
+    ok(result.stdout.includes('prompts'), 'top-level help surfaces prompt queue commands');
     ok(result.stdout.includes('dotmd help all'), 'points at full command list');
     // Keep the top-level terse — full categorized list lives under `help all`.
     ok(result.stdout.split('\n').length < 30,
@@ -71,6 +72,9 @@ describe('CLI integration', () => {
     ok(result.stdout.includes('View & Query:'), 'has View & Query section');
     ok(result.stdout.includes('Analyze:'), 'has Analyze section');
     ok(result.stdout.includes('Lifecycle:'), 'has Lifecycle section');
+    ok(result.stdout.includes('pickup <file>'), 'lists pickup lifecycle verb');
+    ok(result.stdout.includes('release [<file>]'), 'lists release lifecycle verb');
+    ok(result.stdout.includes('unpickup [<file>]'), 'lists unpickup lifecycle verb');
   });
 
   it('help statuses prints full status vocabulary', () => {
@@ -142,6 +146,16 @@ describe('CLI integration', () => {
     const result = run(['query', '--status', 'planned', '--all']);
     ok(result.stdout.includes('Planned One'), 'shows planned doc');
     ok(!result.stdout.includes('Active One'), 'hides active doc');
+  });
+
+  it('unknown flags on query-backed commands exit non-zero', () => {
+    const docsDir = setupProject();
+    const today = new Date().toISOString().slice(0, 10);
+    writeDoc(docsDir, 'a.md', `type: plan\nstatus: active\nupdated: ${today}\ntitle: Active One`, '# Active One\n');
+
+    const result = run(['plans', '--zzznotaflag']);
+    strictEqual(result.status, 1);
+    ok(result.stderr.includes('Unknown flag'), `expected unknown flag error, got:\n${result.stderr}`);
   });
 
   it('context outputs briefing', () => {

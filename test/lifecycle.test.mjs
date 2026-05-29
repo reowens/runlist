@@ -925,12 +925,17 @@ describe('Fix C cleanup tail', () => {
     });
   }
 
-  it('`dotmd finish` is dropped — reports unknown command', () => {
-    setupProject();
-    const result = runCli(['finish', 'docs/plans/x.md']);
-    ok(result.status !== 0, 'should fail');
-    ok(/Unknown command: finish/.test(result.stdout) || /Unknown command: finish/.test(result.stderr),
-      `expected unknown-command error, got stdout: ${result.stdout}\nstderr: ${result.stderr}`);
+  it('`dotmd finish` aliases release for documented closeout loops', () => {
+    const docsDir = setupProject();
+    const filePath = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active\nupdated: 2025-01-01\nmodules: [core]', '# A\n');
+    const pickup = runCli(['pickup', filePath]);
+    strictEqual(pickup.status, 0, `pickup should succeed: ${pickup.stderr}`);
+
+    const result = runCli(['finish', filePath]);
+    strictEqual(result.status, 0, `finish should release like release: ${result.stderr}`);
+    ok(result.stdout.includes('Unpicked'), `expected release output, got stdout: ${result.stdout}\nstderr: ${result.stderr}`);
+    const after = readFileSync(filePath, 'utf8');
+    ok(after.includes('status: active'), `finish should restore old status, got:\n${after}`);
   });
 
   it('`dotmd status` prints a deprecation pointer to `dotmd set`', () => {

@@ -48,8 +48,7 @@ afterEach(() => {
 
 // HUD contract (post-scrub):
 //   - stdout always emits a single command primer line (the verb cheat-sheet)
-//   - HUD never surfaces plan/prompt/lease/error state in stdout — those signals
-//     belong in their own commands (`plans`, `prompts`, `set --help`)
+//   - HUD surfaces one bounded state line only when there is something to act on
 //   - `--json` still returns the structured shape (owned/prompts/stale/errors)
 //     for any programmatic caller that wants it, and skips the human primer
 //   - slash-command staleness is self-healed and emits a dim refresh line
@@ -64,10 +63,7 @@ describe('dotmd hud', () => {
     ok(/\buse\b/.test(r.stdout), `primer should name the use verb; got: ${r.stdout}`);
   });
 
-  it('does NOT show owned/prompts/stale/errors in stdout', () => {
-    // Even with a held lease + pending prompts + a validation error, the
-    // human-facing hud output stays the primer only. Plan/prompt state has
-    // dedicated commands (`plans`, `prompts`) — hud is verbs-only.
+  it('shows a compact state line when owned/prompts/errors need attention', () => {
     const docsDir = setupProject();
     writeDoc(docsDir, 'p.md', 'type: plan\nstatus: active\nupdated: 2025-01-01\nmodules: [core]', '# P\n');
     runCli(['pickup', 'p.md']); // grab a lease via the still-dispatched verb
@@ -77,12 +73,10 @@ describe('dotmd hud', () => {
 
     const r = runCli(['hud']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
-    // The plan-state lines were arrow-prefixed (`▶`, `⚠`, `✗`); none should remain.
-    ok(!/[▶⚠✗]/.test(r.stdout), `stdout should not carry plan-state arrows; got: ${r.stdout}`);
-    ok(!/You hold/.test(r.stdout), `stdout should not mention held leases; got: ${r.stdout}`);
-    ok(!/\d+ pending prompt/.test(r.stdout), `stdout should not list a pending-prompt count; got: ${r.stdout}`);
-    ok(!/validation error/.test(r.stdout), `stdout should not surface error counts; got: ${r.stdout}`);
-    ok(!/stuck lease/.test(r.stdout), `stdout should not surface stuck leases; got: ${r.stdout}`);
+    ok(r.stdout.includes('held: 1'), `stdout should mention held leases; got: ${r.stdout}`);
+    ok(r.stdout.includes('prompts: 1'), `stdout should mention pending prompts; got: ${r.stdout}`);
+    ok(/errors: [1-9]/.test(r.stdout), `stdout should mention validation errors; got: ${r.stdout}`);
+    ok(r.stdout.includes('run dotmd check'), `stdout should point at check; got: ${r.stdout}`);
   });
 
   it('--json still exposes structured state for programmatic callers', () => {
