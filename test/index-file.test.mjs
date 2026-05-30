@@ -86,7 +86,37 @@ describe('renderIndexFile', () => {
     const result = renderIndexFile(index, config);
     ok(result.includes('## Active'));
     ok(result.includes('## Planned'));
-    ok(result.includes('| Doc | Status Snapshot |'));
+    ok(result.includes('| Doc | Status |'));
+  });
+
+  it('uses status-only snapshots by default to avoid stale current_state mirrors', async () => {
+    const docsDir = setup();
+    writeDoc(docsDir, 'a.md', 'status: active\nupdated: 2025-01-01\ncurrent_state: Volatile work note', '# A\n');
+    const config = await resolveConfig(tmpDir);
+    const { buildIndex } = await import('../src/index.mjs');
+    const index = buildIndex(config);
+    const result = renderIndexFile(index, config);
+    ok(result.includes('| [A](a.md) | Active |'), result);
+    ok(!result.includes('Volatile work note'), result);
+  });
+
+  it('can opt into current_state snapshots for generated indexes', async () => {
+    const docsDir = setup();
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+export const root = 'docs';
+export const index = {
+  path: 'docs/docs.md',
+  startMarker: '<!-- START -->',
+  endMarker: '<!-- END -->',
+  snapshot: 'state',
+};`);
+    writeDoc(docsDir, 'a.md', 'status: active\nupdated: 2025-01-01\ncurrent_state: Rich work note', '# A\n');
+    const config = await resolveConfig(tmpDir);
+    const { buildIndex } = await import('../src/index.mjs');
+    const index = buildIndex(config);
+    const result = renderIndexFile(index, config);
+    ok(result.includes('| Doc | Status Snapshot |'), result);
+    ok(result.includes('Active: Rich work note'), result);
   });
 });
 

@@ -295,6 +295,15 @@ describe('resolveConfig', () => {
     const config = await resolveConfig(tmpDir);
     ok(config.configWarnings.some(w => w.includes("'nonexistent'")), 'warns about unknown root key');
   });
+
+  it('warns when index.snapshot is invalid', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const root = 'docs';
+      export const index = { snapshot: 'verbose' };
+    `);
+    const config = await resolveConfig(tmpDir);
+    ok(config.configWarnings.some(w => w.includes('index.snapshot')), 'warns about invalid index snapshot mode');
+  });
 });
 
 describe('rich status definitions', () => {

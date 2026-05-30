@@ -316,6 +316,10 @@ function validateConfig(userConfig, config, validStatuses, indexPath) {
     warnings.push(`Config: index path does not exist: ${indexPath}`);
   }
 
+  if (config.index?.snapshot !== undefined && !['status', 'state'].includes(config.index.snapshot)) {
+    warnings.push("Config: index.snapshot must be 'status' or 'state'.");
+  }
+
   // Unknown top-level user config keys
   for (const key of Object.keys(userConfig)) {
     if (!VALID_CONFIG_KEYS.has(key)) {
@@ -512,6 +516,7 @@ export async function resolveConfig(cwd, explicitConfigPath) {
     indexPath,
     indexStartMarker: config.index?.startMarker ?? '<!-- GENERATED:dotmd:start -->',
     indexEndMarker: config.index?.endMarker ?? '<!-- GENERATED:dotmd:end -->',
+    indexSnapshot: config.index?.snapshot ?? 'status',
     archivedHighlightLimit: config.index?.archivedLimit ?? 8,
 
     context: config.context,

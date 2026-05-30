@@ -47,11 +47,12 @@ afterEach(() => {
 });
 
 // HUD contract (post-scrub):
-//   - stdout always emits a single command primer line (the verb cheat-sheet)
-//   - HUD surfaces one bounded state line only when there is something to act on
-//   - `--json` still returns the structured shape (owned/prompts/stale/errors)
-//     for any programmatic caller that wants it, and skips the human primer
-//   - slash-command staleness is self-healed and emits a dim refresh line
+//   - stdout emits ONLY a single command primer line (the verb cheat-sheet).
+//     No state, no journal chatter, no refresh notice — those nudged agents
+//     into phantom follow-up work. The hook teaches the verbs, nothing else.
+//   - `--json` still returns the full structured shape (owned/prompts/stale/
+//     errors/journal) for any programmatic caller, and skips the human primer
+//   - slash-command staleness is still self-healed, but silently (no stdout)
 describe('dotmd hud', () => {
   it('always emits the command primer (one line)', () => {
     setupProject();
@@ -63,7 +64,7 @@ describe('dotmd hud', () => {
     ok(/\buse\b/.test(r.stdout), `primer should name the use verb; got: ${r.stdout}`);
   });
 
-  it('shows a compact state line when owned/prompts/errors need attention', () => {
+  it('never surfaces state (held/prompts/errors) in stdout — primer only', () => {
     const docsDir = setupProject();
     writeDoc(docsDir, 'p.md', 'type: plan\nstatus: active\nupdated: 2025-01-01\nmodules: [core]', '# P\n');
     runCli(['pickup', 'p.md']); // grab a lease via the still-dispatched verb
@@ -73,10 +74,16 @@ describe('dotmd hud', () => {
 
     const r = runCli(['hud']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
-    ok(r.stdout.includes('held: 1'), `stdout should mention held leases; got: ${r.stdout}`);
-    ok(r.stdout.includes('prompts: 1'), `stdout should mention pending prompts; got: ${r.stdout}`);
-    ok(/errors: [1-9]/.test(r.stdout), `stdout should mention validation errors; got: ${r.stdout}`);
-    ok(r.stdout.includes('run dotmd check'), `stdout should point at check; got: ${r.stdout}`);
+    ok(!r.stdout.includes('held:'), `stdout must not mention held leases; got: ${r.stdout}`);
+    ok(!r.stdout.includes('prompts:'), `stdout must not mention pending prompts; got: ${r.stdout}`);
+    ok(!/errors:/.test(r.stdout), `stdout must not mention validation errors; got: ${r.stdout}`);
+    ok(!r.stdout.includes('run dotmd check'), `stdout must not point at check; got: ${r.stdout}`);
+
+    // …but the structured shape still carries the state for programmatic callers.
+    const j = JSON.parse(runCli(['hud', '--json']).stdout);
+    strictEqual(j.owned.length, 1, 'held lease present in --json');
+    strictEqual(j.prompts.length, 1, 'pending prompt present in --json');
+    ok(j.errors >= 1, 'validation errors present in --json');
   });
 
   it('--json still exposes structured state for programmatic callers', () => {
@@ -101,7 +108,7 @@ describe('dotmd hud', () => {
     JSON.parse(r.stdout); // should parse clean
   });
 
-  it('self-heals stale slash-command files and surfaces a dim refresh line', () => {
+  it('self-heals stale slash-command files silently (no refresh line in stdout)', () => {
     setupProject();
     const cmdDir = path.join(tmpDir, '.claude', 'commands');
     mkdirSync(cmdDir, { recursive: true });
@@ -110,11 +117,10 @@ describe('dotmd hud', () => {
 
     const r = runCli(['hud']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
-    ok(/slash commands refreshed/.test(r.stdout), `expected refresh line; got: ${r.stdout}`);
-    ok(/0\.0\.1\s*→/.test(r.stdout), `refresh line should show version transition; got: ${r.stdout}`);
-    ok(/baton\.md/.test(r.stdout), `refresh line should name the file; got: ${r.stdout}`);
-    ok(/dotmd:/.test(r.stdout), `primer line should still emit alongside refresh; got: ${r.stdout}`);
+    ok(!/slash commands refreshed/.test(r.stdout), `refresh must be silent; got: ${r.stdout}`);
+    ok(/dotmd:/.test(r.stdout), `primer line should still emit; got: ${r.stdout}`);
 
+    // The self-heal side effect still runs — the stale file is rewritten.
     const content = readFileSync(batonPath, 'utf8');
     ok(!content.includes('dotmd-generated: 0.0.1'), 'stale banner should be gone after refresh');
     ok(!content.includes('stale body'), 'stale body should be replaced');

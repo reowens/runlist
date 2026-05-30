@@ -879,8 +879,14 @@ export const index = {
   path: 'docs/docs.md',
   startMarker: '<!-- GENERATED:dotmd:start -->',
   endMarker: '<!-- GENERATED:dotmd:end -->',
+  snapshot: 'status', // default; use 'state' to include live current_state text
 };
 ```
+
+Generated indexes default to status-only rows for live sections so README files
+do not become stale mirrors of volatile `current_state` text. Set
+`snapshot: 'state'` if you want the older `Status Snapshot` table for live
+sections too. Archived highlights still include their historical snapshots.
 
 All exports are optional. Additional options: `context`, `display`, `presets`, `templates`, `excludeDirs`, `notion`. See [`dotmd.config.example.mjs`](dotmd.config.example.mjs) for the full reference.
 

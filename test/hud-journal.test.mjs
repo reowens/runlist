@@ -59,7 +59,7 @@ describe('F17b: hud reads journal', () => {
     doesNotMatch(r.stdout, /recent rejections/, 'no rejections header when journal absent');
   });
 
-  it('previous-self renders most-recent entries for current sid', () => {
+  it('previous-self never surfaces in stdout but flows to --json', () => {
     setupProject();
     const now = Date.now();
     writeEntries([
@@ -69,10 +69,11 @@ describe('F17b: hud reads journal', () => {
     ]);
     const r = runHud();
     strictEqual(r.status, 0);
-    match(r.stdout, /previous self/, 'section header present');
-    match(r.stdout, /plans/);
-    match(r.stdout, /use foo.md.*exit 1/, 'non-zero exit tagged');
-    match(r.stdout, /next/);
+    doesNotMatch(r.stdout, /previous self/, 'no journal chatter in the primer-only hook');
+
+    const obj = JSON.parse(runHud(['--json']).stdout);
+    strictEqual(obj.previousSelf.length, 3, 'previous-self entries available via --json');
+    ok(obj.previousSelf.some(e => e.argv.join(' ') === 'use foo.md' && e.exit === 1), 'non-zero exit captured');
   });
 
   it('previous-self omitted when no entries for current sid', () => {
@@ -85,7 +86,7 @@ describe('F17b: hud reads journal', () => {
     doesNotMatch(r.stdout, /previous self/, 'no own entries → no section');
   });
 
-  it('fleet renders one row per OTHER sid active in last 24h', () => {
+  it('fleet never surfaces in stdout but flows to --json (one row per OTHER sid)', () => {
     setupProject();
     const now = Date.now();
     writeEntries([
@@ -95,9 +96,12 @@ describe('F17b: hud reads journal', () => {
     ]);
     const r = runHud();
     strictEqual(r.status, 0);
-    match(r.stdout, /fleet/, 'section present');
-    match(r.stdout, new RegExp(`session ${OTHER_SID}.*2 cmds`));
-    doesNotMatch(r.stdout, new RegExp(`session ${FIXED_SID}`), 'own sid suppressed in fleet');
+    doesNotMatch(r.stdout, /fleet/, 'no fleet chatter in the primer-only hook');
+
+    const obj = JSON.parse(runHud(['--json']).stdout);
+    strictEqual(obj.fleet.length, 1, 'one fleet row for the other sid');
+    strictEqual(obj.fleet[0].sid, OTHER_SID, 'own sid suppressed in fleet');
+    strictEqual(obj.fleet[0].cmds, 2, 'command count tallied');
   });
 
   it('fleet omitted when only own sid has recent activity', () => {
@@ -110,7 +114,7 @@ describe('F17b: hud reads journal', () => {
     doesNotMatch(r.stdout, /fleet/);
   });
 
-  it('recent rejections groups by (command, error class) and caps at 3', () => {
+  it('recent rejections never surface in stdout but group by (command, error class) in --json', () => {
     setupProject();
     const now = Date.now();
     const e = (off, argv, err) => ({
@@ -125,9 +129,13 @@ describe('F17b: hud reads journal', () => {
     ]);
     const r = runHud();
     strictEqual(r.status, 0);
-    match(r.stdout, /recent rejections/);
+    doesNotMatch(r.stdout, /recent rejections/, 'no rejection chatter in the primer-only hook');
+
+    const obj = JSON.parse(runHud(['--json']).stdout);
     // Four "File not found" rejections coalesce into one group.
-    match(r.stdout, /4×.*File not found/);
+    const grp = obj.recentRejections.find(g => /File not found/.test(g.cls));
+    ok(grp, 'File-not-found group present in --json');
+    strictEqual(grp.count, 4, 'four rejections coalesced');
   });
 
   it('rejections omitted when no errors in last 1h', () => {

@@ -21,6 +21,7 @@ export function renderIndexFile(index, config) {
 function renderGeneratedBlock(index, config) {
   const lines = [];
   const indexDir = config.indexPath ? path.dirname(path.relative(config.repoRoot, config.indexPath)).split(path.sep).join('/') : '';
+  const snapshotMode = config.indexSnapshot ?? 'status';
 
   for (const status of config.statusOrder) {
     const docs = index.docs.filter(doc => doc.status === status);
@@ -34,10 +35,9 @@ function renderGeneratedBlock(index, config) {
 
     lines.push(`## ${capitalize(status)}`);
     lines.push('');
-    lines.push('| Doc | Status Snapshot |');
-    lines.push('|-----|-----------------|');
+    lines.push(...snapshotHeader(snapshotMode));
     for (const doc of docs) {
-      const snapshot = formatSnapshot(doc, config);
+      const snapshot = renderIndexSnapshot(doc, config, snapshotMode);
       const linkPath = indexDir ? path.relative(indexDir, doc.path).split(path.sep).join('/') : doc.path;
       lines.push(`| [${escapeTable(doc.title)}](${linkPath}) | ${escapeTable(snapshot)} |`);
     }
@@ -74,6 +74,16 @@ function renderArchivedSection(docs, config, status) {
   lines.push('- Use `dotmd list` or `dotmd json` for the full inventory.');
 
   return lines;
+}
+
+function snapshotHeader(snapshotMode) {
+  if (snapshotMode === 'state') return ['| Doc | Status Snapshot |', '|-----|-----------------|'];
+  return ['| Doc | Status |', '|-----|--------|'];
+}
+
+function renderIndexSnapshot(doc, config, snapshotMode) {
+  if (snapshotMode === 'state') return formatSnapshot(doc, config);
+  return capitalize(doc.status ?? 'unknown');
 }
 
 export function writeIndex(content, config) {

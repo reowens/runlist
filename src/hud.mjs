@@ -4,20 +4,10 @@ import { readLeases, findStaleLeases, currentSessionId, isLeaseStale, STALE_LEAS
 import { scrubStaleSilently } from './lease-scrub.mjs';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { asString, toRepoPath } from './util.mjs';
-import { dim, yellow } from './color.mjs';
+import { dim } from './color.mjs';
 import { buildIndex } from './index.mjs';
 import { refreshStaleSlashCommands } from './claude-commands.mjs';
 import { readJournalEntries, journalFilePath } from './journal.mjs';
-
-const MAX_PREVIEW = 5;
-
-function slug(repoPath) { return path.basename(repoPath, '.md'); }
-
-function previewList(items, max = MAX_PREVIEW) {
-  const slugs = items.slice(0, max).map(slug);
-  const more = items.length > max ? `, +${items.length - max} more` : '';
-  return slugs.join(', ') + more;
-}
 
 // Statuses that count as "actionable" for a prompt are derived from config:
 // types.prompt.context.expanded (the statuses the user wants prominently shown).
@@ -223,11 +213,12 @@ export function runHud(argv, config) {
   const hud = buildHud(config);
 
   // Self-heal stale slash-command files. Wrapped: a broken scaffolder must
-  // never kill the SessionStart hook (would block every session). Skipped in
-  // --json mode to keep the structured shape stable for programmatic callers.
-  let refreshed = [];
+  // never kill the SessionStart hook (would block every session). Runs for its
+  // side effect only — the refresh is no longer announced in stdout (see the
+  // primer-only contract below). Skipped in --json mode to keep the structured
+  // shape stable for programmatic callers.
   if (!json) {
-    try { refreshed = refreshStaleSlashCommands(config); }
+    try { refreshStaleSlashCommands(config); }
     catch { /* swallow — see comment above */ }
   }
 
@@ -236,58 +227,15 @@ export function runHud(argv, config) {
     return;
   }
 
-  const lines = [];
-
-  // Always-on command primer. Replaces the prior plan-state / prompts /
-  // stuck-leases / validation-errors lines — those signals belong inside
-  // their own commands (`plans`, `prompts`), not in the SessionStart hook.
-  // hud's job is purely to remind the agent which verbs exist, since that's
-  // the one thing the agent reaches for `--help` to recover. Keep it tight:
-  // one line, the minimum verb set.
-  lines.push(dim('dotmd: plans|briefing  set <status> [<file>]  new <type> <slug>  use [<file>]  archive <file>  (use [no-arg] → oldest pending prompt)'));
-
-  const state = [];
-  if (hud.owned?.length) state.push(`held: ${hud.owned.length} (${previewList(hud.owned)})`);
-  if (hud.prompts?.length) state.push(`prompts: ${hud.prompts.length} (${previewList(hud.prompts)})`);
-  if (hud.stale?.length) state.push(`stuck: ${hud.stale.length} (${previewList(hud.stale)})`);
-  if (hud.errors > 0) state.push(`errors: ${hud.errors} (run dotmd check)`);
-  if (state.length) lines.push(yellow(state.join(' · ')));
-
-  if (refreshed.length > 0) {
-    const from = refreshed[0].from;
-    const to = refreshed[0].to;
-    const names = refreshed.map(r => r.name).join(', ');
-    lines.push(dim(`↻ slash commands refreshed (v${from} → v${to}): ${names}`));
-  }
-
-  // F17b: three journal-aware sections. Silent-when-clean: each block emits
-  // only when it has entries.
-  if (hud.previousSelf?.length) {
-    lines.push(dim('— previous self —'));
-    for (const e of hud.previousSelf) {
-      const cmd = (e.argv ?? []).join(' ');
-      const exitTag = e.exit === 0 ? '' : `, exit ${e.exit}`;
-      lines.push(dim(`  ${cmd} (${e.ago}${exitTag})`));
-    }
-  }
-
-  if (hud.fleet?.length) {
-    lines.push(dim('— fleet (last 24h) —'));
-    for (const f of hud.fleet) {
-      const heldTag = f.holding?.length
-        ? ` · holding ${f.holding.map(p => path.basename(p, '.md')).join(', ')}`
-        : '';
-      const staleTag = f.stale ? yellow(' [stale]') : '';
-      lines.push(dim(`  session ${f.sid} · ${f.cmds} cmds · last ${f.lastAgo}${heldTag}`) + staleTag);
-    }
-  }
-
-  if (hud.recentRejections?.length) {
-    lines.push(dim('— recent rejections (last 1h) —'));
-    for (const r of hud.recentRejections) {
-      lines.push(dim(`  ${r.count}× "${r.cls}" on \`${r.cmd}\``));
-    }
-  }
-
-  process.stdout.write(lines.join('\n') + '\n');
+  // SessionStart contract: emit ONLY the command primer — the verb cheat-sheet
+  // that tells the agent which dotmd verbs exist. Everything else hud used to
+  // print (held/prompts/stuck/errors state, slash-command refresh notices, and
+  // the journal-aware previous-self / fleet / recent-rejections sections) is
+  // deliberately suppressed here: those signals nudged agents into phantom
+  // follow-up work — e.g. "errors: 1 (run dotmd check)" prompting a check run
+  // for state that belongs inside its own command. Each of those signals lives
+  // in its proper command (`plans`, `prompts`, `check`) and stays available via
+  // `dotmd hud --json` for programmatic callers. The hook's job is purely to
+  // teach the verbs, never to report status.
+  process.stdout.write(dim('dotmd: plans|briefing  set <status> [<file>]  new <type> <slug>  use [<file>]  archive <file>  (use [no-arg] → oldest pending prompt)') + '\n');
 }

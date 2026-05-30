@@ -7,6 +7,11 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
 
 ### Changed
 
+- **Generated live index sections are status-only by default.** README/docs
+  indexes no longer mirror volatile `current_state` text for live docs, which
+  avoids recurring stale generated-block review noise. Set
+  `index.snapshot: 'state'` to keep the previous `Status Snapshot` table for
+  live sections; archived highlights still show historical snapshots.
 - **Prompt shelving is now prompt holding.** `dotmd prompts hold <prompt>` is
   the canonical "saved but not next" verb. It writes `status: held` and moves
   the file under `docs/prompts/held/`; `dotmd prompts unhold <prompt>` moves it

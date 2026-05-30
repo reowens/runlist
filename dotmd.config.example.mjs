@@ -144,6 +144,7 @@ export const index = {
   path: 'docs/docs.md',
   startMarker: '<!-- GENERATED:dotmd:start -->',
   endMarker: '<!-- GENERATED:dotmd:end -->',
+  snapshot: 'status', // default; use 'state' to include live current_state text
   archivedLimit: 8,
 };
 

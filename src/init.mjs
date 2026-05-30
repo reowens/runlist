@@ -189,6 +189,7 @@ function generateDetectedConfig(scan, rootPath) {
   lines.push(`  path: '${rootPath}/docs.md',`);
   lines.push(`  startMarker: '<!-- GENERATED:dotmd:start -->',`);
   lines.push(`  endMarker: '<!-- GENERATED:dotmd:end -->',`);
+  lines.push(`  snapshot: 'status',`);
   lines.push('};');
   lines.push('');
 
