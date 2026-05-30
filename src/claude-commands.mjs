@@ -133,7 +133,7 @@ function generateDocsCommand(config, version) {
 
   lines.push('Commands for working with docs:');
   lines.push('- `dotmd context` — LLM-oriented briefing across all types');
-  lines.push('- `dotmd doctor` — auto-fix everything in one pass (refs, lint, dates, index)');
+  lines.push('- `dotmd doctor --apply` — auto-fix everything in one pass (refs, lint, dates, index; bare `dotmd doctor` previews only)');
   lines.push('- `dotmd query [filters]` — search by status, keyword, module, surface, type, staleness');
   lines.push('- `dotmd health` — plan pipeline, velocity, aging');
   lines.push('- `dotmd stats` — doc health dashboard (completeness, checklists, audit coverage)');

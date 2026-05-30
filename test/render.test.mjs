@@ -326,6 +326,9 @@ describe('renderCheck', () => {
     ok(!result.includes('docs/b.md: second warning'), 'hides per-doc detail');
     ok(result.includes('--verbose'), 'points at --verbose for detail');
     ok(result.includes('doctor'), 'points at doctor for auto-fix');
+    // M1: bare `dotmd doctor` previews by default (F4/0.37.0), so the
+    // prescription must name `--apply` or it sends agents into a no-op loop.
+    ok(result.includes('dotmd doctor --apply'), 'prescribes doctor --apply, not bare doctor (M1 — A1 recurrence)');
     ok(result.includes('Check passed with warnings'), 'still shows pass-with-warnings status');
   });
 

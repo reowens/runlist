@@ -307,6 +307,32 @@ parent_plan: hub.md`);
     const backPointerWarn = child.warnings.find(w => /runlist/.test(w.message) && /parent_plan/.test(w.message));
     ok(!backPointerWarn, `expected no back-pointer warning, got: ${backPointerWarn?.message}`);
   });
+
+  it('does NOT warn when the runlist entry is one-way (`>` prefix)', async () => {
+    // M5: the `>` per-ref opt-out the bidirectional check honors (A4) now also
+    // suppresses the runlist back-pointer requirement, so a hub can order a
+    // child it doesn't own without nagging the child to add parent_plan.
+    const plans = setupProject();
+    writeDoc(plans, 'hub.md', `type: plan
+status: active
+title: Hub
+updated: 2026-05-26
+modules: [test]
+runlist:
+  - "> child.md"`);
+    writeDoc(plans, 'child.md', `type: plan
+status: active
+title: Child
+updated: 2026-05-26
+modules: [test]`);
+
+    const config = await resolveConfig(tmpDir);
+    const index = buildIndex(config);
+    const child = index.docs.find(d => d.path === 'docs/plans/child.md');
+    ok(child, 'child doc indexed');
+    const backPointerWarn = child.warnings.find(w => /runlist/.test(w.message) && /parent_plan/.test(w.message));
+    ok(!backPointerWarn, `one-way runlist entry should not require a back-pointer, got: ${backPointerWarn?.message}`);
+  });
 });
 
 describe('runlist dangling-ref validation', () => {

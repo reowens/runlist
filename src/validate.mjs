@@ -416,7 +416,10 @@ export function checkBidirectionalReferences(docs, config) {
 // rendering), so divergence almost always means the agent forgot the back-link.
 // Warning fires on the CHILD (that's the file that needs the edit). Skips
 // terminal/archive statuses on either side — runlists referencing closed work
-// are a normal history pattern.
+// are a normal history pattern. A `>`-prefixed (one-way) runlist entry opts
+// that child out of the back-pointer requirement — the same per-ref escape
+// hatch the bidirectional reciprocity check honors (A4) — so a hub can order a
+// child it doesn't own without nagging the child to add `parent_plan:`.
 export function checkRunlistBackPointers(docs, config) {
   const warnings = [];
   const skipStatuses = new Set([
@@ -428,10 +431,13 @@ export function checkRunlistBackPointers(docs, config) {
   for (const hub of docs) {
     if (skipStatuses.has(hub.status)) continue;
     const runlistRefs = hub.refFields?.runlist ?? [];
+    const runlistDirs = hub.refFieldDirections?.runlist ?? [];
     if (runlistRefs.length === 0) continue;
     const hubDir = path.dirname(path.join(config.repoRoot, hub.path));
 
-    for (const ref of runlistRefs) {
+    for (let i = 0; i < runlistRefs.length; i++) {
+      const ref = runlistRefs[i];
+      if (runlistDirs[i] === 'one-way') continue; // `> child.md` → ordered but no back-pointer expected
       const resolved = resolveRefPath(ref, hubDir, config.repoRoot);
       if (!resolved) continue; // unresolved refs already get their own existence error
       const childPath = toRepoPath(resolved, config.repoRoot);

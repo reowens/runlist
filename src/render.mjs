@@ -493,7 +493,7 @@ function _renderCheck(index, opts = {}) {
       }
       lines.push('');
     } else {
-      lines.push(dim(`Run \`dotmd check --verbose\` for per-doc detail. \`dotmd doctor\` auto-fixes supported issues; remaining issues need the suggested manual command.`));
+      lines.push(dim(`Run \`dotmd check --verbose\` for per-doc detail. \`dotmd doctor --apply\` auto-fixes supported issues (bare \`dotmd doctor\` previews only); remaining issues need the suggested manual command.`));
       lines.push('');
     }
   }

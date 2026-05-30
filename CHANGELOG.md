@@ -3,10 +3,35 @@
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
 
-## Unreleased
+## 0.50.1 — 2026-05-29
+
+### Fixed
+
+- **`dotmd doctor` fix-prescriptions now say `--apply`.** Since 0.37.0, bare
+  `dotmd doctor` previews by default and writes nothing. But the `dotmd check`
+  summary footer (`src/render.mjs`) and the generated `.claude/commands` agent
+  briefing (`src/claude-commands.mjs`) still told agents to run bare
+  `dotmd doctor` to "auto-fix" — so following the prescription changed nothing
+  and looped. Both now prescribe `dotmd doctor --apply` and note that bare
+  `doctor` previews only. (Agent-UX meta-pattern sweep M1+M2 — a recurrence of
+  the A1 "Run X where running X doesn't fix it" footgun.)
+- **Runlist back-pointer warning honors the `>` one-way prefix.** A `runlist:`
+  entry prefixed with `>` (e.g. `- "> child.md"`) now opts that child out of the
+  `parent_plan:` back-pointer requirement, mirroring the per-ref escape hatch
+  the bidirectional reciprocity check already honors. Lets a hub order a child
+  it doesn't own without nagging the child to add a back-link. (Sweep M5.)
+
+## 0.50.0 — 2026-05-29
 
 ### Changed
 
+- **`dotmd hud` (SessionStart hook) emits only the command primer.** The hook no
+  longer prints operational state (held / prompts / stuck / `errors: N`), the
+  slash-command refresh notice, or the journal sections (previous-self / fleet /
+  recent-rejections) — those nudged agents into phantom follow-up work (e.g.
+  `errors: 1 (run dotmd check)`). It now purely teaches the verb set.
+  `dotmd hud --json` still exposes the full structured shape, and the
+  slash-command self-heal still runs silently.
 - **Generated live index sections are status-only by default.** README/docs
   indexes no longer mirror volatile `current_state` text for live docs, which
   avoids recurring stale generated-block review noise. Set

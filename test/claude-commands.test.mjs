@@ -302,6 +302,18 @@ describe('generated content teaches prompt consumption', () => {
     ok(content.includes('dotmd new prompt'), 'mentions `dotmd new prompt` (top-level save)');
   });
 
+  it('docs.md prescribes `dotmd doctor --apply` for auto-fix, not bare doctor (M2)', async () => {
+    // M2: bare `dotmd doctor` previews by default (F4/0.37.0). The generated
+    // briefing ships into every repo's .claude/commands, so a bare-doctor
+    // "auto-fix everything" line misleads agents fleet-wide into a no-op.
+    setup({ claude: true });
+    const config = await resolveConfig(tmpDir);
+    scaffoldClaudeCommands(tmpDir, config);
+    const content = readFileSync(path.join(tmpDir, '.claude', 'commands', 'docs.md'), 'utf8');
+    ok(content.includes('dotmd doctor --apply'), 'auto-fix line names --apply');
+    ok(!/`dotmd doctor`\s+—\s+auto-fix/.test(content), 'no bare-doctor auto-fix prescription');
+  });
+
   it('every `dotmd <verb>` in generated templates points at a real command', async () => {
     // Pre-fix: the generated plans.md listed `dotmd next` — a phantom command
     // that has never existed in the dispatcher. Agents reading the slash
