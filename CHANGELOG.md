@@ -2,6 +2,14 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## 0.50.2 — 2026-05-30
+
+### Fixed
+
+- **`/baton` no longer nudges agents to commit ignored resume prompts.** The
+  generated handoff command now calls out `docs/prompts/` as local session
+  state that is often gitignored, so agents save the prompt for the next
+  `dotmd hud` pickup without trying to force it into git.
 
 ## 0.50.1 — 2026-05-29
 

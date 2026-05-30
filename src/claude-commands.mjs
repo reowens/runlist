@@ -100,7 +100,7 @@ function generateBatonCommand(config, version) {
   const lines = [...frontmatterFor('baton', config), markerFor(version), ''];
   lines.push('Wrap this session. Two commands:');
   lines.push('');
-  lines.push('1. **Save the resume prompt.** `dotmd new prompt resume-<plan-slug>` — pipe stdin or pass `@path`. 10-20 line body: the next concrete decision plus any gotchas. NOT a recap of the plan body. The saved prompt IS the handoff — never print it into chat for copy-paste.');
+  lines.push('1. **Save the resume prompt.** `dotmd new prompt resume-<plan-slug>` — pipe stdin or pass `@path`. 10-20 line body: the next concrete decision plus any gotchas. NOT a recap of the plan body. The saved prompt IS the handoff — never print it into chat for copy-paste. Treat `docs/prompts/` as local session state: it is often gitignored and should not be committed just because you created a handoff prompt.');
   lines.push('');
   lines.push('2. **Close out via `dotmd set <status>`.** Pick the status that matches reality:');
   lines.push('    - `dotmd set active <file>` — work continues, return the plan to the active queue');

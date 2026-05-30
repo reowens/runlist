@@ -283,6 +283,10 @@ describe('generated content teaches prompt consumption', () => {
     ok(setIdx > -1, 'baton must mention `dotmd set` (single status verb)');
     ok(newPromptIdx < setIdx,
       '`dotmd new prompt` must appear before `dotmd set` (prompt is step 1, closure is step 2)');
+    ok(content.includes('often gitignored'),
+      'baton should warn that docs/prompts/ handoff files may be local-only');
+    ok(content.includes('should not be committed'),
+      'baton should steer agents away from committing ignored prompt files');
 
     const planListIdx = content.indexOf('dotmd plans --status in-session');
     if (planListIdx > -1) {
