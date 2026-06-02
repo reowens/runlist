@@ -52,31 +52,15 @@ describe('auto Version History on lifecycle commands', () => {
     ok(after.indexOf('Status: active → planned') < after.indexOf('Created.'), 'new entry is above old one (newest-first)');
   });
 
-  it('runPickup appends "Picked up (<old> → in-session)." entry', () => {
+  it('`dotmd use <plan>` appends "Started (<old> → in-session)." entry', () => {
     const docsDir = setupProject();
     const planPath = writePlan(docsDir, 'plan.md', 'type: plan\nstatus: active\nupdated: 2026-05-13T00:00:00Z', baseBody);
 
-    const r = runCli(['pickup', planPath]);
-    strictEqual(r.status, 0, `pickup failed: ${r.stderr}`);
+    const r = runCli(['use', planPath]);
+    strictEqual(r.status, 0, `use failed: ${r.stderr}`);
 
     const after = readFileSync(planPath, 'utf8');
-    match(after, /\*\*\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\*\* Picked up \(active → in-session\)\./);
-  });
-
-  it('runUnpickup appends "Released (in-session → <new>)." entry', () => {
-    const docsDir = setupProject();
-    const planPath = writePlan(docsDir, 'plan.md', 'type: plan\nstatus: active\nupdated: 2026-05-13T00:00:00Z', baseBody);
-
-    runCli(['pickup', planPath]);
-    const r = runCli(['release', planPath]);
-    strictEqual(r.status, 0, `release failed: ${r.stderr}`);
-
-    const after = readFileSync(planPath, 'utf8');
-    // Both pickup and release entries present
-    match(after, /Picked up \(active → in-session\)\./);
-    match(after, /Released \(in-session → active\)\./);
-    // Released is above Picked up (newest-first)
-    ok(after.indexOf('Released') < after.indexOf('Picked up'), 'release entry is newer (above pickup)');
+    match(after, /\*\*\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\*\* Started \(active → in-session\)\./);
   });
 
   it('runArchive appends "Archived." entry', () => {
@@ -92,31 +76,17 @@ describe('auto Version History on lifecycle commands', () => {
     match(after, /\*\*\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\*\* Archived\./);
   });
 
-  it('takeover writes "Took over from <session>." entry', () => {
+  it('re-running `use` on an already in-session plan does NOT add a VH entry', () => {
     const docsDir = setupProject();
     const planPath = writePlan(docsDir, 'plan.md', 'type: plan\nstatus: active\nupdated: 2026-05-13T00:00:00Z', baseBody);
 
-    // Session A picks it up
-    runCli(['pickup', planPath], { session: 'sess-A' });
-    // Force the lease to look stale by hand-editing — easier: just have B takeover
-    const r = runCli(['pickup', planPath, '--takeover'], { session: 'sess-B' });
-    strictEqual(r.status, 0, `takeover failed: ${r.stderr}`);
-
-    const after = readFileSync(planPath, 'utf8');
-    match(after, /Took over from sess-A\./);
-  });
-
-  it('reattach (same-session re-pickup) does NOT add a VH entry', () => {
-    const docsDir = setupProject();
-    const planPath = writePlan(docsDir, 'plan.md', 'type: plan\nstatus: active\nupdated: 2026-05-13T00:00:00Z', baseBody);
-
-    runCli(['pickup', planPath]);
+    runCli(['use', planPath]);
     const before = readFileSync(planPath, 'utf8');
     const bulletCountBefore = (before.match(/^- \*\*/gm) || []).length;
-    runCli(['pickup', planPath]); // same session = silent reattach
+    runCli(['use', planPath]); // already in-session = no status change
     const after = readFileSync(planPath, 'utf8');
     const bulletCountAfter = (after.match(/^- \*\*/gm) || []).length;
-    strictEqual(bulletCountAfter, bulletCountBefore, 'reattach should not add a new bullet');
+    strictEqual(bulletCountAfter, bulletCountBefore, 're-use should not add a new bullet');
   });
 
   it('plan without ## Version History section: lifecycle commands skip silently (no error)', () => {

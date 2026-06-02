@@ -50,8 +50,8 @@ afterEach(() => {
 //   - stdout emits ONLY a single command primer line (the verb cheat-sheet).
 //     No state, no journal chatter, no refresh notice — those nudged agents
 //     into phantom follow-up work. The hook teaches the verbs, nothing else.
-//   - `--json` still returns the full structured shape (owned/prompts/stale/
-//     errors/journal) for any programmatic caller, and skips the human primer
+//   - `--json` still returns the structured shape (prompts/errors/journal)
+//     for any programmatic caller, and skips the human primer
 //   - slash-command staleness is still self-healed, but silently (no stdout)
 describe('dotmd hud', () => {
   it('always emits the command primer (one line)', () => {
@@ -64,24 +64,21 @@ describe('dotmd hud', () => {
     ok(/\buse\b/.test(r.stdout), `primer should name the use verb; got: ${r.stdout}`);
   });
 
-  it('never surfaces state (held/prompts/errors) in stdout — primer only', () => {
+  it('never surfaces state (prompts/errors) in stdout — primer only', () => {
     const docsDir = setupProject();
     writeDoc(docsDir, 'p.md', 'type: plan\nstatus: active\nupdated: 2025-01-01\nmodules: [core]', '# P\n');
-    runCli(['pickup', 'p.md']); // grab a lease via the still-dispatched verb
     mkdirSync(path.join(docsDir, 'prompts'), { recursive: true });
     writeDoc(docsDir, 'prompts/x.md', 'type: prompt\nstatus: pending\ncreated: 2025-01-01', 'body\n');
     writeDoc(docsDir, 'broken.md', 'type: plan\nstatus: archived\nupdated: 2025-01-01', '# Broken\n');
 
     const r = runCli(['hud']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
-    ok(!r.stdout.includes('held:'), `stdout must not mention held leases; got: ${r.stdout}`);
     ok(!r.stdout.includes('prompts:'), `stdout must not mention pending prompts; got: ${r.stdout}`);
     ok(!/errors:/.test(r.stdout), `stdout must not mention validation errors; got: ${r.stdout}`);
     ok(!r.stdout.includes('run dotmd check'), `stdout must not point at check; got: ${r.stdout}`);
 
     // …but the structured shape still carries the state for programmatic callers.
     const j = JSON.parse(runCli(['hud', '--json']).stdout);
-    strictEqual(j.owned.length, 1, 'held lease present in --json');
     strictEqual(j.prompts.length, 1, 'pending prompt present in --json');
     ok(j.errors >= 1, 'validation errors present in --json');
   });
@@ -89,14 +86,11 @@ describe('dotmd hud', () => {
   it('--json still exposes structured state for programmatic callers', () => {
     const docsDir = setupProject();
     writeDoc(docsDir, 'p.md', 'type: plan\nstatus: active\nupdated: 2025-01-01\nmodules: [core]', '# P\n');
-    runCli(['pickup', 'p.md']);
 
     const r = runCli(['hud', '--json']);
     strictEqual(r.status, 0, `hud --json failed: ${r.stderr}`);
     const parsed = JSON.parse(r.stdout);
-    ok(Array.isArray(parsed.owned), '.owned is an array');
     ok(Array.isArray(parsed.prompts), '.prompts is an array');
-    ok(Array.isArray(parsed.stale), '.stale is an array');
     strictEqual(typeof parsed.errors, 'number', '.errors is a number');
   });
 
@@ -112,7 +106,7 @@ describe('dotmd hud', () => {
     setupProject();
     const cmdDir = path.join(tmpDir, '.claude', 'commands');
     mkdirSync(cmdDir, { recursive: true });
-    const batonPath = path.join(cmdDir, 'baton.md');
+    const batonPath = path.join(cmdDir, 'plans.md');
     writeFileSync(batonPath, '<!-- dotmd-generated: 0.0.1 -->\nstale body\n');
 
     const r = runCli(['hud']);
@@ -133,7 +127,7 @@ describe('dotmd hud', () => {
     const pkgVersion = JSON.parse(readFileSync(
       path.resolve(import.meta.dirname, '..', 'package.json'), 'utf8',
     )).version;
-    writeFileSync(path.join(cmdDir, 'baton.md'), `<!-- dotmd-generated: ${pkgVersion} -->\ncurrent body\n`);
+    writeFileSync(path.join(cmdDir, 'plans.md'), `<!-- dotmd-generated: ${pkgVersion} -->\ncurrent body\n`);
 
     const r = runCli(['hud']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
@@ -145,8 +139,8 @@ describe('dotmd hud', () => {
     setupProject();
     const cmdDir = path.join(tmpDir, '.claude', 'commands');
     mkdirSync(cmdDir, { recursive: true });
-    const customPath = path.join(cmdDir, 'baton.md');
-    const original = '# my hand-rolled baton, no dotmd marker\n';
+    const customPath = path.join(cmdDir, 'plans.md');
+    const original = '# my hand-rolled plans, no dotmd marker\n';
     writeFileSync(customPath, original);
 
     const r = runCli(['hud']);

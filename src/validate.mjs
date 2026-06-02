@@ -2,7 +2,6 @@ import path from 'node:path';
 import { asString, resolveRefPath, suggestCandidates } from './util.mjs';
 import { getGitLastModified, getGitLastModifiedBatch } from './git.mjs';
 import { toRepoPath } from './util.mjs';
-import { readLeases, isLeaseStale, STALE_LEASE_AGE_HOURS } from './lease.mjs';
 
 const NOW = new Date();
 
@@ -200,31 +199,6 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
   // Archived plans must have a ## Closeout section
   if (config.lifecycle.archiveStatuses.has(doc.status) && doc.type === 'plan' && !doc.hasCloseout) {
     doc.warnings.push({ path: doc.path, level: 'warning', message: 'Archived plan missing `## Closeout` section.' });
-  }
-
-  // F11: `status: in-session` plans should have a matching live lease. If the
-  // lease file has no entry, the previous session crashed without releasing;
-  // if the entry is stale (> stale-threshold hours), the holder is gone.
-  // Either way the validator is the only place that knows enough to suggest
-  // the exact unstuck command, because the lease infrastructure is otherwise
-  // invisible to `dotmd check`.
-  if (doc.status === 'in-session' && !config.lifecycle.skipWarningsFor.has(doc.status)) {
-    const leases = readLeases(config);
-    const lease = leases[doc.path];
-    if (!lease) {
-      doc.warnings.push({
-        path: doc.path,
-        level: 'warning',
-        message: `\`status: in-session\` but no session is actually working on this (previous session may have crashed). Run \`dotmd set active ${doc.path}\` to clear and re-queue.`,
-      });
-    } else if (isLeaseStale(lease)) {
-      const ageHours = Math.floor((Date.now() - new Date(lease.pickedUpAt).getTime()) / (1000 * 60 * 60));
-      doc.warnings.push({
-        path: doc.path,
-        level: 'warning',
-        message: `\`status: in-session\` but last activity was ${ageHours}h ago (>${STALE_LEASE_AGE_HOURS}h, looks abandoned). Run \`dotmd set active ${doc.path}\` to clear and re-queue.`,
-      });
-    }
   }
 
   // Archive drift: a doc with an archive-flagged status (`status: archived` by

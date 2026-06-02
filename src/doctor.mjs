@@ -146,7 +146,7 @@ function findDeprecatedCommandMentions(config) {
   for (const filePath of docs) {
     let raw = '';
     try { raw = readFileSync(filePath, 'utf8'); } catch { continue; }
-    if (/\bdotmd status\b/.test(raw) || /\bdotmd pickup\b/.test(raw)) {
+    if (/\bdotmd status\b/.test(raw) || /\bdotmd (pickup|unpickup|release|finish)\b/.test(raw)) {
       matches.push(toRepoPath(filePath, config.repoRoot));
     }
   }

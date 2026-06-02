@@ -1,7 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { toRepoPath, resolveDocPath, die, warn } from './util.mjs';
-import { migrateLease } from './lease.mjs';
 import { collectDocFiles } from './index.mjs';
 import { regenIndex } from './lifecycle.mjs';
 import { gitMv } from './git.mjs';
@@ -99,8 +98,6 @@ export async function runRename(argv, config, opts = {}) {
       updatedCount++;
     }
   }
-
-  try { migrateLease(config, oldRepoPath, newRepoPath); } catch (err) { warn(`Could not migrate lease ${oldRepoPath} → ${newRepoPath}: ${err.message}`); }
 
   regenIndex(config);
 

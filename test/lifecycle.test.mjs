@@ -378,23 +378,6 @@ describe('archive --closeout-template (issue #10 finding #5)', () => {
   });
 });
 
-describe('pickup error affordance (issue #10 finding #1)', () => {
-  it('rejects pickup on partial with a concrete recovery hint', () => {
-    const docsDir = setupProject();
-    const filePath = writeDoc(docsDir, 'tail.md', 'type: plan\nstatus: partial\nupdated: 2025-01-01', '# Tail\n');
-    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
-    const result = spawnSync('node', [bin, 'pickup', filePath, '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
-      cwd: tmpDir, encoding: 'utf8',
-    });
-    ok(result.status !== 0, 'exits non-zero');
-    ok(result.stderr.includes("status 'partial'"), 'names the offending status');
-    ok(result.stderr.includes('Recover with:'), 'shows recovery section');
-    ok(result.stderr.includes('dotmd set active'), 'suggests dotmd set active');
-    ok(result.stderr.includes('dotmd set in-session'), 'suggests dotmd set in-session');
-    ok(result.stderr.includes('docs/tail.md'), 'reuses the exact repo path');
-  });
-});
-
 describe('archive path boundary', () => {
   it('does not double-nest when root name overlaps with archiveDir', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-archboundary-'));
@@ -581,350 +564,6 @@ describe('archive collision (same basename twice)', () => {
   });
 });
 
-describe('pickup with leases', () => {
-  function runCli(args, env = {}) {
-    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
-    return spawnSync('node', [bin, ...args, '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
-      cwd: tmpDir,
-      encoding: 'utf8',
-      env: { ...process.env, ...env, PATH: process.env.PATH },
-    });
-  }
-
-  it('writes a lease file when picking up an active plan', () => {
-    const docsDir = setupProject();
-    const filePath = writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# Plan\n');
-
-    const result = runCli(['pickup', filePath], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
-    strictEqual(result.status, 0, `pickup should succeed: ${result.stderr}`);
-
-    const leaseFile = path.join(tmpDir, '.dotmd', 'in-session.json');
-    ok(existsSync(leaseFile), 'lease file should exist');
-    const leases = JSON.parse(readFileSync(leaseFile, 'utf8'));
-    const key = Object.keys(leases)[0];
-    strictEqual(leases[key].session, 'sess-A');
-    strictEqual(leases[key].oldStatus, 'active');
-
-    const content = readFileSync(filePath, 'utf8');
-    ok(content.includes('status: in-session'), 'frontmatter flipped');
-  });
-
-  it('same-session re-pickup is silent re-attach', () => {
-    const docsDir = setupProject();
-    const filePath = writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active', '# Plan body\n');
-
-    runCli(['pickup', filePath], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
-    const second = runCli(['pickup', filePath], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
-
-    strictEqual(second.status, 0, `re-pickup should succeed: ${second.stderr}`);
-    ok(second.stderr.includes('Re-attached'), 'should announce re-attach');
-    ok(second.stdout.includes('Plan body'), 'still prints body');
-  });
-
-  it('cross-session pickup of a live-pid lease blocks with --takeover suggestion', () => {
-    const docsDir = setupProject();
-    const filePath = writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active', '# Plan\n');
-
-    runCli(['pickup', filePath], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
-    const leaseFile = path.join(tmpDir, '.dotmd', 'in-session.json');
-    const leases = JSON.parse(readFileSync(leaseFile, 'utf8'));
-    const key = Object.keys(leases)[0];
-    leases[key].pid = process.pid;
-    writeFileSync(leaseFile, JSON.stringify(leases, null, 2) + '\n');
-
-    const second = runCli(['pickup', filePath], { CLAUDE_CODE_SESSION_ID: 'sess-B' });
-    ok(second.status !== 0, 'should fail');
-    ok(second.stderr.includes('Held by') || second.stderr.includes('--takeover'), `expected conflict message, got: ${second.stderr}`);
-  });
-
-  it('opportunistic scrub on `dotmd briefing` flips frontmatter and clears the lease', () => {
-    // Read-side command should silently scrub a >4h-old lease and flip the
-    // plan's frontmatter back to its oldStatus. No stderr noise.
-    const docsDir = setupProject();
-    const filePath = writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# Plan\n');
-
-    runCli(['pickup', filePath], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
-    ok(readFileSync(filePath, 'utf8').includes('status: in-session'), 'pickup flips frontmatter to in-session');
-
-    const leaseFile = path.join(tmpDir, '.dotmd', 'in-session.json');
-    const leases = JSON.parse(readFileSync(leaseFile, 'utf8'));
-    const key = Object.keys(leases)[0];
-    leases[key].pickedUpAt = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString();
-    writeFileSync(leaseFile, JSON.stringify(leases, null, 2) + '\n');
-
-    const result = runCli(['briefing'], { CLAUDE_CODE_SESSION_ID: 'sess-OTHER' });
-    strictEqual(result.status, 0, `briefing should succeed: ${result.stderr}`);
-    ok(!result.stderr.includes('scrub') && !result.stderr.includes('release'),
-      `briefing must be silent about scrub work, got stderr: ${result.stderr}`);
-
-    ok(!existsSync(leaseFile) || Object.keys(JSON.parse(readFileSync(leaseFile, 'utf8'))).length === 0,
-      'stale lease should be gone after briefing');
-    ok(readFileSync(filePath, 'utf8').includes('status: active'),
-      'frontmatter should be flipped back to oldStatus (active)');
-  });
-
-  it('opportunistic scrub does NOT run on `dotmd check` (diagnostic, surfaces drift)', () => {
-    // `check` is a diagnostic command: it must show the user that there's a
-    // stale lease, not silently fix it. Validate.mjs's F11 warning depends
-    // on the lease entry persisting through `check`.
-    const docsDir = setupProject();
-    const filePath = writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# Plan\n');
-
-    runCli(['pickup', filePath], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
-    const leaseFile = path.join(tmpDir, '.dotmd', 'in-session.json');
-    const leases = JSON.parse(readFileSync(leaseFile, 'utf8'));
-    const key = Object.keys(leases)[0];
-    leases[key].pickedUpAt = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString();
-    writeFileSync(leaseFile, JSON.stringify(leases, null, 2) + '\n');
-
-    runCli(['check'], { CLAUDE_CODE_SESSION_ID: 'sess-OTHER' });
-    ok(existsSync(leaseFile), 'check must NOT scrub — diagnostic commands surface drift');
-    const after = JSON.parse(readFileSync(leaseFile, 'utf8'));
-    strictEqual(Object.keys(after).length, 1, 'check leaves the stale lease in place for visibility');
-  });
-
-  it('cross-session pickup of a stale lease auto-scrubs and succeeds', () => {
-    // Per release-ergonomics Fix B: opportunistic scrub runs at the start of
-    // pickup, so a lease past the stale threshold is dropped before the
-    // conflict check. The new session acquires fresh without --takeover.
-    const docsDir = setupProject();
-    const filePath = writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active', '# Plan\n');
-
-    runCli(['pickup', filePath], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
-    const leaseFile = path.join(tmpDir, '.dotmd', 'in-session.json');
-    const leases = JSON.parse(readFileSync(leaseFile, 'utf8'));
-    const key = Object.keys(leases)[0];
-    // Age the lease well past the 4h stale threshold.
-    leases[key].pickedUpAt = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
-    writeFileSync(leaseFile, JSON.stringify(leases, null, 2) + '\n');
-
-    const second = runCli(['pickup', filePath], { CLAUDE_CODE_SESSION_ID: 'sess-B' });
-    strictEqual(second.status, 0, `stale lease should auto-scrub and pickup should succeed: ${second.stderr}`);
-    const after = JSON.parse(readFileSync(leaseFile, 'utf8'));
-    const newKey = Object.keys(after)[0];
-    strictEqual(after[newKey].session, 'sess-B', `sess-B should now own the lease, got: ${after[newKey].session}`);
-    ok(!after[newKey].takenOverFrom, 'auto-scrub path should not record takenOverFrom (no --takeover was needed)');
-  });
-
-  it('cross-session pickup of a dead-pid lease auto-scrubs and succeeds', () => {
-    const docsDir = setupProject();
-    const filePath = writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active', '# Plan\n');
-
-    runCli(['pickup', filePath], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
-    const leaseFile = path.join(tmpDir, '.dotmd', 'in-session.json');
-    const leases = JSON.parse(readFileSync(leaseFile, 'utf8'));
-    const key = Object.keys(leases)[0];
-    leases[key].pid = 999999999;
-    writeFileSync(leaseFile, JSON.stringify(leases, null, 2) + '\n');
-
-    const second = runCli(['pickup', filePath], { CLAUDE_CODE_SESSION_ID: 'sess-B' });
-    strictEqual(second.status, 0, `dead-pid lease should auto-scrub and pickup should succeed: ${second.stderr}`);
-    const after = JSON.parse(readFileSync(leaseFile, 'utf8'));
-    const newKey = Object.keys(after)[0];
-    strictEqual(after[newKey].session, 'sess-B', `sess-B should now own the lease, got: ${after[newKey].session}`);
-    ok(!after[newKey].takenOverFrom, 'dead-pid auto-scrub path should not record takenOverFrom');
-  });
-
-  it('--takeover overrides a held lease and records takenOverFrom', () => {
-    const docsDir = setupProject();
-    const filePath = writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active', '# Plan\n');
-
-    runCli(['pickup', filePath], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
-
-    const result = runCli(['pickup', filePath, '--takeover'], { CLAUDE_CODE_SESSION_ID: 'sess-B' });
-    strictEqual(result.status, 0, `takeover should succeed: ${result.stderr}`);
-
-    const leaseFile = path.join(tmpDir, '.dotmd', 'in-session.json');
-    const after = JSON.parse(readFileSync(leaseFile, 'utf8'));
-    const newKey = Object.keys(after)[0];
-    strictEqual(after[newKey].session, 'sess-B');
-    ok(after[newKey].takenOverFrom);
-    strictEqual(after[newKey].takenOverFrom.session, 'sess-A');
-  });
-});
-
-describe('unpickup', () => {
-  function runCli(args, env = {}) {
-    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
-    return spawnSync('node', [bin, ...args, '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
-      cwd: tmpDir,
-      encoding: 'utf8',
-      env: { ...process.env, ...env, PATH: process.env.PATH },
-    });
-  }
-
-  it('no-arg releases all leases owned by current session', () => {
-    const docsDir = setupProject();
-    const a = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active', '');
-    const b = writeDoc(docsDir, 'b.md', 'type: plan\nstatus: planned', '');
-    runCli(['pickup', a], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
-    runCli(['pickup', b], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
-
-    const result = runCli(['unpickup'], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
-    strictEqual(result.status, 0, `unpickup failed: ${result.stderr}`);
-
-    const leaseFile = path.join(tmpDir, '.dotmd', 'in-session.json');
-    ok(!existsSync(leaseFile), 'lease file should be gone (empty)');
-
-    ok(readFileSync(a, 'utf8').includes('status: active'), 'a flipped to active');
-    ok(readFileSync(b, 'utf8').includes('status: planned'), 'b flipped to planned (oldStatus)');
-  });
-
-  it('silent no-op when current session holds nothing (release-ergonomics Fix B)', () => {
-    // Previously printed: "No leases to release for session <UUID>." That's a
-    // verbose no-op success — agents that release before exit shouldn't be
-    // punished with noise when archive already auto-released their lease.
-    setupProject();
-    const result = runCli(['release'], { CLAUDE_CODE_SESSION_ID: 'sess-nothing' });
-    strictEqual(result.status, 0, `silent no-op must exit 0: ${result.stderr}`);
-    strictEqual(result.stdout, '', `must produce no stdout, got: ${result.stdout}`);
-    strictEqual(result.stderr, '', `must produce no stderr, got: ${result.stderr}`);
-  });
-
-  it('file arg releases that one', () => {
-    const docsDir = setupProject();
-    const a = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active', '');
-    const b = writeDoc(docsDir, 'b.md', 'type: plan\nstatus: active', '');
-    runCli(['pickup', a], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
-    runCli(['pickup', b], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
-
-    runCli(['unpickup', a], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
-
-    const leases = JSON.parse(readFileSync(path.join(tmpDir, '.dotmd', 'in-session.json'), 'utf8'));
-    strictEqual(Object.keys(leases).length, 1, 'only b remains');
-  });
-
-  it('--to overrides target status', () => {
-    const docsDir = setupProject();
-    const a = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active', '');
-    runCli(['pickup', a], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
-    runCli(['unpickup', '--to', 'planned'], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
-    ok(readFileSync(a, 'utf8').includes('status: planned'));
-  });
-
-  it('refuses cross-session release without --force', () => {
-    const docsDir = setupProject();
-    const a = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active', '');
-    runCli(['pickup', a], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
-
-    const result = runCli(['unpickup', a], { CLAUDE_CODE_SESSION_ID: 'sess-B' });
-    ok(result.stderr.includes('Skipped') || result.stderr.includes('held by'), `expected refusal: ${result.stderr}`);
-
-    // Lease still exists
-    const leases = JSON.parse(readFileSync(path.join(tmpDir, '.dotmd', 'in-session.json'), 'utf8'));
-    strictEqual(Object.keys(leases).length, 1, 'lease retained');
-  });
-
-  it('--stale releases stale leases regardless of session', () => {
-    const docsDir = setupProject();
-    const a = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active', '');
-    runCli(['pickup', a], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
-
-    // Forge an old pickedUpAt
-    const leaseFile = path.join(tmpDir, '.dotmd', 'in-session.json');
-    const leases = JSON.parse(readFileSync(leaseFile, 'utf8'));
-    const key = Object.keys(leases)[0];
-    leases[key].pickedUpAt = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
-    writeFileSync(leaseFile, JSON.stringify(leases, null, 2) + '\n');
-
-    const result = runCli(['unpickup', '--stale'], { CLAUDE_CODE_SESSION_ID: 'sess-B' });
-    strictEqual(result.status, 0, `--stale failed: ${result.stderr}`);
-    ok(!existsSync(leaseFile), 'stale lease cleared');
-    ok(readFileSync(a, 'utf8').includes('status: active'));
-  });
-
-  it('--stale releases fresh dead-pid leases held by another session', () => {
-    const docsDir = setupProject();
-    const a = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active', '');
-    runCli(['pickup', a], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
-
-    const leaseFile = path.join(tmpDir, '.dotmd', 'in-session.json');
-    const leases = JSON.parse(readFileSync(leaseFile, 'utf8'));
-    const key = Object.keys(leases)[0];
-    leases[key].pid = 999999999;
-    writeFileSync(leaseFile, JSON.stringify(leases, null, 2) + '\n');
-
-    const result = runCli(['release', '--stale'], { CLAUDE_CODE_SESSION_ID: 'sess-B' });
-    strictEqual(result.status, 0, `--stale failed: ${result.stderr}`);
-    ok(result.stdout.includes('(stale)'), `expected stale release output, got: ${result.stdout}`);
-    ok(!existsSync(leaseFile), 'dead-pid lease cleared');
-    ok(readFileSync(a, 'utf8').includes('status: active'));
-  });
-
-  it('--json returns released and skipped arrays', () => {
-    const docsDir = setupProject();
-    const a = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active', '');
-    runCli(['pickup', a], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
-
-    const result = runCli(['unpickup', '--json'], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
-    const parsed = JSON.parse(result.stdout);
-    ok(Array.isArray(parsed.released));
-    ok(Array.isArray(parsed.skipped));
-    strictEqual(parsed.released.length, 1);
-    strictEqual(parsed.released[0].newStatus, 'active');
-  });
-
-  it('manual-edit fallback warns + flips', () => {
-    const docsDir = setupProject();
-    // Manually create an in-session plan with NO lease
-    const a = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: in-session', '');
-
-    const result = runCli(['unpickup', a, '--to', 'active'], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
-    strictEqual(result.status, 0, `should succeed: ${result.stderr}`);
-    ok(result.stderr.includes('No lease found'), 'warns about missing lease');
-    ok(readFileSync(a, 'utf8').includes('status: active'));
-  });
-
-  it('--dry-run does not mutate the lease file', () => {
-    const docsDir = setupProject();
-    const a = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active', '');
-    runCli(['pickup', a], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
-
-    runCli(['unpickup', '--dry-run'], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
-
-    const leases = JSON.parse(readFileSync(path.join(tmpDir, '.dotmd', 'in-session.json'), 'utf8'));
-    strictEqual(Object.keys(leases).length, 1, 'lease retained');
-    ok(readFileSync(a, 'utf8').includes('status: in-session'), 'frontmatter retained');
-  });
-});
-
-describe('lease auto-release on lifecycle commands', () => {
-  function runCli(args, env = {}) {
-    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
-    return spawnSync('node', [bin, ...args, '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
-      cwd: tmpDir,
-      encoding: 'utf8',
-      env: { ...process.env, ...env, PATH: process.env.PATH },
-    });
-  }
-
-  it('archive auto-releases the lease', () => {
-    const docsDir = setupProject();
-    const a = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active', '# Plan\n');
-    runCli(['pickup', a], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
-
-    const result = runCli(['archive', path.join(docsDir, 'a.md')], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
-    strictEqual(result.status, 0, `archive failed: ${result.stderr}`);
-
-    const leaseFile = path.join(tmpDir, '.dotmd', 'in-session.json');
-    ok(!existsSync(leaseFile), 'lease cleared by archive');
-  });
-
-  it('rename migrates the lease key', () => {
-    const docsDir = setupProject();
-    const a = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active', '');
-    runCli(['pickup', a], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
-
-    const result = runCli(['rename', a, 'renamed.md'], { CLAUDE_CODE_SESSION_ID: 'sess-A' });
-    strictEqual(result.status, 0, `rename failed: ${result.stderr}`);
-
-    const leases = JSON.parse(readFileSync(path.join(tmpDir, '.dotmd', 'in-session.json'), 'utf8'));
-    const keys = Object.keys(leases);
-    strictEqual(keys.length, 1);
-    ok(keys[0].endsWith('renamed.md'), `expected renamed.md key, got ${keys[0]}`);
-  });
-});
-
 describe('init writes .dotmd/ to .gitignore', () => {
   it('creates .gitignore with .dotmd/ when missing', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
@@ -958,51 +597,7 @@ describe('init writes .dotmd/ to .gitignore', () => {
   });
 });
 
-describe('Fix C cleanup tail', () => {
-  function runCli(args) {
-    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
-    return spawnSync('node', [bin, ...args, '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
-      cwd: tmpDir,
-      encoding: 'utf8',
-      env: { ...process.env, PATH: process.env.PATH },
-    });
-  }
-
-  it('`dotmd finish` aliases release for documented closeout loops', () => {
-    const docsDir = setupProject();
-    const filePath = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active\nupdated: 2025-01-01\nmodules: [core]', '# A\n');
-    const pickup = runCli(['pickup', filePath]);
-    strictEqual(pickup.status, 0, `pickup should succeed: ${pickup.stderr}`);
-
-    const result = runCli(['finish', filePath]);
-    strictEqual(result.status, 0, `finish should release like release: ${result.stderr}`);
-    ok(result.stdout.includes('Unpicked'), `expected release output, got stdout: ${result.stdout}\nstderr: ${result.stderr}`);
-    const after = readFileSync(filePath, 'utf8');
-    ok(after.includes('status: active'), `finish should restore old status, got:\n${after}`);
-  });
-
-  it('`dotmd status` prints a deprecation pointer to `dotmd set`', () => {
-    const docsDir = setupProject();
-    const filePath = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# A\n');
-    const result = runCli(['status', filePath, 'partial']);
-    strictEqual(result.status, 0, `status should still succeed: ${result.stderr}`);
-    ok(/deprecated/i.test(result.stderr),
-      `expected deprecation warning on stderr, got: ${result.stderr}`);
-    ok(result.stderr.includes('dotmd set'),
-      `deprecation should point at \`dotmd set\`, got: ${result.stderr}`);
-  });
-
-  it('`dotmd set` does not emit the status-deprecation warning (internal call is suppressed)', () => {
-    const docsDir = setupProject();
-    const filePath = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# A\n');
-    const result = runCli(['set', 'partial', filePath]);
-    strictEqual(result.status, 0, `set should succeed: ${result.stderr}`);
-    ok(!/deprecated/i.test(result.stderr),
-      `set should not surface the status-deprecation warning, got: ${result.stderr}`);
-  });
-});
-
-describe('dotmd set — unified status transition', () => {
+describe('dotmd set — status write', () => {
   function runCli(args, env = {}) {
     const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
     return spawnSync('node', [bin, ...args, '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
@@ -1022,52 +617,16 @@ describe('dotmd set — unified status transition', () => {
     ok(!existsSync(filePath), 'original location should be empty');
   });
 
-  it('infers path from held lease when only <status> is given', () => {
-    const docsDir = setupProject();
-    const filePath = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# A\n');
-
-    const pickup = runCli(['pickup', filePath], { CLAUDE_CODE_SESSION_ID: 'sess-S' });
-    strictEqual(pickup.status, 0, `pickup should succeed: ${pickup.stderr}`);
-
-    const result = runCli(['set', 'partial'], { CLAUDE_CODE_SESSION_ID: 'sess-S' });
-    strictEqual(result.status, 0, `set should succeed: ${result.stderr}`);
-
-    const content = readFileSync(filePath, 'utf8');
-    ok(content.includes('status: partial'), `expected status: partial in:\n${content}`);
-
-    const leaseFile = path.join(tmpDir, '.dotmd', 'in-session.json');
-    ok(!existsSync(leaseFile), 'lease should be auto-released after leaving in-session');
-  });
-
-  it('refuses when no path given and no held lease', () => {
+  it('requires an explicit <path>', () => {
     const docsDir = setupProject();
     writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# A\n');
 
     const result = runCli(['set', 'partial']);
     ok(result.status !== 0, 'should fail');
-    ok(result.stderr.includes('no held lease') || result.stderr.includes('no held lease to infer'),
-      `expected helpful error, got: ${result.stderr}`);
+    ok(/Usage: dotmd set/.test(result.stderr), `expected usage error, got: ${result.stderr}`);
   });
 
-  it('refuses when no path given and multiple leases held', () => {
-    const docsDir = setupProject();
-    const a = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# A\n');
-    const b = writeDoc(docsDir, 'b.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# B\n');
-
-    runCli(['pickup', a], { CLAUDE_CODE_SESSION_ID: 'sess-multi' });
-    runCli(['pickup', b], { CLAUDE_CODE_SESSION_ID: 'sess-multi' });
-
-    const result = runCli(['set', 'partial'], { CLAUDE_CODE_SESSION_ID: 'sess-multi' });
-    ok(result.status !== 0, 'should fail');
-    ok(/you hold 2 leases/i.test(result.stderr),
-      `expected multi-lease error, got: ${result.stderr}`);
-  });
-
-  it('`set in-session <file>` acquires a lease (replaces pickup)', () => {
-    // `set` is the single status verb now — `set in-session` delegates to
-    // the same lease-acquisition path that `pickup` exposed directly. The
-    // verb collapse is intentional: agents reach for one verb to transition
-    // a plan into ANY status, including in-session.
+  it('`set in-session <file>` writes the status without any lease file', () => {
     const docsDir = setupProject();
     const filePath = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# A\n');
 
@@ -1075,6 +634,7 @@ describe('dotmd set — unified status transition', () => {
     strictEqual(result.status, 0, `set in-session failed: ${result.stderr}`);
     const content = readFileSync(filePath, 'utf8');
     ok(/status: in-session/.test(content), `frontmatter should flip to in-session: ${content}`);
+    ok(!existsSync(path.join(tmpDir, '.dotmd', 'in-session.json')), 'no lease file should be written');
   });
 
   it('rejects an invalid status with suggestion', () => {
@@ -1083,13 +643,10 @@ describe('dotmd set — unified status transition', () => {
 
     const result = runCli(['set', 'fnord', filePath]);
     ok(result.status !== 0, 'should fail');
-    ok(/Invalid status/.test(result.stderr),
-      `expected validation error, got: ${result.stderr}`);
+    ok(/Invalid status/.test(result.stderr), `expected validation error, got: ${result.stderr}`);
   });
 
-  it('non-archive transition leaves a non-in-session lease alone', () => {
-    // If the user manually sets status from `active → partial` (no lease was
-    // held), nothing should attempt to release a lease that doesn't exist.
+  it('plain transition writes the new status to frontmatter', () => {
     const docsDir = setupProject();
     const filePath = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# A\n');
 
@@ -1099,6 +656,7 @@ describe('dotmd set — unified status transition', () => {
     ok(content.includes('status: partial'));
   });
 });
+
 
 describe('--no-index flag (issue #10 finding #3)', () => {
   // Concurrent-session repos doing path-limited commits don't want every

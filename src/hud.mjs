@@ -1,9 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { readLeases, findStaleLeases, currentSessionId, isLeaseStale, STALE_LEASE_AGE_MS } from './lease.mjs';
-import { scrubStaleSilently } from './lease-scrub.mjs';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
-import { asString, toRepoPath } from './util.mjs';
+import { asString, toRepoPath, currentSessionId } from './util.mjs';
 import { dim } from './color.mjs';
 import { buildIndex } from './index.mjs';
 import { refreshStaleSlashCommands } from './claude-commands.mjs';
@@ -105,13 +103,6 @@ export function buildJournalSections(config, now = Date.now()) {
   if (!entries.length) return { previousSelf: [], fleet: [], recentRejections: [] };
 
   const sid = currentSessionId();
-  const leases = readLeases(config);
-  const leaseBySession = new Map();
-  for (const lease of Object.values(leases)) {
-    if (!lease?.session) continue;
-    if (!leaseBySession.has(lease.session)) leaseBySession.set(lease.session, []);
-    leaseBySession.get(lease.session).push(lease);
-  }
 
   // 1. Previous self: this sid's last N entries (excluding the current
   // invocation, which is recorded only at process exit so it isn't in the
@@ -140,14 +131,10 @@ export function buildJournalSections(config, now = Date.now()) {
     if (t > row.lastTs) row.lastTs = t;
   }
   const fleet = [...bySid.entries()].map(([otherSid, row]) => {
-    const myLeases = leaseBySession.get(otherSid) ?? [];
-    const stalest = myLeases.find(isLeaseStale);
     return {
       sid: otherSid,
       cmds: row.count,
       lastAgo: relTime(new Date(row.lastTs).toISOString(), now),
-      holding: myLeases.map(l => l.path),
-      stale: Boolean(stalest),
     };
   }).sort((a, b) => b.cmds - a.cmds).slice(0, FLEET_CAP);
 
@@ -174,16 +161,6 @@ export function buildJournalSections(config, now = Date.now()) {
 }
 
 export function buildHud(config) {
-  // Drop stale lease entries (and flip their plan frontmatter back to
-  // oldStatus) before reading anything. Without this, hud would surface
-  // zombie in-session plans from crashed sessions as "you hold N plans" if
-  // the SessionStart hook sees its own (now-stale) lease from a previous
-  // session that shared the same env-supplied session id.
-  try { scrubStaleSilently(config); } catch { /* hot-path: never break hud */ }
-  const session = currentSessionId();
-  const leases = readLeases(config);
-  const owned = Object.values(leases).filter(l => l.session === session).map(l => l.path);
-  const stale = findStaleLeases(config).map(l => l.path);
   const prompts = findActionablePrompts(config);
 
   // Validation error count — hud's "silent when clean" contract should treat
@@ -205,7 +182,7 @@ export function buildHud(config) {
 
   const { previousSelf, fleet, recentRejections } = buildJournalSections(config);
 
-  return { owned, stale, prompts, errors, previousSelf, fleet, recentRejections };
+  return { prompts, errors, previousSelf, fleet, recentRejections };
 }
 
 export function runHud(argv, config) {

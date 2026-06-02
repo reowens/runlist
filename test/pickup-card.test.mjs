@@ -142,7 +142,7 @@ just a pointer to its line range.
 - Question three?
 `);
 
-    const r = runCli(['pickup', planPath]);
+    const r = runCli(['use', planPath]);
     strictEqual(r.status, 0, `pickup failed: ${r.stderr}`);
 
     // Card shows ACTIVE phase as pointer, not body
@@ -165,11 +165,11 @@ just a pointer to its line range.
     const docsDir = setupProject();
     const planPath = writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', `# Plan\n\n## Phases\n\n### Phase 1 — active 🟡\n\nFULL_BODY_CONTENT_MARKER\n`);
 
-    const cardResult = runCli(['pickup', planPath]);
+    const cardResult = runCli(['use', planPath]);
     ok(!cardResult.stdout.includes('FULL_BODY_CONTENT_MARKER'), 'card hides phase body');
 
     // Re-attach via same session with --full
-    const fullResult = runCli(['pickup', planPath, '--full']);
+    const fullResult = runCli(['use', planPath, '--full']);
     ok(fullResult.stdout.includes('FULL_BODY_CONTENT_MARKER'), 'full prints body');
   });
 
@@ -177,7 +177,7 @@ just a pointer to its line range.
     const docsDir = setupProject();
     const planPath = writeDoc(docsDir, 'oldplan.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', `# Old Plan\n\n## Overview\n\noverview content\n\n## Implementation Plan\n\nimpl content\n\n## Open Questions\n\n- q1\n- q2\n`);
 
-    const r = runCli(['pickup', planPath]);
+    const r = runCli(['use', planPath]);
     strictEqual(r.status, 0, `pickup failed: ${r.stderr}`);
     // No ## Phases → uses last H2 as active section pointer
     ok(r.stdout.includes('Active section:') || r.stdout.includes('Active phase:'), 'shows active section pointer');
@@ -193,7 +193,7 @@ just a pointer to its line range.
     const bigBody = '# Plan\n\n## Phases\n\n### Phase 1 — active 🟡\n\n' + 'x'.repeat(50000) + '\n\n## Open Questions\n\n' + '- q\n'.repeat(40);
     const planPath = writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', bigBody);
 
-    const r = runCli(['pickup', planPath]);
+    const r = runCli(['use', planPath]);
     strictEqual(r.status, 0);
     ok(r.stdout.length < 2000, `card should be tiny vs 50KB body, got ${r.stdout.length} bytes`);
     ok(r.stdout.includes('Open Questions: 40'));
@@ -215,7 +215,7 @@ just a pointer to its line range.
       'type: plan\nstatus: active\nupdated: 2025-01-01\nrelated_plans:\n  - sibling.md',
       '# Foo\n');
 
-    const r = runCli(['pickup', planPath]);
+    const r = runCli(['use', planPath]);
     strictEqual(r.status, 0, `pickup failed: ${r.stderr}`);
     ok(r.stdout.includes('Related:'), `expected Related: section, got: ${r.stdout}`);
     ok(!r.stdout.includes('(missing)'),
@@ -234,7 +234,7 @@ just a pointer to its line range.
     const docsDir = setupProject();
     const planPath = writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', `# Plan\n\n## Phases\n\n### Phase 1 — active 🟡\n\nbody\n`);
 
-    const r = runCli(['pickup', planPath, '--json']);
+    const r = runCli(['use', planPath, '--json']);
     strictEqual(r.status, 0);
     const parsed = JSON.parse(r.stdout);
     ok(parsed.card, 'json includes card object');

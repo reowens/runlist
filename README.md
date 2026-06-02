@@ -187,9 +187,9 @@ dotmd stale                  List stale docs
 dotmd actionable             List docs with next steps
 dotmd index [--print]        Generate/update docs.md index block
 dotmd hud                    Actionable triage (silent when clean — ideal SessionStart hook)
-dotmd pickup <file>          Pick up a plan (in-session + print body)
-dotmd release [<file>]       Release in-session lease (aliases: unpickup, finish)
-dotmd status <file> <status> Transition document status
+dotmd use <file>             Open a plan (in-session + print it) or consume a prompt
+dotmd set <status> <file>    Change a document's status (frontmatter write)
+dotmd status <file> <status> Transition document status (deprecated; prefer set)
 dotmd archive <file>         Archive (status + move + update refs)
 dotmd bulk archive <files>   Archive multiple files at once
 dotmd touch <file>           Bump updated date
@@ -311,7 +311,7 @@ dotmd prompts archive <file>      # archive without printing the body
 dotmd prompts new <name> [body]   # alias for `dotmd new prompt`
 ```
 
-`dotmd hud` surfaces pending prompts on session start (alongside held leases), so a saved prompt acts as a self-addressed reminder: write it now, the next session sees it. Held prompts are kept out of the SessionStart surface — use them for "saved but not next."
+`dotmd hud` surfaces pending prompts on session start, so a saved prompt acts as a self-addressed reminder: write it now, the next session sees it. Held prompts are kept out of the SessionStart surface — use them for "saved but not next."
 
 Statuses: `pending` (drafted, awaiting a session), `held` (saved but parked under `prompts/held/` — visible in `prompts list`, hidden from `hud`/`briefing`, skipped by `prompts next`), `archived` (consumed or filed away). `shelved` is a legacy spelling accepted for older files; `claimed` is reserved for a future "in-flight" state but is currently a synonym for archived in practice.
 
@@ -575,60 +575,26 @@ dotmd bulk archive docs/old-a.md docs/old-b.md   # archive multiple
 dotmd bulk archive docs/old-*.md -n               # preview
 ```
 
-### Pickup & Closeout
+### Open & Closeout
+
+Status is just frontmatter. There's no checkout, lock, or lease — opening a
+plan, transitioning it, and closing it are all plain status writes (archive
+also moves the file).
 
 ```bash
-dotmd pickup docs/plans/my-plan.md       # set in-session + print body
-dotmd archive docs/plans/my-plan.md      # fully shipped: archive + auto-release lease
+dotmd use docs/plans/my-plan.md          # mark in-session + print the plan card
+dotmd set in-session docs/plans/my-plan.md   # set the status without printing
+dotmd set active docs/plans/my-plan.md   # need more work: flip back to active
+dotmd set partial docs/plans/my-plan.md  # shipped + tail deferred (reference successors in body)
+dotmd set awaiting docs/plans/my-plan.md # stuck on a human decision
+dotmd archive docs/plans/my-plan.md      # fully shipped: archive + move + update refs
 dotmd archive docs/plans/my-plan.md --closeout-template   # also inject ## Closeout skeleton
-dotmd release docs/plans/my-plan.md      # need more work: release lease, flip to prior status
-dotmd status docs/plans/my-plan.md partial   # shipped + tail deferred (reference successors in body)
-dotmd status docs/plans/my-plan.md awaiting  # stuck on a human decision
 ```
 
-`finish` is an alias for `release`, kept for older agent instructions that use
-that verb for closeout. To fully close shipped work, archive it. To keep working
-later, release it back to the prior status or use `dotmd set <status> <file>`.
+`in-session` is a status like any other — `dotmd set <status> <file>` writes it
+to the file's frontmatter and does nothing else.
 
-### Session leases & release
-
-`dotmd pickup` records a lease at `<repoRoot>/.dotmd/in-session.json` that
-identifies which Claude session owns the plan. The lease enables three
-distinct outcomes when a plan is already `in-session`:
-
-- **Same session re-attach.** A fresh `dotmd pickup` of a plan you already
-  hold (e.g., after `/clear` or auto-compaction) silently re-attaches and
-  re-prints the body. No conflict.
-- **Cross-session conflict.** If another live session holds the plan,
-  pickup refuses with `Held by <host>/<session> (pid <pid>) since <time>`.
-- **Reclaimable lease.** If the holder's same-host pid is dead, or the lease is
-  older than 4 hours, pickup can reclaim it without `--takeover`.
-
-Releasing leases (both names work; `release` is the recommended verb):
-
-```bash
-dotmd release                     # release every lease owned by current session
-dotmd release docs/plans/foo.md   # release that one (refuses cross-session)
-dotmd release --to planned        # override target status (default: lease.oldStatus)
-dotmd release --stale             # release leases with dead same-host pid or >4h old
-dotmd release --all               # release every lease (administrative)
-dotmd release --json              # { released: [...], skipped: [...] }
-```
-
-`finish` is the same as `release`. `archive` and `rename` auto-release or
-migrate the lease, so the common closeout paths are covered without ceremony.
-
-**Session id resolution** (in order, first wins):
-
-1. `$CLAUDE_CODE_SESSION_ID` (set by Claude Code in Bash subprocess env)
-2. `$CLAUDE_SESSION_ID` (legacy alias)
-3. `$TERM_SESSION_ID` (macOS Terminal/iTerm — stable per window)
-4. `shell:<user>@<host>` (last-resort coarse fallback)
-
-The session id survives `/clear` and auto-compaction, so a re-attach after
-either is silent.
-
-**Recommended Claude Code hooks** — add both to `~/.claude/settings.json`
+**Recommended Claude Code hook** — add to `~/.claude/settings.json`
 (or your project's `.claude/settings.json`):
 
 ```json
@@ -640,43 +606,19 @@ either is silent.
           { "type": "command", "command": "dotmd hud", "timeout": 5 }
         ]
       }
-    ],
-    "SessionEnd": [
-      {
-        "hooks": [
-          { "type": "command", "command": "dotmd release", "timeout": 10 }
-        ]
-      }
     ]
   }
 }
 ```
 
-- **SessionStart** runs `dotmd hud`, which prints up to three actionable
-  lines (held leases, pending prompts, stale leases) and stays silent when
-  nothing is queued. Use this instead of `dotmd briefing` for the hook role
-  — `briefing` dumps per-plan next_step prose that can run to many kilobytes
-  on large repos. `hud` is the zero-pollution surface.
-- **SessionEnd** runs `dotmd release` (the new name for `dotmd unpickup`;
-  both still work), which releases every lease owned by the ending session
-  and flips plans back to their prior status.
+- **SessionStart** runs `dotmd hud`, which prints the command primer and stays
+  silent when nothing is queued. Use this instead of `dotmd briefing` for the
+  hook role — `briefing` dumps per-plan next_step prose that can run to many
+  kilobytes on large repos. `hud` is the zero-pollution surface.
 
 > The double-`hooks` nesting is correct: `hooks.<Event>[*].hooks[*]` is the
 > schema Claude Code requires. `Bash(dotmd:*)` should be in your
 > `permissions.allow` list as well, otherwise the hooks will be blocked.
-
-`dotmd hud` (and `dotmd briefing` for the verbose case) surface a
-`⚠ N stuck leases` line when stale leases exist, with a
-`dotmd release --stale` suggestion.
-
-`dotmd check` also catches the symmetric failure mode: a plan whose
-frontmatter claims `status: in-session` but whose lease either doesn't
-exist (last session crashed before releasing) or is stale (>4h since
-pickup). Each warning names the exact unstuck command
-(`dotmd release <plan>` or `dotmd status <plan> active`), so plans
-don't sit stuck in-session indefinitely. Always-on — legit concurrent
-sessions hold real leases, so the warning only fires on actual
-divergence.
 
 ### Touch
 

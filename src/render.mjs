@@ -4,7 +4,6 @@ import { capitalize, toSlug, truncate, warn } from './util.mjs';
 import { extractFrontmatter } from './frontmatter.mjs';
 import { summarizeDocBody } from './ai.mjs';
 import { bold, red, yellow, green, dim } from './color.mjs';
-import { findStaleLeases } from './lease.mjs';
 import { categorizeWarnings } from './check-collapse.mjs';
 
 // Render `currentState` with an `(auto)` prefix when the value was body-scraped
@@ -356,13 +355,6 @@ export function renderBriefing(index, config) {
     ? `Errors: ${errorCount} ${dim('(run `dotmd check` to see)')}`
     : `Errors: ${errorCount}`;
   lines.push(`Stale: ${stale} | ${errorPart} | Warnings: ${index.warnings.length}`);
-
-  try {
-    const staleLeases = findStaleLeases(config);
-    if (staleLeases.length > 0) {
-      lines.push(yellow(`Stuck in-session: ${staleLeases.length} (>4h or dead same-host pid, run \`dotmd release --stale\`)`));
-    }
-  } catch {}
 
   return lines.join('\n') + '\n';
 }

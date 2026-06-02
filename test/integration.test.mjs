@@ -72,9 +72,9 @@ describe('CLI integration', () => {
     ok(result.stdout.includes('View & Query:'), 'has View & Query section');
     ok(result.stdout.includes('Analyze:'), 'has Analyze section');
     ok(result.stdout.includes('Lifecycle:'), 'has Lifecycle section');
-    ok(result.stdout.includes('pickup <file>'), 'lists pickup lifecycle verb');
-    ok(result.stdout.includes('release [<file>]'), 'lists release lifecycle verb');
-    ok(result.stdout.includes('unpickup [<file>]'), 'lists unpickup lifecycle verb');
+    ok(result.stdout.includes('use <file>'), 'lists use lifecycle verb');
+    ok(result.stdout.includes('set <status>'), 'lists set lifecycle verb');
+    ok(result.stdout.includes('archive <file>'), 'lists archive lifecycle verb');
   });
 
   it('help statuses prints full status vocabulary', () => {
@@ -126,6 +126,22 @@ describe('CLI integration', () => {
 
     const result = run(['check']);
     ok(result.stdout.includes('Missing frontmatter `status`'), 'reports missing status');
+  });
+
+  it('check with positional paths reports only issues from that scope', () => {
+    const docsDir = setupProject();
+    const today = new Date().toISOString().slice(0, 10);
+    writeDoc(docsDir, 'good.md', `status: active\nupdated: ${today}\ntitle: Good\nsummary: A valid doc\ncurrent_state: All good\nnext_step: Keep going`, '# Good\n');
+    writeDoc(docsDir, 'bad.md', `status: active\nupdated: ${today}\nrelated_plans:\n  - missing.md`, '# Bad\n');
+
+    const scoped = run(['check', 'docs/good.md']);
+    strictEqual(scoped.status, 0, `scoped check should ignore unrelated errors. stdout: ${scoped.stdout}`);
+    ok(scoped.stdout.includes('docs scanned: 1'), 'only scans the selected doc');
+    ok(!scoped.stdout.includes('missing.md'), 'does not print unrelated errors');
+
+    const full = run(['check']);
+    strictEqual(full.status, 1, 'full check still fails on unrelated bad doc');
+    ok(full.stdout.includes('missing.md'), 'full check reports the bad ref');
   });
 
   it('check passes for valid doc', () => {

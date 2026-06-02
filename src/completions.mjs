@@ -2,7 +2,7 @@ import { die } from './util.mjs';
 
 const COMMANDS = [
   'list', 'json', 'check', 'coverage', 'stats', 'graph', 'deps', 'unblocks', 'health', 'glossary', 'briefing', 'context', 'focus', 'query',
-  'plans', 'stale', 'actionable', 'index', 'pickup', 'unpickup', 'release', 'finish', 'status', 'set', 'archive', 'bulk', 'touch', 'doctor', 'lint', 'rename', 'migrate',
+  'plans', 'stale', 'actionable', 'index', 'status', 'set', 'archive', 'bulk', 'touch', 'doctor', 'lint', 'rename', 'migrate',
   'fix-refs', 'notion', 'export', 'summary', 'watch', 'diff', 'init', 'new', 'completions', 'journal',
 ];
 
@@ -33,10 +33,6 @@ const COMMAND_FLAGS = {
   stale: ['--json', '--sort', '--limit', '--all'],
   actionable: ['--json', '--sort', '--limit', '--all'],
   briefing: ['--json'],
-  pickup: ['--json', '--takeover'],
-  unpickup: ['--json', '--all', '--stale', '--to', '--force', '--no-index', '--show-files'],
-  release: ['--json', '--all', '--stale', '--to', '--force', '--no-index', '--show-files'],
-  finish: ['--json', '--all', '--stale', '--to', '--force', '--no-index', '--show-files'],
   status: [],
   archive: [],
   doctor: [],

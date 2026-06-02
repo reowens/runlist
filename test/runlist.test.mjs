@@ -214,8 +214,8 @@ modules: [test]`);
 
     const r = run(['next', 'docs/plans/hub.md']);
     strictEqual(r.status, 0, `stderr: ${r.stderr}`);
-    // pickup writes its "Picked up" line to stderr
-    match(r.stderr, /Picked up.*docs\/plans\/two\.md/);
+    // startPlan writes its "Started" line to stderr
+    match(r.stderr, /Started.*docs\/plans\/two\.md/);
     const twoRaw = readFileSync(path.join(plans, 'two.md'), 'utf8');
     match(twoRaw, /status: in-session/);
   });

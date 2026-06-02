@@ -5,19 +5,8 @@ import { asString, toRepoPath, die, warn, resolveDocPath, resolveRefPath, escape
 import { gitMv, getGitLastModified, getGitLastModifiedBatch } from './git.mjs';
 import { buildIndex, collectDocFiles } from './index.mjs';
 import { renderIndexFile, writeIndex } from './index-file.mjs';
-import { green, dim, yellow } from './color.mjs';
+import { green, dim } from './color.mjs';
 import { isInteractive, promptChoice } from './prompt.mjs';
-import {
-  acquireLease,
-  releaseLease,
-  releaseAllForSession,
-  releaseStale,
-  readLeases,
-  currentSessionId,
-  migrateLease,
-  isLeaseReclaimable,
-  STALE_LEASE_AGE_HOURS,
-} from './lease.mjs';
 import { buildCard, renderCard } from './pickup-card.mjs';
 import { walkSections, findSection } from './section.mjs';
 
@@ -297,29 +286,20 @@ export async function runStatus(argv, config, opts = {}) {
   }); } catch (err) { warn(`Hook 'onStatusChange' threw: ${err.message}`); }
 }
 
-export async function runPickup(argv, config, opts = {}) {
+// Open a plan for work: flip its frontmatter status to `in-session` and print
+// its card (body + related + next steps). No lease, no claiming — just a
+// status write. Backs `dotmd use <plan>` and `dotmd runlist next`.
+export async function startPlan(argv, config, opts = {}) {
   const { dryRun } = opts;
   const json = argv.includes('--json');
-  const takeover = argv.includes('--takeover');
   const fullBody = argv.includes('--full');
   const noIndex = argv.includes('--no-index') || opts.noIndex;
   const showFiles = argv.includes('--show-files') || opts.showFiles;
   let input = argv.find(a => !a.startsWith('-'));
 
-  // Opportunistic stale-lease scrub before pickup runs its conflict check.
-  // Without this, a stale lease from a crashed prior session would still
-  // produce 'conflict-stale' and force the agent to pass --takeover even
-  // though we already know the holder is gone.
-  if (!dryRun && !takeover) {
-    try {
-      const { scrubStaleSilently } = await import('./lease-scrub.mjs');
-      scrubStaleSilently(config);
-    } catch { /* best-effort — never block pickup on scrub failure */ }
-  }
-
   // Interactive: pick from active/planned plans
   if (!input) {
-    if (!isInteractive()) die('Usage: dotmd pickup <file>');
+    if (!isInteractive()) die('Usage: dotmd use <plan>');
     const index = buildIndex(config);
     const candidates = index.docs.filter(d =>
       d.type === 'plan' && (d.status === 'active' || d.status === 'planned')
@@ -351,63 +331,20 @@ export async function runPickup(argv, config, opts = {}) {
     die(`Plan is blocked: ${blockers}\n  ${repoPath}`);
   }
 
-  // If frontmatter says we're not in-session, any lingering lease is orphaned —
-  // drop it so a fresh acquire below doesn't see a phantom conflict.
-  if (oldStatus !== 'in-session') {
-    if (readLeases(config)[repoPath]) {
-      releaseLease(config, repoPath, { force: true });
-    }
-  }
-
-  const pickupable = new Set(['active', 'planned', 'in-session']);
-  if (oldStatus && !pickupable.has(oldStatus)) {
-    die(
-      `Cannot start work on a plan with status '${oldStatus}'. Must be active or planned.\n` +
-      `  ${repoPath}\n` +
-      `\n` +
-      `Recover with:\n` +
-      `  dotmd set active ${repoPath} && dotmd set in-session ${repoPath}`,
-    );
-  }
-
   const today = nowIso();
-  const leaseOldStatus = oldStatus === 'in-session' ? 'active' : (oldStatus ?? 'active');
-  let leaseOutcome = 'acquired';
-
   if (dryRun) {
     if (oldStatus === 'in-session') {
-      process.stderr.write(`${dim('[dry-run]')} Would acquire lease (status already in-session)\n`);
+      process.stderr.write(`${dim('[dry-run]')} Already in-session: ${repoPath}\n`);
     } else {
       process.stderr.write(`${dim('[dry-run]')} Would update: status: ${oldStatus} → in-session, updated: ${today}\n`);
     }
-  } else {
-    const result = acquireLease(config, repoPath, leaseOldStatus, { takeover });
-    leaseOutcome = result.outcome;
-    if (result.outcome === 'conflict-alive') {
-      const c = result.conflict;
-      die(`Plan is in-session with ${c.host}/${c.session} (pid ${c.pid}) since ${c.pickedUpAt}.\nUse --takeover to override.\n  ${repoPath}`);
-    }
-    if (result.outcome === 'conflict-stale') {
-      const c = result.conflict;
-      die(`Plan flagged in-session by ${c.host}/${c.session} since ${c.pickedUpAt} (>${STALE_LEASE_AGE_HOURS}h ago, looks abandoned).\nUse --takeover to claim.\n  ${repoPath}`);
-    }
-    if (oldStatus !== 'in-session') {
-      updateFrontmatter(filePath, { status: 'in-session', updated: today });
-      if (noIndex) {
-        process.stderr.write(dim('(index not regenerated — run `dotmd index` to refresh)\n'));
-      } else {
-        regenIndex(config);
-      }
-    }
-    // VH append per lease outcome:
-    //   acquired   → `Picked up (<old> → in-session).`
-    //   taken-over → `Took over from <session>.`
-    //   reattached → no entry (same-session noise)
-    if (leaseOutcome === 'acquired') {
-      appendVersionHistory(filePath, `Picked up (${oldStatus ?? 'unknown'} → in-session).`);
-    } else if (leaseOutcome === 'taken-over') {
-      const fromSession = result.conflict?.session ?? 'unknown';
-      appendVersionHistory(filePath, `Took over from ${fromSession}.`);
+  } else if (oldStatus !== 'in-session') {
+    updateFrontmatter(filePath, { status: 'in-session', updated: today });
+    appendVersionHistory(filePath, `Started (${oldStatus ?? 'unknown'} → in-session).`);
+    if (noIndex) {
+      process.stderr.write(dim('(index not regenerated — run `dotmd index` to refresh)\n'));
+    } else {
+      regenIndex(config);
     }
   }
 
@@ -415,19 +352,11 @@ export async function runPickup(argv, config, opts = {}) {
     const card = buildCard(filePath, raw, config);
     process.stdout.write(JSON.stringify({
       path: repoPath, oldStatus, newStatus: 'in-session', title,
-      reattached: leaseOutcome === 'reattached',
-      takenOver: leaseOutcome === 'taken-over',
       body: body?.trim() ?? '',
       card,
     }, null, 2) + '\n');
   } else {
-    if (leaseOutcome === 'reattached') {
-      process.stderr.write(`${green('▶ Re-attached')}: ${repoPath}\n\n`);
-    } else if (leaseOutcome === 'taken-over') {
-      process.stderr.write(`${green('▶ Took over')}: ${repoPath} (was ${oldStatus ?? 'unset'} → in-session)\n\n`);
-    } else {
-      process.stderr.write(`${green('▶ Picked up')}: ${repoPath} (${oldStatus ?? 'unset'} → in-session)\n\n`);
-    }
+    process.stderr.write(`${green('▶ Started')}: ${repoPath} (${oldStatus ?? 'unset'} → in-session)\n\n`);
     if (fullBody) {
       const header = `[dotmd] in-session: ${repoPath} — close with: dotmd set <status> ${repoPath}\n---\n`;
       process.stdout.write(header);
@@ -446,151 +375,6 @@ export async function runPickup(argv, config, opts = {}) {
   }
 
   try { config.hooks.onPickup?.({ path: repoPath, oldStatus, newStatus: 'in-session' }); } catch (err) { warn(`Hook 'onPickup' threw: ${err.message}`); }
-}
-
-export async function runUnpickup(argv, config, opts = {}) {
-  const { dryRun } = opts;
-  const json = argv.includes('--json');
-  const all = argv.includes('--all');
-  const stale = argv.includes('--stale');
-  const force = argv.includes('--force');
-  const noIndex = argv.includes('--no-index') || opts.noIndex;
-  const showFiles = argv.includes('--show-files') || opts.showFiles;
-  const toIdx = argv.indexOf('--to');
-  const toStatus = toIdx >= 0 ? argv[toIdx + 1] : null;
-  const positional = argv.filter((a, i) => !a.startsWith('-') && argv[i - 1] !== '--to');
-  const fileArg = positional[0];
-  const touched = [];
-
-  const session = currentSessionId();
-  const released = [];
-  const skipped = [];
-
-  // Decide which leases to act on
-  let targets = [];
-  const leases = readLeases(config);
-  if (fileArg) {
-    const filePath = resolveDocPath(fileArg, config);
-    if (!filePath) die(`File not found: ${fileArg}`);
-    const repoPath = toRepoPath(filePath, config.repoRoot);
-    if (leases[repoPath]) {
-      targets.push(leases[repoPath]);
-    } else {
-      // Manual-edit fallback: status may be in-session with no lease.
-      const raw = readFileSync(filePath, 'utf8');
-      const { frontmatter: fmRaw } = extractFrontmatter(raw);
-      const parsedFm = parseSimpleFrontmatter(fmRaw);
-      if (asString(parsedFm.status) === 'in-session') {
-        targets.push({ path: repoPath, oldStatus: null, session: null, pid: null, host: null, pickedUpAt: null, _orphan: true });
-      } else {
-        die(`Not in-session: ${repoPath}`);
-      }
-    }
-  } else if (all) {
-    targets = Object.values(leases);
-  } else if (stale) {
-    // releaseStale handled separately below — set a marker
-    targets = null;
-  } else {
-    // Default: release all owned by current session
-    targets = Object.values(leases).filter(l => l.session === session);
-  }
-
-  const targetStatus = (lease) => toStatus || lease.oldStatus || 'active';
-
-  function flipFrontmatter(repoPath, newStatus) {
-    const filePath = resolveDocPath(repoPath, config);
-    if (!filePath) {
-      warn(`Lease points at ${repoPath} but file not found — releasing lease without frontmatter update.`);
-      return;
-    }
-    try {
-      const raw = readFileSync(filePath, 'utf8');
-      const { frontmatter: fmRaw } = extractFrontmatter(raw);
-      const parsedFm = parseSimpleFrontmatter(fmRaw);
-      const cur = asString(parsedFm.status);
-      if (cur === 'in-session') {
-        const today = nowIso();
-        updateFrontmatter(filePath, { status: newStatus, updated: today });
-        appendVersionHistory(filePath, `Released (in-session → ${newStatus}).`);
-        touched.push(filePath);
-        if (noIndex) {
-          process.stderr.write(dim('(index not regenerated — run `dotmd index` to refresh)\n'));
-        } else {
-          regenIndex(config);
-        }
-      }
-      // If frontmatter is no longer in-session (manual flip), leave it alone.
-    } catch (err) {
-      warn(`Could not update frontmatter for ${repoPath}: ${err.message}`);
-    }
-  }
-
-  if (targets === null) {
-    // --stale path
-    if (dryRun) {
-      const staleLeases = Object.values(leases).filter(l => isLeaseReclaimable(l, { currentSession: session }));
-      for (const l of staleLeases) {
-        process.stderr.write(`${dim('[dry-run]')} Would release stale: ${l.path} (${l.session})\n`);
-      }
-    } else {
-      const result = releaseStale(config);
-      for (const l of result.released) {
-        flipFrontmatter(l.path, targetStatus(l));
-        released.push({ path: l.path, oldStatus: l.oldStatus, newStatus: targetStatus(l), session: l.session, stale: true });
-        try { config.hooks.onUnpickup?.({ path: l.path, oldStatus: 'in-session', newStatus: targetStatus(l) }); } catch (err) { warn(`Hook 'onUnpickup' threw: ${err.message}`); }
-      }
-    }
-  } else {
-    // Silent no-op: when the session has nothing to release (already
-    // auto-released by archive, or never held), exit 0 with no output.
-    // Only print when work was actually done. The fileArg path can't reach
-    // here with targets.length === 0 — it would have died at lookup.
-    for (const lease of targets) {
-      const newStatus = targetStatus(lease);
-      if (dryRun) {
-        process.stderr.write(`${dim('[dry-run]')} Would release: ${lease.path} (${lease.oldStatus ?? '?'} → ${newStatus})\n`);
-        continue;
-      }
-      if (lease._orphan) {
-        // Manual-edit fallback: no lease entry, just flip frontmatter.
-        flipFrontmatter(lease.path, newStatus);
-        warn(`No lease found for ${lease.path}; flipped status manually.`);
-        released.push({ path: lease.path, oldStatus: 'in-session', newStatus, session: null, orphan: true });
-        try { config.hooks.onUnpickup?.({ path: lease.path, oldStatus: 'in-session', newStatus }); } catch (err) { warn(`Hook 'onUnpickup' threw: ${err.message}`); }
-        continue;
-      }
-      const isMine = lease.session === session;
-      if (!isMine && !force && !all && !stale) {
-        skipped.push({ path: lease.path, reason: 'not-yours', session: lease.session });
-        continue;
-      }
-      const r = releaseLease(config, lease.path, { force: true });
-      if (r.released) {
-        flipFrontmatter(lease.path, newStatus);
-        released.push({ path: lease.path, oldStatus: lease.oldStatus, newStatus, session: lease.session });
-        try { config.hooks.onUnpickup?.({ path: lease.path, oldStatus: 'in-session', newStatus }); } catch (err) { warn(`Hook 'onUnpickup' threw: ${err.message}`); }
-      }
-    }
-  }
-
-  if (json) {
-    process.stdout.write(JSON.stringify({ released, skipped }, null, 2) + '\n');
-  } else {
-    for (const r of released) {
-      const tag = r.stale ? ' (stale)' : (r.orphan ? ' (orphan)' : '');
-      process.stdout.write(`${green('↩ Unpicked')}: ${r.path} (in-session → ${r.newStatus})${tag}\n`);
-    }
-    for (const s of skipped) {
-      process.stderr.write(`${yellow('⚠ Skipped')}: ${s.path} (held by ${s.session}; use --force to override)\n`);
-    }
-  }
-
-  if (showFiles && touched.length > 0) {
-    const all = [...touched];
-    if (config.indexPath && !noIndex) all.push(config.indexPath);
-    emitFilesFooter(all, config);
-  }
 }
 
 export function runArchive(argv, config, opts = {}) {
@@ -675,11 +459,6 @@ export function runArchive(argv, config, opts = {}) {
       out.write(`${prefix} Would update references in ${refCount} file(s)\n`);
     }
 
-    // Preview lease release (only if a lease exists for this plan)
-    if (readLeases(config)[oldRepoPath]) {
-      out.write(`${prefix} Would release in-session lease: ${oldRepoPath}\n`);
-    }
-
     // Preview onArchive hook fire
     if (config.hooks?.onArchive) {
       out.write(`${prefix} Would fire hook: onArchive\n`);
@@ -718,8 +497,6 @@ export function runArchive(argv, config, opts = {}) {
   if (config.indexPath && !noIndex) out.write('Index regenerated.\n');
   if (config.indexPath && noIndex) out.write(dim('(index not regenerated — run `dotmd index` to refresh)\n'));
 
-  try { releaseLease(config, oldRepoPath, { force: true }); } catch (err) { warn(`Could not release lease for ${oldRepoPath}: ${err.message}`); }
-
   const touched = [oldRepoPath, newRepoPath, ...refTouchedPaths];
   if (config.indexPath && !noIndex) touched.push(config.indexPath);
   if (showFiles) emitFilesFooter(touched, config);
@@ -757,41 +534,13 @@ export async function runSet(argv, config, opts = {}) {
   argv = argv.filter(a => a !== '--no-index' && a !== '--show-files');
 
   const newStatus = argv[0];
-  let input = argv[1];
+  const input = argv[1];
 
-  if (!newStatus) die('Usage: dotmd set <status> [<path>]');
-
-  // `set in-session` acquires a lease + prints the plan body (same as the
-  // legacy `pickup` verb). Delegated so `set` is the single status verb.
-  if (newStatus === 'in-session') {
-    const pickArgs = input ? [input] : [];
-    if (argv.includes('--takeover')) pickArgs.push('--takeover');
-    if (noIndex) pickArgs.push('--no-index');
-    if (showFiles) pickArgs.push('--show-files');
-    return runPickup(pickArgs, config, { dryRun });
-  }
-
-  if (!input) {
-    const leases = readLeases(config);
-    const sid = currentSessionId();
-    const owned = Object.entries(leases).filter(([_, l]) => l.session === sid);
-    if (owned.length === 0) {
-      die('No <path> given and no held lease to infer from.\nUsage: dotmd set <status> <path>');
-    }
-    if (owned.length > 1) {
-      const paths = owned.map(([p]) => `  - ${p}`).join('\n');
-      die(`No <path> given; you hold ${owned.length} leases:\n${paths}\nSpecify <path> explicitly.`);
-    }
-    input = owned[0][0];
-  }
+  if (!newStatus) die('Usage: dotmd set <status> <path>');
+  if (!input) die('Usage: dotmd set <status> <path>');
 
   const filePath = resolveDocPath(input, config);
   if (!filePath) die(`File not found: ${input}\nSearched: ${toRepoPath(config.repoRoot, config.repoRoot) || '.'}, ${toRepoPath(config.docsRoot, config.repoRoot)}`);
-
-  const raw = readFileSync(filePath, 'utf8');
-  const { frontmatter: fmRaw } = extractFrontmatter(raw);
-  const parsedFm = parseSimpleFrontmatter(fmRaw);
-  const oldStatus = asString(parsedFm.status);
 
   const inArchive = isArchivedPath(toRepoPath(filePath, config.repoRoot), config);
 
@@ -806,12 +555,6 @@ export async function runSet(argv, config, opts = {}) {
   if (noIndex) statusArgs.push('--no-index');
   if (showFiles) statusArgs.push('--show-files');
   await runStatus(statusArgs, config, { dryRun, suppressDeprecation: true });
-
-  if (oldStatus === 'in-session' && newStatus !== 'in-session' && !dryRun) {
-    const repoPath = toRepoPath(filePath, config.repoRoot);
-    try { releaseLease(config, repoPath, { force: false }); }
-    catch (err) { warn(`Could not release lease for ${repoPath}: ${err.message}`); }
-  }
 }
 
 export function runBulkArchive(argv, config, opts = {}) {

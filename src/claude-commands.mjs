@@ -21,7 +21,6 @@ function markerFor(version) { return `<!-- dotmd-generated: ${version} -->`; }
 const SLASH_DESCRIPTIONS = {
   plans: "dotmd-managed plan briefing for this repo. Use when the user asks what's on the plate, references a plan slug, queues work, or wants to start / close / archive a plan.",
   docs: "dotmd-managed docs briefing for this repo. Use when the user asks to list, scaffold, query, validate, archive, or rename non-plan docs (reference docs, ADRs, RFCs, design notes), or asks how the dotmd doc lifecycle works here.",
-  baton: "Save a resume prompt for the active plan and close it out — the minimum handoff. Use when the user says hand off / save a resume / wrap up, or when context is getting tight.",
 };
 
 const VOCAB_TRUNCATE_AT = 12;
@@ -63,21 +62,20 @@ function generatePlansCommand(config, version) {
   lines.push('');
   lines.push('Plan-specific commands:');
   lines.push('- `dotmd context` — briefing with active/paused/ready plans, age tags, next steps');
-  lines.push('- `dotmd set <status> [<file>]` — single status verb. Use this to start, transition, or close any plan:');
-  lines.push('    - `dotmd set in-session <file>` — start work on a plan (marks in-session + prints body)');
-  lines.push('    - `dotmd set <status> [<file>]` — transition to any other status; closes out the in-session marker automatically');
+  lines.push('- `dotmd set <status> <file>` — single status verb. Writes the new status to the plan\'s frontmatter. Use it to transition or close any plan:');
+  lines.push('    - `dotmd set in-session <file>` — mark a plan in-session (just a frontmatter status; use `dotmd use <file>` to also print the body)');
   lines.push('    - `dotmd set archived <file>` — close out (same as `dotmd archive`)');
   lines.push('- `dotmd archive <file>` — explicit archive with ref-fixing (equivalent to `set archived`)');
   lines.push('- `dotmd bulk archive <files>` — archive multiple at once');
   lines.push('- `dotmd new plan <name>` — scaffold with full phase structure');
   lines.push('- `dotmd new prompt <name>` — save a resume-prompt to docs/prompts/ (pipe stdin or @path for body)');
   lines.push('- `dotmd use` — consume oldest pending prompt (prints body, auto-archives)');
-  lines.push('- `dotmd use <file>` — open any doc by type: prompt → consume, plan → start work, doc → read');
+  lines.push('- `dotmd use <file>` — open any doc by type: prompt → consume, plan → mark in-session + print card, doc → read');
   lines.push('- `dotmd unblocks <file>` — what depends on / is blocked by a plan');
   lines.push('- `dotmd actionable` — ready plans with next steps (what to promote)');
   lines.push('- `dotmd query --keyword <term>` — find plans by keyword');
-  lines.push('- `dotmd runlist <hub>` — show ordered children of a runlist hub (→ marks next pickup)');
-  lines.push('- `dotmd runlist next <hub>` — pick up the next non-archived child of a runlist hub');
+  lines.push('- `dotmd runlist <hub>` — show ordered children of a runlist hub (→ marks next)');
+  lines.push('- `dotmd runlist next <hub>` — open the next non-archived child of a runlist hub');
 
   if (config.raw?.glossary) {
     lines.push('- `dotmd glossary <term>` — domain term lookup with related plans');
@@ -91,26 +89,6 @@ function generatePlansCommand(config, version) {
   lines.push('If the user references a runlist by name — e.g. "what\'s next on <X> runlist", "<X> runlist status", "pick up the next in <X>" — use `dotmd runlist next <X>` (or `dotmd runlist <X>` first to inspect the ordering). Do NOT fall back to `dotmd context` for runlist-scoped questions.');
   lines.push('');
   lines.push('**Saved prompts (`docs/prompts/*.md`):** if the user references a file under `docs/prompts/` — e.g. "resume via docs/prompts/foo.md", "use this prompt", "load that one" — consume it with `dotmd use <file>` (atomically prints the body and archives the prompt so it cannot be double-consumed). Do NOT `cat` it, read it with the file-reading tool, or copy its body into chat. To pick the oldest pending prompt without naming a file, run `dotmd use` with no arg.');
-  lines.push('');
-
-  return lines.join('\n');
-}
-
-function generateBatonCommand(config, version) {
-  const lines = [...frontmatterFor('baton', config), markerFor(version), ''];
-  lines.push('Wrap this session. Two commands:');
-  lines.push('');
-  lines.push('1. **Save the resume prompt.** `dotmd new prompt resume-<plan-slug>` — pipe stdin or pass `@path`. 10-20 line body: the next concrete decision plus any gotchas. NOT a recap of the plan body. The saved prompt IS the handoff — never print it into chat for copy-paste. Treat `docs/prompts/` as local session state: it is often gitignored and should not be committed just because you created a handoff prompt.');
-  lines.push('');
-  lines.push('2. **Close out via `dotmd set <status>`.** Pick the status that matches reality:');
-  lines.push('    - `dotmd set active <file>` — work continues, return the plan to the active queue');
-  lines.push('    - `dotmd set archived <file>` — fully shipped (also: `dotmd archive <file>`)');
-  lines.push('    - `dotmd set paused <file>` / `awaiting <file>` / `partial <file>` / `blocked <file>` — when the status really changed');
-  lines.push('  `set` clears the in-session marker automatically when transitioning to any other status.');
-  lines.push('');
-  lines.push('If you don\'t already know which plan you have in-session: `dotmd hud --json` and read `.owned`. Do NOT use `dotmd plans --status in-session` — that lists every session\'s in-session plans, not just yours.');
-  lines.push('');
-  lines.push('The next session\'s `dotmd hud` (SessionStart hook) surfaces the pending prompt automatically.');
   lines.push('');
 
   return lines.join('\n');
@@ -188,7 +166,6 @@ export function scaffoldClaudeCommands(cwd, config, opts = {}) {
   const files = [
     { name: 'plans.md', generate: () => generatePlansCommand(config, version) },
     { name: 'docs.md', generate: () => generateDocsCommand(config, version) },
-    { name: 'baton.md', generate: () => generateBatonCommand(config, version) },
   ];
 
   for (const { name, generate } of files) {

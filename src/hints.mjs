@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { readJournalEntries, isJournalEnabled, journalFilePath } from './journal.mjs';
-import { currentSessionId } from './lease.mjs';
+import { currentSessionId } from './util.mjs';
 
 // F17c: repeat-failure hints. When an agent runs the same broken invocation
 // twice in the same session within HINT_WINDOW_MS, the second die() output is
@@ -37,11 +37,6 @@ const TEMPLATES = [
     match: /File not found|does not resolve/i,
     hint: ({ count, argv }) =>
       `${count}× pointing at a path that doesn't exist. Confirm the file with \`dotmd query\` or \`dotmd plans\` — paths resolve relative to repo root or doc roots, not the cwd.`,
-  },
-  {
-    match: /Lease conflict|in-session|held by/i,
-    hint: ({ count }) =>
-      `${count}× lease conflict in this session. Run \`dotmd plans --status in-session\` to see what's held; pass \`--takeover\` if the holder is stale, or close the other session first.`,
   },
   {
     match: /Unknown status|Unknown surface/i,

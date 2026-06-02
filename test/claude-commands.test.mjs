@@ -30,17 +30,17 @@ describe('scaffoldClaudeCommands', () => {
     strictEqual(results.length, 0);
   });
 
-  it('creates plans.md, docs.md, and baton.md when .claude/ exists', async () => {
+  it('creates plans.md and docs.md when .claude/ exists', async () => {
     setup({ claude: true });
     const config = await resolveConfig(tmpDir);
     const results = scaffoldClaudeCommands(tmpDir, config);
-    strictEqual(results.length, 3);
+    strictEqual(results.length, 2);
     ok(results.some(r => r.name === 'plans.md'));
     ok(results.some(r => r.name === 'docs.md'));
-    ok(results.some(r => r.name === 'baton.md'));
+    ok(!results.some(r => r.name === 'baton.md'), 'baton command must no longer be scaffolded');
     ok(existsSync(path.join(tmpDir, '.claude', 'commands', 'plans.md')));
     ok(existsSync(path.join(tmpDir, '.claude', 'commands', 'docs.md')));
-    ok(existsSync(path.join(tmpDir, '.claude', 'commands', 'baton.md')));
+    ok(!existsSync(path.join(tmpDir, '.claude', 'commands', 'baton.md')));
   });
 
   it('includes version marker in generated files', async () => {
@@ -122,11 +122,11 @@ describe('scaffoldClaudeCommands', () => {
       `truncated vocab should drop entries past the cap; got: ${desc}`);
   });
 
-  it('leaves docs.md and baton.md descriptions unchanged (vocab only on plans)', async () => {
+  it('leaves docs.md description unchanged (vocab only on plans)', async () => {
     setup({ claude: true });
     const config = await resolveConfig(tmpDir);
     scaffoldClaudeCommands(tmpDir, config);
-    for (const name of ['docs.md', 'baton.md']) {
+    for (const name of ['docs.md']) {
       const content = readFileSync(path.join(tmpDir, '.claude', 'commands', name), 'utf8');
       const desc = content.match(/^---\ndescription:\s*(.+)\n---\n/)[1];
       ok(!/Valid \w+ statuses:/.test(desc),
@@ -142,7 +142,7 @@ describe('scaffoldClaudeCommands', () => {
     setup({ claude: true });
     const config = await resolveConfig(tmpDir);
     scaffoldClaudeCommands(tmpDir, config);
-    for (const name of ['plans.md', 'docs.md', 'baton.md']) {
+    for (const name of ['plans.md', 'docs.md']) {
       const content = readFileSync(path.join(tmpDir, '.claude', 'commands', name), 'utf8');
       ok(content.startsWith('---\n'), `${name} should start with --- frontmatter`);
       const match = content.match(/^---\ndescription:\s*(.+)\n---\n/);
@@ -202,7 +202,6 @@ describe('scaffoldClaudeCommands', () => {
     mkdirSync(path.join(tmpDir, '.claude', 'commands'), { recursive: true });
     writeFileSync(path.join(tmpDir, '.claude', 'commands', 'plans.md'), '<!-- dotmd-generated: 0.0.1 -->\nold content');
     writeFileSync(path.join(tmpDir, '.claude', 'commands', 'docs.md'), '<!-- dotmd-generated: 0.0.1 -->\nold content');
-    writeFileSync(path.join(tmpDir, '.claude', 'commands', 'baton.md'), '<!-- dotmd-generated: 0.0.1 -->\nold content');
     const results = scaffoldClaudeCommands(tmpDir, config);
     ok(results.every(r => r.action === 'updated'));
     ok(results[0].from === '0.0.1');
@@ -214,7 +213,6 @@ describe('scaffoldClaudeCommands', () => {
     mkdirSync(path.join(tmpDir, '.claude', 'commands'), { recursive: true });
     writeFileSync(path.join(tmpDir, '.claude', 'commands', 'plans.md'), '# My custom plans command');
     writeFileSync(path.join(tmpDir, '.claude', 'commands', 'docs.md'), '# My custom docs command');
-    writeFileSync(path.join(tmpDir, '.claude', 'commands', 'baton.md'), '# My custom baton command');
     const results = scaffoldClaudeCommands(tmpDir, config);
     ok(results.every(r => r.action === 'skipped'));
   });
@@ -265,38 +263,6 @@ describe('generated content teaches prompt consumption', () => {
     ok(/do not\s+`?cat`?/i.test(content), 'warns against cat/read');
   });
 
-  it('baton.md leads with resume-prompt creation and steers away from listing all in-session plans', async () => {
-    // Refinement pin: the baton skill used to instruct Claude to start with
-    // `dotmd plans --status in-session` (which lists EVERY session's lease,
-    // not just the current one) and to edit plan frontmatter before saving
-    // the resume prompt. That made wrap-up a heavy lookup workflow. The
-    // refined body must lead with `dotmd new prompt` and, if it mentions
-    // `dotmd plans --status in-session` at all, must flag it as wrong.
-    setup({ claude: true });
-    const config = await resolveConfig(tmpDir);
-    scaffoldClaudeCommands(tmpDir, config);
-    const content = readFileSync(path.join(tmpDir, '.claude', 'commands', 'baton.md'), 'utf8');
-
-    const newPromptIdx = content.indexOf('dotmd new prompt');
-    const setIdx = content.indexOf('dotmd set');
-    ok(newPromptIdx > -1, 'baton must mention `dotmd new prompt`');
-    ok(setIdx > -1, 'baton must mention `dotmd set` (single status verb)');
-    ok(newPromptIdx < setIdx,
-      '`dotmd new prompt` must appear before `dotmd set` (prompt is step 1, closure is step 2)');
-    ok(content.includes('often gitignored'),
-      'baton should warn that docs/prompts/ handoff files may be local-only');
-    ok(content.includes('should not be committed'),
-      'baton should steer agents away from committing ignored prompt files');
-
-    const planListIdx = content.indexOf('dotmd plans --status in-session');
-    if (planListIdx > -1) {
-      // If listed at all, it must be in a "do not use this" warning.
-      const surrounding = content.slice(Math.max(0, planListIdx - 80), planListIdx + 50);
-      ok(/do not|don't|never/i.test(surrounding),
-        `\`dotmd plans --status in-session\` should be flagged as wrong, got context: "${surrounding}"`);
-    }
-  });
-
   it('docs.md teaches prompt creation and consumption via the flat verbs', async () => {
     setup({ claude: true });
     const config = await resolveConfig(tmpDir);
@@ -330,7 +296,7 @@ describe('generated content teaches prompt consumption', () => {
 
     const known = new Set(KNOWN_COMMANDS);
     const referenced = new Set();
-    for (const name of ['plans.md', 'docs.md', 'baton.md']) {
+    for (const name of ['plans.md', 'docs.md']) {
       const content = readFileSync(path.join(tmpDir, '.claude', 'commands', name), 'utf8');
       // Match the first verb after `dotmd `: word chars, may contain `-`.
       for (const match of content.matchAll(/`dotmd ([a-z][a-z0-9-]*)/g)) {

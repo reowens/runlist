@@ -464,22 +464,6 @@ describe('init Claude integration', () => {
     ok(existsSync(path.join(tmpDir, '.claude', 'commands', 'docs.md')));
   });
 
-  it('scaffolds baton.md slash-command on fresh init', () => {
-    // `/baton` is the canonical agent-facing session-handoff verb (see
-    // docs/plans/baton-slash-command.md). Must land in .claude/commands/ on
-    // fresh init alongside plans.md and docs.md, otherwise Claude sessions
-    // can't invoke it.
-    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
-    mkdirSync(path.join(tmpDir, '.git'));
-    mkdirSync(path.join(tmpDir, '.claude'));
-    const result = run(['init']);
-    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-    const batonPath = path.join(tmpDir, '.claude', 'commands', 'baton.md');
-    ok(existsSync(batonPath), 'baton.md should be scaffolded on first init');
-    const content = readFileSync(batonPath, 'utf8');
-    ok(content.includes('<!-- dotmd-generated:'), 'baton.md should carry the dotmd-generated banner');
-  });
-
   it('skips Claude commands when .claude/ does not exist', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
     mkdirSync(path.join(tmpDir, '.git'));

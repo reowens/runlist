@@ -20,7 +20,7 @@ Every document has a `type:` field in its frontmatter. Types determine which sta
 
 Each stop-status maps to a distinct **unstuck-action** — that's the test for whether the status earns its keep.
 
-- **`in-session`** — A Claude instance is actively working on this plan right now. Do not pick up `in-session` plans. When you start working on a plan, set it to `in-session`.
+- **`in-session`** — A Claude instance is actively working on this plan right now. When you start working on a plan, set it to `in-session`. It's just a frontmatter status — there's no checkout, lock, or lease.
 - **`active`** — Ready for a Claude session to pick up and work on.
 - **`planned`** — Queued for future work, not yet ready to execute.
 - **`blocked`** — *Unstuck-action: monitor.* External arrival on its own schedule (hardware, vendor delivery, third-party rollout). You can't speed it up.
@@ -37,15 +37,14 @@ To finish work, archive directly: `dotmd archive <plan-file>`. The legacy `done`
 `dotmd set <status> [<file>]` is the single status verb. It handles starting, transitioning, and closing a plan based on the target status.
 
 1. Get oriented: `dotmd briefing`
-2. Start work on a plan: `dotmd set in-session <plan-file>` (marks in-session + prints content). Equivalent: `dotmd use <plan-file>`.
+2. Start work on a plan: `dotmd use <plan-file>` (marks in-session + prints the plan card). To set the status without printing, `dotmd set in-session <plan-file>`.
 3. When done — pick the closure status that matches reality:
    - Fully shipped → `dotmd set archived <plan-file>` (also: `dotmd archive <plan-file>`)
    - Shipped + tail deferred → `dotmd set partial <plan-file>` (reference the successor plan in the body)
    - Need more work later → `dotmd set active <plan-file>`
    - Stuck on a human decision → `dotmd set awaiting <plan-file>`
-   `set` automatically clears the in-session marker when transitioning to any other status.
+   `set <status> <file>` just writes the new status to frontmatter — no checkout to release, no lock to clear.
 4. To see plans: `dotmd plans` (live), `dotmd plans --status active`, `dotmd plans --status in-session`
-5. Re-attaching: `dotmd set in-session` on a plan your session already has marked in-session silently re-attaches. A plan that another live session is working on refuses; a plan flagged in-session with no live activity is reclaimable when the same-host pid is dead or the lease is older than 4 hours.
 
 ### Resume prompts (saved for future sessions)
 

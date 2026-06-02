@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, appendFileSync, statSync, renameSync, readFileSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { currentSessionId } from './lease.mjs';
+import { currentSessionId } from './util.mjs';
 
 const JOURNAL_DIR = '.dotmd';
 const JOURNAL_FILE = 'journal.jsonl';

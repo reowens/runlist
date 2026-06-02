@@ -4,7 +4,6 @@ import path from 'node:path';
 import { die, warn, toRepoPath } from './util.mjs';
 import { green, dim, yellow } from './color.mjs';
 import { scaffoldClaudeCommands } from './claude-commands.mjs';
-import { readLeases, currentSessionId } from './lease.mjs';
 
 // Files dotmd ship will auto-stage when they're dirty. Anything outside this
 // allowlist stays in the working tree — user has to `git add` it explicitly,
@@ -60,14 +59,6 @@ function listDirtyFiles(repoRoot) {
       if (arrow !== -1) rawPath = rawPath.slice(arrow + 4);
       return { status, path: rawPath };
     });
-}
-
-function findHeldPlanTitle(config) {
-  const leases = readLeases(config);
-  const sid = currentSessionId();
-  const owned = Object.entries(leases).filter(([_, l]) => l.session === sid);
-  if (owned.length !== 1) return null;
-  return path.basename(owned[0][0], '.md');
 }
 
 export async function runShip(argv, config, opts = {}) {
@@ -127,10 +118,7 @@ export async function runShip(argv, config, opts = {}) {
     const add = spawnSync('git', ['add', '--', ...allToStage], { cwd: config.repoRoot, encoding: 'utf8' });
     if (add.status !== 0) die(`git add failed: ${add.stderr}`);
 
-    const planTitle = findHeldPlanTitle(config);
-    const subject = planTitle
-      ? `chore: release ${target} (${planTitle})`
-      : `chore: release ${target}`;
+    const subject = `chore: release ${target}`;
     const body = `Auto-staged by \`dotmd ship\`:\n${allToStage.map(p => `- ${p}`).join('\n')}`;
     const commitMsg = `${subject}\n\n${body}`;
     const commit = spawnSync('git', ['commit', '-m', commitMsg], { cwd: config.repoRoot, encoding: 'utf8' });

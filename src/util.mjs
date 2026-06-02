@@ -1,6 +1,16 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { dim } from './color.mjs';
+
+// Stable identifier for the current shell/agent session. Used for journal
+// attribution and hint de-duplication — not for any plan locking.
+export function currentSessionId() {
+  if (process.env.CLAUDE_CODE_SESSION_ID) return process.env.CLAUDE_CODE_SESSION_ID;
+  if (process.env.CLAUDE_SESSION_ID) return process.env.CLAUDE_SESSION_ID;
+  if (process.env.TERM_SESSION_ID) return `term:${process.env.TERM_SESSION_ID}`;
+  return `shell:${os.userInfo().username}@${os.hostname()}`;
+}
 
 export function escapeTable(value) {
   return String(value).replace(/\|/g, '\\|');

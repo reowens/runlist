@@ -217,20 +217,19 @@ export async function runRunlist(argv, config, opts = {}) {
     die(
       `Next child in runlist ${hubRepoPath} is ${target.path} (status: ${target.status}).\n` +
       `Resolve the blocker before continuing the runlist.\n` +
-      `  dotmd status ${target.path} active   # if ready to resume\n` +
-      `  dotmd pickup ${target.path}          # to inspect`,
+      `  dotmd set active ${target.path}   # if ready to resume\n` +
+      `  dotmd use ${target.path}          # to inspect`,
     );
   }
 
-  // Delegate to runPickup — same lease semantics, same VH append, same card
-  // render. Dynamic import to avoid circular module-load cost when the
-  // runlist command isn't used.
-  const { runPickup } = await import('./lifecycle.mjs');
-  const pickupArgs = [target.path];
-  if (argv.includes('--takeover')) pickupArgs.push('--takeover');
-  if (argv.includes('--full')) pickupArgs.push('--full');
-  if (argv.includes('--no-index')) pickupArgs.push('--no-index');
-  if (argv.includes('--show-files')) pickupArgs.push('--show-files');
-  if (json) pickupArgs.push('--json');
-  await runPickup(pickupArgs, config, opts);
+  // Open the next child: set it in-session (frontmatter) and render its card.
+  // Dynamic import to avoid circular module-load cost when the runlist command
+  // isn't used.
+  const { startPlan } = await import('./lifecycle.mjs');
+  const startArgs = [target.path];
+  if (argv.includes('--full')) startArgs.push('--full');
+  if (argv.includes('--no-index')) startArgs.push('--no-index');
+  if (argv.includes('--show-files')) startArgs.push('--show-files');
+  if (json) startArgs.push('--json');
+  await startPlan(startArgs, config, opts);
 }

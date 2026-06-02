@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { resolveConfig } from '../src/config.mjs';
-import { die, warn, levenshtein, isArchivedPath } from '../src/util.mjs';
+import { die, warn, levenshtein, isArchivedPath, toRepoPath } from '../src/util.mjs';
 import { recordCliInvocation, recordGlobalError } from '../src/journal.mjs';
 import { findRepeatFailureHint } from '../src/hints.mjs';
 
@@ -37,10 +37,7 @@ const FLAG_SPECS = {
   hud: { flags: new Set(['--json']), values: new Set() },
   check: { flags: new Set(['--fix', '--errors-only', '--no-collapse', '--json', '--verbose']), values: new Set() },
   doctor: { flags: new Set(['--apply', '--yes', '--dry-run', '-n', '--statuses', '--migrate-template', '--migrate-prompts', '--frontmatter-fix', '--project', '--json', '--include-archived']), values: new Set() },
-  runlist: { flags: new Set(['--json', '--takeover', '--full', '--no-index', '--show-files']), values: new Set(), subcommands: new Set(['next']) },
-  release: { flags: new Set(['--json', '--all', '--stale', '--to', '--force', '--no-index', '--show-files']), values: new Set(['--to']) },
-  unpickup: { flags: new Set(['--json', '--all', '--stale', '--to', '--force', '--no-index', '--show-files']), values: new Set(['--to']) },
-  finish: { flags: new Set(['--json', '--all', '--stale', '--to', '--force', '--no-index', '--show-files']), values: new Set(['--to']) },
+  runlist: { flags: new Set(['--json', '--full', '--no-index', '--show-files']), values: new Set(), subcommands: new Set(['next']) },
   prompts: {
     flags: new Set(['--json', '--status', '--include-archived', '--sort', '--limit', '--all', '--no-index', '--show-files', '--body', '--message', '--title']),
     values: new Set(['--status', '--sort', '--limit', '--body', '--message', '--title']),
@@ -57,6 +54,67 @@ function validateKnownFlags(command, argv, config) {
     if (!arg.startsWith('-')) continue;
     if (!spec.flags.has(arg)) die(`Unknown flag for \`dotmd ${command}\`: ${arg}`);
     if (spec.values.has(arg)) i += 1;
+  }
+}
+
+function resolveExistingPath(input, config) {
+  if (!input) return null;
+  const candidates = [];
+  if (path.isAbsolute(input)) {
+    candidates.push(input);
+    if (!input.endsWith('.md')) candidates.push(`${input}.md`);
+  } else {
+    candidates.push(path.resolve(config.repoRoot, input));
+    if (!input.endsWith('.md')) candidates.push(path.resolve(config.repoRoot, `${input}.md`));
+    for (const root of config.docsRoots || [config.docsRoot]) {
+      candidates.push(path.resolve(root, input));
+      if (!input.endsWith('.md')) candidates.push(path.resolve(root, `${input}.md`));
+    }
+  }
+  return candidates.find(candidate => existsSync(candidate)) ?? null;
+}
+
+function applyPathScopeToIndex(index, config, inputs) {
+  if (!inputs.length) return;
+
+  const selected = new Set();
+  for (const input of inputs) {
+    const resolved = resolveExistingPath(input, config);
+    if (!resolved) die(`Could not resolve check path: ${input}`);
+
+    const stat = statSync(resolved);
+    if (stat.isDirectory()) {
+      const dir = path.resolve(resolved);
+      const before = selected.size;
+      for (const doc of index.docs) {
+        const abs = path.resolve(config.repoRoot, doc.path);
+        if (abs === dir || abs.startsWith(dir + path.sep)) selected.add(doc.path);
+      }
+      if (selected.size === before) {
+        die(`No dotmd documents found under check path: ${toRepoPath(dir, config.repoRoot)}`);
+      }
+      continue;
+    }
+
+    if (!stat.isFile() || !resolved.endsWith('.md')) die(`Check path is not a markdown file or directory: ${input}`);
+    const repoPath = toRepoPath(resolved, config.repoRoot);
+    if (!index.docs.some(d => d.path === repoPath)) {
+      die(`Check path is outside configured docs roots: ${repoPath}`);
+    }
+    selected.add(repoPath);
+  }
+
+  index.docs = index.docs.filter(d => selected.has(d.path));
+  index.errors = index.errors.filter(e => selected.has(e.path));
+  index.warnings = index.warnings.filter(w => selected.has(w.path));
+  index.countsByStatus = {};
+  index.countsByType = {};
+  for (const doc of index.docs) {
+    const status = doc.status ?? 'unknown';
+    index.countsByStatus[status] = (index.countsByStatus[status] ?? 0) + 1;
+    const type = doc.type || 'unknown';
+    if (!index.countsByType[type]) index.countsByType[type] = {};
+    index.countsByType[type][status] = (index.countsByType[type][status] ?? 0) + 1;
   }
 }
 
@@ -87,7 +145,7 @@ Global flags: --config <path>  --root <name>  --type <t,…>  --dry-run/-n  --ve
   'help:all': `dotmd v${pkg.version} — full command list
 
 View & Query:
-  hud [--json]                      Two-line actionable triage (held / prompts / stuck) — silent when clean
+  hud [--json]                      Command primer + pending-prompt triage — silent when clean
   list [--verbose] [--json]         List docs grouped by status (default command)
   briefing [--json]                 Full briefing with plan status counts + next steps
   context [--summarize] [--json]    Full briefing (LLM-oriented; use --json --compact for bounded JSON)
@@ -121,11 +179,9 @@ Validate & Fix:
   fix-refs [--dry-run]              Auto-fix broken reference paths + body links
 
 Lifecycle:
-  pickup <file>                      Acquire an in-session lease and start work
-  release [<file>]                   Release held in-session work (alias: unpickup, finish)
-  set <status> [<file>]             Unified transition: start work, change status, close out, archive — all via target status
+  use <file>                        Open a plan (mark in-session + print it) or consume a prompt
+  set <status> <file>               Change a document's status (frontmatter write; archive also moves the file)
   runlist <hub> [next]              Show or walk an ordered group of plans (see \`dotmd help runlist\`)
-  unpickup [<file>]                  Release held in-session work
   status <file> <status>            Transition document status (deprecated; prefer \`set\`)
   archive <file>                    Archive (status + move + update refs)
   bulk archive <f1> <f2> ...        Archive multiple files at once
@@ -184,11 +240,10 @@ the status taxonomy in a specific project, use \`dotmd statuses list\`.
 plan statuses (each maps to a distinct unstuck-action)
 
   in-session     A Claude session is working on it now.
-                 Don't pick up unless you own it (auto-reattaches) or pass
-                 --takeover. Stale lease cleanup: \`dotmd release --stale\`.
+                 \`dotmd use <file>\` marks it in-session and prints the plan.
 
-  active         Ready to be picked up.
-                 \`dotmd pickup <file>\` → in-session.
+  active         Ready to be worked on.
+                 \`dotmd use <file>\` → in-session.
 
   planned        Queued for future work, not yet ready to execute.
                  Transition to active when ready to start.
@@ -212,10 +267,10 @@ plan statuses (each maps to a distinct unstuck-action)
   archived       No longer relevant; auto-moved to archive directory.
 
 Canonical transitions:
-  active → in-session              \`dotmd pickup <file>\`
-  in-session → active              \`dotmd set active\` (auto-releases lease)
-  in-session → partial             \`dotmd set partial\` (auto-releases lease)
-  in-session → awaiting            \`dotmd set awaiting\` (auto-releases lease)
+  active → in-session              \`dotmd use <file>\` (or \`dotmd set in-session <file>\`)
+  in-session → active              \`dotmd set active <file>\`
+  in-session → partial             \`dotmd set partial <file>\`
+  in-session → awaiting            \`dotmd set awaiting <file>\`
   any → archived                   \`dotmd set archived <file>\` (or \`dotmd archive\`)
 
 ────────────────────────────────────────────────────────────────────
@@ -253,7 +308,7 @@ Related commands:
   dotmd status <f> <new>      Transition a document's status
   dotmd briefing              See plans grouped by status
   dotmd plans --status <s>    Filter live plans by status
-  dotmd hud                   Two-line actionable triage (held / prompts / stuck)
+  dotmd hud                   Command primer + pending-prompt triage
 
 Run \`dotmd statuses list --type plan\` to see the full set (including any
 project-specific custom statuses) with their flags.`,
@@ -324,76 +379,18 @@ Filters:
   --summarize-limit <n>  Max docs to summarize (default: 5)
   --model <name>         Model for AI summaries`,
 
-  pickup: `dotmd pickup <file> — pick up a plan and start working
-
-Sets the plan to in-session and prints its content (prefixed with a
-"[dotmd] holding <path>" line so the fresh session knows what it holds).
-Writes a session lease to <repoRoot>/.dotmd/in-session.json so the same
-Claude session can re-attach silently after compaction or /clear.
-
-If a plan is already in-session:
-- Same session → silent re-attach (prints body, no error).
-- Different session, live pid → refuses with "Held by …" message.
-- Different session, dead pid or >24h old → suggests --takeover.
-
-Options:
-  --takeover             Force-claim a plan held by another session
-  --no-index             Skip index regen (see \`dotmd archive --help\`)
-  --show-files           Append \`files: …\` line to stderr (see \`dotmd archive --help\`)
-  --json                 Output as JSON
-  --dry-run, -n          Preview without writing
-
-If no file is given, prompts with a list of active/planned plans.`,
-
-  unpickup: `dotmd unpickup [<file>] — release a plan from in-session
-
-With no file: releases every lease owned by the current session.
-This is the form intended for a Claude Code SessionEnd hook.
-
-With <file>: releases that one. Refuses if held by another session
-(use --force to override).
-
-Flips the plan's frontmatter status from in-session back to its
-prior status (recorded by pickup), or whatever --to specifies.
-
-Options:
-  --to <status>          Override target status (default: lease.oldStatus → fallback active)
-  --all                  Release every lease in the file (administrative)
-  --stale                Release leases whose pid is dead or age >24h
-  --force                Override "not yours" refusal on a specific file
-  --no-index             Skip index regen (see \`dotmd archive --help\`)
-  --show-files           Append \`files: …\` line to stderr (see \`dotmd archive --help\`)
-  --json                 Output as JSON ({ released, skipped })
-  --dry-run, -n          Preview without writing
-
-Manual-edit fallback: if the plan's status is in-session but no lease
-exists, --to <status> flips it anyway with a warning.`,
-
-  release: `dotmd release [<file>] [--to <s>] — alias of dotmd unpickup
-
-Release the in-session lease(s) and flip frontmatter back to the prior
-status. With no file, releases every lease owned by the current session.
-Identical behavior to \`dotmd unpickup\`; both names route to the same
-implementation. See \`dotmd unpickup --help\` for full option list.`,
-
-  finish: `dotmd finish [<file>] [--to <s>] — alias of dotmd release
-
-Compatibility alias for docs and agent loops that use "finish" for releasing
-in-session work. Same behavior as \`dotmd release\` / \`dotmd unpickup\`.`,
-
   ship: `dotmd ship [patch|minor|major] — regen + commit + bump in one step
 
-Bundles the multi-step release dance into a single command:
+Bundles the release steps into a single command:
   1. Regenerate \`.claude/commands/*.md\` with the TARGET version stamp
      (the post-bump version, so the slash-command files match the new
      release and no dirty tree lingers after).
   2. Auto-stage every dirty file matching the release allowlist
      (src/, test/, bin/, docs/, .claude/commands/, package*.json,
      dotmd.config*.mjs, README.md, CLAUDE.md, .gitignore). Anything
-     outside the allowlist is left dirty — secrets, sibling-session
-     WIP, etc. never get bundled in.
-  3. Commit with an auto-generated message including the held plan
-     title (if any).
+     outside the allowlist is left dirty — secrets, WIP, etc. never get
+     bundled in.
+  3. Commit with an auto-generated \`chore: release <version>\` message.
   4. Run \`npm version <bump>\` to bump package.json, tag, push, run
      the publish workflow, and reinstall locally.
 
@@ -406,19 +403,12 @@ Network failures mid-bump (e.g. \`git push\` fails) leave the local
 commit + tag intact. Inspect with \`git log -1\` and rerun
 \`git push origin main --tags\` to recover.`,
 
-  set: `dotmd set <status> [<file>] — unified status-transition verb
+  set: `dotmd set <status> <file> — change a document's status
 
-Routes to the right plumbing based on the target status:
+Writes the new status into the file's frontmatter. Nothing else — no plan
+checkout, no session locks.
   - target is an archive status → archive the file (move + ref update)
-  - source is in-session         → also releases the held lease
-  - everything else              → plain frontmatter status bump
-
-When <file> is omitted, dotmd infers it from the calling session's held
-lease. With zero or multiple leases, you must pass <file> explicitly.
-
-To acquire an in-session lease, use \`dotmd pickup <file>\` instead —
-\`dotmd set in-session\` is refused so the asymmetric lease-acquisition
-path is never skipped silently.
+  - everything else             → plain frontmatter status bump
 
 Options:
   --no-index             Skip index regen (see \`dotmd archive --help\`).
@@ -426,9 +416,11 @@ Options:
   --dry-run, -n          Preview without writing.
 
 Examples:
-  dotmd set partial                 # release current lease, mark partial
-  dotmd set archived docs/plans/x   # archive a specific plan
-  dotmd set active                  # finish a held in-session plan`,
+  dotmd set in-session docs/plans/x  # mark a plan in-session
+  dotmd set partial docs/plans/x     # mark partial
+  dotmd set archived docs/plans/x    # archive a specific plan
+
+To open a plan (mark in-session AND print its body), use \`dotmd use <file>\`.`,
 
   status: `dotmd status <file> <new-status> — transition document status
 
@@ -514,12 +506,10 @@ Options:
 
   hud: `dotmd hud — actionable triage for session start
 
-Prints up to three lines, in order:
-  ▶ You hold N plans: <slugs>       (leases owned by current session)
-  ▶ N pending prompts: <slugs>      (saved prompts in docs/prompts/)
-  ⚠ N stuck leases >24h             (suggest \`dotmd release --stale\`)
+Prints the dotmd command primer (the verb cheat-sheet) plus, in --json mode,
+pending prompts and the check-error count for programmatic callers.
 
-Silent when all three are empty — designed for SessionStart hooks where
+Silent when there's nothing actionable — designed for SessionStart hooks where
 zero noise is the right default. Distinct from \`dotmd briefing\`, which
 dumps the full plan-status pipeline and per-plan next_step bodies (kilobytes
 on large repos). Use hud for ergonomic session boot; use briefing for
@@ -1073,14 +1063,13 @@ the order of the children comes from the array.
 Usage:
   dotmd runlist <hub>          Show children + their statuses, in order.
                                The first non-archived child is marked \`→\`.
-  dotmd runlist next <hub>     Pick up the first non-archived child.
-                               Stops if it's not in a pickup-able status
-                               (active / planned / in-session) so you resolve
-                               the blocker before continuing the runlist.
+  dotmd runlist next <hub>     Open the first non-archived child (marks it
+                               in-session + prints it). Stops if it's not in a
+                               workable status (active / planned / in-session)
+                               so you resolve the blocker first.
 
-Flags (only meaningful with \`next\`, forwarded to pickup):
-  --takeover         Override a held lease.
-  --full             Print full plan body instead of the pickup card.
+Flags (only meaningful with \`next\`):
+  --full             Print full plan body instead of the card.
   --no-index         Skip index regeneration.
   --show-files       Emit \`files: …\` footer.
 
@@ -1226,8 +1215,6 @@ async function main() {
   if (config.presets[command]) {
     const { buildIndex } = await import('../src/index.mjs');
     const { runQuery } = await import('../src/query.mjs');
-    const { scrubStaleSilently } = await import('../src/lease-scrub.mjs');
-    scrubStaleSilently(config);
     const index = buildIndex(config);
     runQuery(index, [...config.presets[command], ...restArgs], config, { preset: command });
     return;
@@ -1240,8 +1227,6 @@ async function main() {
   if (command === 'plans') {
     const { buildIndex } = await import('../src/index.mjs');
     const { runQuery } = await import('../src/query.mjs');
-    const { scrubStaleSilently } = await import('../src/lease-scrub.mjs');
-    scrubStaleSilently(config);
     const index = buildIndex(config);
     const sub = restArgs[0];
     let defaults;
@@ -1262,7 +1247,7 @@ async function main() {
   }
   // Top-level `dotmd use [file]` — the single "start engaging with this doc"
   // verb. Dispatches by the target doc's type: prompt → consume + archive,
-  // plan → acquire lease + print, doc → print. With no file: consume oldest
+  // plan → mark in-session + print, doc → print. With no file: consume oldest
   // pending prompt. See src/use.mjs for the dispatch table.
   if (command === 'use') {
     const { runUse } = await import('../src/use.mjs');
@@ -1292,8 +1277,9 @@ async function main() {
   // Lifecycle commands
   if (command === 'hud') { const { runHud } = await import('../src/hud.mjs'); runHud(restArgs, config); return; }
   if (command === 'journal') { const { runJournal } = await import('../src/journal-read.mjs'); runJournal(restArgs, config); return; }
-  if (command === 'pickup') { const { runPickup } = await import('../src/lifecycle.mjs'); await runPickup(restArgs, config, { dryRun }); return; }
-  if (command === 'unpickup' || command === 'release' || command === 'finish') { const { runUnpickup } = await import('../src/lifecycle.mjs'); await runUnpickup(restArgs, config, { dryRun }); return; }
+  if (command === 'pickup' || command === 'unpickup' || command === 'release' || command === 'finish') {
+    die(`\`dotmd ${command}\` was removed — dotmd no longer checks plans in/out. Status is just frontmatter:\n  dotmd use <file>          # mark in-session + print the plan\n  dotmd set <status> <file> # change status\n  dotmd archive <file>      # close out`);
+  }
   if (command === 'runlist') { const { runRunlist } = await import('../src/runlist.mjs'); await runRunlist(restArgs, config, { dryRun }); return; }
   if (command === 'handoff') { die('`dotmd handoff` was removed in 0.31.0. Use `dotmd prompts new <name>` to create a saved prompt instead. The .dotmd/handoffs/ sidecar mechanism no longer exists; see CHANGELOG.'); }
   if (command === 'status') { const { runStatus } = await import('../src/lifecycle.mjs'); await runStatus(restArgs, config, { dryRun }); return; }
@@ -1336,21 +1322,14 @@ async function main() {
   const { buildIndex } = await import('../src/index.mjs');
   const { renderCompactList, renderVerboseList, renderContext, renderBriefing, renderCheck, renderCoverage, buildCoverage } = await import('../src/render.mjs');
   const { runFocus, runQuery } = await import('../src/query.mjs');
-  // Opportunistic stale-lease scrub for user-facing "what's actionable now"
-  // views. Diagnostic commands (`check`, `coverage`, `stats`, `index`) are
-  // intentionally excluded — they should surface drift, not silently fix it.
-  const SCRUB_READ_COMMANDS = new Set(['list', 'briefing', 'context', 'agent-context', 'focus', 'query', 'modules', 'module', 'surfaces']);
-  if (SCRUB_READ_COMMANDS.has(command)) {
-    const { scrubStaleSilently } = await import('../src/lease-scrub.mjs');
-    scrubStaleSilently(config);
-  }
   // `dotmd check` is the one shared-buildIndex command that should auto-heal a
   // drifted index block (frontmatter edits by direct Edit/Write, `lint --fix`,
   // etc. leave the README out of sync; demanding the user run `dotmd index`
   // each time was pure noise). Print/dry-run/read-only callers (`json`, `list`,
   // `query`, `index --print`, ...) stay opt-out so they never mutate disk.
+  const checkHasPathScope = command === 'check' && restArgs.some(arg => !arg.startsWith('-'));
   const AUTO_HEAL_INDEX_COMMANDS = new Set(['check']);
-  const index = buildIndex(config, { autoHealIndex: AUTO_HEAL_INDEX_COMMANDS.has(command) });
+  const index = buildIndex(config, { autoHealIndex: AUTO_HEAL_INDEX_COMMANDS.has(command) && !checkHasPathScope });
 
   // Apply --root and --type filters
   const rootFilter = rootArg;
@@ -1405,6 +1384,11 @@ async function main() {
     const errorsOnly = args.includes('--errors-only');
     const noCollapse = args.includes('--no-collapse');
     const verbose = args.includes('--verbose');
+    const checkTargets = restArgs.filter(arg => !arg.startsWith('-'));
+
+    if (fix && checkTargets.length > 0) {
+      die('`dotmd check --fix` does not support path-scoped checks yet. Run `dotmd check <path>` to validate a subset, or `dotmd check --fix` to fix the whole docs tree.');
+    }
 
     if (fix) {
       // Auto-fix: broken refs, then lint, then rebuild index
@@ -1425,6 +1409,7 @@ async function main() {
       // Show remaining issues
       const freshIndex = buildIndex(config);
       applyIndexFilters(freshIndex);
+      applyPathScopeToIndex(freshIndex, config, checkTargets);
       if (args.includes('--json')) {
         process.stdout.write(JSON.stringify({
           docsScanned: freshIndex.docs.length,
@@ -1440,6 +1425,8 @@ async function main() {
       if (freshIndex.errors.length > 0) process.exitCode = 1;
       return;
     }
+
+    applyPathScopeToIndex(index, config, checkTargets);
 
     if (args.includes('--json')) {
       process.stdout.write(JSON.stringify({
