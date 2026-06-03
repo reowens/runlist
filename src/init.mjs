@@ -5,8 +5,7 @@ import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { green, dim, yellow } from './color.mjs';
 import { warn } from './util.mjs';
-import { scaffoldClaudeCommands } from './claude-commands.mjs';
-import { resolveConfig } from './config.mjs';
+import { removeGeneratedSlashCommands } from './claude-commands.mjs';
 
 // Subdirectories scaffolded under docsRoot and tracked separately during scans.
 // Each maps to a builtin type (plan, prompt). New types added here should also
@@ -331,53 +330,32 @@ export async function runInit(cwd, config, opts = {}) {
     process.stdout.write(`\n  ${yellow('hint')}    ${n} untagged .md ${noun} found — run \`dotmd bulk-tag --dry-run\` to preview tagging.\n`);
   }
 
-  // Claude Code integration — auto-detect .claude/ directory.
-  // Re-resolve config so the scaffold sees whatever we (may have) just written.
-  // Pre-fix: the dispatcher passed `null` to runInit on a fresh repo because
-  // resolveConfig was called before init wrote the starter, so the `if (config)`
-  // gate below silently skipped slash-command scaffolding entirely on first init.
-  // Re-resolving picks up STARTER_CONFIG (or any pre-existing config) in the
-  // real-run path; in dry-run with no on-disk config, it returns the merged
-  // DEFAULTS, which is enough for the preview line (`would create…`).
-  //
-  // Reports all four scaffold outcomes so the user can't be surprised by
-  // either a silent regenerate (pre-fix: `updated` was unreported) or by
-  // dotmd skipping a user-managed file (pre-fix: `skipped` was unreported).
-  const scaffoldConfig = await resolveConfig(cwd);
-  if (scaffoldConfig) {
-    const results = scaffoldClaudeCommands(cwd, scaffoldConfig, { dryRun });
-    for (const r of results) {
-      const filename = `.claude/commands/${r.name}`;
-      if (r.action === 'created') {
-        process.stdout.write(`  ${dryTag}${green('create')}  ${filename}\n`);
-      } else if (r.action === 'updated') {
-        process.stdout.write(`  ${dryTag}${green('update')}  ${filename} (v${r.from} → v${r.to})\n`);
-      } else if (r.action === 'current') {
-        process.stdout.write(`  ${dryTag}${dim('exists')}  ${filename}\n`);
-      } else if (r.action === 'skipped') {
-        process.stdout.write(`  ${dryTag}${yellow('skip')}    ${filename} (no version marker — user-managed)\n`);
-      }
-    }
-  }
-
-  // SessionStart hook hint — only when .claude/ exists. Print-only; users with
-  // existing settings.json need to merge by hand because auto-merging hook
-  // arrays would silently mutate user-managed files.
+  // Claude Code integration. dotmd no longer scaffolds per-repo
+  // `.claude/commands/*.md` slash commands — the dotmd plugin's SKILL.md is the
+  // canonical agent-facing workflow now, and `dotmd hud` injects this repo's
+  // status vocab at runtime. If a `.claude/` exists, sweep any retired
+  // generated command files (banner-gated, so hand-authored ones survive) and
+  // point the user at the plugin instead.
   if (existsSync(path.join(cwd, '.claude'))) {
+    const removed = removeGeneratedSlashCommands(cwd, { dryRun });
+    for (const r of removed) {
+      const verb = dryRun ? 'would remove' : 'removed';
+      process.stdout.write(`  ${dryTag}${yellow('clean')}   .claude/commands/${r.name} (retired — ${verb}; guidance ships via the dotmd plugin)\n`);
+    }
+
     const sessionStart = detectSessionStartHook(cwd);
     if (sessionStart.wired) {
       process.stdout.write(`  ${dim('exists')}  ${sessionStart.file} (SessionStart hook for \`dotmd hud\` already wired)\n`);
     } else {
-      process.stdout.write(`\n  ${yellow('hint')}    wire \`dotmd hud\` to run at SessionStart — add to .claude/settings.json:\n\n`);
-      process.stdout.write(`            {\n`);
-      process.stdout.write(`              "hooks": {\n`);
-      process.stdout.write(`                "SessionStart": [\n`);
-      process.stdout.write(`                  { "hooks": [{ "type": "command", "command": "dotmd hud" }] }\n`);
-      process.stdout.write(`                ]\n`);
-      process.stdout.write(`              }\n`);
-      process.stdout.write(`            }\n\n`);
-      process.stdout.write(`            If .claude/settings.json already exists, merge into the existing\n`);
-      process.stdout.write(`            \`hooks.SessionStart\` array rather than replacing the file.\n`);
+      process.stdout.write(`\n  ${yellow('hint')}    install the dotmd Claude Code plugin so its hooks + workflow skill\n`);
+      process.stdout.write(`            travel to every session and subagent automatically:\n\n`);
+      process.stdout.write(`              /plugin marketplace add reowens/dotmd\n`);
+      process.stdout.write(`              /plugin install dotmd@dotmd\n\n`);
+      process.stdout.write(`            Or, without the plugin, wire \`dotmd hud\` at SessionStart by hand —\n`);
+      process.stdout.write(`            add to .claude/settings.json (merge into any existing hooks):\n\n`);
+      process.stdout.write(`              "hooks": { "SessionStart": [\n`);
+      process.stdout.write(`                { "hooks": [{ "type": "command", "command": "dotmd hud" }] }\n`);
+      process.stdout.write(`              ] }\n`);
     }
   }
 

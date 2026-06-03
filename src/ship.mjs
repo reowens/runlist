@@ -3,7 +3,6 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { die, warn, toRepoPath } from './util.mjs';
 import { green, dim, yellow } from './color.mjs';
-import { scaffoldClaudeCommands } from './claude-commands.mjs';
 
 // Files dotmd ship will auto-stage when they're dirty. Anything outside this
 // allowlist stays in the working tree — user has to `git add` it explicitly,
@@ -77,16 +76,11 @@ export async function runShip(argv, config, opts = {}) {
 
   process.stdout.write(`${green('→')} Shipping ${current} → ${target} (${bump})\n`);
 
-  // 1. Regen slash commands at the *target* version so the resulting commit
-  //    matches the post-bump state and no dirty tree lingers after release.
-  const regenResults = scaffoldClaudeCommands(config.repoRoot, config, { version: target, dryRun });
-  const refreshed = regenResults.filter(r => r.action === 'updated' || r.action === 'created');
-  if (refreshed.length > 0) {
-    const verb = dryRun ? 'Would regenerate' : 'Regenerated';
-    process.stdout.write(`${green('→')} ${verb} slash commands @ ${target}: ${refreshed.map(r => r.name).join(', ')}\n`);
-  }
+  // Per-repo slash-command scaffolding is retired (the dotmd plugin's SKILL.md
+  // is canonical now), so there is nothing to regenerate at ship time. Any
+  // stale generated files are swept by `dotmd hud` / `dotmd doctor`.
 
-  // 2. Identify dirty tracked files. Anything matching the allowlist gets
+  // Identify dirty tracked files. Anything matching the allowlist gets
   //    staged; everything else is left dirty so the user can handle it.
   const dirty = listDirtyFiles(config.repoRoot);
   const untracked = dirty.filter(d => d.status === '??');

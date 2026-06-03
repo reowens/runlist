@@ -77,47 +77,38 @@ describe('init basic', () => {
     ok(!existsSync(path.join(tmpDir, '.claude', 'commands')), '.claude/commands/ not created in dry-run');
   });
 
-  it('reports `update` when refreshing a stale slash command', () => {
-    // Pre-fix: runInit's report loop only handled `created` and `current`.
-    // `updated` (regen from older version banner) was silently dropped — the
-    // user saw nothing about a slash-command file rewrite that did happen.
+  it('removes a retired generated slash-command file on init', () => {
+    // Per-repo scaffolding is retired (the dotmd plugin owns the workflow now);
+    // init sweeps any leftover banner-stamped command files and reports it.
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
     mkdirSync(path.join(tmpDir, '.git'));
     mkdirSync(path.join(tmpDir, '.claude', 'commands'), { recursive: true });
-    // Seed config so the dispatcher passes a non-null config to runInit
-    // (the slash-command scaffold path is gated on `if (config)`).
     writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';\n`);
-    // Plant a stale slash-command file with an old version banner.
+    // Plant a generated slash-command file (dotmd banner present).
     writeFileSync(
       path.join(tmpDir, '.claude', 'commands', 'plans.md'),
-      '<!-- dotmd-generated: 0.0.1 -->\n\nold content\n',
+      '---\ndescription: x\n---\n<!-- dotmd-generated: 0.0.1 -->\n\nold content\n',
     );
     const r = run(['init']);
     strictEqual(r.status, 0, `stderr: ${r.stderr}`);
-    ok(/update\s+\.claude\/commands\/plans\.md/.test(r.stdout),
-      `output should report an update line for plans.md; got: ${r.stdout}`);
-    ok(/v0\.0\.1\s*→/.test(r.stdout),
-      `update line should show the version transition; got: ${r.stdout}`);
-    // And the actual file should be refreshed.
-    const content = readFileSync(path.join(tmpDir, '.claude', 'commands', 'plans.md'), 'utf8');
-    ok(!content.includes('dotmd-generated: 0.0.1 '), 'stale marker should be gone');
+    ok(/\.claude\/commands\/plans\.md.*retired/.test(r.stdout),
+      `output should report the retired file being cleaned; got: ${r.stdout}`);
+    ok(!existsSync(path.join(tmpDir, '.claude', 'commands', 'plans.md')),
+      'retired generated file should be removed');
   });
 
-  it('reports `skip` for slash-command files without a version marker', () => {
-    // Pre-fix: `skipped` (user-managed file) was unreported. Now the user
-    // sees that dotmd intentionally left it alone.
+  it('leaves user-managed slash-command files (no banner) untouched on init', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
     mkdirSync(path.join(tmpDir, '.git'));
     mkdirSync(path.join(tmpDir, '.claude', 'commands'), { recursive: true });
     writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';\n`);
-    writeFileSync(
-      path.join(tmpDir, '.claude', 'commands', 'plans.md'),
-      '# my custom plans command, no dotmd marker\n',
-    );
+    const custom = path.join(tmpDir, '.claude', 'commands', 'plans.md');
+    writeFileSync(custom, '# my custom plans command, no dotmd marker\n');
     const r = run(['init']);
     strictEqual(r.status, 0, `stderr: ${r.stderr}`);
-    ok(/skip\s+\.claude\/commands\/plans\.md/.test(r.stdout),
-      `output should report a skip line for the user-managed plans.md; got: ${r.stdout}`);
+    ok(existsSync(custom), 'user-managed command file must survive init');
+    ok(!/plans\.md.*retired/.test(r.stdout),
+      `user-managed file should not be reported as retired; got: ${r.stdout}`);
   });
 
   it('status transitions within the active range regen the index', () => {
@@ -428,31 +419,26 @@ describe('init bulk-tag hint', () => {
 });
 
 describe('init Claude integration', () => {
-  it('scaffolds .claude/commands on fresh init with no pre-existing config', () => {
-    // Pre-fix: the dispatcher resolved config BEFORE runInit ran, so on a
-    // brand-new repo (no dotmd.config.mjs yet) it passed `null` to runInit.
-    // runInit's slash-command block was gated on `if (config)` and silently
-    // skipped — first init never scaffolded .claude/commands/, only a second
-    // init (after the config already existed) did. runInit now re-resolves
-    // from disk after writing STARTER_CONFIG, so first init works too.
+  it('does NOT scaffold .claude/commands on init — points at the plugin instead', () => {
+    // Per-repo slash-command scaffolding is retired. The dotmd plugin's
+    // SKILL.md is the canonical agent-facing workflow now, so init writes the
+    // starter config but no .claude/commands/* files; it recommends the plugin.
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
     mkdirSync(path.join(tmpDir, '.git'));
     mkdirSync(path.join(tmpDir, '.claude'));
-    // NOTE: no pre-existing dotmd.config.mjs — that's the whole point.
+    // NOTE: no pre-existing dotmd.config.mjs.
     const result = run(['init']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(existsSync(path.join(tmpDir, 'dotmd.config.mjs')), 'STARTER_CONFIG should be written');
-    ok(existsSync(path.join(tmpDir, '.claude', 'commands', 'plans.md')),
-      'plans.md should be scaffolded on first init');
-    ok(existsSync(path.join(tmpDir, '.claude', 'commands', 'docs.md')),
-      'docs.md should be scaffolded on first init');
-    // And the scaffold should reflect STARTER_CONFIG (root: 'docs'), not the
-    // pre-init DEFAULTS (root: '.'). Re-resolving from disk is what makes this work.
-    const docs = readFileSync(path.join(tmpDir, '.claude', 'commands', 'docs.md'), 'utf8');
-    ok(docs.includes('docs'), `generated docs.md should reference 'docs' root: ${docs}`);
+    ok(!existsSync(path.join(tmpDir, '.claude', 'commands', 'plans.md')),
+      'init must not scaffold plans.md');
+    ok(!existsSync(path.join(tmpDir, '.claude', 'commands', 'docs.md')),
+      'init must not scaffold docs.md');
+    ok(result.stdout.includes('/plugin install dotmd'),
+      `init should recommend installing the dotmd plugin; got: ${result.stdout}`);
   });
 
-  it('scaffolds .claude/commands when .claude/ exists and config found', () => {
+  it('does NOT scaffold .claude/commands when .claude/ exists and config found', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
     mkdirSync(path.join(tmpDir, '.git'));
     mkdirSync(path.join(tmpDir, '.claude'));
@@ -460,8 +446,8 @@ describe('init Claude integration', () => {
     writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';`);
     const result = run(['init']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-    ok(existsSync(path.join(tmpDir, '.claude', 'commands', 'plans.md')));
-    ok(existsSync(path.join(tmpDir, '.claude', 'commands', 'docs.md')));
+    ok(!existsSync(path.join(tmpDir, '.claude', 'commands', 'plans.md')));
+    ok(!existsSync(path.join(tmpDir, '.claude', 'commands', 'docs.md')));
   });
 
   it('skips Claude commands when .claude/ does not exist', () => {
@@ -472,23 +458,21 @@ describe('init Claude integration', () => {
     ok(!existsSync(path.join(tmpDir, '.claude', 'commands')));
   });
 
-  it('prints paste-ready SessionStart hook snippet when .claude/ exists and hook is unwired', () => {
-    // gmax audit enhancement E: init already called `dotmd hud` "the ideal
-    // SessionStart hook" but didn't help the user wire it. Now: when .claude/
-    // exists and no SessionStart hook running `dotmd hud` is found in either
-    // settings.json or settings.local.json, print a paste-ready JSON snippet
-    // plus a merge note so users with existing settings don't blow them away.
+  it('recommends the plugin (and a manual SessionStart fallback) when .claude/ exists and hook is unwired', () => {
+    // Init now leads with the dotmd plugin — its bundled hooks + skill travel
+    // to every session automatically. The hand-wired `dotmd hud` SessionStart
+    // snippet remains as a no-plugin fallback for users who want it.
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
     mkdirSync(path.join(tmpDir, '.git'));
     mkdirSync(path.join(tmpDir, '.claude'));
     const result = run(['init']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('/plugin install dotmd'),
+      `expected plugin-install recommendation; got: ${result.stdout}`);
     ok(result.stdout.includes('SessionStart'),
-      `expected SessionStart snippet; got: ${result.stdout}`);
+      `expected SessionStart fallback snippet; got: ${result.stdout}`);
     ok(result.stdout.includes('"command": "dotmd hud"'),
       `expected paste-ready hook command; got: ${result.stdout}`);
-    ok(result.stdout.includes('merge into the existing'),
-      `expected merge guidance for existing settings.json; got: ${result.stdout}`);
   });
 
   it('skips SessionStart hint when hook is already wired in settings.json', () => {

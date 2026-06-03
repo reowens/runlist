@@ -102,37 +102,24 @@ describe('dotmd hud', () => {
     JSON.parse(r.stdout); // should parse clean
   });
 
-  it('self-heals stale slash-command files silently (no refresh line in stdout)', () => {
+  it('removes retired generated slash-command files silently (no notice in stdout)', () => {
     setupProject();
     const cmdDir = path.join(tmpDir, '.claude', 'commands');
     mkdirSync(cmdDir, { recursive: true });
-    const batonPath = path.join(cmdDir, 'plans.md');
-    writeFileSync(batonPath, '<!-- dotmd-generated: 0.0.1 -->\nstale body\n');
+    const generatedPath = path.join(cmdDir, 'plans.md');
+    const userPath = path.join(cmdDir, 'baton.md');
+    writeFileSync(generatedPath, '---\ndescription: x\n---\n<!-- dotmd-generated: 0.0.1 -->\nstale body\n');
+    writeFileSync(userPath, '---\ndescription: hand-written\n---\n# no banner\n');
 
     const r = runCli(['hud']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
-    ok(!/slash commands refreshed/.test(r.stdout), `refresh must be silent; got: ${r.stdout}`);
+    ok(!/slash commands|removed|cleaned/i.test(r.stdout), `cleanup must be silent; got: ${r.stdout}`);
     ok(/dotmd:/.test(r.stdout), `primer line should still emit; got: ${r.stdout}`);
 
-    // The self-heal side effect still runs — the stale file is rewritten.
-    const content = readFileSync(batonPath, 'utf8');
-    ok(!content.includes('dotmd-generated: 0.0.1'), 'stale banner should be gone after refresh');
-    ok(!content.includes('stale body'), 'stale body should be replaced');
-  });
-
-  it('does not emit a refresh line when slash-command banners are current', () => {
-    setupProject();
-    const cmdDir = path.join(tmpDir, '.claude', 'commands');
-    mkdirSync(cmdDir, { recursive: true });
-    const pkgVersion = JSON.parse(readFileSync(
-      path.resolve(import.meta.dirname, '..', 'package.json'), 'utf8',
-    )).version;
-    writeFileSync(path.join(cmdDir, 'plans.md'), `<!-- dotmd-generated: ${pkgVersion} -->\ncurrent body\n`);
-
-    const r = runCli(['hud']);
-    strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
-    ok(!/slash commands refreshed/.test(r.stdout), `should not refresh when current; got: ${r.stdout}`);
-    ok(/dotmd:/.test(r.stdout), `primer should still emit; got: ${r.stdout}`);
+    // The cleanup side effect still runs: the retired generated file is deleted,
+    // the hand-authored one is left untouched.
+    ok(!existsSync(generatedPath), 'retired generated file should be removed');
+    ok(existsSync(userPath), 'hand-authored command must survive');
   });
 
   it('does not touch user-managed slash-command files (no banner)', () => {

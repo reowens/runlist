@@ -115,16 +115,17 @@ describe('dotmd ship (--dry-run, end-to-end)', () => {
       `should warn about skipped non-allowlist file, got:\n${result.stderr}`);
   });
 
-  it('regenerates slash commands at the TARGET version (not current)', () => {
+  it('does not regenerate slash commands (scaffolding is retired)', () => {
     setupRepo();
     mkdirSync(path.join(tmpDir, '.claude', 'commands'), { recursive: true });
-    // Seed an outdated slash-command file
+    // A leftover generated slash-command file should not trigger any regen
+    // step at ship time — the dotmd plugin owns the workflow now.
     writeFileSync(path.join(tmpDir, '.claude', 'commands', 'plans.md'),
       '---\ndescription: stale\n---\n<!-- dotmd-generated: 0.0.1 -->\nbody\n');
 
     const result = run(['ship', '--dry-run']);
     strictEqual(result.status, 0, `dry-run should succeed: ${result.stderr}`);
-    ok(result.stdout.includes('Would regenerate slash commands @ 0.5.1'),
-      `regen line should reference the target version, got:\n${result.stdout}`);
+    ok(!/regenerate slash commands/i.test(result.stdout),
+      `ship must not mention slash-command regeneration, got:\n${result.stdout}`);
   });
 });

@@ -1,220 +1,71 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { green, dim, yellow } from './color.mjs';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
-// Marker is no longer pinned to line 1 — it now lives below the YAML
-// frontmatter that Claude Code surfaces as the slash command's description.
-// The regex is intentionally non-anchored so getInstalledVersion finds it
-// wherever it sits, and the marker string is specific enough that a false
-// positive elsewhere in a user-edited file is not a realistic concern.
-const VERSION_REGEX = /<!-- dotmd-generated: ([\d.]+) -->/;
-function markerFor(version) { return `<!-- dotmd-generated: ${version} -->`; }
+// dotmd used to scaffold per-repo `.claude/commands/{plans,docs}.md` slash
+// commands — version-stamped, generated from each repo's status vocab, and
+// self-healed by `dotmd hud`. That mechanism is RETIRED. The dotmd Claude Code
+// plugin (plugins/dotmd/skills/dotmd/SKILL.md + bundled hooks) now carries the
+// canonical agent-facing workflow into every repo and every subagent, and
+// `dotmd hud` injects the dynamic per-project status vocab at runtime. A static
+// skill + a runtime hook covers the full picture with no per-repo file to drift.
+//
+// The only job left in this module is teardown: delete the stale generated
+// command files dotmd left behind so retired scaffolding stops shadowing the
+// plugin skill. Removal is banner-gated — files WITHOUT the dotmd marker are
+// hand-authored (e.g. a repo's own module-*.md / domain-*.md briefings) and are
+// NEVER touched. Every dotmd-stamped file is fair game, including legacy ones
+// dotmd no longer generates (e.g. the old baton.md).
 
-// Trigger sentences surfaced by Claude Code's available-skills system reminder.
-// Front-load the "when to reach for it" cue so Claude can route to the right
-// slash command without the user having to type the slash. The plans entry
-// gets a per-type status vocab appended at generation time so agents arrive
-// with the valid `dotmd status` / `dotmd archive` values already in context.
-const SLASH_DESCRIPTIONS = {
-  plans: "dotmd-managed plan briefing for this repo. Use when the user asks what's on the plate, references a plan slug, queues work, or wants to start / close / archive a plan.",
-  docs: "dotmd-managed docs briefing for this repo. Use when the user asks to list, scaffold, query, validate, archive, or rename non-plan docs (reference docs, ADRs, RFCs, design notes), or asks how the dotmd doc lifecycle works here.",
-};
+const GENERATED_MARKER = '<!-- dotmd-generated:';
 
-const VOCAB_TRUNCATE_AT = 12;
-
-// Per-type valid statuses, rendered as one clause per type. Appended to the
-// plans description so it lands in Claude's available-skills listing at
-// SessionStart — no discovery command needed before the first `dotmd status`
-// / `dotmd archive` call. Types with no declared statuses are skipped (the
-// generic global list applies); types with >VOCAB_TRUNCATE_AT statuses are
-// truncated with an ellipsis so the description stays bounded.
-function statusVocabClause(config) {
-  if (!config?.typeStatuses) return '';
-  const parts = [];
-  for (const [type, statusesSet] of config.typeStatuses.entries()) {
-    if (!statusesSet || statusesSet.size === 0) continue;
-    let statuses = [...statusesSet];
-    if (statuses.length > VOCAB_TRUNCATE_AT) {
-      statuses = [...statuses.slice(0, VOCAB_TRUNCATE_AT), '…'];
-    }
-    parts.push(`Valid ${type} statuses: ${statuses.join(', ')}.`);
+// The marker sits just below the YAML frontmatter Claude Code surfaces as the
+// command description. That description can be long (the retired plans.md baked
+// the full per-type status vocab into it), pushing the banner well past the
+// first kilobyte — so classify against the whole file, not a head slice. These
+// are tiny command files, so reading them in full is cheap.
+function isGeneratedCommandFile(filePath) {
+  try {
+    return readFileSync(filePath, 'utf8').includes(GENERATED_MARKER);
+  } catch {
+    return false;
   }
-  return parts.join(' ');
 }
 
-function frontmatterFor(name, config) {
-  let description = SLASH_DESCRIPTIONS[name];
-  if (name === 'plans') {
-    const vocab = statusVocabClause(config);
-    if (vocab) description = `${description} ${vocab}`;
-  }
-  return ['---', `description: ${description}`, '---'];
-}
-
-function generatePlansCommand(config, version) {
-  const lines = [...frontmatterFor('plans', config), markerFor(version), ''];
-  lines.push('Run `dotmd context` to get the current plans briefing, then use it to orient yourself.');
-  lines.push('');
-  lines.push(`Plans are managed by **dotmd** (v${version}). Config at \`dotmd.config.mjs\`. Always use \`dotmd\` directly.`);
-  lines.push('');
-  lines.push('Plan-specific commands:');
-  lines.push('- `dotmd context` — briefing with active/paused/ready plans, age tags, next steps');
-  lines.push('- `dotmd set <status> <file>` — single status verb. Writes the new status to the plan\'s frontmatter. Use it to transition or close any plan:');
-  lines.push('    - `dotmd set in-session <file>` — mark a plan in-session (just a frontmatter status; use `dotmd use <file>` to also print the body)');
-  lines.push('    - `dotmd set archived <file>` — close out (same as `dotmd archive`)');
-  lines.push('- `dotmd archive <file>` — explicit archive with ref-fixing (equivalent to `set archived`)');
-  lines.push('- `dotmd bulk archive <files>` — archive multiple at once');
-  lines.push('- `dotmd new plan <name>` — scaffold with full phase structure');
-  lines.push('- `dotmd new prompt <name>` — save a resume-prompt to docs/prompts/ (pipe stdin or @path for body)');
-  lines.push('- `dotmd use` — consume oldest pending prompt (prints body, auto-archives)');
-  lines.push('- `dotmd use <file>` — open any doc by type: prompt → consume, plan → mark in-session + print card, doc → read');
-  lines.push('- `dotmd unblocks <file>` — what depends on / is blocked by a plan');
-  lines.push('- `dotmd actionable` — ready plans with next steps (what to promote)');
-  lines.push('- `dotmd query --keyword <term>` — find plans by keyword');
-  lines.push('- `dotmd runlist <hub>` — show ordered children of a runlist hub (→ marks next)');
-  lines.push('- `dotmd runlist next <hub>` — open the next non-archived child of a runlist hub');
-
-  if (config.raw?.glossary) {
-    lines.push('- `dotmd glossary <term>` — domain term lookup with related plans');
-  }
-
-  lines.push('');
-  lines.push('If the user asks about a specific plan, read its file directly (path is in the briefing or findable via `dotmd query --keyword <term>`).');
-  lines.push('');
-  lines.push('If the user asks to change a plan\'s status, use `dotmd set <status> <file>`.');
-  lines.push('If the user asks to archive a plan, use `dotmd set archived <file>` (or `dotmd archive <file>`).');
-  lines.push('If the user references a runlist by name — e.g. "what\'s next on <X> runlist", "<X> runlist status", "pick up the next in <X>" — use `dotmd runlist next <X>` (or `dotmd runlist <X>` first to inspect the ordering). Do NOT fall back to `dotmd context` for runlist-scoped questions.');
-  lines.push('');
-  lines.push('**Saved prompts (`docs/prompts/*.md`):** if the user references a file under `docs/prompts/` — e.g. "resume via docs/prompts/foo.md", "use this prompt", "load that one" — consume it with `dotmd use <file>` (atomically prints the body and archives the prompt so it cannot be double-consumed). Do NOT `cat` it, read it with the file-reading tool, or copy its body into chat. To pick the oldest pending prompt without naming a file, run `dotmd use` with no arg.');
-  lines.push('');
-
-  return lines.join('\n');
-}
-
-function generateDocsCommand(config, version) {
-  const roots = Array.isArray(config.raw?.root) ? config.raw.root : [config.raw?.root ?? 'docs'];
-  const rootCount = roots.length;
-
-  const lines = [...frontmatterFor('docs', config), markerFor(version), ''];
-  lines.push(`All documentation in this repo is managed by **dotmd** (v${version}). Docs across ${rootCount} root${rootCount > 1 ? 's' : ''}: ${roots.join(', ')}. Config at \`dotmd.config.mjs\`.`);
-  lines.push('');
-
-  // Document types from config
-  const types = config.raw?.types ? Object.keys(config.raw.types) : [];
-  if (types.length > 0) {
-    lines.push(`Document types: ${types.map(t => '`' + t + '`').join(', ')}.`);
-    lines.push('');
-  }
-
-  lines.push('Commands for working with docs:');
-  lines.push('- `dotmd context` — LLM-oriented briefing across all types');
-  lines.push('- `dotmd doctor --apply` — auto-fix everything in one pass (refs, lint, dates, index; bare `dotmd doctor` previews only)');
-  lines.push('- `dotmd query [filters]` — search by status, keyword, module, surface, type, staleness');
-  lines.push('- `dotmd health` — plan pipeline, velocity, aging');
-  lines.push('- `dotmd stats` — doc health dashboard (completeness, checklists, audit coverage)');
-  lines.push('- `dotmd graph [--dot]` — visualize document relationships');
-  lines.push('- `dotmd deps [file]` — dependency tree');
-  lines.push('- `dotmd unblocks <file>` — impact analysis for a doc');
-  lines.push('- `dotmd diff [file]` — git changes since last updated date');
-  lines.push('- `dotmd list` — all docs grouped by status');
-  lines.push('- `dotmd focus <status>` — detailed view for one status group');
-
-  if (config.raw?.glossary) {
-    lines.push('- `dotmd glossary <term>` — domain term lookup with related docs and plans');
-  }
-
-  lines.push('');
-  lines.push('Lifecycle:');
-  lines.push('- `dotmd new plan <name>` — scaffold new plan');
-  lines.push('- `dotmd new doc <name>` — scaffold reference doc');
-  lines.push('- `dotmd new prompt <name>` — save a resume-prompt (pipe stdin or @path for body)');
-  lines.push('- `dotmd use` — consume oldest pending prompt (prints body, auto-archives)');
-  lines.push('- `dotmd use <file>` — open any doc by type: prompt → consume, plan → start work, doc → read');
-  lines.push('- `dotmd set <status> [<file>]` — unified transition (archive / status bump; infers path from your active in-session plan)');
-  lines.push('- `dotmd status <file> <status>` — transition status (legacy; `set` is preferred)');
-  lines.push('- `dotmd archive <file>` — archive with auto ref-fixing');
-  lines.push('- `dotmd bulk archive <files>` — archive multiple at once');
-  lines.push('- `dotmd touch --git` — bulk-sync updated dates from git history');
-  lines.push('- `dotmd lint --fix` — auto-fix frontmatter issues');
-  lines.push('- `dotmd fix-refs` — repair broken references and body links');
-  lines.push('- `dotmd rename <old> <new>` — rename doc + update all references');
-  lines.push('');
-  lines.push('**Saved prompts (`docs/prompts/*.md`):** if the user references a file under `docs/prompts/` — e.g. "resume via docs/prompts/foo.md", "use this prompt" — consume it with `dotmd use <file>` (prints the body and archives atomically). Do NOT `cat` it or read it with the file-reading tool. To pick the oldest pending prompt without naming a file, run `dotmd use` with no arg.');
-  lines.push('');
-
-  return lines.join('\n');
-}
-
-function getInstalledVersion(filePath) {
-  if (!existsSync(filePath)) return null;
-  const content = readFileSync(filePath, 'utf8');
-  const match = content.match(VERSION_REGEX);
-  return match ? match[1] : null;
-}
-
-export function scaffoldClaudeCommands(cwd, config, opts = {}) {
-  const { dryRun = false, version = pkg.version } = opts;
-  const claudeDir = path.join(cwd, '.claude');
-  if (!existsSync(claudeDir)) return [];
-
-  const commandsDir = path.join(claudeDir, 'commands');
-  const results = [];
-
-  const files = [
-    { name: 'plans.md', generate: () => generatePlansCommand(config, version) },
-    { name: 'docs.md', generate: () => generateDocsCommand(config, version) },
-  ];
-
-  for (const { name, generate } of files) {
+// Remove every dotmd-generated slash-command file under .claude/commands.
+// Returns [{ name, action: 'removed' }] for each file cleaned (or that would be
+// cleaned, in dry-run). Never throws — teardown must not break a hook or a
+// command. User-authored command files (no dotmd banner) survive untouched.
+export function removeGeneratedSlashCommands(cwd, opts = {}) {
+  const { dryRun = false } = opts;
+  const commandsDir = path.join(cwd, '.claude', 'commands');
+  if (!existsSync(commandsDir)) return [];
+  let entries;
+  try { entries = readdirSync(commandsDir); } catch { return []; }
+  const removed = [];
+  for (const name of entries) {
+    if (!name.endsWith('.md')) continue;
     const filePath = path.join(commandsDir, name);
-    const installedVersion = getInstalledVersion(filePath);
-
-    if (installedVersion === version) {
-      results.push({ name, action: 'current' });
-    } else if (installedVersion) {
-      // Outdated — regenerate
-      if (!dryRun) {
-        mkdirSync(commandsDir, { recursive: true });
-        writeFileSync(filePath, generate(), 'utf8');
-      }
-      results.push({ name, action: 'updated', from: installedVersion, to: version });
-    } else if (!existsSync(filePath)) {
-      // New — create
-      if (!dryRun) {
-        mkdirSync(commandsDir, { recursive: true });
-        writeFileSync(filePath, generate(), 'utf8');
-      }
-      results.push({ name, action: 'created' });
-    } else {
-      // File exists but no version marker — user-managed, don't touch
-      results.push({ name, action: 'skipped' });
+    if (!isGeneratedCommandFile(filePath)) continue;
+    if (!dryRun) {
+      try { unlinkSync(filePath); } catch { continue; }
     }
+    removed.push({ name, action: 'removed' });
   }
-
-  return results;
+  return removed;
 }
 
-// Self-heal: regen any slash-command file whose banner is older than pkg.version.
-// Designed for runHud to call at SessionStart — closes the gap between "user
-// upgraded dotmd" and "slash-command body reflects the new version" without
-// requiring a manual `dotmd doctor`. Returns only the entries that actually
-// changed so the caller can surface a one-line note; an empty array means the
-// hud silent-clean contract is preserved. `skipped` (user-managed, no banner)
-// and `current` entries are filtered out — callers don't care about them.
+// Self-heal entrypoint for `dotmd hud` (SessionStart hook). Was: regenerate
+// stale slash commands. Now: delete the retired generated files so the plugin
+// skill is the single source of truth. Returns only the removed entries; an
+// empty array preserves hud's silent-clean contract. Kept under the old name so
+// hud's call site (and its swallow-all-errors wrapper) is unchanged.
 export function refreshStaleSlashCommands(config) {
-  const results = scaffoldClaudeCommands(config.repoRoot, config);
-  return results.filter(r => r.action === 'updated');
+  return removeGeneratedSlashCommands(config.repoRoot);
 }
 
-// Intentionally returns []. Slash-command stamp drift is auto-healed every
-// time `dotmd hud` runs (SessionStart hook), and `dotmd doctor` regens them
-// on demand. Surfacing a warning at `dotmd check` time was pure noise — it
-// fired on every release until the next session, despite the user having no
-// action to take (the heal is automatic). Kept the function for API stability
-// in case downstream callers import it.
+// Retained as a no-op for API stability. `dotmd check` never warned on slash
+// commands (the old auto-heal made it pure noise), and now there is nothing to
+// generate at all. See git history for the retired scaffolder.
 export function checkClaudeCommands(_cwd, _opts = {}) {
   return [];
 }

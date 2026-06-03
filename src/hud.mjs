@@ -261,11 +261,12 @@ export function runHud(argv, config) {
 
   const hud = buildHud(config);
 
-  // Self-heal stale slash-command files. Wrapped: a broken scaffolder must
-  // never kill the SessionStart hook (would block every session). Runs for its
-  // side effect only — the refresh is no longer announced in stdout (see the
-  // primer-only contract below). Skipped in --json mode to keep the structured
-  // shape stable for programmatic callers.
+  // Clean up retired generated slash-command files (the plugin skill replaces
+  // them). Banner-gated, so hand-authored commands survive. Wrapped: teardown
+  // must never kill the SessionStart hook (would block every session). Runs for
+  // its side effect only — nothing is announced in stdout (see the primer-only
+  // contract below). Skipped in --json mode to keep the structured shape stable
+  // for programmatic callers.
   if (!json) {
     try { refreshStaleSlashCommands(config); }
     catch { /* swallow — see comment above */ }

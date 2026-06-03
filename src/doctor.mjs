@@ -7,7 +7,7 @@ import { buildIndex, collectDocFiles } from './index.mjs';
 import { renderIndexFile, writeIndex } from './index-file.mjs';
 import { renderCheck, renderManualFixes } from './render.mjs';
 import { bold, dim, green, yellow } from './color.mjs';
-import { checkClaudeCommands, scaffoldClaudeCommands } from './claude-commands.mjs';
+import { checkClaudeCommands, removeGeneratedSlashCommands } from './claude-commands.mjs';
 import { runMigrateTemplate } from './migrate-template.mjs';
 import { runMigratePrompts } from './migrate-prompts.mjs';
 import { runFrontmatterFix } from './frontmatter-fix.mjs';
@@ -98,25 +98,27 @@ export function runDoctor(argv, config, opts = {}) {
     process.stdout.write('Index updated.\n');
   }
 
-  // Step 5: Refresh Claude Code commands. Always print the heading so the
-  // numbering stays `1,2,3,4,5,6` — pre-fix it was conditional, so a doctor
-  // run where everything was already current printed `1,2,3,4,6` with `5.`
-  // silently missing.
+  // Step 5: Clean up retired Claude Code command scaffolding. The per-repo
+  // `.claude/commands/{plans,docs}.md` files are superseded by the dotmd plugin
+  // skill; doctor sweeps any leftover banner-stamped (dotmd-generated) files.
+  // Always print the heading so the numbering stays `1,2,3,4,5,6`.
   process.stdout.write('\n' + bold('5. Claude Code commands:') + '\n');
   if (dryRun) {
-    process.stdout.write('[dry-run] Would refresh .claude/commands/ if outdated.\n');
-  } else {
-    const claudeResults = scaffoldClaudeCommands(config.repoRoot, config);
-    const changes = claudeResults.filter(r => r.action === 'updated' || r.action === 'created');
-    if (changes.length === 0) {
-      process.stdout.write('Nothing to refresh.\n');
+    const wouldRemove = removeGeneratedSlashCommands(config.repoRoot, { dryRun: true });
+    if (wouldRemove.length === 0) {
+      process.stdout.write('[dry-run] No retired slash-command files to remove.\n');
     } else {
-      for (const r of changes) {
-        if (r.action === 'updated') {
-          process.stdout.write(`${green('Updated')} .claude/commands/${r.name} (v${r.from} → v${r.to})\n`);
-        } else if (r.action === 'created') {
-          process.stdout.write(`${green('Created')} .claude/commands/${r.name}\n`);
-        }
+      for (const r of wouldRemove) {
+        process.stdout.write(`[dry-run] Would remove retired .claude/commands/${r.name} (guidance now ships via the dotmd plugin).\n`);
+      }
+    }
+  } else {
+    const removed = removeGeneratedSlashCommands(config.repoRoot);
+    if (removed.length === 0) {
+      process.stdout.write('Nothing to clean up.\n');
+    } else {
+      for (const r of removed) {
+        process.stdout.write(`${green('Removed')} retired .claude/commands/${r.name} (guidance now ships via the dotmd plugin)\n`);
       }
     }
   }
