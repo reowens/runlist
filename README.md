@@ -23,6 +23,8 @@ If you drive dotmd from Claude Code, install the **dotmd plugin**. It teaches ev
 
 The plugin bundles the hooks (`SessionStart`/`SubagentStart` priming, a `PreToolUse` guard) and a canonical workflow skill, so guidance travels to **every** repo automatically — no per-repo setup. It calls the `dotmd` CLI, so keep `npm install -g dotmd-cli` installed too. (Source: `plugins/dotmd/` in this repo.)
 
+> **Upgrading to 0.57.0+:** per-repo `.claude/commands/{plans,docs,baton}.md` scaffolding is retired — that guidance now ships via the plugin's workflow skill and `/plans`, `/docs`, `/prompts`, `/baton` commands. On the next `dotmd hud` (SessionStart), dotmd removes those generated files (only banner-stamped `<!-- dotmd-generated -->` ones — your hand-authored command files are never touched). If you'd committed them, you'll see deletions to commit — that's expected. Run `claude plugin update dotmd@dotmd` to pick up `/baton`.
+
 ## Quick Start
 
 ```bash
