@@ -32,6 +32,17 @@ function findFilingRoot(filePath, fileRoot, docType, config) {
   return fileRoot;
 }
 
+// Base directory a doc archives under. Types in lifecycle.archiveNestedTypes
+// (default: prompt) archive into their own <typeDir>/ — yielding
+// <typeDir>/<archiveDir> (e.g. docs/prompts/archived/) — so session-local
+// prompt churn doesn't bury plans/docs in the shared <root>/<archiveDir>.
+// Everything else archives under fileRoot. Used by both runStatus (set
+// archived) and runArchive so the two paths stay in lockstep.
+function archiveBaseFor(filePath, fileRoot, docType, config) {
+  const nest = config.lifecycle?.archiveNestedTypes?.has(docType) ?? false;
+  return nest ? findFilingRoot(filePath, fileRoot, docType, config) : fileRoot;
+}
+
 // Best-effort index regen for any doc-set or doc-status mutation. The
 // generated block groups by status and embeds per-doc snapshots, so any
 // change that affects what would render leaves the index stale. Wrapped
@@ -172,8 +183,11 @@ export async function runStatus(argv, config, opts = {}) {
   }
 
   const today = nowIso();
-  const archiveDir = path.join(fileRoot, config.archiveDir);
   const filingRoot = findFilingRoot(filePath, fileRoot, docType, config);
+  // Type-aware archive base (prompts nest under their type dir by default);
+  // unarchive reuses archiveBase so a prompt restores to its type dir.
+  const archiveBase = archiveBaseFor(filePath, fileRoot, docType, config);
+  const archiveDir = path.join(archiveBase, config.archiveDir);
   const relFromFilingRoot = path.relative(filingRoot, filePath);
   const relSegments = relFromFilingRoot.split(path.sep);
   const inArchive = isArchivedPath(toRepoPath(filePath, config.repoRoot), config);
@@ -202,7 +216,7 @@ export async function runStatus(argv, config, opts = {}) {
       finalPath = targetPath;
     }
     if (isUnarchiving) {
-      const targetPath = path.join(fileRoot, path.basename(filePath));
+      const targetPath = path.join(archiveBase, path.basename(filePath));
       process.stdout.write(`${prefix} Would move: ${toRepoPath(filePath, config.repoRoot)} → ${toRepoPath(targetPath, config.repoRoot)}\n`);
       finalPath = targetPath;
     }
@@ -235,7 +249,7 @@ export async function runStatus(argv, config, opts = {}) {
   }
 
   if (isUnarchiving) {
-    const targetPath = path.join(fileRoot, path.basename(filePath));
+    const targetPath = path.join(archiveBase, path.basename(filePath));
     if (existsSync(targetPath)) { die(`Target already exists: ${toRepoPath(targetPath, config.repoRoot)}`); }
     const result = gitMv(filePath, targetPath, config.repoRoot);
     if (result.status !== 0) { die(result.stderr || 'git mv failed.'); }
@@ -436,7 +450,9 @@ export function runArchive(argv, config, opts = {}) {
   const closeoutAction = closeoutTemplate ? planCloseoutInjection(body) : null;
 
   const today = nowIso();
-  const targetDir = path.join(archiveFileRoot, config.archiveDir);
+  // Type-aware: prompts archive under docs/prompts/archived/ by default (see
+  // archiveBaseFor); plans/docs keep the shared <root>/archived/.
+  const targetDir = path.join(archiveBaseFor(filePath, archiveFileRoot, asString(parsed.type), config), config.archiveDir);
   const targetPath = uniqueArchiveTarget(targetDir, path.basename(filePath));
   const oldRepoPath = toRepoPath(filePath, config.repoRoot);
   const newRepoPath = toRepoPath(targetPath, config.repoRoot);

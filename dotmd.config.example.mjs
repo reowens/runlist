@@ -130,6 +130,9 @@ export const statuses = {
 //   skipStaleFor: ['archived'],         // skip staleness checks
 //   skipWarningsFor: ['archived'],      // skip validation warnings (summary, etc.)
 //   terminalStatuses: ['archived', 'deprecated', 'reference'],  // skip current_state/next_step warnings, exclude from stats scope
+//   archiveNestedTypes: ['prompt'],     // types that archive under <typeDir>/<archiveDir>
+//                                       // (e.g. docs/prompts/archived/) instead of the
+//                                       // shared <root>/<archiveDir>; set [] to disable
 // };
 
 // Taxonomy validation — set fields to null to skip validation.

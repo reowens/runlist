@@ -99,3 +99,24 @@ test('git add of a non-prompt path is not denied', () => {
   );
   assert.equal(r, null);
 });
+
+test('git add of an ARCHIVED prompt is allowed (committable history)', () => {
+  // Prompts archive into docs/prompts/archived/ by default. Those are history,
+  // not session-local pending prompts — the guard must not block committing
+  // them. Path built by concat so the literal does not trip the live guard.
+  const archivedPath = 'docs/prompts/' + 'archived/resume-foo.md';
+  const r = evaluateGuard(
+    { tool_name: 'Bash', tool_input: { command: 'git add ' + archivedPath } },
+    config, notIgnored,
+  );
+  assert.equal(r, null, `archived prompt commit must not be guarded; got ${JSON.stringify(r)}`);
+});
+
+test('reading an ARCHIVED prompt is not warned (history, not consumable)', () => {
+  const archivedPath = 'docs/prompts/' + 'archived/resume-foo.md';
+  const r = evaluateGuard(
+    { tool_name: 'Bash', tool_input: { command: 'cat ' + archivedPath } },
+    config, notIgnored,
+  );
+  assert.equal(r, null, `reading an archived prompt must not warn; got ${JSON.stringify(r)}`);
+});

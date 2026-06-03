@@ -63,6 +63,12 @@ const DEFAULTS = {
     // statuses file under the owning type folder; archive remains a separate
     // primitive untouched.
     filedStatuses: { held: 'held', shelved: 'held', paused: 'held' },
+    // Types whose archive nests under their own type dir (<typeDir>/<archiveDir>,
+    // e.g. docs/prompts/archived/) instead of the shared <root>/<archiveDir>.
+    // Prompts are session-local churn — keeping their archive out of the shared
+    // docs/archived/ stops them from burying plans/docs there. Set to [] to send
+    // every type to the shared archive.
+    archiveNestedTypes: ['prompt'],
   },
 
   taxonomy: {
@@ -476,6 +482,9 @@ export async function resolveConfig(cwd, explicitConfigPath) {
   // F15: filedStatuses keyed by status name, value = directory name. Empty
   // object when no status opts in via `filed: true` (or `filed: '<dirname>'`).
   const filedStatuses = new Map(Object.entries(lifecycle.filedStatuses ?? {}));
+  // Types that archive into their own <typeDir>/<archiveDir> rather than the
+  // shared <root>/<archiveDir> (default: prompt).
+  const archiveNestedTypes = new Set(lifecycle.archiveNestedTypes ?? []);
 
   // Warn if rootStatuses keys don't match any configured root
   for (const rootKey of Object.keys(rootStatusesRaw)) {
@@ -507,7 +516,7 @@ export async function resolveConfig(cwd, explicitConfigPath) {
     rootValidStatuses,
     staleDaysByStatus,
 
-    lifecycle: { archiveStatuses, skipStaleFor, skipWarningsFor, terminalStatuses, filedStatuses },
+    lifecycle: { archiveStatuses, skipStaleFor, skipWarningsFor, terminalStatuses, filedStatuses, archiveNestedTypes },
 
     validSurfaces,
     validModules,

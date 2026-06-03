@@ -833,3 +833,61 @@ describe('--no-index flag (issue #10 finding #3)', () => {
     ok(after.includes('AGENT_A_UNCOMMITTED_EDIT'), `agent A's edit must survive — got: ${after}`);
   });
 });
+
+describe('type-aware archive destination (lifecycle.archiveNestedTypes)', () => {
+  const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+  function cli(args) {
+    return spawnSync('node', [bin, ...args, '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir, encoding: 'utf8', env: { ...process.env, PATH: process.env.PATH },
+    });
+  }
+  function setupTyped(configBody = `export const root = 'docs';`) {
+    setupProject();
+    mkdirSync(path.join(tmpDir, 'docs', 'plans'), { recursive: true });
+    mkdirSync(path.join(tmpDir, 'docs', 'prompts'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), configBody);
+    const mk = (rel, fm) => {
+      const p = path.join(tmpDir, 'docs', rel);
+      writeFileSync(p, `---\n${fm}\n---\n# body\n`);
+      spawnSync('git', ['add', p], { cwd: tmpDir });
+      spawnSync('git', ['commit', '-qm', `add ${rel}`], { cwd: tmpDir });
+      return p;
+    };
+    return mk;
+  }
+
+  it('archives a prompt under docs/prompts/archived/ by default', () => {
+    const mk = setupTyped();
+    mk('prompts/r.md', 'type: prompt\nstatus: pending');
+    const r = cli(['archive', 'docs/prompts/r.md']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(existsSync(path.join(tmpDir, 'docs', 'prompts', 'archived', 'r.md')), 'prompt nested under prompts/archived');
+    ok(!existsSync(path.join(tmpDir, 'docs', 'archived', 'r.md')), 'prompt NOT in shared archive');
+  });
+
+  it('keeps plans in the shared docs/archived/', () => {
+    const mk = setupTyped();
+    mk('plans/p.md', 'type: plan\nstatus: active');
+    const r = cli(['archive', 'docs/plans/p.md']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(existsSync(path.join(tmpDir, 'docs', 'archived', 'p.md')), 'plan in shared archive');
+    ok(!existsSync(path.join(tmpDir, 'docs', 'plans', 'archived', 'p.md')), 'plan NOT nested');
+  });
+
+  it('`set archived` and `archive` agree on the nested prompt destination', () => {
+    const mk = setupTyped();
+    mk('prompts/s.md', 'type: prompt\nstatus: pending');
+    const r = cli(['set', 'archived', 'docs/prompts/s.md']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(existsSync(path.join(tmpDir, 'docs', 'prompts', 'archived', 's.md')), 'set archived nests like archive');
+  });
+
+  it('is configurable — empty archiveNestedTypes sends prompts to the shared archive', () => {
+    const mk = setupTyped(`export const root = 'docs';\nexport const lifecycle = { archiveNestedTypes: [] };`);
+    mk('prompts/r.md', 'type: prompt\nstatus: pending');
+    const r = cli(['archive', 'docs/prompts/r.md']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(existsSync(path.join(tmpDir, 'docs', 'archived', 'r.md')), 'opt-out sends prompt to shared archive');
+    ok(!existsSync(path.join(tmpDir, 'docs', 'prompts', 'archived', 'r.md')), 'not nested when opted out');
+  });
+});

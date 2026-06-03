@@ -805,6 +805,11 @@ export const lifecycle = {
   skipStaleFor: ['archived'],
   skipWarningsFor: ['archived'],
   terminalStatuses: ['archived'],
+  // Types that archive into their own <typeDir>/<archiveDir> (e.g.
+  // docs/prompts/archived/) instead of the shared <root>/<archiveDir>.
+  // Defaults to ['prompt'] so session-local prompt churn doesn't bury
+  // plans and docs in the shared archive. Set to [] to disable.
+  archiveNestedTypes: ['prompt'],
 };
 
 export const taxonomy = {

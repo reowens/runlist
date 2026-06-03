@@ -25,11 +25,17 @@ const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 
 
 const SHELL_READERS = new Set(['cat', 'less', 'more', 'head', 'tail', 'bat', 'view', 'open']);
 
-// A path that ends in .md and sits under a `prompts/` directory is a saved
-// prompt regardless of which doc root it belongs to — robust across repos
-// without needing the resolved config.
+// A path that ends in .md and sits under a `prompts/` directory is a
+// session-local saved prompt regardless of which doc root it belongs to —
+// robust across repos without needing the resolved config. Archived prompts
+// (`…/prompts/archived/…`, the default nested archive for the prompt type) are
+// committable history, NOT session-local, so they're explicitly excluded — the
+// guard must not block committing or reading them.
 function isPromptPath(p) {
-  return typeof p === 'string' && p.endsWith('.md') && /(^|\/)prompts\//.test(p);
+  if (typeof p !== 'string' || !p.endsWith('.md')) return false;
+  if (!/(^|\/)prompts\//.test(p)) return false;
+  if (/(^|\/)archived\//.test(p)) return false;
+  return true;
 }
 
 // Loose "is this a dotmd-managed doc" test: a .md file under one of the

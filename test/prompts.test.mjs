@@ -130,13 +130,16 @@ describe('dotmd prompts next', () => {
     ok(r.stderr.includes('Consumed'), 'consume confirmation on stderr');
   });
 
-  it('archives the file (moves to archived/, flips status)', () => {
+  it('archives the file (moves to prompts/archived/, flips status)', () => {
     const file = writePrompt('foo');
     const r = run(['prompts', 'next']);
     strictEqual(r.status, 0, r.stderr);
     ok(!existsSync(file), 'original file gone');
-    const archived = path.join(docsDir, 'archived', 'foo.md');
-    ok(existsSync(archived), 'moved to archived dir');
+    // Prompts nest their archive under the prompts dir (default
+    // lifecycle.archiveNestedTypes), not the shared docs/archived/.
+    const archived = path.join(promptsDir, 'archived', 'foo.md');
+    ok(existsSync(archived), 'moved to prompts/archived dir');
+    ok(!existsSync(path.join(docsDir, 'archived', 'foo.md')), 'not in the shared archive');
     const content = readFileSync(archived, 'utf8');
     ok(content.includes('status: archived'), 'status flipped');
   });
@@ -183,15 +186,16 @@ describe('dotmd prompts next', () => {
   // pending in docs/prompts/ — the failure mode that motivated the reorder.
   it('does not emit body when archive fails', { skip: process.platform === 'win32' }, () => {
     const file = writePrompt('foo', { body: 'unique-must-not-leak' });
-    const archivedDir = path.join(docsDir, 'archived');
-    chmodSync(archivedDir, 0o555);
+    // Prompts archive into docs/prompts/archived/; making the prompts dir
+    // read-only blocks creating that subdir, forcing the archive to fail.
+    chmodSync(promptsDir, 0o555);
     try {
       const r = run(['prompts', 'next']);
       ok(r.status !== 0, 'archive failure exits non-zero');
       strictEqual(r.stdout, '', `stdout must stay empty when archive fails, got:\n${r.stdout}`);
       ok(existsSync(file), 'source file still in docs/prompts/');
     } finally {
-      chmodSync(archivedDir, 0o755);
+      chmodSync(promptsDir, 0o755);
     }
   });
 });
@@ -208,8 +212,8 @@ describe('dotmd prompts use', () => {
     ok(r.stdout.includes('target body'));
     ok(!r.stdout.includes('older body'));
     ok(!existsSync(target), 'target archived');
-    ok(r.stderr.includes('Consumed: docs/archived/target.md'),
-      `consume confirmation should name the archived path, not the stale source path:\n${r.stderr}`);
+    ok(r.stderr.includes('Consumed: docs/prompts/archived/target.md'),
+      `consume confirmation should name the nested archived path, not the stale source path:\n${r.stderr}`);
   });
 
   it('top-level `dotmd use <slug>` resolves prompt basenames and consumes atomically', () => {
@@ -218,8 +222,8 @@ describe('dotmd prompts use', () => {
     strictEqual(r.status, 0, r.stderr);
     ok(r.stdout.includes('slug body'), `expected prompt body:\n${r.stdout}`);
     ok(!existsSync(path.join(promptsDir, 'resume-from-slug.md')), 'source archived');
-    ok(existsSync(path.join(docsDir, 'archived', 'resume-from-slug.md')), 'archived target exists');
-    ok(r.stderr.includes('Consumed: docs/archived/resume-from-slug.md'), r.stderr);
+    ok(existsSync(path.join(promptsDir, 'archived', 'resume-from-slug.md')), 'archived target exists');
+    ok(r.stderr.includes('Consumed: docs/prompts/archived/resume-from-slug.md'), r.stderr);
   });
 
   it('top-level `dotmd use <slug>.md` resolves prompt basenames and consumes atomically', () => {
@@ -227,7 +231,7 @@ describe('dotmd prompts use', () => {
     const r = run(['use', 'resume-with-ext.md']);
     strictEqual(r.status, 0, r.stderr);
     ok(r.stdout.includes('ext body'), `expected prompt body:\n${r.stdout}`);
-    ok(existsSync(path.join(docsDir, 'archived', 'resume-with-ext.md')), 'archived target exists');
+    ok(existsSync(path.join(promptsDir, 'archived', 'resume-with-ext.md')), 'archived target exists');
   });
 
   it('refuses non-prompt files', () => {
