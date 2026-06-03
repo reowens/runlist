@@ -40,7 +40,7 @@
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "preversion": "npm test",
-    "version": "node bin/dotmd.mjs hud >/dev/null 2>&1; git add .claude/commands docs/docs.md 2>/dev/null; true",
+    "version": "node bin/dotmd.mjs hud >/dev/null 2>&1; node scripts/sync-plugin-version.mjs; git add .claude/commands docs/docs.md plugins/dotmd/.claude-plugin/plugin.json .claude-plugin/marketplace.json 2>/dev/null; true",
     "postversion": "bash scripts/postversion.sh"
   },
   "engines": {
