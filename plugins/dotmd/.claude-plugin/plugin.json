@@ -1,6 +1,6 @@
 {
   "name": "dotmd",
-  "version": "0.56.0",
+  "version": "0.57.0",
   "description": "Primes sessions and subagents with the dotmd workflow + guards the wrong-moves. Requires the `dotmd` CLI on PATH (npm i -g dotmd-cli).",
   "author": {
     "name": "Robert Owens",
