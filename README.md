@@ -12,6 +12,17 @@ npm install -D dotmd-cli    # project devDep — use via npm scripts
 # requires Node.js >= 20
 ```
 
+### Claude Code plugin (recommended)
+
+If you drive dotmd from Claude Code, install the **dotmd plugin**. It teaches every session and subagent the dotmd workflow and guards the wrong-moves agents keep making (committing session-local prompts, `cat`-ing prompts instead of consuming them, hand-editing `status:`):
+
+```
+/plugin marketplace add reowens/dotmd
+/plugin install dotmd@dotmd
+```
+
+The plugin bundles the hooks (`SessionStart`/`SubagentStart` priming, a `PreToolUse` guard) and a canonical workflow skill, so guidance travels to **every** repo automatically — no per-repo setup. It calls the `dotmd` CLI, so keep `npm install -g dotmd-cli` installed too. (Source: `plugins/dotmd/` in this repo.)
+
 ## Quick Start
 
 ```bash
