@@ -37,6 +37,7 @@ const FLAG_SPECS = {
   hud: { flags: new Set(['--json', '--subagent']), values: new Set() },
   guard: { flags: new Set(), values: new Set() },
   misuse: { flags: new Set(['--json', '--tail', '--by-rule', '--repo']), values: new Set(['--tail', '--repo']) },
+  update: { flags: new Set(['--check', '--cli-only', '--plugin-only']), values: new Set() },
   check: { flags: new Set(['--fix', '--errors-only', '--no-collapse', '--json', '--verbose']), values: new Set() },
   doctor: { flags: new Set(['--apply', '--yes', '--dry-run', '-n', '--statuses', '--migrate-template', '--migrate-prompts', '--frontmatter-fix', '--project', '--json', '--include-archived']), values: new Set() },
   runlist: { flags: new Set(['--json', '--full', '--no-index', '--show-files']), values: new Set(), subcommands: new Set(['next']) },
@@ -156,6 +157,18 @@ Rules:
 
 Every catch is appended to the cross-repo misuse log. Disable with DOTMD_GUARD=0.
 Read the log with \`dotmd misuse\`.`,
+
+  update: `dotmd update — update the dotmd CLI and the Claude Code plugin together
+
+  dotmd update                 npm i -g dotmd-cli  +  claude plugin update dotmd@dotmd
+  dotmd update --check         report CLI vs plugin versions, do nothing (network-free)
+  dotmd update --cli-only      only the npm CLI
+  dotmd update --plugin-only   only the plugin
+
+The plugin and CLI ship in lockstep; a release bumps both. Updating the plugin
+requires a session restart (or /reload-plugins) to apply. The plugin step needs
+the \`claude\` CLI on PATH — otherwise it prints the \`/plugin update\` command to
+run from a session instead.`,
 
   misuse: `dotmd misuse — read the cross-repo guard log (~/.claude/logs/dotmd-misuse.log)
 
@@ -1305,6 +1318,7 @@ async function main() {
   // Lifecycle commands
   if (command === 'hud') { const { runHud } = await import('../src/hud.mjs'); runHud(restArgs, config); return; }
   if (command === 'guard') { const { runGuard } = await import('../src/guard.mjs'); await runGuard(restArgs, config); return; }
+  if (command === 'update') { const { runUpdate } = await import('../src/update.mjs'); runUpdate(restArgs, config); return; }
   if (command === 'misuse') { const { runMisuse } = await import('../src/misuse-read.mjs'); runMisuse(restArgs, config); return; }
   if (command === 'journal') { const { runJournal } = await import('../src/journal-read.mjs'); runJournal(restArgs, config); return; }
   if (command === 'pickup' || command === 'unpickup' || command === 'release' || command === 'finish') {

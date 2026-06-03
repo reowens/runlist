@@ -13,6 +13,7 @@
   "files": [
     "bin/",
     "src/",
+    "scripts/postinstall.mjs",
     "dotmd.config.example.mjs"
   ],
   "keywords": [
@@ -39,6 +40,7 @@
   "homepage": "https://github.com/reowens/dotmd#readme",
   "scripts": {
     "test": "node --test test/*.test.mjs",
+    "postinstall": "node scripts/postinstall.mjs",
     "preversion": "npm test",
     "version": "node bin/dotmd.mjs hud >/dev/null 2>&1; node scripts/sync-plugin-version.mjs; git add .claude/commands docs/docs.md plugins/dotmd/.claude-plugin/plugin.json .claude-plugin/marketplace.json 2>/dev/null; true",
     "postversion": "bash scripts/postversion.sh"

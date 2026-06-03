@@ -1,11 +1,42 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { asString, toRepoPath, currentSessionId } from './util.mjs';
-import { dim } from './color.mjs';
+import { dim, yellow } from './color.mjs';
 import { buildIndex } from './index.mjs';
 import { refreshStaleSlashCommands } from './claude-commands.mjs';
 import { readJournalEntries, journalFilePath } from './journal.mjs';
+import { compareVersions } from './update.mjs';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+
+// Detect when the running plugin's bundled version disagrees with this CLI's
+// version. Since every release bumps both in lockstep, a mismatch means exactly
+// one channel is behind. Network-free: the plugin's hook sets CLAUDE_PLUGIN_ROOT
+// to the plugin dir, whose plugin.json carries its version. Gated to the
+// version-keyed *cache* install — a directory-source plugin tracks content live
+// and its version label lags benignly, so we don't nag local dev. Returns a
+// one-line notice or null (silent when in sync). Surfaces to the agent because
+// hud output is injected as SessionStart/SubagentStart context.
+export function detectVersionDrift(env = process.env) {
+  try {
+    const root = env.CLAUDE_PLUGIN_ROOT;
+    if (!root) return null;
+    const cacheSeg = `${path.sep}plugins${path.sep}cache${path.sep}`;
+    if (!root.includes(cacheSeg)) return null;
+    const pj = path.join(root, '.claude-plugin', 'plugin.json');
+    if (!existsSync(pj)) return null;
+    const pluginVersion = JSON.parse(readFileSync(pj, 'utf8')).version;
+    const cmp = compareVersions(pluginVersion, pkg.version);
+    if (cmp === null || cmp === 0) return null;
+    if (cmp < 0) return `dotmd plugin ${pluginVersion} is behind the CLI ${pkg.version} — run \`dotmd update\` then restart.`;
+    return `dotmd CLI ${pkg.version} is behind the plugin ${pluginVersion} — run \`dotmd update\` (or npm i -g dotmd-cli).`;
+  } catch {
+    return null;
+  }
+}
 
 // Statuses that count as "actionable" for a prompt are derived from config:
 // types.prompt.context.expanded (the statuses the user wants prominently shown).
@@ -201,11 +232,14 @@ const SUBAGENT_PRIMER = [
 export function runHud(argv, config) {
   const json = argv.includes('--json');
 
+  const drift = detectVersionDrift();
+
   // SubagentStart hook entry point — emit the compact primer and return. No
   // index build, no journal read, no slash-command heal: a subagent doesn't
   // need the operator-facing machinery, just the verbs and the guardrails.
   if (argv.includes('--subagent')) {
     process.stdout.write(dim(SUBAGENT_PRIMER) + '\n');
+    if (drift) process.stdout.write(yellow(drift) + '\n');
     return;
   }
 
@@ -222,7 +256,7 @@ export function runHud(argv, config) {
   }
 
   if (json) {
-    process.stdout.write(JSON.stringify(hud, null, 2) + '\n');
+    process.stdout.write(JSON.stringify({ ...hud, drift: drift ?? null }, null, 2) + '\n');
     return;
   }
 
@@ -237,4 +271,5 @@ export function runHud(argv, config) {
   // `dotmd hud --json` for programmatic callers. The hook's job is purely to
   // teach the verbs, never to report status.
   process.stdout.write(dim('dotmd: plans|briefing  set <status> [<file>]  new <type> <slug>  use [<file>]  archive <file>  (use [no-arg] → oldest pending prompt)') + '\n');
+  if (drift) process.stdout.write(yellow(drift) + '\n');
 }
