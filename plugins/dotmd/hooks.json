@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "dotmd hud",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/dotmd-hook\" --hint hud",
             "timeout": 5
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "dotmd hud --subagent",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/dotmd-hook\" hud --subagent",
             "timeout": 5
           }
         ]
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "dotmd hud --subagent",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/dotmd-hook\" hud --subagent",
             "timeout": 5
           }
         ]
@@ -39,7 +39,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "dotmd guard",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/dotmd-hook\" guard",
             "timeout": 5
           }
         ]

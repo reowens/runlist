@@ -15,6 +15,29 @@ function findFileRoot(filePath, config) {
   return roots.find(r => filePath.startsWith(r + '/')) ?? config.docsRoot;
 }
 
+// Resolve an archive target like `dotmd use` resolves a pickup target: an exact
+// path wins (the resolveDocPath fast path), but a bare slug / basename falls
+// back to a recursive basename match under the doc roots. Mirrors
+// resolvePromptInput's basename pass so the closure verb is as forgiving about
+// naming as `use`/`prompts archive`. A basename shared by two files errors with
+// the candidate list rather than guessing which one to move.
+function resolveArchiveTarget(input, config) {
+  const direct = resolveDocPath(input, config);
+  if (direct) return direct;
+  if (!input.endsWith('.md')) {
+    const withExt = resolveDocPath(input + '.md', config);
+    if (withExt) return withExt;
+  }
+
+  const slug = input.replace(/\.md$/, '');
+  const byBasename = collectDocFiles(config).filter(f => path.basename(f, '.md') === slug);
+  if (byBasename.length === 1) return byBasename[0];
+  if (byBasename.length > 1) {
+    die(`Multiple docs match "${input}" by basename:\n${byBasename.map(f => '  ' + toRepoPath(f, config.repoRoot)).join('\n')}`);
+  }
+  return null;
+}
+
 function defaultTypeDir(docType, config) {
   if (docType === 'plan') return 'plans';
   if (docType === 'prompt') return 'prompts';
@@ -401,7 +424,7 @@ export function runArchive(argv, config, opts = {}) {
 
   if (!input) { die('Usage: dotmd archive <file>'); }
 
-  const filePath = resolveDocPath(input, config);
+  const filePath = resolveArchiveTarget(input, config);
   if (!filePath) { die(`File not found: ${input}\nSearched: ${toRepoPath(config.repoRoot, config.repoRoot) || '.'}, ${toRepoPath(config.docsRoot, config.repoRoot)}`); }
 
   const archiveFileRoot = findFileRoot(filePath, config);

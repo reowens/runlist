@@ -507,10 +507,15 @@ Options:
   --json                 Output errors and warnings as JSON (always full detail)
   --dry-run, -n          Preview fixes without writing (with --fix)`,
 
-  archive: `dotmd archive <file> — archive a document
+  archive: `dotmd archive <file-or-slug> — archive a document
 
 Sets status to 'archived', moves to the archive directory, auto-updates
 references in other docs, and regenerates the index.
+
+<file-or-slug> resolves like \`dotmd use\`: an exact path wins, but a bare
+slug / basename (e.g. \`archive resume-foo\`) falls back to a recursive
+basename match under the doc roots. An ambiguous basename (the same name in
+two places) errors with the candidate list instead of guessing.
 
 Options:
   --no-index             Skip index regen. Use when multiple sessions are

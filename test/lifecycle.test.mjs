@@ -564,6 +564,54 @@ describe('archive collision (same basename twice)', () => {
   });
 });
 
+describe('archive resolves bare slugs (like `dotmd use`)', () => {
+  it('archives a nested plan by bare basename (no path, no extension)', () => {
+    const docsDir = setupProject();
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const cfg = path.join(tmpDir, 'dotmd.config.mjs');
+
+    // Nest the plan a level down so a bare slug can't resolve via the
+    // repo-root / docs-root fast paths — only the basename fallback finds it.
+    mkdirSync(path.join(docsDir, 'plans'), { recursive: true });
+    writeDoc(docsDir, path.join('plans', 'lonely.md'), 'type: plan\nstatus: active\nupdated: 2025-01-01', '# Lonely\n');
+
+    const result = spawnSync('node', [bin, 'archive', 'lonely', '--config', cfg], { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(result.status, 0, `archive by slug failed: ${result.stderr}`);
+    ok(existsSync(path.join(docsDir, 'archived', 'lonely.md')), `expected archived/lonely.md; entries: ${readdirSync(path.join(docsDir, 'archived')).join(', ')}`);
+  });
+
+  it('errors with the candidate list when a basename is ambiguous', () => {
+    const docsDir = setupProject();
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const cfg = path.join(tmpDir, 'dotmd.config.mjs');
+
+    // Same basename in two directories → archive must refuse, not guess.
+    mkdirSync(path.join(docsDir, 'plans'), { recursive: true });
+    mkdirSync(path.join(docsDir, 'rfcs'), { recursive: true });
+    writeDoc(docsDir, path.join('plans', 'dup.md'), 'status: active\nupdated: 2025-01-01', '# A\n');
+    writeDoc(docsDir, path.join('rfcs', 'dup.md'), 'status: active\nupdated: 2025-01-01', '# B\n');
+
+    const result = spawnSync('node', [bin, 'archive', 'dup', '--config', cfg], { cwd: tmpDir, encoding: 'utf8' });
+    ok(result.status !== 0, 'ambiguous slug should exit non-zero');
+    match(result.stderr, /Multiple docs match/, `expected multi-match error; got: ${result.stderr}`);
+    ok(result.stderr.includes('plans/dup.md') && result.stderr.includes('rfcs/dup.md'), `expected both candidates listed; got: ${result.stderr}`);
+    // Nothing moved.
+    ok(existsSync(path.join(docsDir, 'plans', 'dup.md')), 'plans/dup.md untouched');
+    ok(existsSync(path.join(docsDir, 'rfcs', 'dup.md')), 'rfcs/dup.md untouched');
+  });
+
+  it('still resolves an exact relative path (fast path unchanged)', () => {
+    const docsDir = setupProject();
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const cfg = path.join(tmpDir, 'dotmd.config.mjs');
+
+    writeDoc(docsDir, 'exact.md', 'status: active\nupdated: 2025-01-01', '# Exact\n');
+    const result = spawnSync('node', [bin, 'archive', path.join(docsDir, 'exact.md'), '--config', cfg], { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(result.status, 0, `exact-path archive failed: ${result.stderr}`);
+    ok(existsSync(path.join(docsDir, 'archived', 'exact.md')), 'exact.md archived');
+  });
+});
+
 describe('init writes .dotmd/ to .gitignore', () => {
   it('creates .gitignore with .dotmd/ when missing', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));

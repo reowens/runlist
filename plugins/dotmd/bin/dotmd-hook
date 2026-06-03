@@ -1,0 +1,33 @@
+#!/bin/sh
+# dotmd plugin hook wrapper.
+#
+# The plugin's hooks drive the whole workflow through the PATH `dotmd` binary
+# (`dotmd hud`, `dotmd guard`). If a user enables the plugin but hasn't run
+# `npm i -g dotmd-cli`, the binary is missing, the hook errors `command not
+# found`, and the session is primed with *silent nothing* — no signal that the
+# whole workflow is one install away. dotmd can't warn about its own absence
+# (it's the thing that's missing), so the check lives here, outside the binary.
+#
+# Usage: dotmd-hook [--hint] <dotmd-subcommand> [args...]
+#   --hint  emit a one-line install hint to stdout when `dotmd` is off PATH.
+#           Only SessionStart passes this, so the hint surfaces exactly once
+#           per session (stdout from a SessionStart hook becomes context the
+#           model sees) — never on every SubagentStart / CwdChanged / guard.
+#
+# When `dotmd` is missing we always exit 0 with no further output: hooks must
+# stay non-blocking, and the PreToolUse guard in particular must never deny a
+# tool just because the optional CLI isn't installed.
+hint=0
+if [ "$1" = "--hint" ]; then
+  hint=1
+  shift
+fi
+
+if ! command -v dotmd >/dev/null 2>&1; then
+  if [ "$hint" = "1" ]; then
+    echo "dotmd plugin: the \`dotmd\` CLI isn't installed, so its hooks are no-ops. Enable the workflow with: npm i -g dotmd-cli"
+  fi
+  exit 0
+fi
+
+exec dotmd "$@"
