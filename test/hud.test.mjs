@@ -193,4 +193,25 @@ describe('dotmd hud', () => {
     ok(r.stdout.length < 500, `hud output too large: ${r.stdout.length} bytes\n${r.stdout}`);
   });
 
+  // The plugin's SessionStart/SubagentStart hooks fire in every repo. In a repo
+  // with no dotmd config, the primer is irrelevant noise — hud must stay silent.
+  it('is silent in a repo with no dotmd config (primer + subagent)', () => {
+    const bare = mkdtempSync(path.join(os.tmpdir(), 'dotmd-nocfg-'));
+    try {
+      const run = (args) => spawnSync('node', [bin, ...args], { cwd: bare, encoding: 'utf8' });
+      const r = run(['hud']);
+      strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
+      strictEqual(r.stdout, '', `expected silent hud in non-dotmd repo, got: ${r.stdout}`);
+      const s = run(['hud', '--subagent']);
+      strictEqual(s.status, 0, `hud --subagent failed: ${s.stderr}`);
+      strictEqual(s.stdout, '', `expected silent subagent primer in non-dotmd repo, got: ${s.stdout}`);
+      // --json still returns a structured shape for programmatic callers.
+      const j = run(['hud', '--json']);
+      strictEqual(j.status, 0, `hud --json failed: ${j.stderr}`);
+      ok(j.stdout.trim().startsWith('{'), `--json should still emit a shape, got: ${j.stdout}`);
+    } finally {
+      rmSync(bare, { recursive: true, force: true });
+    }
+  });
+
 });

@@ -229,19 +229,35 @@ const SUBAGENT_PRIMER = [
   'git add/commit a prompt (they are session-local, often gitignored); hand-edit a `status:` field (use `dotmd set`).',
 ].join('\n');
 
+// The plugin's SessionStart/SubagentStart hooks fire in EVERY repo (it's enabled
+// globally), but the primer only helps where dotmd is actually used. Gate on a
+// discovered config: `dotmd init` writes dotmd.config.mjs, so "has a config" is
+// the zero-false-positive signal for "this is a dotmd repo." A bare docs/ dir is
+// deliberately NOT enough — too many repos have one. In a non-dotmd repo the hook
+// then contributes nothing to the session: no primer, no index build, no heal.
+function isDotmdRepo(config) {
+  return Boolean(config?.configFound);
+}
+
 export function runHud(argv, config) {
   const json = argv.includes('--json');
 
   const drift = detectVersionDrift();
+  const dotmdRepo = isDotmdRepo(config);
 
   // SubagentStart hook entry point — emit the compact primer and return. No
   // index build, no journal read, no slash-command heal: a subagent doesn't
   // need the operator-facing machinery, just the verbs and the guardrails.
   if (argv.includes('--subagent')) {
+    if (!dotmdRepo) return; // silent in repos that don't use dotmd
     process.stdout.write(dim(SUBAGENT_PRIMER) + '\n');
     if (drift) process.stdout.write(yellow(drift) + '\n');
     return;
   }
+
+  // Non-dotmd repo, and not a programmatic --json caller → contribute nothing to
+  // the session. Skip the index build, slash-heal, primer, and drift line.
+  if (!dotmdRepo && !json) return;
 
   const hud = buildHud(config);
 

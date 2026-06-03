@@ -1233,7 +1233,12 @@ async function main() {
     restArgs.push(args[i]);
   }
 
-  if (!config.configFound && command !== 'init') {
+  // Hook commands (`hud`, `guard`) fire in EVERY repo via the globally-enabled
+  // plugin — `guard` runs on every Bash/Read/Edit. They must stay silent where
+  // dotmd isn't used, so don't nag them about a missing config (they no-op
+  // cleanly on their own). The warning is still useful for interactive commands.
+  const HOOK_COMMANDS = new Set(['hud', 'guard']);
+  if (!config.configFound && command !== 'init' && !HOOK_COMMANDS.has(command)) {
     warn('No dotmd config found — using defaults. Run `dotmd init` to create one.');
   }
 
