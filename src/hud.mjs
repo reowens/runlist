@@ -185,8 +185,30 @@ export function buildHud(config) {
   return { prompts, errors, previousSelf, fleet, recentRejections };
 }
 
+// Subagent primer: a spawned subagent (Explore, Plan, general-purpose) starts
+// with ZERO project context and no SessionStart history — it has never seen the
+// command sheet the top-level session got. Without this, subagents reflexively
+// grep/cat/commit managed docs instead of using dotmd. Keep it to a few dense
+// lines: the verbs + the three wrong-moves the guard exists to stop, so the
+// subagent self-corrects before the guard ever has to fire.
+const SUBAGENT_PRIMER = [
+  'dotmd manages this repo\'s plans/docs/prompts (markdown + YAML frontmatter).',
+  'Verbs: plans|briefing | query <filters> | use [<file>] | set <status> <file> | new <type> <slug> | archive <file>.',
+  'Do NOT: cat/read a docs/prompts/*.md (use `dotmd use <file>` — it prints + archives atomically);',
+  'git add/commit a prompt (they are session-local, often gitignored); hand-edit a `status:` field (use `dotmd set`).',
+].join('\n');
+
 export function runHud(argv, config) {
   const json = argv.includes('--json');
+
+  // SubagentStart hook entry point — emit the compact primer and return. No
+  // index build, no journal read, no slash-command heal: a subagent doesn't
+  // need the operator-facing machinery, just the verbs and the guardrails.
+  if (argv.includes('--subagent')) {
+    process.stdout.write(dim(SUBAGENT_PRIMER) + '\n');
+    return;
+  }
+
   const hud = buildHud(config);
 
   // Self-heal stale slash-command files. Wrapped: a broken scaffolder must

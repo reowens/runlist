@@ -2,6 +2,25 @@ import { spawnSync } from 'node:child_process';
 import { renameSync } from 'node:fs';
 import path from 'node:path';
 
+// Best-effort `git check-ignore` for a path. Returns true only when git
+// definitively reports the path is ignored; any failure (not a repo, git
+// missing, path outside the tree) returns false so callers never block on a
+// false positive. Used by the guard hook and `dotmd new` to warn that a
+// freshly-created doc lives under a gitignored path (the "agent tries to
+// commit a session-local prompt" confusion).
+export function isGitIgnored(absPath, repoRoot) {
+  try {
+    const result = spawnSync('git', ['check-ignore', '-q', '--', absPath], {
+      cwd: repoRoot || process.cwd(),
+      encoding: 'utf8',
+    });
+    // exit 0 → ignored, 1 → not ignored, 128 → not a git repo / other error.
+    return result.status === 0;
+  } catch {
+    return false;
+  }
+}
+
 let gitChecked = false;
 function ensureGit() {
   if (gitChecked) return;

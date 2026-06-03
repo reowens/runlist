@@ -539,6 +539,22 @@ export async function runNew(argv, config, opts = {}) {
   process.stdout.write(`${green('Created')}: ${repoPath} ${dim(`(${typeName})`)}\n`);
   if (rootHint) process.stdout.write(dim(rootHint));
 
+  // Post-create guidance. Prompts are the classic confusion point: agents
+  // reflexively `git add && commit` a freshly-created file, but saved prompts
+  // are session-local handoff artifacts — the next session consumes them via
+  // `dotmd use`, and the prompts dir is often gitignored (the commit then fails
+  // confusingly). Tell the agent the next step explicitly, and flag a gitignored
+  // target for any type so "why won't this commit" never happens silently.
+  if (typeName === 'prompt') {
+    process.stdout.write(dim('Session-local — no need to commit. The next session runs `dotmd use` (or `dotmd use ' + repoPath + '`) to consume it.\n'));
+  }
+  try {
+    const { isGitIgnored } = await import('./git.mjs');
+    if (isGitIgnored(filePath, config.repoRoot)) {
+      process.stdout.write(dim(`Note: ${repoPath} is gitignored — don't try to git add/commit it.\n`));
+    }
+  } catch { /* git absent / not a repo — skip the note */ }
+
   regenIndex(config);
 
   if (showFiles) {

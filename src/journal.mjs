@@ -13,6 +13,9 @@ const BACKUP_RETENTION_MS = ROTATE_AGE_MS;
 const ERROR_LOG_FILE = 'dotmd-errors.log';
 const ERROR_LOG_BACKUP = 'dotmd-errors.log.1';
 
+const MISUSE_LOG_FILE = 'dotmd-misuse.log';
+const MISUSE_LOG_BACKUP = 'dotmd-misuse.log.1';
+
 export function isJournalEnabled(config) {
   if (process.env.DOTMD_JOURNAL === '1') return true;
   if (process.env.DOTMD_JOURNAL === '0') return false;
@@ -180,4 +183,58 @@ export function recordGlobalError({ config, startMs, args, err, version }) {
   } catch {
     // Logging must never break exit.
   }
+}
+
+// Misuse log: always-on, cross-repo, append-only record of every wrong-move the
+// PreToolUse guard intercepts (committing a gitignored prompt, `cat`-ing a
+// prompt instead of `dotmd use`, hand-editing a `status:` field, …). This is
+// the ONLY place those mistakes become visible — they never invoke dotmd, so
+// neither the per-repo journal nor the global error log would otherwise see
+// them. Shares the error log's directory and rotation so `~/.claude/logs` is
+// the single home for "what went wrong." Read it with `dotmd misuse`.
+export function globalMisuseLogPath() {
+  return path.join(globalErrorLogDir(), MISUSE_LOG_FILE);
+}
+
+export function globalMisuseLogBackupPath() {
+  return path.join(globalErrorLogDir(), MISUSE_LOG_BACKUP);
+}
+
+export function recordGuardEvent(event) {
+  if (!event) return;
+  const entry = {
+    ts: new Date().toISOString(),
+    repo: event.repo || process.cwd(),
+    sid: currentSessionId(),
+    pid: process.pid,
+    tool: event.tool ?? null,
+    rule: event.rule ?? null,
+    decision: event.decision ?? null,
+    detail: typeof event.detail === 'string'
+      ? (event.detail.length > 300 ? event.detail.slice(0, 297) + '...' : event.detail)
+      : null,
+    v: event.version ?? null,
+  };
+  try {
+    const dir = globalErrorLogDir();
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    const file = globalMisuseLogPath();
+    maybeRotate(file, globalMisuseLogBackupPath());
+    appendFileSync(file, JSON.stringify(entry) + '\n', { flag: 'a' });
+  } catch {
+    // Logging must never break the hook.
+  }
+}
+
+export function readMisuseEntries() {
+  const file = globalMisuseLogPath();
+  if (!existsSync(file)) return [];
+  let raw;
+  try { raw = readFileSync(file, 'utf8'); } catch { return []; }
+  const out = [];
+  for (const line of raw.split('\n')) {
+    if (!line) continue;
+    try { out.push(JSON.parse(line)); } catch { /* skip malformed */ }
+  }
+  return out;
 }

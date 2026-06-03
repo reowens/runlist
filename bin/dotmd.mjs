@@ -34,7 +34,9 @@ const FLAG_SPECS = {
   briefing: { flags: new Set(['--json']), values: new Set() },
   context: { flags: new Set(['--json', '--compact', '--summarize', '--model']), values: new Set(['--model']) },
   'agent-context': { flags: new Set(['--json']), values: new Set() },
-  hud: { flags: new Set(['--json']), values: new Set() },
+  hud: { flags: new Set(['--json', '--subagent']), values: new Set() },
+  guard: { flags: new Set(), values: new Set() },
+  misuse: { flags: new Set(['--json', '--tail', '--by-rule', '--repo']), values: new Set(['--tail', '--repo']) },
   check: { flags: new Set(['--fix', '--errors-only', '--no-collapse', '--json', '--verbose']), values: new Set() },
   doctor: { flags: new Set(['--apply', '--yes', '--dry-run', '-n', '--statuses', '--migrate-template', '--migrate-prompts', '--frontmatter-fix', '--project', '--json', '--include-archived']), values: new Set() },
   runlist: { flags: new Set(['--json', '--full', '--no-index', '--show-files']), values: new Set(), subcommands: new Set(['next']) },
@@ -138,6 +140,32 @@ More help:
   dotmd <cmd> --help    Per-command details
 
 Global flags: --config <path>  --root <name>  --type <t,…>  --dry-run/-n  --verbose  --version`,
+
+  guard: `dotmd guard — PreToolUse hook handler (reads the tool-call JSON on stdin)
+
+Wire it into Claude Code as a PreToolUse hook to intercept the wrong-moves
+sessions keep making, and to log every one for audit:
+
+  {"matcher":"Bash|Read|Edit|Write","hooks":[{"type":"command","command":"dotmd guard"}]}
+
+Rules:
+  commit-prompt  deny  git add/commit of a (often gitignored) saved prompt
+  cat-prompt     warn  cat/less/head of a docs/prompts/*.md (use \`dotmd use\`)
+  read-prompt    warn  Read tool on a saved prompt (use \`dotmd use\`)
+  edit-status    warn  hand-edit of a \`status:\` field (use \`dotmd set\`)
+
+Every catch is appended to the cross-repo misuse log. Disable with DOTMD_GUARD=0.
+Read the log with \`dotmd misuse\`.`,
+
+  misuse: `dotmd misuse — read the cross-repo guard log (~/.claude/logs/dotmd-misuse.log)
+
+  dotmd misuse                last 20 intercepted wrong-moves
+  dotmd misuse --tail 50      last N
+  dotmd misuse --by-rule      counts per rule (deny/warn split)
+  dotmd misuse --repo <name>  filter by repo
+  dotmd misuse --json         machine-readable
+
+Populated by the \`dotmd guard\` PreToolUse hook — see \`dotmd help guard\`.`,
 
   // Full command list — opt-in via \`dotmd help all\`. Kept exhaustive so the
   // top-level \`--help\` can stay terse without losing discoverability. When you
@@ -1276,6 +1304,8 @@ async function main() {
 
   // Lifecycle commands
   if (command === 'hud') { const { runHud } = await import('../src/hud.mjs'); runHud(restArgs, config); return; }
+  if (command === 'guard') { const { runGuard } = await import('../src/guard.mjs'); await runGuard(restArgs, config); return; }
+  if (command === 'misuse') { const { runMisuse } = await import('../src/misuse-read.mjs'); runMisuse(restArgs, config); return; }
   if (command === 'journal') { const { runJournal } = await import('../src/journal-read.mjs'); runJournal(restArgs, config); return; }
   if (command === 'pickup' || command === 'unpickup' || command === 'release' || command === 'finish') {
     die(`\`dotmd ${command}\` was removed — dotmd no longer checks plans in/out. Status is just frontmatter:\n  dotmd use <file>          # mark in-session + print the plan\n  dotmd set <status> <file> # change status\n  dotmd archive <file>      # close out`);
