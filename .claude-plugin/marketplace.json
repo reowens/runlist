@@ -9,7 +9,7 @@
       "name": "dotmd",
       "source": "./plugins/dotmd",
       "description": "Teaches Claude Code sessions the dotmd document-management workflow and guards against the wrong-moves agents keep making (committing session-local prompts, cat-ing prompts, hand-editing status). Primes the main session and every subagent.",
-      "version": "0.57.0",
+      "version": "0.58.0",
       "author": {
         "name": "Robert Owens"
       },
