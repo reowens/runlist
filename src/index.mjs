@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { extractFirstHeading, extractSummary, extractStatusSnapshot, extractNextStep, extractChecklistCounts, extractBodyLinks } from './extractors.mjs';
-import { asString, normalizeStringList, normalizeBlockers, mergeUniqueStrings, toRepoPath, warn } from './util.mjs';
+import { asString, normalizeStringList, normalizeBlockers, mergeUniqueStrings, toRepoPath, warn, die, resolveDocPath, suggestCandidates } from './util.mjs';
 import { validateDoc, validatePlanShape, validateDocShape, checkBidirectionalReferences, checkGitStaleness, checkRunlistBackPointers, computeDaysSinceUpdate, computeIsStale, computeChecklistCompletionRate, enrichRefErrorSuggestions } from './validate.mjs';
 import { checkIndex } from './index-file.mjs';
 import { checkClaudeCommands } from './claude-commands.mjs';
@@ -150,6 +150,54 @@ export function collectDocFiles(config) {
     walkMarkdownFiles(root, files, config.excludeDirs, skipPaths, seen);
   }
   return files.sort((a, b) => a.localeCompare(b));
+}
+
+// Shared resolver for CLI file arguments — the single path every file-taking
+// verb (`use`, `set`, `archive`, `touch`, `rename`, …) funnels through so
+// bare slugs behave identically everywhere. Tries, in order: exact path
+// (the resolveDocPath fast path), `<input>.md`, then a unique basename match
+// across all doc roots. An ambiguous basename dies listing the candidates
+// rather than guessing — a wrong auto-resolved mutation is worse than a
+// retry. A full miss dies with did-you-mean suggestions drawn from the doc
+// corpus; pass { dieOnMiss: false } to get null instead and keep a custom
+// fallback at the call site.
+export function resolveDocArg(input, config, { dieOnMiss = true } = {}) {
+  if (!input) return null;
+  const direct = resolveDocPath(input, config);
+  if (direct) return direct;
+  if (!input.endsWith('.md')) {
+    const withExt = resolveDocPath(input + '.md', config);
+    if (withExt) return withExt;
+  }
+
+  const slug = input.replace(/\.md$/, '');
+  const files = collectDocFiles(config);
+  const byBasename = files.filter(f => path.basename(f, '.md') === slug);
+  if (byBasename.length === 1) return byBasename[0];
+  if (byBasename.length > 1) {
+    die(`Multiple docs match "${input}" by basename:\n${byBasename.map(f => '  ' + toRepoPath(f, config.repoRoot)).join('\n')}`);
+  }
+
+  if (!dieOnMiss) return null;
+  die(docArgMissMessage(input, config, files));
+}
+
+// `File not found` + the searched roots + up-to-3 did-you-mean candidates
+// matched on basename and printed as repo-relative paths. Exported so verbs
+// with their own resolution (e.g. interactive pickers) can reuse the message.
+export function docArgMissMessage(input, config, files = collectDocFiles(config)) {
+  const roots = config.docsRoots || [config.docsRoot];
+  const searched = [toRepoPath(config.repoRoot, config.repoRoot) || '.', ...roots.map(r => toRepoPath(r, config.repoRoot))].join(', ');
+  const slug = String(input).split('/').pop().replace(/\.md$/, '');
+  const pathsByBase = new Map();
+  for (const f of files) {
+    const base = path.basename(f, '.md');
+    if (!pathsByBase.has(base)) pathsByBase.set(base, toRepoPath(f, config.repoRoot));
+  }
+  const hits = suggestCandidates(slug, [...pathsByBase.keys()]);
+  let msg = `File not found: ${input}\nSearched: ${searched}`;
+  if (hits.length) msg += `\nDid you mean: ${hits.map(b => pathsByBase.get(b)).join(', ')}?`;
+  return msg;
 }
 
 function walkMarkdownFiles(directory, files, excludedDirs, skipPaths, seen = new Set()) {

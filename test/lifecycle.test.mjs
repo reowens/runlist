@@ -612,6 +612,76 @@ describe('archive resolves bare slugs (like `dotmd use`)', () => {
   });
 });
 
+describe('shared slug resolution across verbs (resolveDocArg)', () => {
+  function nestedPlan(docsDir) {
+    // Nested a level down so the slug can't resolve via the repo-root /
+    // docs-root fast paths — only the basename fallback finds it.
+    mkdirSync(path.join(docsDir, 'plans'), { recursive: true });
+    return writeDoc(docsDir, path.join('plans', 'lonely.md'), 'type: plan\nstatus: active\nupdated: 2025-01-01', '# Lonely\n');
+  }
+
+  it('`dotmd use <bare-slug>` starts a nested plan', () => {
+    const docsDir = setupProject();
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const cfg = path.join(tmpDir, 'dotmd.config.mjs');
+    const planPath = nestedPlan(docsDir);
+
+    const result = spawnSync('node', [bin, 'use', 'lonely', '--config', cfg], { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(result.status, 0, `use by slug failed: ${result.stderr}`);
+    match(readFileSync(planPath, 'utf8'), /status: in-session/, 'plan marked in-session');
+  });
+
+  it('`dotmd set <status> <bare-slug>` transitions a nested plan', () => {
+    const docsDir = setupProject();
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const cfg = path.join(tmpDir, 'dotmd.config.mjs');
+    const planPath = nestedPlan(docsDir);
+
+    // `planned` doesn't refile the doc (statuses like `paused` move it under
+    // plans/held/), so the original path is still valid to assert against.
+    const result = spawnSync('node', [bin, 'set', 'planned', 'lonely', '--config', cfg], { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(result.status, 0, `set by slug failed: ${result.stderr}`);
+    match(readFileSync(planPath, 'utf8'), /status: planned/, 'plan transitioned to planned');
+  });
+
+  it('`dotmd touch <bare-slug>` bumps a nested plan', () => {
+    const docsDir = setupProject();
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const cfg = path.join(tmpDir, 'dotmd.config.mjs');
+    const planPath = nestedPlan(docsDir);
+
+    const result = spawnSync('node', [bin, 'touch', 'lonely', '--config', cfg], { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(result.status, 0, `touch by slug failed: ${result.stderr}`);
+    ok(!readFileSync(planPath, 'utf8').includes('updated: 2025-01-01'), 'updated date bumped');
+  });
+
+  it('a miss exits 1 with did-you-mean candidates', () => {
+    const docsDir = setupProject();
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const cfg = path.join(tmpDir, 'dotmd.config.mjs');
+    nestedPlan(docsDir);
+
+    const result = spawnSync('node', [bin, 'use', 'docs/plans/lonelyy.md', '--config', cfg], { cwd: tmpDir, encoding: 'utf8' });
+    ok(result.status !== 0, 'miss should exit non-zero');
+    match(result.stderr, /File not found/, `expected not-found error; got: ${result.stderr}`);
+    match(result.stderr, /Did you mean: .*plans\/lonely\.md/, `expected did-you-mean candidate; got: ${result.stderr}`);
+  });
+
+  it('an ambiguous slug on `set` lists the candidates instead of guessing', () => {
+    const docsDir = setupProject();
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const cfg = path.join(tmpDir, 'dotmd.config.mjs');
+    mkdirSync(path.join(docsDir, 'plans'), { recursive: true });
+    mkdirSync(path.join(docsDir, 'rfcs'), { recursive: true });
+    writeDoc(docsDir, path.join('plans', 'dup.md'), 'status: active\nupdated: 2025-01-01', '# A\n');
+    writeDoc(docsDir, path.join('rfcs', 'dup.md'), 'status: active\nupdated: 2025-01-01', '# B\n');
+
+    const result = spawnSync('node', [bin, 'set', 'paused', 'dup', '--config', cfg], { cwd: tmpDir, encoding: 'utf8' });
+    ok(result.status !== 0, 'ambiguous slug should exit non-zero');
+    match(result.stderr, /Multiple docs match/, `expected multi-match error; got: ${result.stderr}`);
+  });
+});
+
 describe('init writes .dotmd/ to .gitignore', () => {
   it('creates .gitignore with .dotmd/ when missing', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));

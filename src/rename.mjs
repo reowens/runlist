@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { toRepoPath, resolveDocPath, die, warn } from './util.mjs';
-import { collectDocFiles } from './index.mjs';
+import { toRepoPath, die, warn } from './util.mjs';
+import { collectDocFiles, resolveDocArg } from './index.mjs';
 import { regenIndex } from './lifecycle.mjs';
 import { gitMv } from './git.mjs';
 import { green, dim } from './color.mjs';
@@ -31,10 +31,7 @@ export async function runRename(argv, config, opts = {}) {
   }
 
   // Resolve old path
-  const oldPath = resolveDocPath(oldInput, config);
-  if (!oldPath) {
-    die(`File not found: ${oldInput}\nSearched: ${toRepoPath(config.repoRoot, config.repoRoot) || '.'}, ${toRepoPath(config.docsRoot, config.repoRoot)}`);
-  }
+  const oldPath = resolveDocArg(oldInput, config);
 
   // Compute new path — cross-directory if input has slashes, same directory otherwise
   let newPath;

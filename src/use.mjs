@@ -3,6 +3,7 @@ import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { asString, die, resolveDocPath, toRepoPath } from './util.mjs';
 import { consumePrompt, pendingPromptsOldestFirst, resolvePromptInput } from './prompts.mjs';
 import { startPlan } from './lifecycle.mjs';
+import { resolveDocArg } from './index.mjs';
 
 // Top-level `dotmd use [file]` — the single "start engaging with this doc"
 // verb. Dispatches by the target doc's `type:` so agents don't have to know
@@ -22,8 +23,12 @@ export async function runUse(argv, config, opts = {}) {
     return consumePrompt(head.abs, config, opts);
   }
 
-  const filePath = resolveDocPath(positional, config) ?? resolvePromptInput(positional, config, { dieOnMiss: false });
-  if (!filePath) die(`File not found: ${positional}`);
+  // Exact path first, then prompt slugs (they keep precedence on a slug
+  // collision — consuming a prompt is the more common intent), then the
+  // shared resolver for plan/doc slugs, which dies with did-you-mean on miss.
+  const filePath = resolveDocPath(positional, config)
+    ?? resolvePromptInput(positional, config, { dieOnMiss: false })
+    ?? resolveDocArg(positional, config);
 
   const raw = readFileSync(filePath, 'utf8');
   const { frontmatter } = extractFrontmatter(raw);

@@ -131,7 +131,7 @@ Common commands:
   agent-context         Compact bounded JSON context for agents
   set <status> [file]   Transition status (start work, finish, archive — all via target status)
   new <type> <name>     Create plan/doc/prompt (pipe stdin or @path for body)
-  use [<file-or-prompt-slug>] Open a doc by type: prompt → consume, plan → start, doc → read
+  use [<file-or-slug>]  Open a doc by type: prompt → consume, plan → start, doc → read
                         (no file: consume oldest pending prompt)
   archive <file>        Close out a plan (status → archived, move, update refs)
 
@@ -194,7 +194,7 @@ View & Query:
   focus [status] [--json]           Detailed view for one status group
   query [filters] [--json]          Filtered search (--status, --keyword, --stale, etc.)
   plans                             Live plans (excludes archived; --include-archived for all)
-  use [<file-or-prompt-slug>]       Open a doc by type: prompt → consume, plan → start, doc → read
+  use [<file-or-slug>]              Open a doc by type: prompt → consume, plan → start, doc → read
   prompts [list|archive|new|hold] Prompt admin (list / archive / save / hold). Use \`dotmd use\` to consume.
   stale                             Stale docs (preset)
   actionable                        Docs with next steps (preset)
@@ -444,12 +444,16 @@ Network failures mid-bump (e.g. \`git push\` fails) leave the local
 commit + tag intact. Inspect with \`git log -1\` and rerun
 \`git push origin main --tags\` to recover.`,
 
-  set: `dotmd set <status> <file> — change a document's status
+  set: `dotmd set <status> <file-or-slug> — change a document's status
 
 Writes the new status into the file's frontmatter. Nothing else — no plan
 checkout, no session locks.
   - target is an archive status → archive the file (move + ref update)
   - everything else             → plain frontmatter status bump
+
+<file-or-slug> resolves like \`dotmd use\`/\`archive\`: exact path first, then
+a unique bare slug / basename across the doc roots (\`set paused auth-revamp\`).
+Ambiguous slugs error with the candidate list instead of guessing.
 
 Options:
   --no-index             Skip index regen (see \`dotmd archive --help\`).

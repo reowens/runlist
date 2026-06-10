@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
-import { asString, toRepoPath, resolveDocPath, die, warn } from './util.mjs';
+import { asString, toRepoPath, die, warn } from './util.mjs';
+import { resolveDocArg } from './index.mjs';
 import { summarizeDocBody } from './ai.mjs';
 import { bold, dim } from './color.mjs';
 
@@ -23,8 +24,7 @@ export function runSummary(argv, config) {
   const input = positional[0];
   if (!input) { die('Usage: dotmd summary <file> [--model <name>] [--json]'); }
 
-  const filePath = resolveDocPath(input, config);
-  if (!filePath) { die(`File not found: ${input}`); }
+  const filePath = resolveDocArg(input, config);
 
   const raw = readFileSync(filePath, 'utf8');
   const { frontmatter, body } = extractFrontmatter(raw);

@@ -2,8 +2,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { asString, toRepoPath, die, warn, resolveDocPath, resolveRefPath, escapeRegex, nowIso, suggestCandidates, emitFilesFooter, isArchivedPath } from './util.mjs';
-import { gitMv, getGitLastModified, getGitLastModifiedBatch } from './git.mjs';
-import { buildIndex, collectDocFiles } from './index.mjs';
+import { gitMv, getGitLastModifiedBatch } from './git.mjs';
+import { buildIndex, collectDocFiles, resolveDocArg } from './index.mjs';
 import { renderIndexFile, writeIndex } from './index-file.mjs';
 import { green, dim } from './color.mjs';
 import { isInteractive, promptChoice } from './prompt.mjs';
@@ -13,29 +13,6 @@ import { walkSections, findSection } from './section.mjs';
 function findFileRoot(filePath, config) {
   const roots = config.docsRoots || [config.docsRoot];
   return roots.find(r => filePath.startsWith(r + '/')) ?? config.docsRoot;
-}
-
-// Resolve an archive target like `dotmd use` resolves a pickup target: an exact
-// path wins (the resolveDocPath fast path), but a bare slug / basename falls
-// back to a recursive basename match under the doc roots. Mirrors
-// resolvePromptInput's basename pass so the closure verb is as forgiving about
-// naming as `use`/`prompts archive`. A basename shared by two files errors with
-// the candidate list rather than guessing which one to move.
-function resolveArchiveTarget(input, config) {
-  const direct = resolveDocPath(input, config);
-  if (direct) return direct;
-  if (!input.endsWith('.md')) {
-    const withExt = resolveDocPath(input + '.md', config);
-    if (withExt) return withExt;
-  }
-
-  const slug = input.replace(/\.md$/, '');
-  const byBasename = collectDocFiles(config).filter(f => path.basename(f, '.md') === slug);
-  if (byBasename.length === 1) return byBasename[0];
-  if (byBasename.length > 1) {
-    die(`Multiple docs match "${input}" by basename:\n${byBasename.map(f => '  ' + toRepoPath(f, config.repoRoot)).join('\n')}`);
-  }
-  return null;
 }
 
 function defaultTypeDir(docType, config) {
@@ -160,8 +137,7 @@ export async function runStatus(argv, config, opts = {}) {
 
   if (!input) { die('Usage: dotmd status <file> <new-status>'); }
 
-  const filePath = resolveDocPath(input, config);
-  if (!filePath) { die(`File not found: ${input}\nSearched: ${toRepoPath(config.repoRoot, config.repoRoot) || '.'}, ${toRepoPath(config.docsRoot, config.repoRoot)}`); }
+  const filePath = resolveDocArg(input, config);
 
   // Determine type-specific or root-specific valid statuses
   const raw = readFileSync(filePath, 'utf8');
@@ -350,8 +326,7 @@ export async function startPlan(argv, config, opts = {}) {
     input = candidates[idx].path;
   }
 
-  const filePath = resolveDocPath(input, config);
-  if (!filePath) die(`File not found: ${input}`);
+  const filePath = resolveDocArg(input, config);
 
   const raw = readFileSync(filePath, 'utf8');
   const { frontmatter: fmRaw, body } = extractFrontmatter(raw);
@@ -424,8 +399,7 @@ export function runArchive(argv, config, opts = {}) {
 
   if (!input) { die('Usage: dotmd archive <file>'); }
 
-  const filePath = resolveArchiveTarget(input, config);
-  if (!filePath) { die(`File not found: ${input}\nSearched: ${toRepoPath(config.repoRoot, config.repoRoot) || '.'}, ${toRepoPath(config.docsRoot, config.repoRoot)}`); }
+  const filePath = resolveDocArg(input, config);
 
   const archiveFileRoot = findFileRoot(filePath, config);
   const relFromRoot = path.relative(archiveFileRoot, filePath);
@@ -578,8 +552,7 @@ export async function runSet(argv, config, opts = {}) {
   if (!newStatus) die('Usage: dotmd set <status> <path>');
   if (!input) die('Usage: dotmd set <status> <path>');
 
-  const filePath = resolveDocPath(input, config);
-  if (!filePath) die(`File not found: ${input}\nSearched: ${toRepoPath(config.repoRoot, config.repoRoot) || '.'}, ${toRepoPath(config.docsRoot, config.repoRoot)}`);
+  const filePath = resolveDocArg(input, config);
 
   const inArchive = isArchivedPath(toRepoPath(filePath, config.repoRoot), config);
 
@@ -670,8 +643,7 @@ export function runTouch(argv, config, opts = {}) {
 
   // --git mode: bulk-sync frontmatter dates from git history
   if (useGit) {
-    const allFiles = input ? [resolveDocPath(input, config)].filter(Boolean) : collectDocFiles(config);
-    if (input && allFiles.length === 0) { die(`File not found: ${input}`); }
+    const allFiles = input ? [resolveDocArg(input, config)] : collectDocFiles(config);
 
     const prefix = dryRun ? dim('[dry-run] ') : '';
     let synced = 0;
@@ -714,8 +686,7 @@ export function runTouch(argv, config, opts = {}) {
 
   if (!input) { die('Usage: dotmd touch <file>\n       dotmd touch --git          Bulk-sync dates from git history'); }
 
-  const filePath = resolveDocPath(input, config);
-  if (!filePath) { die(`File not found: ${input}\nSearched: ${toRepoPath(config.repoRoot, config.repoRoot) || '.'}, ${toRepoPath(config.docsRoot, config.repoRoot)}`); }
+  const filePath = resolveDocArg(input, config);
 
   const today = nowIso();
 

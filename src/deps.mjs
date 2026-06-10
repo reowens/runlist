@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { buildGraph } from './graph.mjs';
-import { buildIndex } from './index.mjs';
-import { resolveDocPath, toSlug, toRepoPath, die, warn } from './util.mjs';
+import { buildIndex, resolveDocArg } from './index.mjs';
+import { toRepoPath, die } from './util.mjs';
 import { bold, dim, green } from './color.mjs';
 
 export function runDeps(argv, config) {
@@ -38,8 +38,7 @@ export function runDeps(argv, config) {
 
   if (input) {
     // Tree view for a specific doc
-    const filePath = resolveDocPath(input, config);
-    if (!filePath) die(`File not found: ${input}`);
+    const filePath = resolveDocArg(input, config);
     const repoPath = toRepoPath(filePath, config.repoRoot);
     const doc = docByPath.get(repoPath);
     if (!doc) die(`Doc not in index: ${repoPath}`);
@@ -255,8 +254,7 @@ export function runUnblocks(argv, config) {
   const json = argv.includes('--json');
   if (!input) die('Usage: dotmd unblocks <file>');
 
-  const filePath = resolveDocPath(input, config);
-  if (!filePath) die(`File not found: ${input}`);
+  const filePath = resolveDocArg(input, config);
   const repoPath = toRepoPath(filePath, config.repoRoot);
 
   const index = buildIndex(config);

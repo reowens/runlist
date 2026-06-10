@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
-import { asString, toRepoPath, resolveDocPath, die, warn } from './util.mjs';
+import { asString, toRepoPath, die, warn } from './util.mjs';
 import { gitDiffSince } from './git.mjs';
-import { buildIndex } from './index.mjs';
+import { buildIndex, resolveDocArg } from './index.mjs';
 import { summarizeDiffText, DEFAULT_MODEL } from './ai.mjs';
-import { bold, dim, green } from './color.mjs';
+import { bold, dim } from './color.mjs';
 
 export function runDiff(argv, config) {
   // Parse flags
@@ -24,10 +24,7 @@ export function runDiff(argv, config) {
 
   if (file) {
     // Single file mode
-    const filePath = resolveDocPath(file, config);
-    if (!filePath) {
-      die(`File not found: ${file}\nSearched: ${toRepoPath(config.repoRoot, config.repoRoot) || '.'}, ${toRepoPath(config.docsRoot, config.repoRoot)}`);
-    }
+    const filePath = resolveDocArg(file, config);
 
     const raw = readFileSync(filePath, 'utf8');
     const { frontmatter } = extractFrontmatter(raw);
