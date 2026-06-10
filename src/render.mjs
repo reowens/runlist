@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { capitalize, toSlug, truncate, warn } from './util.mjs';
+import { capitalize, toSlug, truncate, warn, isArchivedPath } from './util.mjs';
 import { extractFrontmatter } from './frontmatter.mjs';
 import { summarizeDocBody } from './ai.mjs';
 import { bold, red, yellow, green, dim } from './color.mjs';
@@ -323,10 +323,20 @@ export function renderBriefing(index, config) {
   const untyped = index.docs.filter(d => !d.type);
 
   if (plans.length) {
+    // Headline counts LIVE plans first — "30 plans: 25 archived, …" skims as
+    // 30 open work items when zero are. "Live" mirrors the `dotmd plans`
+    // filter: not in an archive/terminal status and not filed under archived/.
+    const closed = new Set([
+      ...(config.lifecycle?.archiveStatuses ?? []),
+      ...(config.lifecycle?.terminalStatuses ?? []),
+    ]);
+    const live = plans.filter(p => !closed.has(p.status) && !isArchivedPath(p.path, config));
     const bySt = {};
-    for (const p of plans) { bySt[p.status] = (bySt[p.status] ?? 0) + 1; }
+    for (const p of live) { bySt[p.status] = (bySt[p.status] ?? 0) + 1; }
     const counts = Object.entries(bySt).map(([s, n]) => `${n} ${s}`).join(', ');
-    lines.push(`${plans.length} plans: ${counts}`);
+    const closedCount = plans.length - live.length;
+    const closedPart = closedCount ? ` (${closedCount} archived)` : '';
+    lines.push(live.length ? `${live.length} live plans${closedPart}: ${counts}` : `0 live plans${closedPart}`);
     const show = plans.filter(p => p.status === 'in-session' || p.status === 'active');
     for (const p of show) {
       const next = p.nextStep ? `next: ${p.nextStep}` : '(no next step)';

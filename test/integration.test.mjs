@@ -183,6 +183,28 @@ describe('CLI integration', () => {
     ok(result.stdout.includes('BRIEFING'), 'outputs briefing header');
   });
 
+  it('briefing headline counts live plans first, archived in parentheses', () => {
+    const docsDir = setupProject();
+    writeDoc(docsDir, 'open.md', 'type: plan\nstatus: active\nupdated: 2025-01-01\ntitle: Open', '# Open\n');
+    mkdirSync(path.join(docsDir, 'archived'), { recursive: true });
+    writeDoc(docsDir, path.join('archived', 'done.md'), 'type: plan\nstatus: archived\nupdated: 2025-01-01\ntitle: Done', '# Done\n');
+
+    const result = run(['briefing']);
+    strictEqual(result.status, 0, result.stderr);
+    ok(result.stdout.includes('1 live plans (1 archived): 1 active'), `headline counts live first; got: ${result.stdout.split('\n')[0]}`);
+    ok(!/^\d+ plans:/.test(result.stdout), 'old all-plans headline gone');
+  });
+
+  it('briefing headline reads `0 live plans` when everything is archived', () => {
+    const docsDir = setupProject();
+    mkdirSync(path.join(docsDir, 'archived'), { recursive: true });
+    writeDoc(docsDir, path.join('archived', 'done.md'), 'type: plan\nstatus: archived\nupdated: 2025-01-01\ntitle: Done', '# Done\n');
+
+    const result = run(['briefing']);
+    strictEqual(result.status, 0, result.stderr);
+    ok(result.stdout.includes('0 live plans (1 archived)'), `got: ${result.stdout.split('\n')[0]}`);
+  });
+
   it('context --json --compact emits bounded agent context instead of docsByType', () => {
     const docsDir = setupProject();
     const today = new Date().toISOString().slice(0, 10);
