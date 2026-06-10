@@ -293,3 +293,153 @@ describe('truncation signal', () => {
     ok(r.stdout.includes('3 more plans'), `expected "3 more plans" footer in group-by-module view, got: ${r.stdout}`);
   });
 });
+
+describe('--body keyword search', () => {
+  const config = { lifecycle: { archiveStatuses: new Set(), terminalStatuses: new Set() } };
+
+  function setupBodyProject() {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-query-body-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    const docsDir = path.join(tmpDir, 'docs');
+    mkdirSync(docsDir, { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';`);
+    // Body-only match: "zanzibar" appears in the body, nowhere in frontmatter.
+    writeFileSync(path.join(docsDir, 'body-hit.md'),
+      '---\ntitle: Token Refresh\nstatus: active\nupdated: 2025-01-02\n---\n# Token Refresh\n\nWe decided to use zanzibar-style tuples here.\n');
+    // Frontmatter match: keyword in title, body never mentions it.
+    writeFileSync(path.join(docsDir, 'fm-hit.md'),
+      '---\ntitle: Zanzibar Design\nstatus: active\nupdated: 2025-01-03\n---\n# Design\n\nNothing relevant in the body.\n');
+    // No match anywhere.
+    writeFileSync(path.join(docsDir, 'miss.md'),
+      '---\ntitle: Unrelated\nstatus: active\nupdated: 2025-01-01\n---\n# Unrelated\n\nNope.\n');
+    return docsDir;
+  }
+
+  it('parses --body', () => {
+    strictEqual(parseQueryArgs([]).body, false);
+    strictEqual(parseQueryArgs(['--body']).body, true);
+  });
+
+  it('filterDocs with --body matches bodies and attaches line-numbered excerpts', () => {
+    setupBodyProject();
+    const docs = [
+      { path: 'docs/body-hit.md', title: 'Token Refresh', status: 'active' },
+      { path: 'docs/miss.md', title: 'Unrelated', status: 'active' },
+    ];
+    const result = filterDocs(docs, parseQueryArgs(['--keyword', 'zanzibar', '--body']), { ...config, repoRoot: tmpDir });
+    strictEqual(result.length, 1);
+    strictEqual(result[0].path, 'docs/body-hit.md');
+    strictEqual(result[0].bodyMatches.length, 1);
+    // ---(1) title(2) status(3) updated(4) ---(5) #(6) blank(7) text(8)
+    strictEqual(result[0].bodyMatches[0].line, 8);
+    ok(result[0].bodyMatches[0].text.includes('zanzibar'));
+  });
+
+  it('filterDocs without --body still ignores bodies', () => {
+    setupBodyProject();
+    const docs = [{ path: 'docs/body-hit.md', title: 'Token Refresh', status: 'active' }];
+    const result = filterDocs(docs, parseQueryArgs(['--keyword', 'zanzibar']), { ...config, repoRoot: tmpDir });
+    strictEqual(result.length, 0);
+  });
+
+  it('frontmatter matches are kept without reading the file (lazy)', () => {
+    // The file does not exist on disk — a body read would warn and drop it.
+    const docs = [{ path: 'docs/ghost.md', title: 'Zanzibar Ghost', status: 'active' }];
+    const result = filterDocs(docs, parseQueryArgs(['--keyword', 'zanzibar', '--body']), { ...config, repoRoot: '/nonexistent' });
+    strictEqual(result.length, 1);
+    strictEqual(result[0].bodyMatches, undefined);
+  });
+
+  it('caps excerpts at 2 per doc', () => {
+    setupBodyProject();
+    writeFileSync(path.join(tmpDir, 'docs', 'many.md'),
+      '---\ntitle: Many\nstatus: active\nupdated: 2025-01-04\n---\nzanzibar one\nzanzibar two\nzanzibar three\n');
+    const docs = [{ path: 'docs/many.md', title: 'Many', status: 'active' }];
+    const result = filterDocs(docs, parseQueryArgs(['--keyword', 'zanzibar', '--body']), { ...config, repoRoot: tmpDir });
+    strictEqual(result[0].bodyMatches.length, 2);
+  });
+
+  it('windows long lines so the needle stays visible', () => {
+    setupBodyProject();
+    const longLine = 'x'.repeat(200) + ' zanzibar ' + 'y'.repeat(200);
+    writeFileSync(path.join(tmpDir, 'docs', 'long.md'),
+      `---\ntitle: Long\nstatus: active\nupdated: 2025-01-04\n---\n${longLine}\n`);
+    const docs = [{ path: 'docs/long.md', title: 'Long', status: 'active' }];
+    const result = filterDocs(docs, parseQueryArgs(['--keyword', 'zanzibar', '--body']), { ...config, repoRoot: tmpDir });
+    const text = result[0].bodyMatches[0].text;
+    ok(text.includes('zanzibar'), `needle not visible in excerpt: ${text}`);
+    ok(text.length < 130, `excerpt not windowed: ${text.length} chars`);
+  });
+
+  it('query --keyword --body finds body-only docs and renders match lines', () => {
+    setupBodyProject();
+    const r = spawnDotmd(['query', '--keyword', 'zanzibar', '--body']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    ok(r.stdout.includes('results: 2'), `expected both hits, got: ${r.stdout}`);
+    ok(r.stdout.includes('keyword: zanzibar (bodies scanned)'), `expected header note, got: ${r.stdout}`);
+    ok(r.stdout.includes('match: L8:'), `expected match line with line number, got: ${r.stdout}`);
+  });
+
+  it('query --body without --keyword errors with guidance', () => {
+    setupBodyProject();
+    const r = spawnDotmd(['query', '--body']);
+    strictEqual(r.status, 1);
+    ok(r.stderr.includes('--keyword'), `expected guidance, got: ${r.stderr}`);
+  });
+
+  it('query --json includes bodyMatches', () => {
+    setupBodyProject();
+    const r = spawnDotmd(['query', '--keyword', 'zanzibar', '--body', '--json']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    const out = JSON.parse(r.stdout);
+    strictEqual(out.count, 2);
+    const bodyHit = out.docs.find(d => d.path === 'docs/body-hit.md');
+    strictEqual(bodyHit.bodyMatches.length, 1);
+    strictEqual(bodyHit.bodyMatches[0].line, 8);
+  });
+});
+
+describe('grep alias', () => {
+  function setupBodyProject() {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-grep-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    const docsDir = path.join(tmpDir, 'docs');
+    mkdirSync(path.join(docsDir, 'plans'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';`);
+    writeFileSync(path.join(docsDir, 'design.md'),
+      '---\ntype: doc\ntitle: Design\nstatus: active\nupdated: 2025-01-02\n---\n# Design\n\nUses zanzibar tuples.\n');
+    writeFileSync(path.join(docsDir, 'plans', 'roll-out.md'),
+      '---\ntype: plan\ntitle: Roll Out\nstatus: active\nupdated: 2025-01-03\n---\n# Roll Out\n\nShip the zanzibar migration.\n');
+  }
+
+  it('grep <term> searches bodies and returns doc cards', () => {
+    setupBodyProject();
+    const r = spawnDotmd(['grep', 'zanzibar']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    ok(r.stdout.includes('results: 2'), `expected 2 hits, got: ${r.stdout}`);
+    ok(r.stdout.includes('match:'), `expected excerpts, got: ${r.stdout}`);
+    ok(r.stdout.includes('status: active'), `expected doc card fields, got: ${r.stdout}`);
+  });
+
+  it('grep composes with --type', () => {
+    setupBodyProject();
+    const r = spawnDotmd(['grep', 'zanzibar', '--type', 'plan']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    ok(r.stdout.includes('results: 1'), `expected plan-only hit, got: ${r.stdout}`);
+    ok(r.stdout.includes('docs/plans/roll-out.md'), `expected plan path, got: ${r.stdout}`);
+  });
+
+  it('grep respects an explicit --limit instead of defaulting to --all', () => {
+    setupBodyProject();
+    const r = spawnDotmd(['grep', 'zanzibar', '--limit', '1']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    ok(r.stdout.includes('results: 1 of 2'), `expected truncated result, got: ${r.stdout}`);
+  });
+
+  it('grep without a term errors with usage', () => {
+    setupBodyProject();
+    const r = spawnDotmd(['grep']);
+    strictEqual(r.status, 1);
+    ok(r.stderr.includes('Usage: dotmd grep <term>'), `expected usage, got: ${r.stderr}`);
+  });
+});

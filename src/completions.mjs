@@ -1,7 +1,7 @@
 import { die } from './util.mjs';
 
 const COMMANDS = [
-  'list', 'json', 'check', 'coverage', 'stats', 'graph', 'deps', 'unblocks', 'health', 'glossary', 'briefing', 'context', 'focus', 'query',
+  'list', 'json', 'check', 'coverage', 'stats', 'graph', 'deps', 'unblocks', 'health', 'glossary', 'briefing', 'context', 'focus', 'query', 'grep',
   'plans', 'stale', 'actionable', 'index', 'status', 'set', 'archive', 'bulk', 'touch', 'doctor', 'lint', 'rename', 'migrate',
   'fix-refs', 'notion', 'export', 'summary', 'watch', 'diff', 'init', 'new', 'completions', 'journal',
 ];
@@ -9,10 +9,12 @@ const COMMANDS = [
 const GLOBAL_FLAGS = ['--config', '--dry-run', '--verbose', '--root', '--type', '--help', '--version'];
 
 const COMMAND_FLAGS = {
-  query: ['--type', '--status', '--keyword', '--module', '--surface', '--domain', '--owner',
+  query: ['--type', '--status', '--keyword', '--body', '--module', '--surface', '--domain', '--owner',
           '--updated-since', '--stale', '--has-next-step', '--has-blockers',
           '--checklist-open', '--sort', '--limit', '--all', '--git', '--json',
           '--summarize', '--summarize-limit', '--model'],
+  grep: ['--type', '--status', '--limit', '--all', '--json', '--sort',
+         '--module', '--surface', '--domain', '--owner'],
   index: ['--write'],
   list: ['--verbose', '--json'],
   coverage: ['--json'],

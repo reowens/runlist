@@ -54,7 +54,8 @@ Saved prompts (`docs/prompts/*.md`) are **session-local handoff artifacts**, not
 ## Querying
 
 - `dotmd plans` / `dotmd plans --status active` / `--status in-session`
-- `dotmd query --type doc --status active`, `dotmd query --keyword <term>`
+- `dotmd query --type doc --status active`, `dotmd query --keyword <term>` (add `--body` to scan bodies)
+- `dotmd grep <term>` — "which doc discussed X?" Searches frontmatter + bodies, returns doc cards with line-numbered excerpts. Prefer it over raw grep across docs/.
 - `dotmd actionable`, `dotmd stale`, `dotmd health`, `dotmd unblocks <file>`
 - `dotmd runlist <hub>` / `dotmd runlist next <hub>` for ordered plan sequences
 - At scale (>50 plans): `dotmd modules --sort cleanup` → `dotmd module <name>`

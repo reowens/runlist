@@ -129,6 +129,9 @@ dotmd glossary "term"                      # domain term lookup
 dotmd bulk archive <files>                 # archive multiple at once
 dotmd query --type doc --status active     # active docs
 dotmd query --type prompt                  # all saved prompts
+dotmd grep "term"                          # "which doc discussed X?" — searches frontmatter
+                                           #   AND bodies, doc cards + line-numbered excerpts
+dotmd query --keyword x --body             # same body scan composed with other query filters
 dotmd context --type plan                  # briefing filtered to plans
 ```
 

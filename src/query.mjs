@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { capitalize, toSlug, truncate, warn, suggestCandidates, isArchivedPath } from './util.mjs';
+import { capitalize, toSlug, truncate, warn, die, suggestCandidates, isArchivedPath } from './util.mjs';
 import { renderProgressBar, formatCurrentState } from './render.mjs';
 import { computeDaysSinceUpdate, computeIsStale } from './validate.mjs';
 import { getGitLastModifiedBatch } from './git.mjs';
@@ -76,6 +76,9 @@ export function runFocus(index, argv, config) {
 
 export function runQuery(index, argv, config, opts = {}) {
   const filters = parseQueryArgs(argv);
+  if (filters.body && !filters.keyword) {
+    die('`--body` extends a keyword search into document bodies — pass `--keyword <term>` (or use `dotmd grep <term>`).');
+  }
   const docs = filterDocs(index.docs, filters, config);
 
   if (filters.json) {
@@ -119,7 +122,7 @@ function writeUnknownFilterValueHint(filters, index) {
 
 export function parseQueryArgs(argv) {
   const filters = {
-    types: null, statuses: null, keyword: null, owner: null, surface: null,
+    types: null, statuses: null, keyword: null, body: false, owner: null, surface: null,
     module: null, domain: null, audience: null, executionMode: null,
     updatedSince: null, limit: 20, all: false, sort: 'updated',
     group: null,
@@ -136,6 +139,7 @@ export function parseQueryArgs(argv) {
     if (arg === '--type' && next) { filters.types = next.split(',').map(v => v.trim()).filter(Boolean); i += 1; continue; }
     if (arg === '--status' && next) { filters.statuses = next.split(',').map(v => v.trim()).filter(Boolean); i += 1; continue; }
     if (arg === '--keyword' && next) { filters.keyword = next; i += 1; continue; }
+    if (arg === '--body') { filters.body = true; continue; }
     if (arg === '--owner' && next) { filters.owner = next; i += 1; continue; }
     if (arg === '--surface' && next) { filters.surface = next; i += 1; continue; }
     if (arg === '--module' && next) { filters.module = next; i += 1; continue; }
@@ -187,9 +191,12 @@ export function filterDocs(docs, filters, config) {
     result = result.filter(d => !archived.has(d.status) && !isArchivedPath(d.path, config));
   }
 
-  if (filters.keyword) {
-    const needle = filters.keyword.toLowerCase();
-    result = result.filter(d => [d.title, d.summary, d.currentState, d.nextStep, d.path, ...(d.blockers ?? [])].filter(Boolean).join(' ').toLowerCase().includes(needle));
+  const keywordNeedle = filters.keyword ? filters.keyword.toLowerCase() : null;
+  const matchesFrontmatter = d => [d.title, d.summary, d.currentState, d.nextStep, d.path, ...(d.blockers ?? [])].filter(Boolean).join(' ').toLowerCase().includes(keywordNeedle);
+  // With --body the keyword filter is deferred to after the cheap frontmatter
+  // filters (below) so body files are only read for surviving candidates.
+  if (keywordNeedle && !filters.body) {
+    result = result.filter(matchesFrontmatter);
   }
 
   // Positional substring filter: AND match against slug + title.
@@ -224,6 +231,19 @@ export function filterDocs(docs, filters, config) {
   if (filters.hasBlockers) result = result.filter(d => d.hasBlockers);
   if (filters.checklistOpen) result = result.filter(d => (d.checklist?.open ?? 0) > 0);
 
+  // Lazy body scan: docs already matching on frontmatter fields keep their spot
+  // without a file read; only the rest get their bodies scanned. Hits carry
+  // 1-2 matching-line excerpts so the caller can rank without opening files.
+  if (keywordNeedle && filters.body) {
+    result = result.filter(d => {
+      if (matchesFrontmatter(d)) return true;
+      const matches = scanBodyForKeyword(d, keywordNeedle, config);
+      if (!matches.length) return false;
+      d.bodyMatches = matches;
+      return true;
+    });
+  }
+
   result.sort(buildSorter(filters.sort, config));
   // Stash pre-limit count and per-status breakdown on filters so renderers
   // can show "N more" footers and accurate pipeline summaries even when the
@@ -235,6 +255,45 @@ export function filterDocs(docs, filters, config) {
     filters._statusCounts[s] = (filters._statusCounts[s] ?? 0) + 1;
   }
   return filters.all ? result : result.slice(0, filters.limit);
+}
+
+// Read one doc's body and return up to MAX_BODY_MATCHES matching-line
+// excerpts: { line: <1-based file line>, text: <trimmed, windowed around the
+// match> }. Line numbers are file-absolute (frontmatter included) so they can
+// feed straight into a Read offset.
+const MAX_BODY_MATCHES = 2;
+const EXCERPT_WIDTH = 120;
+
+function scanBodyForKeyword(doc, needle, config) {
+  let raw;
+  try {
+    raw = readFileSync(path.resolve(config.repoRoot, doc.path), 'utf8');
+  } catch (err) {
+    warn(`Could not read ${doc.path}: ${err.message}`);
+    return [];
+  }
+  const { body } = extractFrontmatter(raw);
+  if (!body || !body.toLowerCase().includes(needle)) return [];
+
+  // body is a suffix of raw — the slice before it is the frontmatter block.
+  const bodyStartLine = raw.slice(0, raw.length - body.length).split('\n').length;
+  const lines = body.split('\n');
+  const matches = [];
+  for (let i = 0; i < lines.length && matches.length < MAX_BODY_MATCHES; i++) {
+    const text = lines[i].trim();
+    const at = text.toLowerCase().indexOf(needle);
+    if (at === -1) continue;
+    matches.push({ line: bodyStartLine + i, text: excerptAround(text, at, needle.length) });
+  }
+  return matches;
+}
+
+// Window a long line around the match so the needle is always visible.
+function excerptAround(text, at, needleLen) {
+  if (text.length <= EXCERPT_WIDTH) return text;
+  const start = Math.max(0, Math.min(at - Math.floor((EXCERPT_WIDTH - needleLen) / 2), text.length - EXCERPT_WIDTH));
+  const slice = text.slice(start, start + EXCERPT_WIDTH);
+  return `${start > 0 ? '…' : ''}${slice}${start + EXCERPT_WIDTH < text.length ? '…' : ''}`;
 }
 
 function getDocSummary(doc, config) {
@@ -261,7 +320,7 @@ function renderQueryResults(docs, filters, config) {
   }
   if (filters.types?.length) process.stdout.write(`- type: ${filters.types.join(', ')}\n`);
   if (filters.statuses?.length) process.stdout.write(`- status: ${filters.statuses.join(', ')}\n`);
-  if (filters.keyword) process.stdout.write(`- keyword: ${filters.keyword}\n`);
+  if (filters.keyword) process.stdout.write(`- keyword: ${filters.keyword}${filters.body ? ' (bodies scanned)' : ''}\n`);
   if (filters.owner) process.stdout.write(`- owner: ${filters.owner}\n`);
   if (filters.surface) process.stdout.write(`- surface: ${filters.surface}\n`);
   if (filters.module) process.stdout.write(`- module: ${filters.module}\n`);
@@ -299,6 +358,9 @@ function renderQueryResults(docs, filters, config) {
     if (doc.executionMode) process.stdout.write(`  execution-mode: ${doc.executionMode}\n`);
     if (doc.blockers?.length) process.stdout.write(`  blockers: ${doc.blockers.join('; ')}\n`);
     if (doc.checklist?.total) process.stdout.write(`  checklist: ${doc.checklist.completed}/${doc.checklist.total} complete\n`);
+    for (const m of doc.bodyMatches ?? []) {
+      process.stdout.write(`  match: ${dim(`L${m.line}:`)} ${m.text}\n`);
+    }
     if (filters.summarize && idx < filters.summarizeLimit) {
       const summary = getDocSummary(doc, config);
       if (summary) process.stdout.write(`  ${dim('ai-summary:')} ${summary}\n`);

@@ -13,7 +13,7 @@ const __dirname = path.dirname(__filename);
 const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
 
 const QUERY_FLAGS = new Set([
-  '--type', '--status', '--keyword', '--owner', '--surface', '--module',
+  '--type', '--status', '--keyword', '--body', '--owner', '--surface', '--module',
   '--domain', '--audience', '--execution-mode', '--updated-since', '--limit',
   '--sort', '--group', '--all', '--include-archived', '--exclude-archived',
   '--stale', '--has-next-step', '--has-blockers', '--checklist-open', '--json',
@@ -28,6 +28,7 @@ const QUERY_VALUE_FLAGS = new Set([
 const FLAG_SPECS = {
   plans: { flags: QUERY_FLAGS, values: QUERY_VALUE_FLAGS, subcommands: new Set(['status']) },
   query: { flags: QUERY_FLAGS, values: QUERY_VALUE_FLAGS },
+  grep: { flags: QUERY_FLAGS, values: QUERY_VALUE_FLAGS },
   stale: { flags: QUERY_FLAGS, values: QUERY_VALUE_FLAGS },
   actionable: { flags: QUERY_FLAGS, values: QUERY_VALUE_FLAGS },
   list: { flags: new Set(['--json', '--verbose']), values: new Set() },
@@ -192,7 +193,8 @@ View & Query:
   context [--summarize] [--json]    Full briefing (LLM-oriented; use --json --compact for bounded JSON)
   agent-context [--json]            Compact bounded JSON context for agents
   focus [status] [--json]           Detailed view for one status group
-  query [filters] [--json]          Filtered search (--status, --keyword, --stale, etc.)
+  query [filters] [--json]          Filtered search (--status, --keyword, --body, --stale, etc.)
+  grep <term>                       Keyword search incl. document bodies (query --keyword --body --all)
   plans                             Live plans (excludes archived; --include-archived for all)
   use [<file-or-slug>]              Open a doc by type: prompt → consume, plan → start, doc → read
   prompts [list|archive|new|hold] Prompt admin (list / archive / save / hold). Use \`dotmd use\` to consume.
@@ -401,6 +403,7 @@ Filters:
   --type <t1,t2>         Filter by type (plan, doc, research)
   --status <s1,s2>       Filter by status (comma-separated)
   --keyword <term>       Search title, summary, state, path
+  --body                 Extend --keyword into document bodies (lazy scan, shows matching-line excerpts)
   --module <name>        Filter by module
   --surface <name>       Filter by surface
   --domain <name>        Filter by domain
@@ -419,6 +422,22 @@ Filters:
   --summarize            Add AI summaries to results
   --summarize-limit <n>  Max docs to summarize (default: 5)
   --model <name>         Model for AI summaries`,
+
+  grep: `dotmd grep <term> — keyword search across frontmatter AND document bodies
+
+Alias for \`dotmd query --keyword <term> --body --all\`. Answers "which doc
+discussed X?" with full doc cards (type, status, updated, path) plus 1-2
+matching-line excerpts per body hit — instead of raw-grep's bare paths.
+
+Bodies are read lazily: frontmatter filters run first, only surviving
+candidates are opened. Archived docs are included but clearly labeled.
+
+Composes with the usual query flags:
+  dotmd grep skipStale                     everything mentioning skipStale
+  dotmd grep retries --type plan           only plans
+  dotmd grep retries --status active       only active docs
+  dotmd grep retries --limit 5             cap results (default: unlimited)
+  dotmd grep retries --json                machine-readable (bodyMatches per doc)`,
 
   ship: `dotmd ship [patch|minor|major] — regen + commit + bump in one step
 
@@ -1549,6 +1568,23 @@ async function main() {
 
   if (command === 'focus') { runFocus(index, restArgs, config); return; }
   if (command === 'query') { runQuery(index, restArgs, config); return; }
+  // `dotmd grep <term>` — ergonomic alias for `query --keyword <term> --body`.
+  // Unlimited by default (grep semantics) unless the caller bounds it themselves.
+  if (command === 'grep') {
+    let term = null;
+    const passthrough = [];
+    for (let i = 0; i < restArgs.length; i++) {
+      const arg = restArgs[i];
+      if (QUERY_VALUE_FLAGS.has(arg)) { passthrough.push(arg, restArgs[i + 1]); i += 1; continue; }
+      if (arg.startsWith('-') || term !== null) { passthrough.push(arg); continue; }
+      term = arg;
+    }
+    if (!term) die('Usage: dotmd grep <term> [query flags]\n\nSearches frontmatter fields AND document bodies; alias for `dotmd query --keyword <term> --body --all`.');
+    const defaults = ['--keyword', term, '--body'];
+    if (!passthrough.includes('--limit') && !passthrough.includes('--all')) defaults.push('--all');
+    runQuery(index, [...defaults, ...passthrough], config);
+    return;
+  }
   if (command === 'modules' || command === 'module') {
     // D3: default `--type plan` when the user didn't pass --type explicitly.
     // applyIndexFilters already narrowed by typeArg if it was set; if not, the
