@@ -682,6 +682,72 @@ describe('shared slug resolution across verbs (resolveDocArg)', () => {
   });
 });
 
+describe('set/archive --note appends to Version History', () => {
+  const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+
+  it('set --note appends the note to an existing Version History', () => {
+    const docsDir = setupProject();
+    const cfg = path.join(tmpDir, 'dotmd.config.mjs');
+    const p = writeDoc(docsDir, 'p.md', 'type: plan\nstatus: in-session\nupdated: 2025-01-01', '# P\n\n## Version History\n\n- **2025-01-01** Created.\n');
+
+    const result = spawnSync('node', [bin, 'set', 'active', 'p', '--note', 'phase 1 shipped', '--config', cfg], { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(result.status, 0, result.stderr);
+    const raw = readFileSync(p, 'utf8');
+    match(raw, /- \*\*[\d-]+T[\d:]+Z\*\* Status: in-session → active — phase 1 shipped/, `note bullet missing; got:\n${raw}`);
+    ok(raw.includes('- **2025-01-01** Created.'), 'existing bullets preserved');
+  });
+
+  it('set --note creates the Version History section when missing', () => {
+    const docsDir = setupProject();
+    const cfg = path.join(tmpDir, 'dotmd.config.mjs');
+    const p = writeDoc(docsDir, 'bare.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# Bare\n');
+
+    const result = spawnSync('node', [bin, 'set', 'planned', 'bare', '--note', 'deferred to next sprint', '--config', cfg], { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(result.status, 0, result.stderr);
+    const raw = readFileSync(p, 'utf8');
+    ok(raw.includes('## Version History'), 'section created');
+    match(raw, /Status: active → planned — deferred to next sprint/, `note missing; got:\n${raw}`);
+  });
+
+  it('archive --note records the reason on the archived file', () => {
+    const docsDir = setupProject();
+    const cfg = path.join(tmpDir, 'dotmd.config.mjs');
+    writeDoc(docsDir, 'done.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# Done\n\n## Version History\n\n- **2025-01-01** Created.\n');
+
+    const result = spawnSync('node', [bin, 'archive', 'done', '--note', 'all phases shipped', '--config', cfg], { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(result.status, 0, result.stderr);
+    const raw = readFileSync(path.join(docsDir, 'archived', 'done.md'), 'utf8');
+    match(raw, /Archived — all phases shipped/, `archive note missing; got:\n${raw}`);
+  });
+
+  it('--note with --dry-run previews the bullet and writes nothing', () => {
+    const docsDir = setupProject();
+    const cfg = path.join(tmpDir, 'dotmd.config.mjs');
+    const p = writeDoc(docsDir, 'p.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# P\n');
+    const before = readFileSync(p, 'utf8');
+
+    const result = spawnSync('node', [bin, 'set', 'planned', 'p', '--note', 'just looking', '--dry-run', '--config', cfg], { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(result.status, 0, result.stderr);
+    match(result.stdout, /Would append Version History: .*just looking/, `preview missing; got: ${result.stdout}`);
+    strictEqual(readFileSync(p, 'utf8'), before, 'file untouched');
+  });
+
+  it('set partial without a note or successor reference warns; with --note it does not', () => {
+    const docsDir = setupProject();
+    const cfg = path.join(tmpDir, 'dotmd.config.mjs');
+    writeDoc(docsDir, 'q.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# Q\n');
+    writeDoc(docsDir, 'r.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# R\n');
+
+    const bareResult = spawnSync('node', [bin, 'set', 'partial', 'q', '--config', cfg], { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(bareResult.status, 0, bareResult.stderr);
+    match(bareResult.stderr, /successor plan/, `expected reminder; got: ${bareResult.stderr}`);
+
+    const notedResult = spawnSync('node', [bin, 'set', 'partial', 'r', '--note', 'tail tracked in q.md', '--config', cfg], { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(notedResult.status, 0, notedResult.stderr);
+    ok(!notedResult.stderr.includes('successor plan'), `unexpected reminder: ${notedResult.stderr}`);
+  });
+});
+
 describe('init writes .dotmd/ to .gitignore', () => {
   it('creates .gitignore with .dotmd/ when missing', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));

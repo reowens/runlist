@@ -46,6 +46,7 @@ To finish work, archive directly: `dotmd archive <plan-file>`. The legacy `done`
    - Need more work later → `dotmd set active <plan-file>`
    - Stuck on a human decision → `dotmd set awaiting <plan-file>`
    `set <status> <file>` just writes the new status to frontmatter — no checkout to release, no lock to clear.
+   Add `--note "why"` to any `set`/`archive` to append the reason to `## Version History` in the same call (creates the section if missing) — prefer it over a separate body edit. `set partial` without a note or successor link prints a reminder.
 4. To see plans: `dotmd plans` (live), `dotmd plans --status active`, `dotmd plans --status in-session`
 
 ### Resume prompts (saved for future sessions)

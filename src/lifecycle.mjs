@@ -128,6 +128,13 @@ export async function runStatus(argv, config, opts = {}) {
   const noIndex = argv.includes('--no-index') || opts.noIndex;
   const showFiles = argv.includes('--show-files') || opts.showFiles;
   argv = argv.filter(a => a !== '--no-index' && a !== '--show-files');
+  let note = opts.note ?? null;
+  const noteIdx = argv.indexOf('--note');
+  if (noteIdx !== -1) {
+    note = note ?? argv[noteIdx + 1] ?? null;
+    if (!note || note.startsWith('--')) die('--note requires a value: --note "what changed and why"');
+    argv = argv.filter((_, i) => i !== noteIdx && i !== noteIdx + 1);
+  }
   const input = argv[0];
   let newStatus = argv[1];
 
@@ -232,12 +239,18 @@ export async function runStatus(argv, config, opts = {}) {
     if ((isArchiving || isUnarchiving || isFiling || isUnfiling) && config.indexPath) {
       process.stdout.write(`${prefix} Would regenerate index\n`);
     }
+    if (note) {
+      process.stdout.write(`${prefix} Would append Version History: - **${today}** Status: ${oldStatus ?? 'unknown'} → ${newStatus} — ${note}\n`);
+    }
     process.stdout.write(`${prefix} ${toRepoPath(finalPath, config.repoRoot)}: ${oldStatus ?? 'unknown'} → ${newStatus}\n`);
     return;
   }
 
   updateFrontmatter(filePath, { status: newStatus, updated: today });
-  appendVersionHistory(filePath, `Status: ${oldStatus ?? 'unknown'} → ${newStatus}.`);
+  const transition = `Status: ${oldStatus ?? 'unknown'} → ${newStatus}`;
+  // A --note must land even when the doc has no Version History section yet;
+  // the plain transition entry stays best-effort (bare docs skip it).
+  appendVersionHistory(filePath, note ? `${transition} — ${note}` : `${transition}.`, { createSection: Boolean(note) });
 
   if (isArchiving) {
     mkdirSync(archiveDir, { recursive: true });
@@ -395,6 +408,13 @@ export function runArchive(argv, config, opts = {}) {
   const showFiles = argv.includes('--show-files') || opts.showFiles;
   const closeoutTemplate = argv.includes('--closeout-template');
   argv = argv.filter(a => a !== '--no-index' && a !== '--show-files' && a !== '--closeout-template');
+  let note = opts.note ?? null;
+  const noteIdx = argv.indexOf('--note');
+  if (noteIdx !== -1) {
+    note = note ?? argv[noteIdx + 1] ?? null;
+    if (!note || note.startsWith('--')) die('--note requires a value: --note "what shipped / why closed"');
+    argv = argv.filter((_, i) => i !== noteIdx && i !== noteIdx + 1);
+  }
   const input = argv[0];
 
   if (!input) { die('Usage: dotmd archive <file>'); }
@@ -430,7 +450,8 @@ export function runArchive(argv, config, opts = {}) {
       return;
     }
     updateFrontmatter(filePath, { status: 'archived', updated: today });
-    appendVersionHistory(filePath, `Archived (frontmatter healed in place from \`${oldStatus}\`).`);
+    const healEntry = `Archived (frontmatter healed in place from \`${oldStatus}\`)${note ? ` — ${note}` : '.'}`;
+    appendVersionHistory(filePath, healEntry, { createSection: Boolean(note) });
     if (!noIndex) regenIndex(config);
     out.write(`${green('✓ Healed')}: ${repoPathHeal} (${oldStatus} → archived; file already under \`${config.archiveDir}/\`)\n`);
     const touched = [repoPathHeal];
@@ -462,6 +483,9 @@ export function runArchive(argv, config, opts = {}) {
       out.write(`${prefix} \`## Closeout\` section already present — no injection\n`);
     }
     out.write(`${prefix} Would update frontmatter: status: ${oldStatus} → archived, updated: ${today}\n`);
+    if (note) {
+      out.write(`${prefix} Would append Version History: - **${today}** Archived — ${note}\n`);
+    }
     out.write(`${prefix} Would move: ${oldRepoPath} → ${newRepoPath}\n`);
     if (config.indexPath && !noIndex) out.write(`${prefix} Would regenerate index\n`);
     if (config.indexPath && noIndex) out.write(`${prefix} Would skip index regen (--no-index)\n`);
@@ -484,7 +508,7 @@ export function runArchive(argv, config, opts = {}) {
   }
 
   updateFrontmatter(filePath, { status: 'archived', updated: today });
-  appendVersionHistory(filePath, 'Archived.');
+  appendVersionHistory(filePath, note ? `Archived — ${note}` : 'Archived.', { createSection: Boolean(note) });
 
   mkdirSync(targetDir, { recursive: true });
 
@@ -545,6 +569,13 @@ export async function runSet(argv, config, opts = {}) {
   const noIndex = argv.includes('--no-index');
   const showFiles = argv.includes('--show-files');
   argv = argv.filter(a => a !== '--no-index' && a !== '--show-files');
+  let note = opts.note ?? null;
+  const noteIdx = argv.indexOf('--note');
+  if (noteIdx !== -1) {
+    note = note ?? argv[noteIdx + 1] ?? null;
+    if (!note || note.startsWith('--')) die('--note requires a value: --note "what changed and why"');
+    argv = argv.filter((_, i) => i !== noteIdx && i !== noteIdx + 1);
+  }
 
   const newStatus = argv[0];
   const input = argv[1];
@@ -560,13 +591,30 @@ export async function runSet(argv, config, opts = {}) {
     const archiveArgs = [filePath];
     if (noIndex) archiveArgs.push('--no-index');
     if (showFiles) archiveArgs.push('--show-files');
-    return runArchive(archiveArgs, config, { dryRun });
+    return runArchive(archiveArgs, config, { dryRun, note });
+  }
+
+  // `partial` promises a successor tracking the deferred tail. When neither a
+  // --note nor any doc reference exists to point at it, remind — advisory
+  // only, computed before the transition (filing may move the file).
+  let partialReminder = false;
+  if (newStatus === 'partial' && !note) {
+    try {
+      const { frontmatter: fmRaw, body } = extractFrontmatter(readFileSync(filePath, 'utf8'));
+      const related = parseSimpleFrontmatter(fmRaw).related_plans;
+      const hasRelated = Array.isArray(related) ? related.length > 0 : Boolean(asString(related)?.trim());
+      partialReminder = !hasRelated && !/[\w./-]+\.md\b/.test(body);
+    } catch { /* advisory only */ }
   }
 
   const statusArgs = [filePath, newStatus];
   if (noIndex) statusArgs.push('--no-index');
   if (showFiles) statusArgs.push('--show-files');
-  await runStatus(statusArgs, config, { dryRun, suppressDeprecation: true });
+  await runStatus(statusArgs, config, { dryRun, suppressDeprecation: true, note });
+
+  if (partialReminder && !dryRun) {
+    warn('partial usually references the successor plan tracking the tail — add a link to the body, or rerun with --note "tail tracked in <plan>".');
+  }
 }
 
 export function runBulkArchive(argv, config, opts = {}) {
@@ -833,7 +881,7 @@ function countRefsToUpdate(oldPath, newPath, config) {
 // Newest-first ordering: inserted at the top of the section, right after the
 // heading + blank-line gap. If the section is missing, this is a silent no-op
 // — never auto-creates the section (don't surprise users on old plans/docs).
-export function appendVersionHistory(filePath, entry) {
+export function appendVersionHistory(filePath, entry, { createSection = false } = {}) {
   let raw;
   try { raw = readFileSync(filePath, 'utf8'); } catch { return false; }
   if (!raw.startsWith('---\n')) return false;
@@ -843,10 +891,18 @@ export function appendVersionHistory(filePath, entry) {
   const frontmatter = raw.slice(4, endMarker);
   const body = raw.slice(endMarker + 5);
 
-  const vh = findSection(walkSections(body), 'Version History');
-  if (!vh) return false;
-
   const bullet = `- **${nowIso()}** ${entry}`;
+
+  const vh = findSection(walkSections(body), 'Version History');
+  if (!vh) {
+    // Bare docs (no scaffold) have no Version History; transitions silently
+    // skip the worklog. But an explicit `--note` must not be dropped — the
+    // caller opts into creating the section at the end of the body.
+    if (!createSection) return false;
+    const trimmed = body.replace(/\n+$/, '');
+    writeFileSync(filePath, `---\n${frontmatter}\n---\n${trimmed}\n\n## Version History\n\n${bullet}\n`, 'utf8');
+    return true;
+  }
   const lines = body.split('\n');
 
   // vh.lineStart is 1-indexed for the heading line. The line immediately

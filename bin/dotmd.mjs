@@ -456,13 +456,16 @@ a unique bare slug / basename across the doc roots (\`set paused auth-revamp\`).
 Ambiguous slugs error with the candidate list instead of guessing.
 
 Options:
+  --note "<text>"        Append the reason to \`## Version History\` in the
+                         same call (creates the section if missing). Saves
+                         the status-change + worklog-edit round-trip.
   --no-index             Skip index regen (see \`dotmd archive --help\`).
   --show-files           Append \`files: …\` footer.
   --dry-run, -n          Preview without writing.
 
 Examples:
   dotmd set in-session docs/plans/x  # mark a plan in-session
-  dotmd set partial docs/plans/x     # mark partial
+  dotmd set partial docs/plans/x --note "tail tracked in y.md"
   dotmd set archived docs/plans/x    # archive a specific plan
 
 To open a plan (mark in-session AND print its body), use \`dotmd use <file>\`.`,
@@ -522,6 +525,8 @@ basename match under the doc roots. An ambiguous basename (the same name in
 two places) errors with the candidate list instead of guessing.
 
 Options:
+  --note "<text>"        Append \`Archived — <text>\` to \`## Version History\`
+                         in the same call (creates the section if missing).
   --no-index             Skip index regen. Use when multiple sessions are
                          working concurrently and you want a path-limited
                          commit that doesn't pull other agents' uncommitted

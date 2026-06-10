@@ -22,6 +22,8 @@ One verb handles starting, transitioning, and closing — it writes the new stat
 Closure decision tree for a plan:
 - Fully shipped → `dotmd set archived <file>` (or `dotmd archive <file>` — also moves it + fixes refs).
 - Shipped, tail deferred → `dotmd set partial <file>` (reference the successor plan in the body).
+
+Add `--note "why"` to any `set`/`archive` to append the reason to `## Version History` in the same call — one tool call instead of status-change + body edit. Example: `dotmd set partial x --note "tail tracked in y.md"`.
 - Needs more work later → `dotmd set active <file>`.
 - Stuck on a human decision/input → `dotmd set awaiting <file>`.
 - Blocked on an external arrival you can't speed up → `dotmd set blocked <file>`.
