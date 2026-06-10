@@ -202,3 +202,67 @@ describe('dotmd hud', () => {
   });
 
 });
+
+// Phase 3 of plan b5: repeat guard offenses in THIS repo surface as one
+// teaching line at SessionStart. Threshold 3 hits on one rule in 7 days.
+describe('hud misuse recap', () => {
+  let logDir;
+
+  function runCliWithLog(args) {
+    return spawnSync('node', [bin, ...args, '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir,
+      encoding: 'utf8',
+      env: { ...process.env, DOTMD_ERROR_LOG_DIR: logDir, PATH: process.env.PATH },
+    });
+  }
+
+  function writeMisuseLog(entries) {
+    logDir = path.join(tmpDir, 'logs');
+    mkdirSync(logDir, { recursive: true });
+    writeFileSync(path.join(logDir, 'dotmd-misuse.log'),
+      entries.map(e => JSON.stringify(e)).join('\n') + '\n');
+  }
+
+  function entry(rule, { repo = tmpDir, daysAgo = 0 } = {}) {
+    return {
+      ts: new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString(),
+      repo, rule, decision: 'warn', tool: 'Edit', detail: 'x.md',
+    };
+  }
+
+  it('surfaces a repeat-offense rule (>=3 hits in 7 days) as one primer line', () => {
+    setupProject();
+    writeMisuseLog([entry('edit-status'), entry('edit-status', { daysAgo: 1 }), entry('edit-status', { daysAgo: 2 }), entry('cat-prompt')]);
+    const r = runCliWithLog(['hud']);
+    strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
+    ok(r.stdout.includes('tripped edit-status 3×'), `expected recap line, got: ${r.stdout}`);
+    ok(r.stdout.includes('dotmd set'), `recap should carry the corrective verb, got: ${r.stdout}`);
+  });
+
+  it('stays silent under the threshold', () => {
+    setupProject();
+    writeMisuseLog([entry('edit-status'), entry('edit-status', { daysAgo: 1 })]);
+    const r = runCliWithLog(['hud']);
+    strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
+    ok(!r.stdout.includes('tripped'), `expected no recap under threshold, got: ${r.stdout}`);
+  });
+
+  it('ignores hits older than 7 days and hits from other repos', () => {
+    setupProject();
+    writeMisuseLog([
+      entry('edit-status', { daysAgo: 9 }), entry('edit-status', { daysAgo: 10 }), entry('edit-status', { daysAgo: 11 }),
+      entry('cat-prompt', { repo: '/somewhere/else' }), entry('cat-prompt', { repo: '/somewhere/else' }), entry('cat-prompt', { repo: '/somewhere/else' }),
+    ]);
+    const r = runCliWithLog(['hud']);
+    strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
+    ok(!r.stdout.includes('tripped'), `stale/foreign hits must not recap, got: ${r.stdout}`);
+  });
+
+  it('--json carries misuseRecap', () => {
+    setupProject();
+    writeMisuseLog([entry('cat-prompt'), entry('cat-prompt'), entry('cat-prompt'), entry('cat-prompt')]);
+    const j = JSON.parse(runCliWithLog(['hud', '--json']).stdout);
+    ok(j.misuseRecap.includes('cat-prompt 4×'), `expected recap in json, got: ${JSON.stringify(j.misuseRecap)}`);
+    ok(j.misuseRecap.includes('dotmd use'), `expected corrective verb, got: ${JSON.stringify(j.misuseRecap)}`);
+  });
+});

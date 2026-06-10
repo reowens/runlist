@@ -118,6 +118,10 @@ const DEFAULTS = {
   // and users who want usage observability flip this on (or set DOTMD_JOURNAL=1).
   journal: false,
 
+  // PreToolUse guard behavior. `deny: false` drops the status-edit rules from
+  // deny (block the tool call) back to warn-only teaching context.
+  guard: { deny: true },
+
   presets: {
     stale: ['--status', 'active,ready,planned,blocked,scoping', '--stale', '--sort', 'updated', '--all'],
     actionable: ['--status', 'active,ready', '--has-next-step', '--sort', 'updated', '--all'],
@@ -533,6 +537,7 @@ export async function resolveConfig(cwd, explicitConfigPath) {
     referenceFields: config.referenceFields,
     presets: config.presets,
     journal: config.journal === true,
+    guard: { deny: config.guard?.deny !== false },
     hooks,
     configWarnings,
   };

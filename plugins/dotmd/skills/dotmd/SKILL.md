@@ -49,7 +49,7 @@ Saved prompts (`docs/prompts/*.md`) are **session-local handoff artifacts**, not
 
 - ❌ `git add/commit docs/prompts/*.md` → ✅ they're session-local; the next session runs `dotmd use`.
 - ❌ `cat`/Read a `docs/prompts/*.md` → ✅ `dotmd use <file>`.
-- ❌ hand-edit a `status:` field → ✅ `dotmd set <status> <file>`.
+- ❌ change a `status:` line by hand (Edit, Write, `sed -i`, `perl -pi`) → ✅ `dotmd set <status> <file>`. This one is **blocked**, not just warned (config `guard: { deny: false }` for warn-only).
 
 ## Querying
 

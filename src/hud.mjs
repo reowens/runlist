@@ -6,7 +6,7 @@ import { asString, toRepoPath, currentSessionId } from './util.mjs';
 import { dim, yellow } from './color.mjs';
 import { buildIndex } from './index.mjs';
 import { refreshStaleSlashCommands } from './claude-commands.mjs';
-import { readJournalEntries, journalFilePath } from './journal.mjs';
+import { readJournalEntries, journalFilePath, readMisuseEntries } from './journal.mjs';
 import { compareVersions } from './update.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -191,6 +191,39 @@ export function buildJournalSections(config, now = Date.now()) {
   return { previousSelf, fleet, recentRejections };
 }
 
+// Misuse recap: when sessions in THIS repo keep tripping the same guard rule,
+// say so once at SessionStart — the shipped self-correcting-hints pattern
+// pointed at repeat offenses. One line, only for the top rule, only past the
+// threshold; silent otherwise.
+const MISUSE_RECAP_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const MISUSE_RECAP_THRESHOLD = 3;
+
+const MISUSE_CORRECTIONS = {
+  'edit-status': 'never hand-edit `status:`; use `dotmd set <status> <file>`',
+  'cat-prompt': 'read saved prompts with `dotmd use <file>`',
+  'read-prompt': 'read saved prompts with `dotmd use <file>`',
+  'commit-prompt': 'saved prompts are session-local; never git add/commit them',
+};
+
+export function buildMisuseRecap(config, now = Date.now()) {
+  let entries;
+  try { entries = readMisuseEntries(); } catch { return null; }
+  if (!entries.length) return null;
+  const cutoff = now - MISUSE_RECAP_WINDOW_MS;
+  const counts = new Map();
+  for (const e of entries) {
+    if (!e?.rule || (e.repo || '') !== config.repoRoot) continue;
+    const t = new Date(e.ts).getTime();
+    if (!Number.isFinite(t) || t < cutoff) continue;
+    counts.set(e.rule, (counts.get(e.rule) ?? 0) + 1);
+  }
+  const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+  if (!top || top[1] < MISUSE_RECAP_THRESHOLD) return null;
+  const [rule, count] = top;
+  const fix = MISUSE_CORRECTIONS[rule] ?? 'see `dotmd misuse`';
+  return `sessions here tripped ${rule} ${count}× this week — ${fix}`;
+}
+
 export function buildHud(config) {
   const prompts = findActionablePrompts(config);
 
@@ -212,8 +245,9 @@ export function buildHud(config) {
   } catch { /* swallow — bad config shouldn't break the SessionStart hook */ }
 
   const { previousSelf, fleet, recentRejections } = buildJournalSections(config);
+  const misuseRecap = buildMisuseRecap(config);
 
-  return { prompts, errors, previousSelf, fleet, recentRejections };
+  return { prompts, errors, previousSelf, fleet, recentRejections, misuseRecap };
 }
 
 // Subagent primer: a spawned subagent (Explore, Plan, general-purpose) starts
@@ -286,7 +320,10 @@ export function runHud(argv, config) {
   // for state that belongs inside its own command. Each of those signals lives
   // in its proper command (`plans`, `prompts`, `check`) and stays available via
   // `dotmd hud --json` for programmatic callers. The hook's job is purely to
-  // teach the verbs, never to report status.
+  // teach the verbs, never to report status. The misuse recap below is the one
+  // exception because it IS teaching: a repeat-offense rule means the primer
+  // alone isn't landing, so name the specific habit to break.
   process.stdout.write(dim('dotmd: plans|briefing  set <status> [<file>]  new <type> <slug>  use [<file>]  archive <file>  (use [no-arg] → oldest pending prompt)') + '\n');
+  if (hud.misuseRecap) process.stdout.write(yellow(`[dotmd] ${hud.misuseRecap}`) + '\n');
   if (drift) process.stdout.write(yellow(drift) + '\n');
 }

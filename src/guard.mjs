@@ -16,12 +16,14 @@ const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 
 //
 // Two decision levels:
 //   'deny' — block the call and feed the reason back to the model. Reserved for
-//            moves that are guaranteed-wrong (committing a gitignored prompt — it
-//            would fail anyway).
+//            moves that are guaranteed-wrong: committing a gitignored prompt (it
+//            would fail anyway) and hand-editing a `status:` field (`dotmd set`
+//            is a complete substitute; config `guard: { deny: false }` drops the
+//            status rules back to warn).
 //   'warn' — let the call proceed but inject teaching context so the agent learns
 //            the dotmd-native command. Used for soft mistakes (cat/Read of a
-//            prompt, hand-editing a status field) where a human might legitimately
-//            do it; we nudge rather than block.
+//            prompt) where a human might legitimately do it; we nudge rather
+//            than block.
 
 const SHELL_READERS = new Set(['cat', 'less', 'more', 'head', 'tail', 'bat', 'view', 'open']);
 
@@ -55,6 +57,34 @@ function shellTokens(command) {
   if (typeof command !== 'string') return [];
   return command.split(/\s+/).map(t => t.replace(/^['"]|['"]$/g, '')).filter(Boolean);
 }
+
+// Decision level for the status-edit rules. Hand-editing `status:` has no
+// legitimate variant — `dotmd set` is a complete substitute — so it denies by
+// default. `guard: { deny: false }` in config drops it back to warn-only.
+function editStatusDecision(config) {
+  return config?.guard?.deny === false ? 'warn' : 'deny';
+}
+
+function editStatusResult(target, config, detail) {
+  return {
+    decision: editStatusDecision(config),
+    rule: 'edit-status',
+    detail,
+    reason:
+      `Looks like a hand-edit of the \`status:\` field in ${target}. Use \`dotmd set <status> ${target}\` instead — ` +
+      `it validates the status against this doc's type, runs lifecycle hooks, fixes refs, and keeps the index in sync. Direct edits skip all of that.`,
+  };
+}
+
+// In-place stream editors (`sed -i`, `perl -pi`, `awk -i inplace`) are the
+// shell-side bypass of the Edit-tool status guard. Only the command text
+// before any heredoc marker is scanned — heredoc bodies are document content
+// (often prose *describing* these rules), not commands.
+const STREAM_EDITOR_INPLACE = [
+  /\bsed\b[^|;&<>]*\s-i/,
+  /\bperl\b[^|;&<>]*\s-[a-zA-Z]*i/,
+  /\bg?awk\b[^|;&<>]*\binplace\b/,
+];
 
 function evalBash(command, config, isIgnored) {
   const tokens = shellTokens(command);
@@ -94,6 +124,16 @@ function evalBash(command, config, isIgnored) {
     }
   }
 
+  // Rule C — in-place stream-editing `status:` in a managed doc. Same wrong-move
+  // as the Edit-tool rule, reached via the shell.
+  const beforeHeredoc = command.split(/<<-?\s*['"]?\w/)[0];
+  if (/status/.test(beforeHeredoc) && STREAM_EDITOR_INPLACE.some(re => re.test(beforeHeredoc))) {
+    const managed = shellTokens(beforeHeredoc).filter(t => isManagedDoc(t, config));
+    if (managed.length) {
+      return editStatusResult(managed[0], config, command);
+    }
+  }
+
   return null;
 }
 
@@ -108,23 +148,39 @@ function evalRead(filePath) {
   };
 }
 
-const STATUS_LINE = /^\s*status\s*:/m;
+// Every `status:` line in a snippet, normalized for comparison.
+function statusLines(s) {
+  if (typeof s !== 'string') return [];
+  return (s.match(/^[ \t]*status[ \t]*:[^\n]*/gm) ?? []).map(l => l.trim());
+}
 
-function evalEdit(input, config) {
+// Only fire when the edit actually CHANGES a `status:` line. An edit whose
+// old/new strings both carry the same `status:` line is using it as anchor
+// context (e.g. adding a `summary:` field above it) — warning on those taught
+// sessions to ignore the rule (the health-repo repeat offenses were exactly
+// this false positive).
+function evalEdit(input, config, deps = {}) {
   const filePath = input?.file_path;
   if (!isManagedDoc(filePath, config)) return null;
-  // Only fire when the edit actually touches a `status:` frontmatter line.
-  const candidates = [input?.new_string, input?.content, input?.new_str]
-    .filter(s => typeof s === 'string');
-  if (!candidates.some(s => STATUS_LINE.test(s))) return null;
-  return {
-    decision: 'warn',
-    rule: 'edit-status',
-    detail: filePath,
-    reason:
-      `Looks like a hand-edit of the \`status:\` field in ${filePath}. Use \`dotmd set <status> ${filePath}\` instead — ` +
-      `it validates the status against this doc's type, runs lifecycle hooks, fixes refs, and keeps the index in sync. Direct edits skip all of that.`,
-  };
+
+  const pairs = [];
+  const newStr = input?.new_string ?? input?.new_str;
+  if (typeof newStr === 'string') pairs.push([input?.old_string ?? input?.old_str ?? '', newStr]);
+  for (const e of Array.isArray(input?.edits) ? input.edits : []) {
+    if (typeof e?.new_string === 'string') pairs.push([e.old_string ?? '', e.new_string]);
+  }
+  if (typeof input?.content === 'string') {
+    // Write replaces the whole file — diff against what's on disk. An
+    // unreadable/missing target is doc creation, not a status edit.
+    const readFile = deps.readFile ?? ((p) => readFileSync(p, 'utf8'));
+    let existing;
+    try { existing = readFile(filePath); } catch { existing = null; }
+    if (typeof existing === 'string') pairs.push([existing, input.content]);
+  }
+
+  const changed = pairs.some(([oldS, newS]) => statusLines(oldS).join('\n') !== statusLines(newS).join('\n'));
+  if (!changed) return null;
+  return editStatusResult(filePath, config, filePath);
 }
 
 // Pure evaluation — `deps.isIgnored(path) -> bool` is injected so tests don't
@@ -137,7 +193,7 @@ export function evaluateGuard(payload, config, deps = {}) {
 
   if (tool === 'Bash') return evalBash(input.command || '', config, isIgnored);
   if (tool === 'Read') return evalRead(input.file_path || '');
-  if (tool === 'Edit' || tool === 'Write' || tool === 'MultiEdit') return evalEdit(input, config);
+  if (tool === 'Edit' || tool === 'Write' || tool === 'MultiEdit') return evalEdit(input, config, deps);
   return null;
 }
 

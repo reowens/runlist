@@ -154,10 +154,16 @@ Rules:
   commit-prompt  deny  git add/commit of a (often gitignored) saved prompt
   cat-prompt     warn  cat/less/head of a docs/prompts/*.md (use \`dotmd use\`)
   read-prompt    warn  Read tool on a saved prompt (use \`dotmd use\`)
-  edit-status    warn  hand-edit of a \`status:\` field (use \`dotmd set\`)
+  edit-status    deny  CHANGING a \`status:\` line — via Edit/Write or in-place
+                       stream editors (sed -i, perl -pi, awk -i inplace).
+                       Use \`dotmd set <status> <file>\`. Edits that merely
+                       carry an unchanged status: line as context don't fire.
 
-Every catch is appended to the cross-repo misuse log. Disable with DOTMD_GUARD=0.
-Read the log with \`dotmd misuse\`.`,
+\`guard: { deny: false }\` in dotmd.config.mjs drops edit-status back to
+warn-only. Every catch is appended to the cross-repo misuse log. Disable the
+guard entirely with DOTMD_GUARD=0. Read the log with \`dotmd misuse\`; when one
+rule trips ≥3× in 7 days in a repo, \`dotmd hud\` opens the next session there
+with a one-line recap naming the habit to break.`,
 
   update: `dotmd update — update the dotmd CLI and the Claude Code plugin together
 
