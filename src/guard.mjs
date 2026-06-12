@@ -58,6 +58,45 @@ function shellTokens(command) {
   return command.split(/\s+/).map(t => t.replace(/^['"]|['"]$/g, '')).filter(Boolean);
 }
 
+// Drop heredoc bodies, keeping the command line that opens them. Heredoc
+// bodies are document content — resume-prompt drafts routinely mention
+// `docs/prompts/…` paths and even describe the guard's own rules, and none of
+// that is the *command* doing anything.
+function stripHeredocBodies(command) {
+  if (typeof command !== 'string' || !command.includes('<<')) return command;
+  const lines = command.split('\n');
+  const out = [];
+  let marker = null;
+  for (const line of lines) {
+    if (marker !== null) {
+      if (line.trim() === marker) marker = null;
+      continue;
+    }
+    out.push(line);
+    const m = line.match(/<<-?\s*(['"]?)(\w+)\1/);
+    if (m) marker = m[2];
+  }
+  return out.join('\n');
+}
+
+// Split a compound command into independently-evaluated segments. Each side of
+// a pipe / && / || / ; / newline runs its own program, so a rule should only
+// fire on the segment whose program actually touches the prompt — `dotmd check
+// docs/prompts/x.md; git commit -- docs/plans/y.md` commits no prompt.
+function shellSegments(command) {
+  return stripHeredocBodies(command)
+    .split(/\|\|?|&&|;|\n/)
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+// Blank out quoted strings that contain whitespace — prose, not paths. A
+// commit message like `-m "handoff saved to docs/prompts/x.md"` only *mentions*
+// a prompt; `git add "docs/prompts/foo.md"` (no inner whitespace) survives.
+function stripProseStrings(s) {
+  return s.replace(/"([^"]*)"|'([^']*)'/g, (m, d, q) => (/\s/.test(d ?? q ?? '') ? '""' : m));
+}
+
 // Decision level for the status-edit rules. Hand-editing `status:` has no
 // legitimate variant — `dotmd set` is a complete substitute — so it denies by
 // default. `guard: { deny: false }` in config drops it back to warn-only.
@@ -87,48 +126,57 @@ const STREAM_EDITOR_INPLACE = [
 ];
 
 function evalBash(command, config, isIgnored) {
-  const tokens = shellTokens(command);
-  const promptTokens = tokens.filter(isPromptPath);
+  const segments = shellSegments(command);
 
-  // Rule A — committing/adding a gitignored prompt. The exact failure the guard
-  // exists for: an agent reflexively `git add`s a session-local prompt that
-  // lives under a gitignored path, and the commit dies confusingly.
-  if (/\bgit\s+(add|commit|stage)\b/.test(command) && promptTokens.length) {
-    const ignored = promptTokens.filter(p => isIgnored(p));
-    const targets = ignored.length ? ignored : promptTokens;
-    const ignoredNote = ignored.length
-      ? ` ${ignored.join(', ')} is gitignored — it cannot be committed.`
-      : '';
-    return {
-      decision: 'deny',
-      rule: 'commit-prompt',
-      detail: command,
-      reason:
-        `Saved prompts (${targets.join(', ')}) are session-local dotmd artifacts, not source to commit.${ignoredNote} ` +
-        `Don't git add/commit them. The next session consumes a prompt with \`dotmd use <file>\` (or \`dotmd use\` for the oldest pending), which prints the body and archives it atomically.`,
-    };
-  }
+  for (const seg of segments) {
+    const segTokens = shellTokens(stripProseStrings(seg));
+    if (!segTokens.length) continue;
+    const cmd0 = path.basename(segTokens[0]);
+    const promptTokens = segTokens.filter(isPromptPath);
 
-  // Rule B — reading a prompt through the shell instead of consuming it.
-  if (tokens.length) {
-    const cmd0 = path.basename(tokens[0]);
+    // Rule A — committing/adding a gitignored prompt. The exact failure the
+    // guard exists for: an agent reflexively `git add`s a session-local prompt
+    // that lives under a gitignored path, and the commit dies confusingly.
+    // Scoped to the git segment's own arguments: a prompt path in a sibling
+    // segment (`dotmd check docs/prompts/x.md; git commit …`) or inside a
+    // quoted commit message is a mention, not a commit.
+    if (cmd0 === 'git' && /^(add|commit|stage)$/.test(segTokens[1] ?? '') && promptTokens.length) {
+      const ignored = promptTokens.filter(p => isIgnored(p));
+      const targets = ignored.length ? ignored : promptTokens;
+      const ignoredNote = ignored.length
+        ? ` ${ignored.join(', ')} is gitignored — it cannot be committed.`
+        : '';
+      return {
+        decision: 'deny',
+        rule: 'commit-prompt',
+        detail: command,
+        reason:
+          `Saved prompts (${targets.join(', ')}) are session-local dotmd artifacts, not source to commit.${ignoredNote} ` +
+          `Don't git add/commit them — commit your other changes without the prompt in the pathspec. ` +
+          `The next session consumes a prompt with \`dotmd use <file>\` (or \`dotmd use\` for the oldest pending), which prints the body and archives it atomically.`,
+      };
+    }
+
+    // Rule B — reading a prompt through the shell instead of consuming it.
     if (SHELL_READERS.has(cmd0) && promptTokens.length) {
       return {
         decision: 'warn',
         rule: 'cat-prompt',
         detail: command,
         reason:
-          `${promptTokens.join(', ')} is a saved dotmd prompt. Don't \`${cmd0}\` it — run \`dotmd use ${promptTokens[0]}\` ` +
-          `to print the body and archive it in one atomic step (prevents the same prompt being consumed twice). Use \`dotmd use\` with no arg for the oldest pending prompt.`,
+          `${promptTokens.join(', ')} is a saved dotmd prompt. To start work from it, run \`dotmd use ${promptTokens[0]}\` — ` +
+          `it prints the body and archives the prompt in one atomic step (prevents double-consumption). ` +
+          `Just peeking or triaging (not consuming)? \`dotmd prompts show ${promptTokens[0]}\` reads it without archiving. Don't \`${cmd0}\` it directly.`,
       };
     }
   }
 
   // Rule C — in-place stream-editing `status:` in a managed doc. Same wrong-move
-  // as the Edit-tool rule, reached via the shell.
-  const beforeHeredoc = command.split(/<<-?\s*['"]?\w/)[0];
-  if (/status/.test(beforeHeredoc) && STREAM_EDITOR_INPLACE.some(re => re.test(beforeHeredoc))) {
-    const managed = shellTokens(beforeHeredoc).filter(t => isManagedDoc(t, config));
+  // as the Edit-tool rule, reached via the shell. Heredoc bodies are document
+  // content (often prose *describing* these rules), not commands.
+  const stripped = stripHeredocBodies(command);
+  if (/status/.test(stripped) && STREAM_EDITOR_INPLACE.some(re => re.test(stripped))) {
+    const managed = shellTokens(stripped).filter(t => isManagedDoc(t, config));
     if (managed.length) {
       return editStatusResult(managed[0], config, command);
     }
@@ -144,7 +192,8 @@ function evalRead(filePath) {
     rule: 'read-prompt',
     detail: filePath,
     reason:
-      `${filePath} is a saved dotmd prompt. Prefer \`dotmd use ${filePath}\` over reading it directly — it prints the body and archives the prompt atomically so it can't be double-consumed.`,
+      `${filePath} is a saved dotmd prompt. To start work from it, run \`dotmd use ${filePath}\` — it prints the body and archives the prompt atomically so it can't be double-consumed. ` +
+      `Just peeking or triaging (not consuming)? \`dotmd prompts show ${filePath}\` reads it without archiving.`,
   };
 }
 
@@ -205,8 +254,11 @@ function readStdin() {
       process.stdin.on('data', (c) => { data += c; });
       process.stdin.on('end', () => resolve(data));
       process.stdin.on('error', () => resolve(data));
-      // Don't hang the tool dispatch if stdin never closes.
-      setTimeout(() => resolve(data), 2000);
+      // Don't hang the tool dispatch if stdin never closes. unref() so the
+      // timer can't hold the event loop open — without it every guard
+      // invocation lingered the full 2s AFTER answering, which added ~2s of
+      // dead latency to every guarded tool call in every session.
+      setTimeout(() => resolve(data), 2000).unref();
     } catch {
       resolve(data);
     }

@@ -193,7 +193,11 @@ export const presets = {
 // Properties:
 //   description:    string — shown in `dotmd new --list-types`
 //   defaultStatus:  string — initial status if `--status` not passed
-//   requiresBody:   boolean — error if no body input (see `prompt` builtin)
+//   acceptsBody:    boolean — allow body input (inline / --body / @file / piped stdin).
+//                   REQUIRED if you want `cat draft.md | dotmd new <type> <slug>` (or @path,
+//                   --body, heredoc) to work. Your `body` fn must also interpolate the input,
+//                   e.g. `${ctx?.bodyInput?.trim() ?? ''}`. See the body-acceptance guard below.
+//   requiresBody:   boolean — error if no body input (implies acceptsBody; see `prompt` builtin)
 //   targetRoot:     string — name (basename or suffix) of the root this type lives in.
 //                   In flat-array `root` configs (e.g. ['docs/plans', 'docs/prompts']),
 //                   the new doc lands in the matching root. Falls back to `config.docsRoot`
@@ -203,7 +207,17 @@ export const presets = {
 //                   under `docsRoot='docs'`, `dir` puts files in `docs/plans/` and `docs/prompts/`;
 //                   under flat-array roots, `targetRoot` routes directly to the type-specific root.
 //   frontmatter:    (status, isoTime, ctx) => string
-//   body:           (title, ctx) => string
+//   body:           (title, ctx) => string — slot user-supplied body via `ctx.bodyInput`
+//
+// Body-acceptance guard (the #1 custom-template gotcha):
+//   When you override a builtin and supply your OWN `body` fn that NEVER references
+//   `bodyInput`, dotmd assumes the fn would silently discard piped input — so it strips
+//   the inherited `acceptsBody`/`requiresBody` and rejects body input with a fail-fast
+//   error. Two ways to keep piped/@path/heredoc bodies working in a custom template:
+//     1. interpolate `${ctx?.bodyInput?.trim() ?? ''}` somewhere in your `body` fn, OR
+//     2. set `acceptsBody: true` explicitly (do BOTH if you want the input to actually land).
+//   A `body: (t) =>` that ignores `ctx` is the classic trap — it scaffolds fine but
+//   `dotmd new <type> <slug> < draft.md` errors until you wire in `bodyInput`.
 //
 // Custom type example — adds a `spike` type that lives in the `spikes` root (or
 // under `docs/spikes/` in single-root layouts):
@@ -218,8 +232,11 @@ export const presets = {
 //   },
 //
 //   // Override a builtin (e.g. project-specific prompt frontmatter shape).
-//   // IMPORTANT: builtin properties are NOT inherited — re-declare `targetRoot`, `dir`,
-//   // `defaultStatus`, `requiresBody`, etc. that you want preserved.
+//   // Overrides shallow-merge OVER the builtin: any property you omit is inherited
+//   // (`targetRoot`, `dir`, `defaultStatus`, `requiresBody`, …), and anything you declare
+//   // wins. EXCEPTION: if you supply your own `body` fn that doesn't reference `bodyInput`,
+//   // the inherited `acceptsBody`/`requiresBody` are dropped (see the guard above) — so
+//   // re-declare `acceptsBody: true` and wire in `ctx.bodyInput` if you want piped bodies.
 //   // prompt: {
 //   //   description: 'Project resume prompt',
 //   //   defaultStatus: 'pending',

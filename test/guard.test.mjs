@@ -229,6 +229,61 @@ test('DOTMD_GUARD=0 disables all rules', () => {
   }
 });
 
+test('prompt path in a NON-git segment does not deny the commit', () => {
+  // The false positive that taught sessions to distrust legitimate commits:
+  // `dotmd check` on a prompt in one segment, `git commit` of a plan in another.
+  const r = evaluateGuard(
+    { tool_name: 'Bash', tool_input: { command: 'dotmd check docs/prompts/resume-x.md 2>&1 | tail -3; git commit -m "close plan" -- docs/plans/foo.md' } },
+    config, ignored,
+  );
+  assert.equal(r, null, `prompt mention outside the git segment must not deny; got ${JSON.stringify(r)}`);
+});
+
+test('prompt path inside a quoted commit MESSAGE does not deny', () => {
+  const r = evaluateGuard(
+    { tool_name: 'Bash', tool_input: { command: 'git commit -m "handoff saved to docs/prompts/resume-x.md" -- docs/plans/foo.md' } },
+    config, ignored,
+  );
+  assert.equal(r, null, `prose mention in -m must not deny; got ${JSON.stringify(r)}`);
+});
+
+test('git add of a QUOTED prompt path (no inner whitespace) is still denied', () => {
+  const r = evaluateGuard(
+    { tool_name: 'Bash', tool_input: { command: 'git add "docs/prompts/resume-x.md"' } },
+    config, ignored,
+  );
+  assert.equal(r.rule, 'commit-prompt');
+  assert.equal(r.decision, 'deny');
+});
+
+test('git add of a prompt in a LATER segment is denied', () => {
+  const r = evaluateGuard(
+    { tool_name: 'Bash', tool_input: { command: 'dotmd check && git add docs/prompts/resume-x.md && git commit -m x' } },
+    config, ignored,
+  );
+  assert.equal(r.rule, 'commit-prompt');
+});
+
+test('creating a prompt via heredoc whose BODY mentions a prompt path is not warned', () => {
+  // The canonical creation flow — the guard must not scold it.
+  const command = [
+    "cat <<'EOF' | dotmd new prompt resume-y",
+    'see docs/prompts/old-thing.md for context',
+    'EOF',
+  ].join('\n');
+  const r = evaluateGuard({ tool_name: 'Bash', tool_input: { command } }, config, notIgnored);
+  assert.equal(r, null, `heredoc body must not trip cat-prompt; got ${JSON.stringify(r)}`);
+});
+
+test('cat of a prompt piped onward still warns (segment-scoped, not pipe-blind)', () => {
+  const r = evaluateGuard(
+    { tool_name: 'Bash', tool_input: { command: 'cat docs/prompts/foo.md | head -5' } },
+    config, notIgnored,
+  );
+  assert.equal(r.rule, 'cat-prompt');
+  assert.match(r.reason, /dotmd prompts show docs\/prompts\/foo\.md/);
+});
+
 test('git add of a non-prompt path is not denied', () => {
   const r = evaluateGuard(
     { tool_name: 'Bash', tool_input: { command: 'git add src/foo.mjs' } },

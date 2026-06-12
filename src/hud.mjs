@@ -8,6 +8,7 @@ import { buildIndex } from './index.mjs';
 import { refreshStaleSlashCommands } from './claude-commands.mjs';
 import { readJournalEntries, journalFilePath, readMisuseEntries } from './journal.mjs';
 import { compareVersions } from './update.mjs';
+import { findOwnedPlan } from './baton.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
@@ -51,6 +52,8 @@ export function actionablePromptStatuses(config) {
   return new Set(['pending']);
 }
 
+// Returns repo paths, oldest-created first — the same order no-arg `dotmd use`
+// consumes them, so prompts[0] is always "the one you'd pick up next".
 function findActionablePrompts(config) {
   const roots = config.docsRoots || (config.docsRoot ? [config.docsRoot] : []);
   const archiveDir = config.archiveDir || 'archived';
@@ -80,11 +83,13 @@ function findActionablePrompts(config) {
       const fm = parseSimpleFrontmatter(frontmatter);
       if (asString(fm.type) !== 'prompt') continue;
       if (!actionable.has(asString(fm.status))) continue;
-      found.push(toRepoPath(filePath, config.repoRoot));
+      found.push({ path: toRepoPath(filePath, config.repoRoot), created: asString(fm.created) ?? '' });
     }
   }
 
-  return found.sort();
+  return found
+    .sort((a, b) => a.created.localeCompare(b.created) || a.path.localeCompare(b.path))
+    .map(p => p.path);
 }
 
 // F17b: hud reads journal. Three additive sections, gated on
@@ -200,8 +205,8 @@ const MISUSE_RECAP_THRESHOLD = 3;
 
 const MISUSE_CORRECTIONS = {
   'edit-status': 'never hand-edit `status:`; use `dotmd set <status> <file>`',
-  'cat-prompt': 'read saved prompts with `dotmd use <file>`',
-  'read-prompt': 'read saved prompts with `dotmd use <file>`',
+  'cat-prompt': 'consume prompts with `dotmd use <file>`; peek without consuming via `dotmd prompts show <file>`',
+  'read-prompt': 'consume prompts with `dotmd use <file>`; peek without consuming via `dotmd prompts show <file>`',
   'commit-prompt': 'saved prompts are session-local; never git add/commit them',
 };
 
@@ -235,6 +240,10 @@ export function buildHud(config) {
   // SessionStart for platform-scale corpora. Per-file validation + checkIndex
   // still run, so the error count matches `dotmd check`'s.
   let errors = 0;
+  // `owned` answers "which plan is THIS session's?" for programmatic callers
+  // (the baton flow reads it) — derived from the journal, falling back to the
+  // only in-session plan. Null when there's no defensible answer.
+  let owned = null;
   try {
     // `autoHealIndex: true` mirrors `dotmd check` — drift from non-regen
     // mutation paths (`lint --fix`, direct file edits, etc.) heals silently
@@ -242,12 +251,14 @@ export function buildHud(config) {
     // spurious "Run `dotmd index`" error in the hud error count.
     const index = buildIndex(config, { errorsOnly: true, autoHealIndex: true });
     errors = index.errors.length;
+    const o = findOwnedPlan(config, index);
+    if (o.plan) owned = { path: o.plan.path, title: o.plan.title ?? null, via: o.via };
   } catch { /* swallow — bad config shouldn't break the SessionStart hook */ }
 
   const { previousSelf, fleet, recentRejections } = buildJournalSections(config);
   const misuseRecap = buildMisuseRecap(config);
 
-  return { prompts, errors, previousSelf, fleet, recentRejections, misuseRecap };
+  return { owned, prompts, errors, previousSelf, fleet, recentRejections, misuseRecap };
 }
 
 // Subagent primer: a spawned subagent (Explore, Plan, general-purpose) starts
@@ -311,19 +322,30 @@ export function runHud(argv, config) {
     return;
   }
 
-  // SessionStart contract: emit ONLY the command primer — the verb cheat-sheet
-  // that tells the agent which dotmd verbs exist. Everything else hud used to
-  // print (held/prompts/stuck/errors state, slash-command refresh notices, and
-  // the journal-aware previous-self / fleet / recent-rejections sections) is
-  // deliberately suppressed here: those signals nudged agents into phantom
-  // follow-up work — e.g. "errors: 1 (run dotmd check)" prompting a check run
-  // for state that belongs inside its own command. Each of those signals lives
-  // in its proper command (`plans`, `prompts`, `check`) and stays available via
-  // `dotmd hud --json` for programmatic callers. The hook's job is purely to
-  // teach the verbs, never to report status. The misuse recap below is the one
-  // exception because it IS teaching: a repeat-offense rule means the primer
-  // alone isn't landing, so name the specific habit to break.
-  process.stdout.write(dim('dotmd: plans|briefing  set <status> [<file>]  new <type> <slug>  use [<file>]  archive <file>  (use [no-arg] → oldest pending prompt)') + '\n');
+  // SessionStart contract: the command primer, plus ONLY signals that carry a
+  // direct instruction for this session. Passive state (error counts,
+  // slash-command refresh notices, previous-self / fleet / recent-rejections)
+  // stays suppressed — those nudged agents into phantom follow-up work (e.g.
+  // "errors: 1" prompting a check run) and live in their proper commands and
+  // `dotmd hud --json`. Two signals ARE instructions and must print, because
+  // the handoff loop dies without them (sessions were saving batons that no
+  // next session ever picked up):
+  //   - pending prompts: the previous session queued work for THIS one;
+  //     consuming it is the very next action.
+  //   - an in-session plan attributed to this sid via the journal: this
+  //     session (pre-compaction) owns it and should continue or hand it off.
+  //     The single-in-session fallback is deliberately NOT printed — at
+  //     SessionStart that plan likely belongs to another live session.
+  // The misuse recap stays for the same reason: a repeat-offense rule means
+  // the primer alone isn't landing, so name the habit to break.
+  process.stdout.write(dim('dotmd: plans|briefing  set <status> [<file>]  new <type> <slug>  use [<file>]  archive <file>  baton [<slug>] <@draft|-> (save a resume prompt; releases the in-session plan if any)  (use [no-arg] → oldest pending prompt)') + '\n');
+  if (hud.owned && hud.owned.via === 'journal') {
+    process.stdout.write(yellow(`[dotmd] in-session (yours): ${hud.owned.path} — continue it; hand off with \`dotmd baton @/tmp/draft.md\` before stopping.`) + '\n');
+  }
+  if (hud.prompts.length > 0) {
+    const n = hud.prompts.length;
+    process.stdout.write(yellow(`[dotmd] ${n} pending prompt${n === 1 ? '' : 's'} queued for this session — unless the user asks for something else, start by running \`dotmd use\` to consume the oldest (${hud.prompts[0]}) and act on it. Peek first: \`dotmd prompts show <file>\`; list: \`dotmd prompts\`.`) + '\n');
+  }
   if (hud.misuseRecap) process.stdout.write(yellow(`[dotmd] ${hud.misuseRecap}`) + '\n');
   if (drift) process.stdout.write(yellow(drift) + '\n');
 }

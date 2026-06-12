@@ -51,15 +51,22 @@ To finish work, archive directly: `dotmd archive <plan-file>`. The legacy `done`
 
 ### Resume prompts (saved for future sessions)
 
-When the user asks for a resume prompt — or when context is getting tight and you're about to stop mid-work — DO NOT print the resume text into chat for them to copy-paste. Save it as a prompt:
+When the user asks for a resume prompt — or when context is getting tight and you're about to stop mid-work — DO NOT print the resume text into chat for them to copy-paste. If a plan is in-session, hand it off with the single verb:
 
 ```bash
-dotmd prompts new resume-<plan-slug> - <<'EOF'
-…your resume prompt here: state, what's done, what's next, key files, gotchas…
-EOF
+dotmd baton @/tmp/draft.md        # saves resume-<plan-slug>, flips the plan
+                                  # in-session → active, prints the exact git commit
 ```
 
-The prompt lands under `docs/prompts/<name>.md` with `status: pending`. The next session runs `dotmd hud` (the SessionStart hook), sees the pending prompt, and consumes it with `dotmd use <file>` (or `dotmd use` with no arg for the oldest). That command atomically prints the body and archives the prompt so it can't be double-consumed.
+`--status paused|awaiting|partial|blocked` overrides the release status; `--note "why"` records the reason. Baton resolves *your* plan via the journal (or takes it explicitly: `dotmd baton <plan-file> @draft`). It is the whole closeout — no extra status changes, no `dotmd use`, no repo triage on the way out.
+
+No plan involved? Same verb, slug mode — saves `resume-<slug>` and touches nothing else:
+
+```bash
+dotmd baton <slug> @/tmp/draft.md
+```
+
+Either way the prompt lands under `docs/prompts/<name>.md` with `status: pending`. The next session runs `dotmd hud` (the SessionStart hook), sees the pending prompt, and consumes it with `dotmd use <file>` (or `dotmd use` with no arg for the oldest). That command atomically prints the body and archives the prompt so it can't be double-consumed. To peek at a prompt without consuming it, `dotmd prompts show <file>`.
 
 Use this whenever you'd otherwise print a multi-line "here's how to resume" block.
 

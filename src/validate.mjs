@@ -475,7 +475,7 @@ export function validatePlanShape(doc, body, frontmatter, config) {
     doc.warnings.push({
       path: doc.path,
       level: 'warning',
-      message: `\`next_step\` is ${nextStep.length} chars (cap: 800). Long prose belongs in the body — keep next_step as a 1-2 sentence pointer.`,
+      message: `\`next_step\` is ${nextStep.length} chars (cap: 800). One mechanical fix: \`dotmd doctor --frontmatter-fix\` (moves the overflow into the body) — do NOT hand-trim or re-run check in a loop. Going forward, write next_step as a 1-2 sentence pointer; detail goes in the body.`,
     });
   }
 
@@ -488,7 +488,7 @@ export function validatePlanShape(doc, body, frontmatter, config) {
     doc.warnings.push({
       path: doc.path,
       level: 'warning',
-      message: `\`current_state\` is ${currentState.length} chars (cap: 1500). Long prose belongs in the body.`,
+      message: `\`current_state\` is ${currentState.length} chars (cap: 1500). One mechanical fix: \`dotmd doctor --frontmatter-fix\` (moves the overflow into the body) — do NOT hand-trim or re-run check in a loop. Going forward, write current_state as a 2-4 sentence summary; detail goes in the body.`,
     });
   }
 

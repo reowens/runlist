@@ -36,6 +36,8 @@ const FLAG_SPECS = {
   context: { flags: new Set(['--json', '--compact', '--summarize', '--model']), values: new Set(['--model']) },
   'agent-context': { flags: new Set(['--json']), values: new Set() },
   hud: { flags: new Set(['--json', '--subagent']), values: new Set() },
+  // '-' is the stdin marker (a positional, not a flag) — listed so validation lets it through.
+  baton: { flags: new Set(['--status', '--note', '--body', '--message', '--dry-run', '-n', '-']), values: new Set(['--status', '--note', '--body', '--message']) },
   guard: { flags: new Set(), values: new Set() },
   misuse: { flags: new Set(['--json', '--tail', '--by-rule', '--repo']), values: new Set(['--tail', '--repo']) },
   update: { flags: new Set(['--check', '--cli-only', '--plugin-only']), values: new Set() },
@@ -45,7 +47,7 @@ const FLAG_SPECS = {
   prompts: {
     flags: new Set(['--json', '--status', '--include-archived', '--sort', '--limit', '--all', '--no-index', '--show-files', '--body', '--message', '--title']),
     values: new Set(['--status', '--sort', '--limit', '--body', '--message', '--title']),
-    subcommands: new Set(['list', 'next', 'use', 'resume', 'archive', 'new', 'hold', 'unhold', 'shelve', 'unshelve', 'status']),
+    subcommands: new Set(['list', 'next', 'use', 'resume', 'show', 'peek', 'archive', 'new', 'hold', 'unhold', 'shelve', 'unshelve', 'status']),
   },
 };
 
@@ -133,6 +135,7 @@ Common commands:
   set <status> [file]   Transition status (start work, finish, archive — all via target status)
   new <type> <name>     Create plan/doc/prompt (pipe stdin or @path for body)
   use [<file-or-slug>]  Open a doc by type: prompt → consume, plan → start, doc → read
+  baton [<plan>|<slug>] <@draft|-> Save a resume prompt (+ release the plan, if one is in-session)
                         (no file: consume oldest pending prompt)
   archive <file>        Close out a plan (status → archived, move, update refs)
 
@@ -203,7 +206,8 @@ View & Query:
   grep <term>                       Keyword search incl. document bodies (query --keyword --body --all)
   plans                             Live plans (excludes archived; --include-archived for all)
   use [<file-or-slug>]              Open a doc by type: prompt → consume, plan → start, doc → read
-  prompts [list|archive|new|hold] Prompt admin (list / archive / save / hold). Use \`dotmd use\` to consume.
+  baton [<plan>|<slug>] <@draft|->  Save a resume prompt; releases the plan + prints the commit when one is in-session
+  prompts [list|show|archive|new|hold] Prompt admin (list / peek / archive / save / hold). Use \`dotmd use\` to consume.
   stale                             Stale docs (preset)
   actionable                        Docs with next steps (preset)
 
@@ -603,7 +607,8 @@ Recommended SessionStart hook (in ~/.claude/settings.json):
   "SessionStart": [{ "hooks": [{ "type": "command", "command": "dotmd hud", "timeout": 5 }] }]
 
 Options:
-  --json                 Output as JSON ({ owned, queued, prompts, stale })`,
+  --json                 Output as JSON ({ owned, prompts, errors, previousSelf,
+                         fleet, recentRejections, misuseRecap, drift })`,
 
   briefing: `dotmd briefing — compact summary for session start
 
@@ -993,6 +998,8 @@ Subcommands:
                              targets the named prompt instead of picking oldest)
   resume <file-or-slug>      Alias for \`use\` — same behavior, easier name
                              when continuing a session
+  show <file-or-slug>        Read-only peek: print the body WITHOUT consuming
+                             (triage). \`peek\` is an alias.
   archive <file-or-slug>     Archive a prompt without printing its body
   hold <file-or-slug>        Park a prompt (status → held) under prompts/held/:
                              kept in list, hidden from hud/briefing pending
@@ -1023,9 +1030,49 @@ Examples:
   claude "$(dotmd prompts resume resume-foo)"        # \`resume\` is an alias for \`use\`
   dotmd prompt list                    # singular alias for \`dotmd prompts list\`
 
+  dotmd prompts show resume-foo        # peek without consuming (triage)
   dotmd prompts next --dry-run         # preview without consuming
   dotmd prompts archive old-thing
   dotmd prompts new my-prompt "Body text here"`,
+
+  baton: `dotmd baton — save a resume prompt for whatever you're doing (and release the plan, if there is one)
+
+The "save a resume prompt" verb. Works mid-anything:
+
+Plan mode (a plan is in-session, or you pass one):
+  1. Saves a resume prompt named resume-<plan-slug> (collision-safe: -2, -3, …).
+     The prompt is session-local — the next session's hud surfaces it; never
+     paste resume text into chat.
+  2. Releases the plan: one status flip, in-session → active by default
+     (--status to override, --note to record why in ## Version History).
+  3. Prints the exact \`git commit\` for the plan's frontmatter change — the
+     prompt stays OUT of the pathspec (it's session-local, often gitignored).
+  Which plan? Pass it explicitly, or baton resolves the one THIS session marked
+  in-session (via the journal), falling back to the only in-session plan.
+
+Slug mode (no plan involved — "save a resume prompt for this"):
+  dotmd baton <slug> @/tmp/draft.md   →  saves resume-<slug>, touches NOTHING
+  else: no status changes, no commit, no plan required. Reference any relevant
+  plans/docs inside the draft body.
+
+Usage:
+  dotmd baton [<plan-file> | <slug>] [@draft.md | - | --message "..."]
+
+Options:
+  --status <s>           Target status for the plan (default: active; plan mode only)
+  --note "why"           Append the reason to ## Version History (plan mode only)
+  --message / --body     Inline body (one-liners; prefer @path or stdin)
+  --dry-run, -n          Preview without writing
+
+Examples:
+  dotmd baton @/tmp/draft.md                       # owned plan, body from file
+  dotmd baton checkout-fixes @/tmp/draft.md        # no plan: just save resume-checkout-fixes
+  cat /tmp/draft.md | dotmd baton                  # body from stdin
+  dotmd baton docs/plans/auth.md @/tmp/draft.md    # explicit plan
+  dotmd baton --status paused --note "blocked on review" @/tmp/d.md
+
+Write the draft FIRST (10–20 lines): the next concrete decision plus any
+gotchas — not a recap of the plan body.`,
 
   stale: `dotmd stale — list stale documents
 
@@ -1337,6 +1384,14 @@ async function main() {
   if (command === 'use') {
     const { runUse } = await import('../src/use.mjs');
     await runUse(restArgs, config, { dryRun });
+    return;
+  }
+  // `dotmd baton [plan] <@draft|->` — the one-command handoff: save the resume
+  // prompt, release the plan (one status flip), print the exact commit. See
+  // src/baton.mjs for why this is a single verb and not a skill choreography.
+  if (command === 'baton') {
+    const { runBaton } = await import('../src/baton.mjs');
+    await runBaton(restArgs, config, { dryRun });
     return;
   }
   // `dotmd next` is a top-level alias for `dotmd use` with no arg — consume

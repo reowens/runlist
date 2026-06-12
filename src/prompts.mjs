@@ -11,7 +11,7 @@ import { green, dim } from './color.mjs';
 // `resume` is an alias for `use` — agents reach for "resume" when continuing a
 // session; `use` reads as internal mechanics. Both names stay valid; the
 // canonical output ("Consumed: …") is unchanged.
-const SUBCOMMANDS = new Set(['list', 'next', 'use', 'resume', 'archive', 'new', 'hold', 'unhold', 'shelve', 'unshelve']);
+const SUBCOMMANDS = new Set(['list', 'next', 'use', 'resume', 'show', 'peek', 'archive', 'new', 'hold', 'unhold', 'shelve', 'unshelve']);
 
 export async function runPrompts(argv, config, opts = {}) {
   const sub = argv[0];
@@ -26,6 +26,8 @@ export async function runPrompts(argv, config, opts = {}) {
     case 'next':     return runPromptsNext(rest, config, opts);
     case 'use':      return runPromptsUse(rest, config, opts);
     case 'resume':   return runPromptsUse(rest, config, opts);
+    case 'show':     return runPromptsShow(rest, config);
+    case 'peek':     return runPromptsShow(rest, config);
     case 'archive':  return runPromptsArchive(rest, config, opts);
     case 'new':      return runPromptsNew(rest, config, opts);
     case 'hold':     return runPromptsHold(rest, config, opts);
@@ -281,6 +283,28 @@ export function consumePrompt(filePath, config, opts) {
 
   const consumedPath = archiveResult?.newRepoPath ?? repoPath;
   process.stderr.write(`${green('✓ Consumed')}: ${consumedPath}\n`);
+}
+
+// Read-only peek: print the body WITHOUT consuming. The sanctioned triage path
+// — surveying pending prompts must not archive them (that's `use`'s job), and
+// it must not require raw cat/Read (which the guard warns about).
+function runPromptsShow(argv, config) {
+  const input = argv.find(a => !a.startsWith('-'));
+  if (!input) die('Usage: dotmd prompts show <file-or-slug>');
+  const filePath = resolvePromptInput(input, config);
+
+  const raw = readFileSync(filePath, 'utf8');
+  const { frontmatter, body } = extractFrontmatter(raw);
+  const parsed = parseSimpleFrontmatter(frontmatter);
+  const repoPath = toRepoPath(filePath, config.repoRoot);
+  if (asString(parsed.type) !== 'prompt') {
+    die(`Not a prompt (type: ${asString(parsed.type) ?? 'unknown'}): ${repoPath}`);
+  }
+
+  const status = asString(parsed.status) ?? 'unknown';
+  process.stderr.write(dim(`${repoPath} [${status}] — read-only peek; \`dotmd use ${repoPath}\` to consume\n`));
+  process.stdout.write(body);
+  if (!body.endsWith('\n')) process.stdout.write('\n');
 }
 
 function runPromptsArchive(argv, config, opts = {}) {

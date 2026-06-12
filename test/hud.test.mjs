@@ -46,12 +46,15 @@ afterEach(() => {
   if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
 });
 
-// HUD contract (post-scrub):
-//   - stdout emits ONLY a single command primer line (the verb cheat-sheet).
-//     No state, no journal chatter, no refresh notice — those nudged agents
-//     into phantom follow-up work. The hook teaches the verbs, nothing else.
-//   - `--json` still returns the structured shape (prompts/errors/journal)
-//     for any programmatic caller, and skips the human primer
+// HUD contract:
+//   - stdout emits the command primer line (the verb cheat-sheet) plus ONLY
+//     signals that carry a direct instruction for this session: pending
+//     prompts (consume with `dotmd use`) and a journal-attributed in-session
+//     plan (continue / hand off with baton). Passive state — error counts,
+//     journal chatter, refresh notices — stays suppressed; those nudged
+//     agents into phantom follow-up work.
+//   - `--json` still returns the structured shape (owned/prompts/errors/
+//     journal) for any programmatic caller, and skips the human primer
 //   - slash-command staleness is still self-healed, but silently (no stdout)
 describe('dotmd hud', () => {
   it('always emits the command primer (one line)', () => {
@@ -64,7 +67,7 @@ describe('dotmd hud', () => {
     ok(/\buse\b/.test(r.stdout), `primer should name the use verb; got: ${r.stdout}`);
   });
 
-  it('never surfaces state (prompts/errors) in stdout — primer only', () => {
+  it('surfaces pending prompts as an actionable instruction; passive state stays suppressed', () => {
     const docsDir = setupProject();
     writeDoc(docsDir, 'p.md', 'type: plan\nstatus: active\nupdated: 2025-01-01\nmodules: [core]', '# P\n');
     mkdirSync(path.join(docsDir, 'prompts'), { recursive: true });
@@ -73,14 +76,49 @@ describe('dotmd hud', () => {
 
     const r = runCli(['hud']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
-    ok(!r.stdout.includes('prompts:'), `stdout must not mention pending prompts; got: ${r.stdout}`);
+    // The handoff loop's last link: the next session MUST be told a prompt is
+    // queued, or batons rot unconsumed (the 0.50.0 scrub broke this).
+    ok(/1 pending prompt\b/.test(r.stdout), `stdout must announce the pending prompt; got: ${r.stdout}`);
+    ok(r.stdout.includes('dotmd use'), `the announcement must name the consume verb; got: ${r.stdout}`);
+    ok(r.stdout.includes('docs/prompts/x.md'), `the oldest prompt is named; got: ${r.stdout}`);
+    // Passive state stays out — these nudged phantom work.
     ok(!/errors:/.test(r.stdout), `stdout must not mention validation errors; got: ${r.stdout}`);
     ok(!r.stdout.includes('run dotmd check'), `stdout must not point at check; got: ${r.stdout}`);
 
-    // …but the structured shape still carries the state for programmatic callers.
+    // …and the structured shape still carries the state for programmatic callers.
     const j = JSON.parse(runCli(['hud', '--json']).stdout);
     strictEqual(j.prompts.length, 1, 'pending prompt present in --json');
     ok(j.errors >= 1, 'validation errors present in --json');
+  });
+
+  it('announces YOUR in-session plan when the journal attributes it to this sid', () => {
+    const docsDir = setupProject();
+    // Journal must be on for attribution.
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';\nexport const journal = true;\n`);
+    writeDoc(docsDir, 'mine.md', 'type: plan\nstatus: in-session\nupdated: 2025-01-01', '# Mine\n');
+    writeDoc(docsDir, 'theirs.md', 'type: plan\nstatus: in-session\nupdated: 2025-01-01', '# Theirs\n');
+    const entry = { ts: '2025-01-02T00:00:00.000Z', sid: 'sess-A', pid: 1, argv: ['use', 'docs/mine.md'], exit: 0, ms: 1, v: '0.0.0' };
+    writeFileSync(path.join(tmpDir, '.dotmd', 'journal.jsonl'), JSON.stringify(entry) + '\n');
+
+    const r = runCli(['hud'], { session: 'sess-A' });
+    strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
+    ok(r.stdout.includes('in-session (yours): docs/mine.md'), `owned plan announced; got: ${r.stdout}`);
+    ok(r.stdout.includes('dotmd baton'), `handoff verb named; got: ${r.stdout}`);
+
+    // A different session sees no owned line — and crucially, the
+    // single-in-session fallback must NOT print at SessionStart (that plan
+    // likely belongs to another live session).
+    const other = runCli(['hud'], { session: 'sess-B' });
+    ok(!other.stdout.includes('in-session (yours)'), `no owned line for an unattributed sid; got: ${other.stdout}`);
+  });
+
+  it('stays prompt-silent when nothing is pending', () => {
+    const docsDir = setupProject();
+    writeDoc(docsDir, 'p.md', 'type: plan\nstatus: active\nupdated: 2025-01-01\nmodules: [core]', '# P\n');
+    const r = runCli(['hud']);
+    strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
+    ok(!/\d+ pending prompt/.test(r.stdout), `no pending-prompt line when queue is empty; got: ${r.stdout}`);
+    ok(!/in-session \(yours\)/.test(r.stdout), `no owned line without journal attribution; got: ${r.stdout}`);
   });
 
   it('--json still exposes structured state for programmatic callers', () => {
@@ -165,19 +203,22 @@ describe('dotmd hud', () => {
     ok(errorCount(hudJson.stdout) >= 1, 'archive drift counted');
   });
 
-  it('stdout stays under ~500 bytes regardless of repo state', () => {
+  it('stdout stays bounded (O(1)) regardless of repo state', () => {
     const docsDir = setupProject();
     for (let i = 0; i < 5; i++) {
       writeDoc(docsDir, `held-${i}.md`, 'type: plan\nstatus: active\nupdated: 2025-01-01', '# held\n');
       runCli(['pickup', `held-${i}.md`]);
     }
     mkdirSync(path.join(docsDir, 'prompts'), { recursive: true });
-    for (let i = 0; i < 5; i++) {
+    // The pending-prompt line must name only the oldest + a count — never the
+    // whole queue — so output size is independent of how many are pending.
+    for (let i = 0; i < 25; i++) {
       writeDoc(docsDir, `prompts/p-${i}.md`, 'type: prompt\nstatus: pending\ncreated: 2025-01-01', 'body\n');
     }
     const r = runCli(['hud']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
-    ok(r.stdout.length < 500, `hud output too large: ${r.stdout.length} bytes\n${r.stdout}`);
+    ok(r.stdout.length < 700, `hud output too large: ${r.stdout.length} bytes\n${r.stdout}`);
+    ok(/25 pending prompts/.test(r.stdout), `count announced; got: ${r.stdout}`);
   });
 
   // The plugin's SessionStart/SubagentStart hooks fire in every repo. In a repo

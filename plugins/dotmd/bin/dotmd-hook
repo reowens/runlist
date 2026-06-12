@@ -30,4 +30,29 @@ if ! command -v dotmd >/dev/null 2>&1; then
   exit 0
 fi
 
+# PreToolUse fast path: the guard fires on EVERY Bash/Read/Edit/Write call, and
+# a full Node boot (~100ms: CLI startup + config discovery) is pure overhead for
+# the vast majority of payloads no guard rule can possibly match. Every rule
+# needs a `.md` path AND either a prompts/ path (commit/cat/read-prompt) or the
+# word `status` (edit-status) somewhere in the payload — a cheap shell glob
+# decides that without leaving sh. Anything else gets the no-opinion reply
+# (`{}`) directly. False positives here just pay the old cost (Node runs and
+# returns {}); false negatives are impossible because the globs are strictly
+# weaker than the rules they gate.
+if [ "$1" = "guard" ]; then
+  payload=$(cat)
+  case "$payload" in
+    *.md*)
+      case "$payload" in
+        *prompts/*|*status*)
+          printf '%s' "$payload" | dotmd "$@"
+          exit $?
+          ;;
+      esac
+      ;;
+  esac
+  printf '{}\n'
+  exit 0
+fi
+
 exec dotmd "$@"

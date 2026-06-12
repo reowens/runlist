@@ -928,7 +928,10 @@ export function appendVersionHistory(filePath, entry, { createSection = false } 
 
 export function updateFrontmatter(filePath, updates) {
   const raw = readFileSync(filePath, 'utf8');
-  if (!raw.startsWith('---\n')) throw new Error(`${filePath} has no frontmatter block.`);
+  // Name the remedy in the error: this is where every status verb lands when a
+  // doc was created outside dotmd, and "no frontmatter block" alone left
+  // sessions retrying other verbs instead of fixing the doc.
+  if (!raw.startsWith('---\n')) throw new Error(`${filePath} has no frontmatter block. Retrofit it first: dotmd bulk-tag ${filePath} --type <type> --status <status>`);
 
   const endMarker = raw.indexOf('\n---\n', 4);
   if (endMarker === -1) throw new Error(`${filePath} has unclosed frontmatter block.`);

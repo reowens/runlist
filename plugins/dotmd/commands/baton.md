@@ -1,20 +1,29 @@
 ---
-description: "Save a resume prompt for the active plan and close it out — the minimum handoff. Use when the user says hand off / save a resume / wrap up, or when context is getting tight."
-allowed-tools: "Bash(dotmd:*), Bash(git commit:*), Read"
+description: "Save a resume prompt for whatever this session is doing — and release the plan if one is in-session. Use when the user says save a resume / hand off / wrap up, or when context is getting tight."
+allowed-tools: "Bash(dotmd:*), Bash(git commit:*), Write"
 ---
 
-Wrap this session. Three steps:
+Save a resume prompt for the work in flight. Two steps, one command:
 
-1. **Save the resume prompt.** `dotmd new prompt resume-<plan-slug> @/tmp/draft.md` (or `-` for stdin). 10–20 line body: the next concrete decision plus any gotchas — NOT a recap of the plan body. The saved prompt IS the handoff — never print it into chat for copy-paste. (`docs/prompts/` is usually gitignored — the prompt is local session state, do not commit it.)
+1. **Write the draft** to a temp file (`/tmp/baton.md`): 10–20 lines — the next concrete decision plus any gotchas, NOT a recap. Reference the relevant plan/doc paths inside the draft so the next session can orient.
 
-2. **Close out via `dotmd set <status>`.** Pick the status that matches reality:
-    - `dotmd set active <file>` — work continues; return the plan to the active queue
-    - `dotmd set archived <file>` — fully shipped (also: `dotmd archive <file>`)
-    - `dotmd set paused <file>` / `awaiting <file>` / `partial <file>` / `blocked <file>` — when the status really changed
-  `set` clears the in-session marker automatically when transitioning to any other status.
+2. **Run the verb** — pick the form that matches reality:
 
-3. **Commit the tracked changes.** `dotmd set`/`archive` edits the plan's frontmatter and (for archive) moves the file — those are git-tracked and must be committed: `git commit -m "..." -- <plan-path>` (archive: `-- <old-path> <new-path>` so git shows a rename). **Never add the generated plans index or `docs/prompts/**` to the pathspec — both are gitignored and will fail the commit.** The index regenerates itself.
+   ```bash
+   dotmd baton @/tmp/baton.md                # a plan is in-session: saves resume-<plan-slug>,
+                                             # flips it in-session → active, prints the exact commit
+   dotmd baton <slug> @/tmp/baton.md         # no plan involved: saves resume-<slug>, touches NOTHING else
+   ```
 
-If you don't already know which plan is in-session: `dotmd hud --json` and read `.owned`. Do NOT use `dotmd plans --status in-session` — that lists every session's in-session plans, not just yours.
+   The user saying "save a resume prompt for this" does NOT require a plan — slug mode exists precisely for that. Variations (plan mode only):
+   - `dotmd baton <plan-file> @/tmp/baton.md` — when baton can't tell which plan is yours.
+   - `--status paused|awaiting|partial|blocked` — when the plan's reality changed; default `active` is right for plain "work continues".
+   - `--note "why"` — records the reason in `## Version History` in the same call.
 
-The next session's `dotmd hud` (SessionStart hook) surfaces the pending prompt automatically. See the **dotmd** skill for the full workflow.
+   If baton printed a `git commit` command, run it as-is. If it didn't, nothing repo-tracked changed — you're done.
+
+**Scope guard — baton is the whole closeout. Do NOT:**
+- run `dotmd use` (that *consumes* prompts / *starts* plans — the wrong direction during a handoff; running it on your own freshly saved prompt destroys the handoff),
+- change the status of any other plan, or triage the repo on the way out,
+- commit the prompt or the generated index (only run the commit baton printed, verbatim),
+- paste the resume text into chat for copy-paste; the next session's `dotmd hud` surfaces the saved prompt automatically.

@@ -381,6 +381,43 @@ describe('dotmd prompts archive', () => {
   });
 });
 
+describe('dotmd prompts show', () => {
+  beforeEach(setupProject);
+
+  it('prints the body WITHOUT consuming', () => {
+    const file = writePrompt('peek-me', { body: 'peek body text' });
+    const r = run(['prompts', 'show', 'peek-me']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(r.stdout.includes('peek body text'), `body printed:\n${r.stdout}`);
+    ok(existsSync(file), 'prompt NOT archived by show');
+    const after = readFileSync(file, 'utf8');
+    ok(after.includes('status: pending'), 'status unchanged');
+  });
+
+  it('notes the read-only nature and the consume path on stderr', () => {
+    writePrompt('peek-me');
+    const r = run(['prompts', 'show', 'peek-me']);
+    match(r.stderr, /read-only peek/);
+    match(r.stderr, /dotmd use/);
+  });
+
+  it('`peek` is an alias', () => {
+    const file = writePrompt('peek-me', { body: 'peek body text' });
+    const r = run(['prompts', 'peek', 'peek-me']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(r.stdout.includes('peek body text'));
+    ok(existsSync(file), 'not consumed');
+  });
+
+  it('refuses non-prompt files', () => {
+    const file = path.join(docsDir, 'plan.md');
+    writeFileSync(file, '---\ntype: plan\nstatus: active\n---\nbody\n');
+    const r = run(['prompts', 'show', file]);
+    ok(r.status !== 0);
+    ok(r.stderr.includes('Not a prompt'));
+  });
+});
+
 describe('F14: held prompt status', () => {
   beforeEach(setupProject);
 

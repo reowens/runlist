@@ -9,5 +9,5 @@ export const KNOWN_COMMANDS = [
   'fix-refs', 'lint', 'rename', 'migrate', 'notion', 'export', 'summary',
   'watch', 'diff', 'new', 'init', 'completions', 'statuses', 'journal',
   'guard', 'misuse', 'update',
-  'ship', 'self-check',
+  'ship', 'self-check', 'baton',
 ];

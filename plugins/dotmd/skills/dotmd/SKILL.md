@@ -13,7 +13,7 @@ This repo's plans, reference docs, and saved prompts are managed by the **dotmd*
 1. **Orient** — `dotmd briefing` (or `dotmd plans`) to see active / paused / ready work, ages, and next steps.
 2. **Start work on a plan** — `dotmd use <plan-file>` marks it `in-session` and prints the plan card. (`dotmd set in-session <file>` sets the status without printing.)
 3. **Do the work.**
-4. **Close it** — pick the status that matches reality (see the decision tree below).
+4. **Close it** — pick the status that matches reality (see the decision tree below). Handing off mid-work instead? `dotmd baton @/tmp/draft.md` is the whole closeout: it saves the resume prompt, flips the plan back to `active` (`--status` to override), and prints the exact `git commit` to run. Don't add status changes or triage on top of it.
 
 ## The single status verb: `dotmd set <status> [<file>]`
 
@@ -37,18 +37,21 @@ Valid statuses are type-aware and project-specific — the SessionStart primer l
 - `dotmd new doc token-refresh-design` → `docs/token-refresh-design.md`
 - Body input modes (all types): `@path` (preferred for multi-line), `-` (stdin), `--message "…"`, or inline (one-liners only).
 
+**Plan frontmatter field lengths — write them right the first time.** `current_state` is a 2-4 sentence summary (cap 1500 chars); `next_step` is a 1-2 sentence pointer (cap 800). Everything longer goes in the body. If a cap warning fires anyway, run `dotmd doctor --frontmatter-fix` ONCE (it mechanically moves the overflow into the body) — do not hand-trim, re-run `dotmd check` in a loop, or audit other docs' warnings you didn't touch.
+
 ## Saved prompts — the #1 confusion point
 
 Saved prompts (`docs/prompts/*.md`) are **session-local handoff artifacts**, not source code:
 
 - **Consume, don't read.** If the user references a prompt — "resume via docs/prompts/foo.md", "use this prompt", "load that one" — run `dotmd use <file>` (no arg = oldest pending). It prints the body and archives the prompt atomically so it can't be double-consumed. **Do NOT `cat` it, Read it, or copy its body into chat.**
+- **Peek without consuming.** Triaging or surveying pending prompts (not acting on one)? `dotmd prompts show <file>` prints the body read-only — no archive, safe to repeat. Never `dotmd use` a prompt you only meant to look at, and never `use` a prompt you just saved (that destroys the handoff).
 - **Don't commit them.** The prompts dir is often gitignored; committing a pending prompt is wrong and may fail. No `git add` / `git commit` of `docs/prompts/*.md`.
-- **Queue one** instead of pasting a "here's how to resume" block into chat: `dotmd new prompt <slug> @/tmp/draft.md` (or `-` for stdin). The next session sees it at SessionStart.
+- **"Save a resume prompt" = `dotmd baton`**, any time, plan or no plan — never paste a "here's how to resume" block into chat. With a plan in-session, `dotmd baton @/tmp/draft.md` saves the prompt AND releases the plan; with no plan, `dotmd baton <slug> @/tmp/draft.md` just saves `resume-<slug>` and touches nothing else (reference the relevant plans/docs in the draft body). The next session sees it at SessionStart.
 
 ## Guardrails (the guard hook enforces these)
 
-- ❌ `git add/commit docs/prompts/*.md` → ✅ they're session-local; the next session runs `dotmd use`.
-- ❌ `cat`/Read a `docs/prompts/*.md` → ✅ `dotmd use <file>`.
+- ❌ `git add/commit docs/prompts/*.md` → ✅ they're session-local; the next session runs `dotmd use`. (Merely *mentioning* a prompt path in a commit message or a sibling command is fine — the guard only blocks commits whose pathspec includes a prompt.)
+- ❌ `cat`/Read a `docs/prompts/*.md` → ✅ `dotmd use <file>` to consume, `dotmd prompts show <file>` to peek.
 - ❌ change a `status:` line by hand (Edit, Write, `sed -i`, `perl -pi`) → ✅ `dotmd set <status> <file>`. This one is **blocked**, not just warned (config `guard: { deny: false }` for warn-only).
 
 ## Querying

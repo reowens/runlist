@@ -256,7 +256,7 @@ function mergeBodyFrontmatter(scaffoldFm, overrides, cliType) {
   return fm;
 }
 
-function readBodyInput(source) {
+export function readBodyInput(source) {
   if (source === '-') {
     try { return readFileSync(0, 'utf8'); } catch (err) { die(`Could not read body from stdin: ${err.message}`); }
   }
@@ -547,6 +547,12 @@ export async function runNew(argv, config, opts = {}) {
   // target for any type so "why won't this commit" never happens silently.
   if (typeName === 'prompt') {
     process.stdout.write(dim('Session-local — no need to commit. The next session runs `dotmd use` (or `dotmd use ' + repoPath + '`) to consume it.\n'));
+  }
+  // Teach the field-length contract at the moment the fields get written —
+  // learning it from a cap warning later sends sessions into hand-trim /
+  // re-check loops.
+  if (typeName === 'plan') {
+    process.stdout.write(dim('current_state = 2-4 sentence summary (cap 1500 chars); next_step = 1-2 sentence pointer (cap 800). Detail goes in the body, not frontmatter.\n'));
   }
   try {
     const { isGitIgnored } = await import('./git.mjs');

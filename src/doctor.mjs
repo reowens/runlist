@@ -155,6 +155,30 @@ function findDeprecatedCommandMentions(config) {
   return matches;
 }
 
+// Workflow-drift checks: configurations and docs that make the agent-facing
+// verbs (`use`, `set`, `baton`) blow up at the worst moment — mid-handoff.
+// Both failure modes came from real sessions: a repo whose plan vocab dropped
+// `in-session` (every `dotmd use` died), and a repo full of docs without
+// frontmatter blocks (every `dotmd set` died during closeout).
+function findWorkflowDrift(config) {
+  const docsWithoutFrontmatter = [];
+  for (const filePath of collectDocFiles(config)) {
+    let raw = '';
+    try { raw = readFileSync(filePath, 'utf8'); } catch { continue; }
+    if (!raw.startsWith('---\n')) docsWithoutFrontmatter.push(toRepoPath(filePath, config.repoRoot));
+  }
+
+  const planStatusGaps = [];
+  const planStatuses = config.typeStatuses?.get('plan');
+  if (planStatuses && planStatuses.size > 0) {
+    for (const required of ['in-session', 'active']) {
+      if (!planStatuses.has(required)) planStatusGaps.push(required);
+    }
+  }
+
+  return { docsWithoutFrontmatter, planStatusGaps };
+}
+
 function runDoctorProject(config, { json = false } = {}) {
   const cliPackage = readJsonIfPresent(new URL('../package.json', import.meta.url));
   const repoPackage = readJsonIfPresent(path.join(config.repoRoot, 'package.json'));
@@ -165,11 +189,14 @@ function runDoctorProject(config, { json = false } = {}) {
     ?? null;
   const claudeCommandWarnings = checkClaudeCommands(config.repoRoot);
   const deprecatedCommandMentions = findDeprecatedCommandMentions(config);
+  const { docsWithoutFrontmatter, planStatusGaps } = findWorkflowDrift(config);
   const result = {
     cliVersion: cliPackage?.version ?? null,
     packageDependency: depVersion,
     claudeCommandWarnings,
     deprecatedCommandMentions,
+    docsWithoutFrontmatter,
+    planStatusGaps,
   };
 
   if (json) {
@@ -186,6 +213,17 @@ function runDoctorProject(config, { json = false } = {}) {
     for (const file of deprecatedCommandMentions.slice(0, 10)) process.stdout.write(`  - ${file}\n`);
   } else {
     process.stdout.write('- docs mentioning deprecated commands: 0\n');
+  }
+  if (docsWithoutFrontmatter.length) {
+    process.stdout.write(yellow(`- docs without a frontmatter block: ${docsWithoutFrontmatter.length} — every status verb (\`set\`, \`archive\`, \`baton\`) dies on these. Fix: dotmd bulk-tag <file> --type <type> --status <status>`) + '\n');
+    for (const file of docsWithoutFrontmatter.slice(0, 10)) process.stdout.write(`  - ${file}\n`);
+  } else {
+    process.stdout.write('- docs without a frontmatter block: 0\n');
+  }
+  if (planStatusGaps.length) {
+    process.stdout.write(yellow(`- plan status vocab missing: ${planStatusGaps.join(', ')} — \`dotmd use\` and \`dotmd baton\` depend on these; add them to types.plan.statuses in dotmd.config.mjs`) + '\n');
+  } else {
+    process.stdout.write('- plan status vocab: ok\n');
   }
   return result;
 }

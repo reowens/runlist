@@ -2,6 +2,72 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## 0.61.0 — 2026-06-11
+
+### Added
+
+- **`dotmd baton` — the one-command handoff.** Saves the resume prompt
+  (`resume-<plan-slug>`, collision-safe `-2`, `-3`, …), releases the plan with a
+  single status flip (`in-session → active` by default; `--status`/`--note` to
+  override), and prints the exact `git commit` for the plan's frontmatter change
+  — prompt explicitly kept out of the pathspec. Resolves *this session's* plan
+  via the journal, falling back to the only in-session plan. Body via `@path`,
+  stdin, or `--message`; refuses to mutate anything until the body is secured.
+  The plugin's `/baton` command is now a thin wrapper around it instead of a
+  three-step choreography (real-world sessions kept expanding those steps into
+  repo triage).
+- **Baton slug mode — "save a resume prompt" works with no plan claimed.**
+  `dotmd baton <slug> @draft` saves `resume-<slug>` and touches nothing else:
+  no status changes, no commit hint, no plan required. Bare words that resolve
+  to a plan still engage plan mode; path-looking args still die on typos so a
+  mistyped plan path can never silently become a prompt name. `--status`/
+  `--note` are ignored with a warning in slug mode.
+- **`dotmd prompts show <file>` (alias `peek`)** — read-only peek at a saved
+  prompt without consuming it. The sanctioned triage path; the guard's
+  cat/read-prompt warnings now point at it instead of nudging `dotmd use`
+  (which, run on a prompt you just saved, destroyed the handoff).
+- **`dotmd hud --json` exposes `.owned`** — the journal-attributed in-session
+  plan for this session (`{ path, title, via }`, null when unattributable).
+  The help text previously documented this field but it never existed.
+- **`dotmd doctor --project` workflow-drift checks** — flags docs without a
+  frontmatter block (every status verb dies on those mid-handoff) and a plan
+  status vocab missing `in-session`/`active` (breaks `dotmd use`/`baton`).
+
+### Fixed
+
+- **SessionStart hook announces queued handoffs again.** The 0.50.0 "primer
+  only" scrub also suppressed pending prompts, which broke the last link of
+  the handoff loop: batons saved resume prompts that no next session was ever
+  told about, so pickup only happened when an agent spontaneously ran
+  `briefing`. `dotmd hud` now prints two *instruction* lines when they apply —
+  `N pending prompts — start by running dotmd use …` (names the oldest;
+  output stays O(1) in queue size) and `in-session (yours): <plan>` when the
+  journal attributes an in-session plan to this sid (the post-compaction
+  resume case; the single-in-session fallback deliberately does NOT print, as
+  that plan likely belongs to another live session). Passive state (error
+  counts, journal chatter) stays suppressed as designed.
+- **Guard false positives that poisoned legitimate commits.** `commit-prompt`
+  now evaluates per shell segment and ignores prose strings: a prompt path in a
+  sibling command (`dotmd check docs/prompts/x.md; git commit -- docs/plans/y.md`)
+  or inside a quoted commit message no longer denies the commit. `cat-prompt`
+  strips heredoc bodies, so the canonical `cat <<'EOF' | dotmd new prompt …`
+  flow is no longer scolded when the draft mentions a prompt path.
+- **~2s of dead latency on every guarded tool call.** The guard's stdin
+  fallback timer was never unref'd, so the hook process lingered the full 2s
+  after answering. Now exits as soon as the verdict is written (~40ms).
+- **PreToolUse fast path in the plugin hook wrapper.** Payloads that can't
+  possibly match a guard rule (no `.md`, or no `prompts/`/`status` token) get
+  the no-opinion reply straight from `sh` (~5ms) without booting Node.
+- **Frontmatter length caps taught upfront; over-cap warnings are
+  self-resolving.** `dotmd new plan` now states the field contract at creation
+  (current_state = 2-4 sentences / cap 1500; next_step = 1-2 sentences / cap
+  800; detail in the body), and the cap warnings prescribe the one mechanical
+  fix (`dotmd doctor --frontmatter-fix`) while explicitly forbidding the
+  hand-trim / re-check spiral sessions kept falling into.
+- **`updateFrontmatter` error names the remedy.** "has no frontmatter block"
+  now appends the `dotmd bulk-tag …` retrofit command — sessions hitting it
+  mid-closeout previously just retried other verbs.
+
 ## 0.50.2 — 2026-05-30
 
 ### Fixed
