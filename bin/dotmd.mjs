@@ -263,7 +263,7 @@ Setup:
 Global Options:
   --config <path>        Explicit config file path
   --root <name>          Filter to a specific docs root
-  --type <t1,t2>         Filter by document type (plan, doc, research)
+  --type <t1,t2>         Filter by document type (plan, doc, prompt)
   --dry-run, -n          Preview changes without writing anything
   --verbose              Show config details and doc count
   --help, -h             Show help (per-command: dotmd <cmd> --help)
@@ -410,7 +410,7 @@ Examples:
   query: `dotmd query — filtered document search
 
 Filters:
-  --type <t1,t2>         Filter by type (plan, doc, research)
+  --type <t1,t2>         Filter by type (plan, doc, prompt)
   --status <s1,s2>       Filter by status (comma-separated)
   --keyword <term>       Search title, summary, state, path
   --body                 Extend --keyword into document bodies (lazy scan, shows matching-line excerpts)
@@ -887,7 +887,7 @@ Options:
   --format <md|html|json>  Output format (default: md)
   --output <path>          Write to file/directory (default: stdout for md/json)
   --status <s1,s2>         Filter by status
-  --type <t1,t2>           Filter by type (plan, doc, research)
+  --type <t1,t2>           Filter by type (plan, doc, prompt)
   --module <name>          Filter by module
   --root <name>            Filter by root
   --dry-run, -n            Preview without writing`,
