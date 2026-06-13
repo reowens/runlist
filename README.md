@@ -33,7 +33,7 @@ dotmd new my-feature        # scaffold a new doc with frontmatter
 dotmd list                  # index all docs grouped by status
 dotmd check                 # validate frontmatter and references
 dotmd context               # compact briefing (great for LLM context)
-dotmd doctor                # auto-fix everything in one pass
+dotmd doctor                # preview fixes for everything (--apply to write)
 ```
 
 ### Shell Completion
@@ -83,7 +83,9 @@ Explicit frontmatter always wins. Body extraction is a cushion for partially-tag
 ## What It Does
 
 - **Index** — group docs by status, with auto-detected progress bars (from `- [ ]` checklists) and next steps
-- **Query** — filter by status, keyword, module, surface, owner, staleness
+- **Query** — filter by status, keyword, module, surface, owner, staleness; `dotmd grep` searches document bodies too
+- **Resume handoff** — `dotmd baton` saves a resume prompt for the next session and releases the in-session plan in one verb
+- **Runlists** — group plans into an ordered sequence on a hub plan; `dotmd runlist next` picks up the next one
 - **Validate** — check for missing fields, broken references, broken body links, stale dates
 - **Stats** — health dashboard with staleness, completeness, audit coverage
 - **Graph** — visualize document relationships as text, Graphviz DOT, or JSON
@@ -129,7 +131,7 @@ Design doc content here...
 - [ ] Add tests
 ```
 
-The only required field is `status`. Everything else is optional but unlocks more features. The `type` field (`plan`, `doc`, or `research`) enables type-specific statuses and smarter context briefings.
+The only required field is `status`. Everything else is optional but unlocks more features. The `type` field (`plan`, `doc`, or `prompt`) enables type-specific statuses and smarter context briefings.
 
 > **Note:** `module:` and `surface:` (singular) are deprecated as of 0.36.3 — use the plural array forms (`modules:`, `surfaces:`). Run `dotmd lint --fix` to migrate existing docs.
 
@@ -177,6 +179,29 @@ Each *quiet* status (`partial`, `queued-after`, `archived`) is exempt from stale
 
 > **Heads-up:** versions before 0.15 included a `done` plan status in the defaults. It saw effectively zero real-world use (plans went `in-session`/`active` → `archived` directly), so it was dropped from the built-in vocabulary. To finish a plan, run `dotmd archive <plan-file>` — or, if you preferred the previous behavior, add `done` back via the `types.plan.statuses` key in your config.
 
+### Runlists: ordered groups of plans
+
+When several plans must ship in a known order (an "auth revamp" sprint with extract → rewrite → cleanup phases), declare a `runlist:` array on a hub plan instead of chaining `queued-after` per pair or keeping the order in prose:
+
+```yaml
+---
+type: plan
+status: active
+title: Auth Revamp
+runlist:
+  - auth-revamp-01-extract.md
+  - auth-revamp-02-rewrite.md
+  - auth-revamp-03-cleanup.md
+---
+```
+
+```bash
+dotmd runlist <hub>          # children + statuses in order; first non-archived child marked →
+dotmd runlist next <hub>     # pick up the next child (marks in-session + prints it)
+```
+
+`runlist next` stops with a runlist-aware error if the next child isn't in a workable status (`active` / `planned` / `in-session`), so you resolve the blocker before continuing. Each child should set `parent_plan:` pointing back at the hub — `dotmd check` warns when it doesn't. There's no separate doc type: a runlist hub is just a plan with the array.
+
 ## Commands
 
 ```
@@ -191,27 +216,36 @@ dotmd unblocks <file>        Show what depends on this doc
 dotmd health [--json]        Plan velocity, aging, and pipeline
 dotmd briefing               Compact summary for session start
 dotmd context [--summarize]  Full briefing (LLM-oriented)
+dotmd agent-context          Compact bounded JSON context for agents
 dotmd focus [status]         Detailed view for one status group
-dotmd query [filters]        Filtered search
-dotmd plans                  List all plans
+dotmd query [filters]        Filtered search (--body scans document bodies)
+dotmd grep <term>            Keyword search incl. bodies — "which doc discussed X?"
+dotmd plans                  List live plans (excludes archived)
 dotmd modules                Module dashboard (plans grouped by module)
 dotmd module <name>          Plans for one module, grouped by status
+dotmd surfaces               List configured surface taxonomy
 dotmd stale                  List stale docs
 dotmd actionable             List docs with next steps
 dotmd index [--print]        Generate/update docs.md index block
 dotmd hud                    Actionable triage (silent when clean — ideal SessionStart hook)
-dotmd use <file>             Open a plan (in-session + print it) or consume a prompt
-dotmd set <status> <file>    Change a document's status (frontmatter write)
+dotmd use [<file-or-slug>]   Open by type: prompt → consume, plan → start, doc → read
+                             (no arg: consume the oldest pending prompt)
+dotmd set <status> <file>    Change a document's status (--note appends why to Version History)
+dotmd baton [<plan>|<slug>] <@draft|->  Save a resume prompt; releases the in-session plan
+dotmd runlist <hub> [next]   Show or walk an ordered group of plans
 dotmd status <file> <status> Transition document status (deprecated; prefer set)
 dotmd archive <file>         Archive (status + move + update refs)
 dotmd bulk archive <files>   Archive multiple files at once
+dotmd bulk-tag [files]       Tag pre-existing untagged .md files
 dotmd touch <file>           Bump updated date
 dotmd touch --git            Bulk-sync dates from git history
-dotmd doctor                 Auto-fix everything in one pass
+dotmd doctor [--apply]       Fix refs, lint, dates, index (previews by default)
+dotmd self-check             Project/version skew diagnostic
 dotmd fix-refs               Auto-fix broken reference paths
 dotmd lint [--fix]           Check and auto-fix frontmatter issues
 dotmd rename <old> <new>     Rename doc and update references
 dotmd migrate <f> <old> <new>  Batch update a frontmatter field
+dotmd ship [patch|minor|major] Regen + commit + bump in one step
 dotmd notion <sub> [db-id]   Notion import/export/sync
 dotmd export [file]          Export docs as md, html, or json
 dotmd summary <file>         AI summary of a document
@@ -219,11 +253,14 @@ dotmd glossary <term>        Look up domain terms + related docs
 dotmd watch [command]        Re-run a command on file changes
 dotmd diff [file]            Show changes since last updated date
 dotmd new <type> <name>      Create a new doc (type: doc, plan, or prompt)
-dotmd prompts [sub]          Manage saved prompts (list, next, use, hold, archive, new)
+dotmd prompts [sub]          Manage saved prompts (list, show, hold, archive, new)
+dotmd statuses [sub]         Manage per-project status taxonomy
 dotmd journal [flags]        View opt-in command-usage journal (DOTMD_JOURNAL=1)
 dotmd init                   Create starter config + docs directory
 dotmd completions <shell>    Output shell completion script (bash, zsh)
 ```
+
+Run `dotmd help all` for the always-current version of this list, `dotmd help statuses` for the status vocabulary, and `dotmd <cmd> --help` for per-command details.
 
 ### Global Flags
 
@@ -231,7 +268,7 @@ dotmd completions <shell>    Output shell completion script (bash, zsh)
 --config <path>        Explicit config file path
 --dry-run, -n          Preview changes without writing anything
 --root <name>          Filter to a specific docs root
---type <t1,t2>         Filter by document type (plan, doc, research)
+--type <t1,t2>         Filter by document type (plan, doc, prompt, or custom)
 --verbose              Show resolved config details
 --help, -h             Show help (per-command with: dotmd <cmd> --help)
 --version, -v          Show version
@@ -246,9 +283,12 @@ dotmd query --stale --sort updated --all
 dotmd query --surface backend --checklist-open
 dotmd query --status active --summarize             # AI summaries
 dotmd query --status active --summarize --summarize-limit 3
+dotmd query --keyword "retries" --body              # scan document bodies too
 ```
 
-Flags: `--type`, `--status`, `--keyword`, `--module`, `--surface`, `--domain`, `--owner`, `--updated-since`, `--stale`, `--has-next-step`, `--has-blockers`, `--checklist-open`, `--sort`, `--limit`, `--all`, `--git`, `--json`, `--summarize`, `--summarize-limit`, `--model`.
+Flags: `--type`, `--status`, `--keyword`, `--body`, `--module`, `--surface`, `--domain`, `--owner`, `--updated-since`, `--stale`, `--has-next-step`, `--has-blockers`, `--checklist-open`, `--sort`, `--limit`, `--all`, `--git`, `--json`, `--summarize`, `--summarize-limit`, `--model`.
+
+`dotmd grep <term>` is the "which doc discussed X?" shorthand — an alias for `dotmd query --keyword <term> --body --all` that prints doc cards plus line-numbered excerpts per body hit. Bodies are read lazily (frontmatter filters run first), and it composes with the usual query flags.
 
 ### Create Documents
 
@@ -311,9 +351,19 @@ dotmd new prompt from-file @/tmp/draft.md
 
 Manage them with the `prompts` command family:
 
+Consume one with `dotmd use` — it atomically prints the body and archives the prompt so it can't be double-consumed:
+
+```bash
+dotmd use                         # consume the oldest pending prompt
+dotmd use <file-or-slug>          # consume a specific prompt
+```
+
+Admin verbs live under the `prompts` namespace:
+
 ```bash
 dotmd prompts                     # list pending prompts (default)
 dotmd prompts list --all          # all statuses
+dotmd prompts show <file>         # read-only peek: print the body WITHOUT consuming
 dotmd prompts next                # print body of oldest pending + auto-archive (one-shot)
 dotmd prompts use <file>          # print body of a specific prompt + auto-archive
 dotmd prompts hold <file>         # park a prompt (status → held) under prompts/held/:
@@ -327,6 +377,31 @@ dotmd prompts new <name> [body]   # alias for `dotmd new prompt`
 `dotmd hud` surfaces pending prompts on session start, so a saved prompt acts as a self-addressed reminder: write it now, the next session sees it. Held prompts are kept out of the SessionStart surface — use them for "saved but not next."
 
 Statuses: `pending` (drafted, awaiting a session), `held` (saved but parked under `prompts/held/` — visible in `prompts list`, hidden from `hud`/`briefing`, skipped by `prompts next`), `archived` (consumed or filed away). `shelved` is a legacy spelling accepted for older files; `claimed` is reserved for a future "in-flight" state but is currently a synonym for archived in practice.
+
+### Baton: resume prompts & session handoff
+
+`dotmd baton` is the "save a resume prompt" verb — the way one session hands work to the next without pasting resume text into chat. Write a short draft (the next concrete decision plus any gotchas, not a recap), then:
+
+```bash
+dotmd baton @/tmp/draft.md        # plan mode: a plan is in-session
+```
+
+In plan mode, baton does the whole closeout in one call:
+
+1. Saves a resume prompt named `resume-<plan-slug>` (collision-safe: `-2`, `-3`, …) under `docs/prompts/` with `status: pending`.
+2. Releases the plan: one status flip, `in-session` → `active` by default (`--status paused|awaiting|partial|blocked` to override, `--note "why"` to record the reason in `## Version History`).
+3. Prints the exact `git commit` command for the plan's frontmatter change — the prompt stays out of the pathspec, because saved prompts are session-local.
+
+Baton resolves *your* plan via the command journal (or takes it explicitly: `dotmd baton <plan-file> @draft`), falling back to the only in-session plan.
+
+No plan involved? Slug mode saves the prompt and touches nothing else:
+
+```bash
+dotmd baton checkout-fixes @/tmp/draft.md    # saves resume-checkout-fixes; no status changes
+cat /tmp/draft.md | dotmd baton              # body from stdin
+```
+
+Either way, the next session's `dotmd hud` surfaces the pending prompt, and `dotmd use` consumes it.
 
 ### Command Journal (opt-in)
 
@@ -403,8 +478,8 @@ Shows: status counts, staleness, errors/warnings, freshness (today/week/month), 
 ### Doctor
 
 ```bash
-dotmd doctor                 # fix refs → lint → sync git dates → regen index
-dotmd doctor --dry-run       # preview all changes
+dotmd doctor                 # preview: fix refs → lint → sync git dates → regen index
+dotmd doctor --apply         # actually write the fixes (previews by default since 0.37.0)
 dotmd doctor --statuses      # detect overloaded status buckets (read-only)
 dotmd doctor --statuses --json  # machine-readable suggestions
 ```
@@ -606,6 +681,15 @@ dotmd archive docs/plans/my-plan.md --closeout-template   # also inject ## Close
 
 `in-session` is a status like any other — `dotmd set <status> <file>` writes it
 to the file's frontmatter and does nothing else.
+
+Add `--note "why"` to any `set` or `archive` to append the reason to the doc's
+`## Version History` section in the same call (creates the section if missing) —
+it saves the status-change + worklog-edit round-trip. `set partial` without a
+note or successor link prints a reminder.
+
+To stop mid-work and hand off to a future session, use `dotmd baton` (see
+[Baton](#baton-resume-prompts--session-handoff)) — it saves the resume prompt
+and releases the plan in one verb.
 
 **Recommended Claude Code hook** — add to `~/.claude/settings.json`
 (or your project's `.claude/settings.json`):
