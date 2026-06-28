@@ -162,6 +162,7 @@ export function runRunlists(index, argv, config) {
       status: d.status,
       title: d.title,
       childCount: coordination.get(d.path)?.childCount ?? 0,
+      nextPickup: coordination.get(d.path)?.nextPickup ?? null,
       updated: d.updated,
       nextStep: d.nextStep ?? null,
     }));
@@ -782,9 +783,18 @@ function renderCoordinationSection(coordDocs, coordination, maxWidth, total) {
     const statusTag = doc.status && doc.status !== 'active' ? ` ${colorTag(doc.status)}` : '';
     const desc = (doc.nextStep || doc.currentState || doc.title || '').replace(/\s+/g, ' ').trim();
 
+    // Next-pickup (first non-archived ranked child from the body) leads the
+    // description column when one resolves — it's the most actionable cell. Its
+    // status is shown only when it's not the expected `active`.
+    const next = info?.nextPickup;
+    const nextStr = next
+      ? `${green('→')} ${next.label}${next.status && next.status !== 'active' ? dim(` (${next.status})`) : ''}`
+      : '';
+    const nextPart = nextStr ? `${nextStr}  ` : '';
+
     const left = `  ${slug}  ${ageStr}  ${dim(count)}  `;
-    const budget = Math.max(10, maxWidth - visibleLen(left) - visibleLen(statusTag) - 2);
+    const budget = Math.max(10, maxWidth - visibleLen(left) - visibleLen(nextPart) - visibleLen(statusTag) - 2);
     const descR = desc.length > budget ? desc.slice(0, budget - 3) + '...' : desc;
-    process.stdout.write(`${left}${dim(descR)}${statusTag}\n`);
+    process.stdout.write(`${left}${nextPart}${dim(descR)}${statusTag}\n`);
   }
 }

@@ -89,6 +89,10 @@ export function isCoordinationHub(doc) {
 // cluster (resolved against the index; peers/self excluded). It's an
 // approximation — `related_plans` is a *related* cluster, not a strict child
 // list — so it's shown as a rough "N plans" hint, not an authoritative count.
+// Each hub also gets a `nextPickup` (or null) parsed from its body order — the
+// first non-archived ranked child — so prose-first hubs surface a next-pickup
+// target the way sprint `runlist:` hubs do. Reads each hub's file (a small,
+// bounded set), so this is no longer pure in-memory like `buildRunlistIndex`.
 export function buildCoordinationIndex(index, config) {
   const docByPath = new Map(index.docs.map(d => [d.path, d]));
   const byBasename = new Map();
@@ -96,6 +100,15 @@ export function buildCoordinationIndex(index, config) {
     const base = d.path.split('/').pop();
     if (!byBasename.has(base)) byBasename.set(base, d);
   }
+  const archiveStatuses = config.lifecycle?.archiveStatuses ?? new Set(['archived']);
+
+  // Resolve a path-or-basename ref (from frontmatter or body) to an indexed doc.
+  const resolveRef = (ref, dir) => {
+    const abs = resolveRefPath(ref, dir, config.repoRoot);
+    let child = abs ? docByPath.get(toRepoPath(abs, config.repoRoot)) ?? null : null;
+    if (!child) child = byBasename.get(ref.split('/').pop()) ?? null;
+    return child;
+  };
 
   const hubs = new Map();
   for (const doc of index.docs) {
@@ -104,14 +117,13 @@ export function buildCoordinationIndex(index, config) {
     const refs = doc.refFields?.related_plans ?? [];
     const childPaths = new Set();
     for (const ref of refs) {
-      const abs = resolveRefPath(ref, dir, config.repoRoot);
-      let child = abs ? docByPath.get(toRepoPath(abs, config.repoRoot)) ?? null : null;
-      if (!child) child = byBasename.get(ref.split('/').pop()) ?? null;
+      const child = resolveRef(ref, dir);
       if (child && child.path !== doc.path && (child.type === 'plan' || child.type == null)) {
         childPaths.add(child.path);
       }
     }
-    hubs.set(doc.path, { doc, childCount: childPaths.size, childPaths });
+    const nextPickup = resolveHubNextPickup(doc, dir, resolveRef, archiveStatuses, config);
+    hubs.set(doc.path, { doc, childCount: childPaths.size, childPaths, nextPickup });
   }
   return hubs;
 }
@@ -169,26 +181,91 @@ function resolveRunlistRefs(refs, hubAbsPath, config) {
   return out;
 }
 
+// Extract ordered plan refs from a hub's body prose. Two shapes:
+//   - link-list sections (`## Order of operations`, `## Runlist`, …) — every
+//     `.md` link or checklist item, in document order.
+//   - ranked-queue tables (`## Ranked queue`, …) — the first `.md` link in each
+//     table row (the ranked plan); header/separator rows contribute none.
+// Coordination hubs encode their next-pickup order in the table shape; sprint-
+// ish hubs use the link list. Deduped, first occurrence wins, order preserved.
 function detectBodyRunlistRefs(body) {
   if (!body) return [];
-  const sectionRe = /^##\s+(Order of operations|Runlist|Execution order|Implementation order|Plan order)\s*$/gim;
   const refs = [];
-  let match;
-  while ((match = sectionRe.exec(body)) !== null) {
-    const start = match.index + match[0].length;
+  const linkRe = /\[[^\]]+\]\(([^)]+\.md(?:#[^)]+)?)\)/;
+  const sliceSection = (start) => {
     const rest = body.slice(start);
     const next = rest.search(/^##\s+/m);
-    const section = next >= 0 ? rest.slice(0, next) : rest;
+    return next >= 0 ? rest.slice(0, next) : rest;
+  };
 
-    const linkRe = /\[[^\]]+\]\(([^)]+\.md(?:#[^)]+)?)\)/g;
+  const linkSectionRe = /^##\s+(?:Order of operations|Runlist|Execution order|Implementation order|Plan order)\b.*$/gim;
+  let match;
+  while ((match = linkSectionRe.exec(body)) !== null) {
+    const section = sliceSection(match.index + match[0].length);
+    const allLinks = new RegExp(linkRe.source, 'g');
     let link;
-    while ((link = linkRe.exec(section)) !== null) refs.push(link[1]);
+    while ((link = allLinks.exec(section)) !== null) refs.push(link[1]);
 
     const checklistRe = /^\s*[-*]\s+\[[ xX]\]\s+([^\s)]+\.md(?:#[^\s)]+)?)/gm;
     let item;
     while ((item = checklistRe.exec(section)) !== null) refs.push(item[1]);
   }
+
+  // Ranked-queue tables: the first `.md` link per row is the ranked plan. A
+  // header (`| Rank | Plan | … |`) and separator (`|---|`) carry no link and are
+  // skipped naturally. Heading may carry trailing text (`## Ranked queue (next
+  // pickup)`), so match the leading words, not an exact line.
+  const queueSectionRe = /^##\s+(?:Ranked queue|Queue|Pickup order|Heads)\b.*$/gim;
+  while ((match = queueSectionRe.exec(body)) !== null) {
+    const section = sliceSection(match.index + match[0].length);
+    for (const rawLine of section.split('\n')) {
+      const line = rawLine.trim();
+      if (!line.startsWith('|')) continue;
+      const link = linkRe.exec(line);
+      if (link) refs.push(link[1]);
+    }
+  }
+
   return [...new Set(refs)];
+}
+
+// Label for a hub's next-pickup child: its slug with the hub's leading module
+// segment stripped when shared (so `founder-runlist` → `founder-brand-conflicts`
+// reads as `brand-conflicts`), mirroring how sprint children drop the hub
+// prefix. Falls back to the full slug when there's no shared leading segment.
+function coordinationChildLabel(childDoc, hubDoc) {
+  const childSlug = toSlug(childDoc);
+  const seg = toSlug(hubDoc).split('-')[0];
+  if (seg.length >= 2 && childSlug.startsWith(`${seg}-`) && childSlug.length > seg.length + 1) {
+    return childSlug.slice(seg.length + 1);
+  }
+  return childSlug;
+}
+
+// Read a coordination hub's body order (a `## Ranked queue` table or a
+// `## Order of operations` link list) and return its NEXT PICKUP: the first
+// ranked child that isn't archived, resolved to its live status from the index.
+// Prose-first hubs keep their sequence in the body, invisible to the
+// frontmatter-only index — this surfaces `next → <child>` the way sprint
+// `runlist:` hubs already do. Returns null when the hub has no parseable body
+// order or every ranked child is archived. Best-effort: a read failure degrades
+// to null, never throws.
+function resolveHubNextPickup(hubDoc, hubDir, resolveRef, archiveStatuses, config) {
+  let body;
+  try {
+    ({ body } = extractFrontmatter(readFileSync(path.join(config.repoRoot, hubDoc.path), 'utf8')));
+  } catch {
+    return null;
+  }
+  for (const ref of detectBodyRunlistRefs(body)) {
+    const child = resolveRef(ref, hubDir);
+    if (!child || child.path === hubDoc.path) continue;
+    if (child.type && child.type !== 'plan') continue;
+    const archived = archiveStatuses.has(child.status) || isArchivedPath(child.path, config);
+    if (archived) continue;
+    return { path: child.path, status: child.status ?? null, label: coordinationChildLabel(child, hubDoc) };
+  }
+  return null;
 }
 
 function readRunlistChildren(hubAbsPath, config) {

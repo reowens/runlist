@@ -583,6 +583,102 @@ function runRunlistsCmd(args, opts = {}) {
   });
 }
 
+// A coordination hub (execution_mode: coordination) whose body encodes its order
+// as a `## Ranked queue` table of markdown links — the founder-runlist shape.
+// Ranks 1-2 archived (physically under archived/), rank 3 is the next pickup.
+function setupRankedQueue() {
+  const plans = setupProject();
+  writeDoc(plans, 'founder-runlist.md', `type: plan
+status: active
+title: Founder Runlist
+execution_mode: coordination
+updated: 2026-06-25`, `# Founder Runlist
+
+## Ranked queue (next pickup)
+
+| Rank | Plan | Status | Next step |
+|------|------|--------|-----------|
+| 1 | [founder-timeline](archived/founder-timeline.md) | archived | done |
+| 2 | [founder-landing](archived/founder-landing.md) | archived | done |
+| 3 | [founder-brand-conflicts](./founder-brand-conflicts.md) | active **← next** | Phase 3 |
+| 4 | [founder-data-isolation](./founder-data-isolation.md) | active | program |
+`);
+  writeDoc(path.join(plans, 'archived'), 'founder-timeline.md', `type: plan
+status: archived
+title: Timeline
+updated: 2026-06-10`);
+  writeDoc(path.join(plans, 'archived'), 'founder-landing.md', `type: plan
+status: archived
+title: Landing
+updated: 2026-06-10`);
+  writeDoc(plans, 'founder-brand-conflicts.md', `type: plan
+status: active
+title: Brand Conflicts
+parent_plan: founder-runlist.md
+created: 2026-06-20
+updated: 2026-06-24`);
+  writeDoc(plans, 'founder-data-isolation.md', `type: plan
+status: active
+title: Data Isolation
+parent_plan: founder-runlist.md
+created: 2026-06-20
+updated: 2026-06-23`);
+  return plans;
+}
+
+describe('coordination-hub next-pickup (body ranked queue)', () => {
+  it('buildCoordinationIndex resolves nextPickup to the first non-archived ranked child', async () => {
+    setupRankedQueue();
+    const config = await resolveConfig(tmpDir);
+    const index = buildIndex(config);
+    const hub = buildCoordinationIndex(index, config).get('docs/plans/founder-runlist.md');
+    ok(hub.nextPickup, 'nextPickup resolved from the ranked-queue table');
+    strictEqual(hub.nextPickup.path, 'docs/plans/founder-brand-conflicts.md');
+    strictEqual(hub.nextPickup.status, 'active');
+    // Hub's leading module segment stripped, like sprint children drop the prefix.
+    strictEqual(hub.nextPickup.label, 'brand-conflicts');
+  });
+
+  it('returns nextPickup: null when the hub body has no parseable order', async () => {
+    setupCoordination(); // master/billing carry related_plans but no body order section
+    const config = await resolveConfig(tmpDir);
+    const index = buildIndex(config);
+    const hubs = buildCoordinationIndex(index, config);
+    strictEqual(hubs.get('docs/plans/master-runlist.md').nextPickup, null);
+    strictEqual(hubs.get('docs/plans/billing-runlist.md').nextPickup, null);
+  });
+
+  it('dotmd runlists renders → <label> for a hub with a ranked queue', () => {
+    setupRankedQueue();
+    const r = runRunlistsCmd([]);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    match(r.stdout, /founder-runlist\s+\d+d.*→ brand-conflicts/);
+
+    const j = runRunlistsCmd(['--json']);
+    const hub = JSON.parse(j.stdout).runlists.find(x => /founder-runlist/.test(x.path));
+    strictEqual(hub.nextPickup.path, 'docs/plans/founder-brand-conflicts.md');
+    strictEqual(hub.nextPickup.label, 'brand-conflicts');
+  });
+
+  it('dotmd health Runlists section shows the next pickup', () => {
+    setupRankedQueue();
+    const r = runCmd('health', []);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    match(r.stdout, /founder-runlist\s+\d+d.*→ brand-conflicts/);
+    const j = runCmd('health', ['--json']);
+    const hub = JSON.parse(j.stdout).runlists.hubs.find(x => /founder-runlist/.test(x.path));
+    strictEqual(hub.nextPickup.label, 'brand-conflicts');
+  });
+
+  it('dotmd runlist <hub> (singular) reads the ranked-queue table, marking the first non-archived', () => {
+    setupRankedQueue();
+    const r = run(['docs/plans/founder-runlist.md']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    match(r.stdout, /1\. \[archived\] docs\/plans\/archived\/founder-timeline\.md/);
+    match(r.stdout, /→\s+3\. \[active\] docs\/plans\/founder-brand-conflicts\.md/);
+  });
+});
+
 describe('dotmd runlists (dashboard)', () => {
   it('lists every coordination hub, most stale first, with --json support', () => {
     setupCoordination();

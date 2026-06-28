@@ -87,7 +87,7 @@ export function runHealth(argv, config) {
       ready: { count: readyPlans.length },
       planned: { count: plannedPlans.length },
       recentlyArchived: { count: recentlyArchived.length, last30d: recentlyArchived.map(d => path.basename(d.path, '.md')) },
-      runlists: { count: runlistHubs.length, hubs: runlistHubs.map(d => ({ path: d.path, title: d.title, status: d.status, childCount: coordination.get(d.path)?.childCount ?? 0 })) },
+      runlists: { count: runlistHubs.length, hubs: runlistHubs.map(d => ({ path: d.path, title: d.title, status: d.status, childCount: coordination.get(d.path)?.childCount ?? 0, nextPickup: coordination.get(d.path)?.nextPickup ?? null })) },
     }, null, 2) + '\n');
     return;
   }
@@ -122,9 +122,10 @@ export function runHealth(argv, config) {
     for (const doc of runlistHubs.slice(0, 8)) {
       const slug = hubLabel(doc).padEnd(28);
       const age = doc.daysSinceUpdate != null ? `${doc.daysSinceUpdate}d` : '?d';
-      const rel = coordination.get(doc.path)?.childCount;
-      const relStr = rel ? `  ${dim(`${rel} related`)}` : '';
-      process.stdout.write(`  ${slug} ${dim(age.padStart(4))}${relStr}\n`);
+      const info = coordination.get(doc.path);
+      const relStr = info?.childCount ? `  ${dim(`${info.childCount} related`)}` : '';
+      const nextStr = info?.nextPickup ? `  ${green('→')} ${info.nextPickup.label}` : '';
+      process.stdout.write(`  ${slug} ${dim(age.padStart(4))}${relStr}${nextStr}\n`);
     }
     if (runlistHubs.length > 8) {
       process.stdout.write(`  ${dim(`...and ${runlistHubs.length - 8} more`)}\n`);

@@ -1225,14 +1225,19 @@ when the hub is \`planned\`) still render on their own.
 Larger, prose-first "coordination" runlists (a domain map pointing at many
 plans, marked \`execution_mode: coordination\` or named \`*-runlist\`) aren't
 folded — they're lifted into a separate \`Runlists\` section in \`dotmd plans\`
-and out of the active count. \`dotmd runlists\` shows that dashboard on its own.`,
+and out of the active count. \`dotmd runlists\` shows that dashboard on its own.
+For these, \`runlist\`/\`runlist next\` also read order from the body when there's
+no \`runlist:\` array — a \`## Ranked queue\` table or \`## Order of operations\`
+list of markdown links (the first \`.md\` link per row/item, in order).`,
 
   runlists: `dotmd runlists — the coordination-hub dashboard
 
 Lists every *coordination runlist*: a prose-first plan that sits above a
 cluster of others (a domain map), detected by \`execution_mode: coordination\`
 or a \`*-runlist\` / \`runlist\` slug. Each row shows the hub, its age, the rough
-size of its \`related_plans:\` cluster, and a one-line descriptor.
+size of its \`related_plans:\` cluster, a \`next → <child>\` when the hub's body
+encodes order as markdown links (\`## Ranked queue\` table / \`## Order of
+operations\` list), and a one-line descriptor.
 
 This is the standalone form of the \`Runlists\` section that \`dotmd plans\`
 pins beneath the leaf-plan triage list.
@@ -1240,7 +1245,7 @@ pins beneath the leaf-plan triage list.
   dotmd runlists               All runlists (a small bounded set), most stale first.
   dotmd runlists --sort recent Order by recency instead (age|recent|related|title|status).
   dotmd runlists --limit N     Cap the list at N.
-  dotmd runlists --json        Structured rows (path, status, childCount, …).`,
+  dotmd runlists --json        Structured rows (path, status, childCount, nextPickup, …).`,
 
   'bulk-tag': `dotmd bulk-tag [files...] — fill in type/status frontmatter on pre-existing markdown
 
