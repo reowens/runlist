@@ -268,6 +268,117 @@ export function readBodyInput(source) {
   return source;
 }
 
+// Slug/title helpers shared by name resolution and runlist child generation.
+function slugify(s) {
+  return s.toLowerCase().replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').replace(/^-|-$/g, '');
+}
+function titleize(s) {
+  return s.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+// Resolve one `--runlist` token to a scaffolded child plan: a bare slug becomes
+// `<hub>-NN-<slug>.md` (the documented runlist naming convention). `pos` is the
+// 1-based position used for the zero-padded NN prefix. Tokens must be bare slugs
+// — a path is rejected (wiring an ordered hub to a plan that already lives
+// elsewhere needs a hub-relative ref, so it's a hand-edit, not a scaffold).
+function planChildFromToken(hubSlug, token, pos) {
+  const t = token.trim();
+  if (t.includes('/') || t.includes(path.sep)) {
+    die(`Runlist child "${token}" must be a bare slug, not a path. To put an existing plan in the runlist, add it to the hub's runlist: by hand.`);
+  }
+  const childSlug = slugify(t.replace(/\.md$/, ''));
+  if (!childSlug) die(`Runlist child token resolves to an empty slug: "${token}"`);
+  const nn = String(pos).padStart(2, '0');
+  return { file: `${hubSlug}-${nn}-${childSlug}.md`, title: titleize(t.replace(/\.md$/, '')) };
+}
+
+// Body for a sprint runlist hub: the children ARE the phases, so the heavy
+// generic plan scaffold (Goals/Phases/Deferred/…) is replaced by an ordered
+// `## Order of operations` list that mirrors the `runlist:` frontmatter.
+function runlistHubBody(title, hubSlug, children, bodyInput, today) {
+  const steps = children
+    .map((c, i) => `${i + 1}. [${c.title}](${c.file}) ⬜`)
+    .join('\n');
+  const n = children.length;
+  return `
+# ${title}
+
+> One-paragraph problem statement: what this runlist sprints toward, why now.
+
+## Problem
+
+${bodyInput?.trim() ?? ''}
+
+## Order of operations
+
+${steps}
+
+Pick up the next child with \`dotmd runlist next ${hubSlug}\` — it targets the
+first non-archived child. \`dotmd runlist ${hubSlug}\` shows the sequence + status.
+
+## Version History
+
+- **${today}** Created (runlist hub, ${n} ${n === 1 ? 'child' : 'children'}).
+`;
+}
+
+// Body for a coordination hub: prose-first domain map with a ranked-queue table.
+// Mirrors the `execution_mode: coordination` shape `dotmd runlists` reads.
+function coordinationHubBody(title, bodyInput, today) {
+  return `
+# ${title}
+
+> One-paragraph: the domain this hub coordinates and how to read the queue below.
+
+## Scope
+
+${bodyInput?.trim() ?? ''}
+
+## Ranked queue
+
+<!-- One row per coordinated plan, in pickup order; the gating column explains
+dependencies. Wire each plan into related_plans: so the "N related" count and
+graph pick it up. -->
+
+| # | Plan | Why / gating | Status |
+|---|------|--------------|--------|
+| 1 | \`<plan>.md\` | | |
+
+## Version History
+
+- **${today}** Created (coordination hub).
+`;
+}
+
+// Minimal child plan stub for a scaffolded runlist child. parent_plan points
+// back at the hub (same dir) so \`dotmd doctor\` is satisfied and the reverse
+// link/graph work; status starts `planned` (queued behind the hub).
+function runlistChildContent(childTitle, hubSlug, hubTitle, childStatus, today) {
+  return `---
+type: plan
+status: ${childStatus}
+created: ${today}
+updated: ${today}
+parent_plan: ${hubSlug}.md
+related_plans:
+current_state:
+next_step:
+---
+
+# ${childTitle}
+
+> Runlist child of [${hubTitle}](${hubSlug}.md).
+
+## Problem
+
+
+
+## Version History
+
+- **${today}** Created (runlist child of ${hubSlug}).
+`;
+}
+
 export async function runNew(argv, config, opts = {}) {
   const { dryRun } = opts;
 
@@ -289,9 +400,13 @@ export async function runNew(argv, config, opts = {}) {
   let bodyFlag = null;
   let bodyFlagName = null; // tracks which spelling the caller used, for error attribution
   let showFiles = opts.showFiles ?? false;
+  let runlistArg = null;     // --runlist a,b,c  → sprint hub + child stubs
+  let coordination = false;  // --coordination   → coordination hub skeleton
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--status' && argv[i + 1]) { status = argv[++i]; continue; }
     if (argv[i] === '--title' && argv[i + 1]) { title = argv[++i]; continue; }
+    if (argv[i] === '--runlist' && argv[i + 1]) { runlistArg = argv[++i]; continue; }
+    if (argv[i] === '--coordination') { coordination = true; continue; }
     // --body is the canonical flag; --message is a back-compat alias.
     if ((argv[i] === '--body' || argv[i] === '--message') && argv[i + 1]) {
       bodyFlagName = argv[i];
@@ -357,6 +472,24 @@ export async function runNew(argv, config, opts = {}) {
   const effective = config.typeStatuses?.get(typeName) ?? config.validStatuses;
   if (!effective.has(status)) {
     die(`Invalid status \`${status}\` for type \`${typeName}\`\nValid: ${[...effective].join(', ')}`);
+  }
+
+  // Runlist/coordination hubs are a plan shape, not a separate type. Guard the
+  // flags to type plan and reject the contradictory combination (a sprint
+  // `runlist:` array vs a prose-first coordination map are different shapes).
+  const isRunlistHub = runlistArg !== null;
+  const isCoordinationHub = coordination;
+  if ((isRunlistHub || isCoordinationHub) && typeName !== 'plan') {
+    die(`--${isRunlistHub ? 'runlist' : 'coordination'} only applies to plans. Use: dotmd new plan <name> --${isRunlistHub ? 'runlist a,b,c' : 'coordination'}`);
+  }
+  if (isRunlistHub && isCoordinationHub) {
+    die('--runlist and --coordination are mutually exclusive: a sprint runlist hub carries an ordered `runlist:` array; a coordination hub is a prose-first map (`execution_mode: coordination`). Pick one.');
+  }
+  const runlistTokens = isRunlistHub
+    ? runlistArg.split(',').map(s => s.trim()).filter(Boolean)
+    : [];
+  if (isRunlistHub && runlistTokens.length === 0) {
+    die('--runlist needs at least one child, e.g. --runlist extract,rewrite,cleanup');
   }
 
   // Body input resolution: --body flag > positional bodyArg > auto-piped-stdin > nothing
@@ -498,6 +631,10 @@ export async function runNew(argv, config, opts = {}) {
 
   const today = nowIso();
 
+  // Resolve runlist children from the hub slug (e.g. `extract` → hub-01-extract.md).
+  const runlistChildren = runlistTokens.map((tok, i) => planChildFromToken(slug, tok, i + 1));
+  const childStatus = effective.has('planned') ? 'planned' : status;
+
   // Generate content
   let content;
   const validSurfaces = config.raw?.taxonomy?.surfaces ?? (config.validSurfaces ? [...config.validSurfaces] : null);
@@ -508,7 +645,14 @@ export async function runNew(argv, config, opts = {}) {
   } else {
     let fm = template.frontmatter(status, today, tmplCtx);
     if (bodyFrontmatter) fm = mergeBodyFrontmatter(fm, bodyFrontmatter, typeName);
-    const body = template.body(docTitle, tmplCtx);
+    // Inject the hub-shape frontmatter (runlist array / coordination marker)
+    // on top of the standard plan scaffold, then swap in a purpose-built body.
+    if (isRunlistHub) fm = mergeBodyFrontmatter(fm, { runlist: runlistChildren.map(c => c.file) }, typeName);
+    if (isCoordinationHub) fm = mergeBodyFrontmatter(fm, { execution_mode: 'coordination' }, typeName);
+    let body;
+    if (isRunlistHub) body = runlistHubBody(docTitle, slug, runlistChildren, bodyInput, today);
+    else if (isCoordinationHub) body = coordinationHubBody(docTitle, bodyInput, today);
+    else body = template.body(docTitle, tmplCtx);
     content = `---\n${fm}\n---\n${body}`;
   }
 
@@ -525,9 +669,14 @@ export async function runNew(argv, config, opts = {}) {
     rootHint = `Root: ${chosenLabel} (others: ${others.join(', ')} — pass --root <name> to change)\n`;
   }
 
+  const hubKind = isRunlistHub ? ' (runlist hub)' : isCoordinationHub ? ' (coordination hub)' : '';
+
   if (dryRun) {
     process.stdout.write(`${dim('[dry-run]')} Would create: ${repoPath}\n`);
-    process.stdout.write(`${dim('[dry-run]')} Type: ${typeName}\n`);
+    process.stdout.write(`${dim('[dry-run]')} Type: ${typeName}${hubKind}\n`);
+    for (const c of runlistChildren) {
+      process.stdout.write(`${dim('[dry-run]')} Would create child: ${toRepoPath(path.join(baseDir, c.file), config.repoRoot)}\n`);
+    }
     if (rootHint) process.stdout.write(`${dim('[dry-run]')} ${rootHint}`);
     return;
   }
@@ -536,8 +685,21 @@ export async function runNew(argv, config, opts = {}) {
   mkdirSync(path.dirname(filePath), { recursive: true });
 
   writeFileSync(filePath, content, 'utf8');
-  process.stdout.write(`${green('Created')}: ${repoPath} ${dim(`(${typeName})`)}\n`);
+  process.stdout.write(`${green('Created')}: ${repoPath} ${dim(`(${typeName}${hubKind})`)}\n`);
   if (rootHint) process.stdout.write(dim(rootHint));
+
+  // Scaffold runlist child stubs. An existing child file is never clobbered.
+  const childPaths = [];
+  for (const c of runlistChildren) {
+    const childPath = path.join(baseDir, c.file);
+    if (existsSync(childPath)) {
+      warn(`Runlist child already exists, left as-is: ${toRepoPath(childPath, config.repoRoot)}`);
+      continue;
+    }
+    writeFileSync(childPath, runlistChildContent(c.title, slug, docTitle, childStatus, today), 'utf8');
+    childPaths.push(childPath);
+    process.stdout.write(`${green('Created')}: ${toRepoPath(childPath, config.repoRoot)} ${dim(`(plan · runlist child, ${childStatus})`)}\n`);
+  }
 
   // Post-create guidance. Prompts are the classic confusion point: agents
   // reflexively `git add && commit` a freshly-created file, but saved prompts
@@ -564,7 +726,7 @@ export async function runNew(argv, config, opts = {}) {
   regenIndex(config);
 
   if (showFiles) {
-    const touched = [filePath];
+    const touched = [filePath, ...childPaths];
     if (config.indexPath) touched.push(config.indexPath);
     emitFilesFooter(touched, config);
   }

@@ -86,6 +86,15 @@ runlist:
 ---
 ```
 
+Scaffold the whole sprint in one command instead of hand-writing the hub + children:
+
+```bash
+dotmd new plan auth-revamp --runlist extract,rewrite,cleanup
+# → hub with the runlist: array above + an `## Order of operations` list,
+#   plus auth-revamp-0{1,2,3}-*.md child stubs (status planned, parent_plan back-ref)
+dotmd new plan platform --coordination   # coordination hub: execution_mode + `## Ranked queue` skeleton
+```
+
 Then:
 
 - `dotmd runlist <hub>` — show the children + their statuses in order. First non-archived child is marked `→` (that's the next pickup target).

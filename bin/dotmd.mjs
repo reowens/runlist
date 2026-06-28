@@ -843,6 +843,20 @@ Examples:
   EOF
   dotmd new plan auth-revamp "Investigation findings before scoping…"
 
+Scaffolding runlists (plans only):
+  --runlist <a,b,c>    Create a sprint runlist hub plus one child plan per slug.
+                       The hub carries \`runlist: [<hub>-01-a.md, <hub>-02-b.md, …]\`
+                       and an \`## Order of operations\` list; each child is a
+                       \`planned\` stub with a \`parent_plan:\` back-ref. Children
+                       are named by the documented \`<hub>-NN-<slug>\` convention.
+  --coordination       Create a prose-first coordination hub: \`execution_mode:
+                       coordination\` + a \`## Ranked queue\` skeleton (no children).
+                       Surfaces in \`dotmd runlists\`, held out of the active count.
+  (\`--runlist\` and \`--coordination\` are mutually exclusive.)
+
+  dotmd new plan auth-revamp --runlist extract,rewrite,cleanup
+  dotmd new plan platform --coordination
+
 Other options:
   --status <s>         Set initial status (defaults to first valid status for the type)
   --title <t>          Override the auto-derived title

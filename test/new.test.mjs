@@ -1,6 +1,6 @@
 import { describe, it, afterEach } from 'node:test';
 import { strictEqual, ok } from 'node:assert';
-import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -842,5 +842,83 @@ describe('dotmd new — type-first CLI', () => {
       const content = readFileSync(path.join(tmpDir, 'docs', 'with-body.md'), 'utf8');
       ok(content.includes('note body'), `custom template should receive body: ${content}`);
     });
+  });
+});
+
+describe('dotmd new — runlist / coordination scaffolding', () => {
+  it('--runlist creates a sprint hub plus one child stub per slug', () => {
+    const docsDir = setupProject();
+    const r = run(['new', 'plan', 'auth-revamp', '--runlist', 'extract,rewrite,cleanup']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+
+    const hub = readFileSync(path.join(docsDir, 'plans', 'auth-revamp.md'), 'utf8');
+    // Frontmatter carries the ordered runlist array (documented NN naming).
+    ok(/runlist:\n\s+- auth-revamp-01-extract\.md\n\s+- auth-revamp-02-rewrite\.md\n\s+- auth-revamp-03-cleanup\.md/.test(hub),
+      `hub must carry the runlist array; got:\n${hub}`);
+    ok(hub.includes('## Order of operations'), 'hub has Order of operations');
+    ok(hub.includes('[Extract](auth-revamp-01-extract.md)'), 'hub links child 01');
+
+    // Three children, named NN, each a planned plan with a parent_plan back-ref.
+    for (const [nn, slug, title] of [['01', 'extract', 'Extract'], ['02', 'rewrite', 'Rewrite'], ['03', 'cleanup', 'Cleanup']]) {
+      const childPath = path.join(docsDir, 'plans', `auth-revamp-${nn}-${slug}.md`);
+      ok(existsSync(childPath), `child ${nn} must exist`);
+      const child = readFileSync(childPath, 'utf8');
+      ok(child.includes('type: plan'), `child ${nn} is a plan`);
+      ok(/status: planned/.test(child), `child ${nn} starts planned`);
+      ok(child.includes('parent_plan: auth-revamp.md'), `child ${nn} back-refs the hub`);
+      ok(child.includes(`# ${title}`), `child ${nn} titled from the bare slug`);
+    }
+  });
+
+  it('routes the body into the hub Problem section', () => {
+    const docsDir = setupProject();
+    const r = run(['new', 'plan', 'auth-revamp', '--runlist', 'extract', '--body', 'Rework auth end to end.']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    const hub = readFileSync(path.join(docsDir, 'plans', 'auth-revamp.md'), 'utf8');
+    ok(/## Problem\n\nRework auth end to end\./.test(hub), `body should land in Problem; got:\n${hub}`);
+  });
+
+  it('--coordination creates a coordination hub with no children', () => {
+    const docsDir = setupProject();
+    const r = run(['new', 'plan', 'platform-map', '--coordination']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    const hub = readFileSync(path.join(docsDir, 'plans', 'platform-map.md'), 'utf8');
+    ok(hub.includes('execution_mode: coordination'), 'sets execution_mode');
+    ok(hub.includes('## Ranked queue'), 'has ranked-queue skeleton');
+    ok(!hub.includes('runlist:'), 'no runlist array on a coordination hub');
+    // No NN child files were scaffolded.
+    const stray = readdirSync(path.join(docsDir, 'plans')).filter(f => /platform-map-\d\d-/.test(f));
+    strictEqual(stray.length, 0, `coordination hub must not scaffold children; got: ${stray.join(', ')}`);
+  });
+
+  it('--dry-run previews hub + children and writes nothing', () => {
+    const docsDir = setupProject();
+    const r = run(['new', 'plan', 'auth-revamp', '--runlist', 'extract,rewrite', '--dry-run']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    ok(/Would create child: docs\/plans\/auth-revamp-01-extract\.md/.test(r.stdout), `previews child 01; got:\n${r.stdout}`);
+    ok(/Would create child: docs\/plans\/auth-revamp-02-rewrite\.md/.test(r.stdout), 'previews child 02');
+    ok(!existsSync(path.join(docsDir, 'plans', 'auth-revamp.md')), 'hub not written under --dry-run');
+    ok(!existsSync(path.join(docsDir, 'plans', 'auth-revamp-01-extract.md')), 'child not written under --dry-run');
+  });
+
+  it('rejects --runlist / --coordination on non-plan types', () => {
+    setupProject();
+    const r = run(['new', 'doc', 'foo', '--runlist', 'a,b']);
+    ok(r.status !== 0, 'should exit non-zero');
+    ok(/only applies to plans/.test(r.stderr), `expected plan-only error; got: ${r.stderr}`);
+  });
+
+  it('rejects --runlist together with --coordination', () => {
+    setupProject();
+    const r = run(['new', 'plan', 'bar', '--runlist', 'a', '--coordination']);
+    ok(r.status !== 0, 'should exit non-zero');
+    ok(/mutually exclusive/.test(r.stderr), `expected mutual-exclusion error; got: ${r.stderr}`);
+  });
+
+  it('rejects a path as a runlist child token', () => {
+    setupProject();
+    const r = run(['new', 'plan', 'mix', '--runlist', 'docs/plans/foo.md']);
+    ok(r.status !== 0, 'should exit non-zero');
+    ok(/must be a bare slug, not a path/.test(r.stderr), `expected path-rejection error; got: ${r.stderr}`);
   });
 });
