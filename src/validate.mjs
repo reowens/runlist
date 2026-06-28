@@ -433,6 +433,33 @@ export function checkRunlistBackPointers(docs, config) {
   return warnings;
 }
 
+// Coordination-hub hygiene: a plan whose slug is `*-runlist` / `runlist` reads
+// as a coordination runlist, but `dotmd plans` only *reliably* lifts it into the
+// Runlists section (and out of the active count) when `execution_mode:
+// coordination` is set. Slug detection is the fallback; the frontmatter field is
+// the canonical signal. Nudge the few hubs that lean on the slug alone to make
+// it explicit. Skips terminal/quiet statuses like every other warning-only check.
+export function checkCoordinationHubExecutionMode(docs, config) {
+  const warnings = [];
+  const skipStatuses = new Set([
+    ...(config.lifecycle.terminalStatuses ?? []),
+    ...(config.lifecycle.skipWarningsFor ?? []),
+  ]);
+  for (const doc of docs) {
+    if (doc.type && doc.type !== 'plan') continue;
+    if (skipStatuses.has(doc.status)) continue;
+    if (doc.executionMode === 'coordination') continue;
+    const base = (doc.path.split('/').pop() || '').replace(/\.md$/, '');
+    if (base !== 'runlist' && !base.endsWith('-runlist')) continue;
+    warnings.push({
+      path: doc.path,
+      level: 'warning',
+      message: `reads as a coordination runlist (slug \`${base}\`) but is missing \`execution_mode: coordination\`. Add it so \`dotmd plans\` / \`dotmd runlists\` reliably treat it as a runlist, not an active plan.`,
+    });
+  }
+  return warnings;
+}
+
 export function checkGitStaleness(docs, config) {
   const warnings = [];
   const gitDates = getGitLastModifiedBatch(config.repoRoot);

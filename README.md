@@ -198,9 +198,14 @@ runlist:
 ```bash
 dotmd runlist <hub>          # children + statuses in order; first non-archived child marked →
 dotmd runlist next <hub>     # pick up the next child (marks in-session + prints it)
+dotmd runlists               # dashboard of coordination-hub runlists (--json, --limit N)
 ```
 
 `runlist next` stops with a runlist-aware error if the next child isn't in a workable status (`active` / `planned` / `in-session`), so you resolve the blocker before continuing. Each child should set `parent_plan:` pointing back at the hub — `dotmd check` warns when it doesn't. There's no separate doc type: a runlist hub is just a plan with the array.
+
+In `dotmd plans`, hubs are tagged `[RUNLIST]` (not `[ACTIVE]`) with their children folded underneath — the hub row shows `done/total` progress and the next-pickup `→`, so a multi-plan sprint reads as one runlist instead of cluttering the triage list. A child whose hub is filtered out of the view (e.g. `--status active` when the hub is `planned`) still renders on its own.
+
+**Coordination runlists.** A `runlist:` array fits a small ordered *sprint*. For a large, prose-first *coordination map* (a domain hub pointing at many plans, with gating/sequence rationale, sometimes unordered), set `execution_mode: coordination` instead — or just name it `*-runlist`. These aren't folded: `dotmd plans` lifts them into a pinned `Runlists` section and out of the active count, and `dotmd runlists` shows that dashboard standalone. The per-hub "N related" count comes from `related_plans:`. `dotmd check` nudges a `*-runlist` hub missing `execution_mode: coordination`.
 
 ## Commands
 

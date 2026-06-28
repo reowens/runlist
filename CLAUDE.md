@@ -90,8 +90,13 @@ Then:
 
 - `dotmd runlist <hub>` — show the children + their statuses in order. First non-archived child is marked `→` (that's the next pickup target).
 - `dotmd runlist next <hub>` — pick up the first non-archived child. If it's not in a pickup-able status (`active` / `planned` / `in-session`), the command stops with a runlist-aware error so you resolve the blocker before continuing.
+- In `dotmd plans`, a hub is tagged `[RUNLIST]` rather than `[ACTIVE]` and its children fold underneath it (with `done/total` progress and the next-pickup `→` on the hub row), so a sprint reads as one runlist instead of N loose plans. A child whose hub is filtered out of the current view still renders standalone.
 
 Each child should set `parent_plan:` pointing back at the hub — `dotmd doctor` warns when it doesn't. Order is authoritative from `runlist:`; `parent_plan` keeps the existing reverse-link semantics (pickup-card Related:, graph).
+
+#### Coordination runlists (prose-first domain maps)
+
+A `runlist:` array suits a small, strictly-ordered *sprint*. For a large, prose-first *coordination map* — a domain hub that points at many plans, carries gating/sequence rationale, and is sometimes unordered — set `execution_mode: coordination` instead (a `*-runlist` slug is the fallback signal). These hubs aren't folded: in `dotmd plans` they're lifted out of the leaf-plan flow into a pinned `Runlists` section and pulled out of the active count (so they read as runlists, not active plans). `dotmd runlists` shows that dashboard on its own (`--json`, `--limit N`). The per-hub "N related" count comes from `related_plans:`. `dotmd check` nudges a `*-runlist` hub that's missing `execution_mode: coordination`.
 
 ### Creating documents
 

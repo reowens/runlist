@@ -44,6 +44,7 @@ const FLAG_SPECS = {
   check: { flags: new Set(['--fix', '--errors-only', '--no-collapse', '--json', '--verbose']), values: new Set() },
   doctor: { flags: new Set(['--apply', '--yes', '--dry-run', '-n', '--statuses', '--migrate-template', '--migrate-prompts', '--frontmatter-fix', '--project', '--json', '--include-archived']), values: new Set() },
   runlist: { flags: new Set(['--json', '--full', '--no-index', '--show-files']), values: new Set(), subcommands: new Set(['next']) },
+  runlists: { flags: new Set(['--json', '--limit']), values: new Set(['--limit']) },
   prompts: {
     flags: new Set(['--json', '--status', '--include-archived', '--sort', '--limit', '--all', '--no-index', '--show-files', '--body', '--message', '--title']),
     values: new Set(['--status', '--sort', '--limit', '--body', '--message', '--title']),
@@ -235,6 +236,7 @@ Lifecycle:
   use <file>                        Open a plan (mark in-session + print it) or consume a prompt
   set <status> <file>               Change a document's status (frontmatter write; archive also moves the file)
   runlist <hub> [next]              Show or walk an ordered group of plans (see \`dotmd help runlist\`)
+  runlists                          List coordination-hub runlists (the Runlists dashboard)
   status <file> <status>            Transition document status (deprecated; prefer \`set\`)
   archive <file>                    Archive (status + move + update refs)
   bulk archive <f1> <f2> ...        Archive multiple files at once
@@ -1212,7 +1214,32 @@ Common shape:
   ---
 
 Child plans should set \`parent_plan:\` back at the hub — \`dotmd check\` warns
-when they don't.`,
+when they don't.
+
+In \`dotmd plans\`, a hub is tagged \`[RUNLIST]\` (not \`[ACTIVE]\`) and its
+children fold underneath it — progress (\`done/total\`) and the next pickup
+\`→\` show on the hub row, so a sprint reads as one runlist instead of N loose
+plans. Children whose hub is filtered out of the view (e.g. \`--status active\`
+when the hub is \`planned\`) still render on their own.
+
+Larger, prose-first "coordination" runlists (a domain map pointing at many
+plans, marked \`execution_mode: coordination\` or named \`*-runlist\`) aren't
+folded — they're lifted into a separate \`Runlists\` section in \`dotmd plans\`
+and out of the active count. \`dotmd runlists\` shows that dashboard on its own.`,
+
+  runlists: `dotmd runlists — the coordination-hub dashboard
+
+Lists every *coordination runlist*: a prose-first plan that sits above a
+cluster of others (a domain map), detected by \`execution_mode: coordination\`
+or a \`*-runlist\` / \`runlist\` slug. Each row shows the hub, its age, the rough
+size of its \`related_plans:\` cluster, and a one-line descriptor.
+
+This is the standalone form of the \`Runlists\` section that \`dotmd plans\`
+pins beneath the leaf-plan triage list.
+
+  dotmd runlists               All runlists (a small bounded set), newest first.
+  dotmd runlists --limit N     Cap the list at N.
+  dotmd runlists --json        Structured rows (path, status, childCount, …).`,
 
   'bulk-tag': `dotmd bulk-tag [files...] — fill in type/status frontmatter on pre-existing markdown
 
@@ -1370,6 +1397,16 @@ async function main() {
       defaults = ['--type', 'plan', '--exclude-archived', '--sort', 'updated', '--limit', '10'];
     }
     runQuery(index, [...defaults, ...extras], config, { preset: 'plans' });
+    return;
+  }
+  // `dotmd runlists` (plural) — the coordination-hub dashboard (the `Runlists`
+  // section of `dotmd plans`, standalone). Distinct from `dotmd runlist <hub>`
+  // (singular), which walks one hub's children.
+  if (command === 'runlists') {
+    const { buildIndex } = await import('../src/index.mjs');
+    const { runRunlists } = await import('../src/query.mjs');
+    const index = buildIndex(config);
+    runRunlists(index, restArgs, config);
     return;
   }
   if (command === 'prompts') {

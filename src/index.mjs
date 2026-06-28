@@ -3,7 +3,7 @@ import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { extractFirstHeading, extractSummary, extractStatusSnapshot, extractNextStep, extractChecklistCounts, extractBodyLinks } from './extractors.mjs';
 import { asString, normalizeStringList, normalizeBlockers, mergeUniqueStrings, toRepoPath, warn, die, resolveDocPath, suggestCandidates } from './util.mjs';
-import { validateDoc, validatePlanShape, validateDocShape, checkBidirectionalReferences, checkGitStaleness, checkRunlistBackPointers, computeDaysSinceUpdate, computeIsStale, computeChecklistCompletionRate, enrichRefErrorSuggestions } from './validate.mjs';
+import { validateDoc, validatePlanShape, validateDocShape, checkBidirectionalReferences, checkGitStaleness, checkRunlistBackPointers, checkCoordinationHubExecutionMode, computeDaysSinceUpdate, computeIsStale, computeChecklistCompletionRate, enrichRefErrorSuggestions } from './validate.mjs';
 import { checkIndex } from './index-file.mjs';
 import { checkClaudeCommands } from './claude-commands.mjs';
 import { checkGlossaryConfig } from './glossary-check.mjs';
@@ -118,6 +118,13 @@ export function buildIndex(config, opts = {}) {
     for (const w of runlistWarnings) {
       const child = transformedDocs.find(d => d.path === w.path);
       if (child) child.warnings.push(w);
+    }
+
+    const coordHubWarnings = checkCoordinationHubExecutionMode(transformedDocs, config);
+    warnings.push(...coordHubWarnings);
+    for (const w of coordHubWarnings) {
+      const hub = transformedDocs.find(d => d.path === w.path);
+      if (hub) hub.warnings.push(w);
     }
 
     const gitWarnings = checkGitStaleness(transformedDocs, config);

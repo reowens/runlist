@@ -4,6 +4,7 @@ import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import {
   asString,
   die,
+  isArchivedPath,
   normalizeStringList,
   resolveRefPath,
   toRepoPath,
@@ -12,6 +13,107 @@ import { resolveDocArg } from './index.mjs';
 import { bold, cyan, dim, green, red, yellow } from './color.mjs';
 
 const PICKUPABLE_STATUSES = new Set(['active', 'planned', 'in-session']);
+
+// Build a hub/child map straight from the in-memory index — no disk IO. A doc
+// is a runlist *hub* when its `runlist:` frontmatter (`refFields.runlist`) is
+// non-empty. Each ref resolves to a doc in the index by path, falling back to
+// basename so children that were archived (and physically moved into an
+// archive dir) still resolve. Used by the `dotmd plans` triage view to fold
+// children under their hub and tag hubs as runlists rather than plain plans.
+//
+// Returns:
+//   hubs:       Map<hubPath, { hub, total, doneCount, children, nextChildPath }>
+//                 children: [{ ref, doc, path, status, archived, missing }] in runlist order
+//   childToHub: Map<childPath, hubPath>  (first hub wins on the rare double-claim)
+export function buildRunlistIndex(index, config) {
+  const archiveStatuses = config.lifecycle?.archiveStatuses ?? new Set(['archived']);
+  const docByPath = new Map(index.docs.map(d => [d.path, d]));
+  const byBasename = new Map();
+  for (const d of index.docs) {
+    const base = d.path.split('/').pop();
+    if (!byBasename.has(base)) byBasename.set(base, d);
+  }
+
+  const hubs = new Map();
+  const childToHub = new Map();
+  for (const hub of index.docs) {
+    const refs = hub.refFields?.runlist ?? [];
+    if (refs.length === 0) continue;
+    const hubDir = path.dirname(path.join(config.repoRoot, hub.path));
+
+    const children = [];
+    for (const ref of refs) {
+      const abs = resolveRefPath(ref, hubDir, config.repoRoot);
+      let childDoc = abs ? docByPath.get(toRepoPath(abs, config.repoRoot)) ?? null : null;
+      if (!childDoc) childDoc = byBasename.get(ref.split('/').pop()) ?? null;
+      if (childDoc) {
+        const archived = archiveStatuses.has(childDoc.status) || isArchivedPath(childDoc.path, config);
+        children.push({ ref, doc: childDoc, path: childDoc.path, status: childDoc.status, archived, missing: false });
+        if (!childToHub.has(childDoc.path)) childToHub.set(childDoc.path, hub.path);
+      } else {
+        children.push({ ref, doc: null, path: null, status: null, archived: false, missing: true });
+      }
+    }
+
+    const next = children.find(c => !c.missing && !c.archived) ?? null;
+    hubs.set(hub.path, {
+      hub,
+      total: children.length,
+      doneCount: children.filter(c => c.archived).length,
+      children,
+      nextChildPath: next?.path ?? null,
+    });
+  }
+
+  return { hubs, childToHub };
+}
+
+// A *coordination hub* is a prose-first plan that sits above a cluster of other
+// plans — a "runlist" in the platform sense (master-runlist, ai-runlist, …)
+// rather than a strictly-ordered frontmatter `runlist:` sprint. The signal is
+// already in frontmatter (`execution_mode: coordination`), with the
+// `*-runlist` / `runlist` naming convention as a fallback for the few hubs that
+// predate the field. These plans aren't units of executable work — they're
+// navigation maps — so the triage view tags them and lifts them out of the
+// leaf-plan flow rather than treating them as one more active plan.
+export function isCoordinationHub(doc) {
+  if (!doc) return false;
+  if (doc.type && doc.type !== 'plan') return false;
+  if (doc.executionMode === 'coordination') return true;
+  const base = (doc.path.split('/').pop() || '').replace(/\.md$/, '');
+  return base === 'runlist' || base.endsWith('-runlist');
+}
+
+// Map each coordination hub to a `childCount` derived from its `related_plans:`
+// cluster (resolved against the index; peers/self excluded). It's an
+// approximation — `related_plans` is a *related* cluster, not a strict child
+// list — so it's shown as a rough "N plans" hint, not an authoritative count.
+export function buildCoordinationIndex(index, config) {
+  const docByPath = new Map(index.docs.map(d => [d.path, d]));
+  const byBasename = new Map();
+  for (const d of index.docs) {
+    const base = d.path.split('/').pop();
+    if (!byBasename.has(base)) byBasename.set(base, d);
+  }
+
+  const hubs = new Map();
+  for (const doc of index.docs) {
+    if (!isCoordinationHub(doc)) continue;
+    const dir = path.dirname(path.join(config.repoRoot, doc.path));
+    const refs = doc.refFields?.related_plans ?? [];
+    const childPaths = new Set();
+    for (const ref of refs) {
+      const abs = resolveRefPath(ref, dir, config.repoRoot);
+      let child = abs ? docByPath.get(toRepoPath(abs, config.repoRoot)) ?? null : null;
+      if (!child) child = byBasename.get(ref.split('/').pop()) ?? null;
+      if (child && child.path !== doc.path && (child.type === 'plan' || child.type == null)) {
+        childPaths.add(child.path);
+      }
+    }
+    hubs.set(doc.path, { doc, childCount: childPaths.size, childPaths });
+  }
+  return hubs;
+}
 
 // Bare hub slugs resolve through the shared resolver; the caller keeps its
 // runlist-specific miss message, so no die-on-miss here.
