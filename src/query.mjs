@@ -7,7 +7,7 @@ import { getGitLastModifiedBatch } from './git.mjs';
 import { extractFrontmatter } from './frontmatter.mjs';
 import { summarizeDocBody } from './ai.mjs';
 import { bold, dim, yellow, red, green, blue, magenta, cyan, brightYellow } from './color.mjs';
-import { buildRunlistIndex, buildCoordinationIndex } from './runlist.mjs';
+import { buildRunlistIndex, buildCoordinationIndex, hubLabel } from './runlist.mjs';
 
 const STATUS_COLORS = {
   'in-session': (s) => bold(red(s)),
@@ -105,15 +105,47 @@ export function runQuery(index, argv, config, opts = {}) {
   if (docs.length === 0) writeUnknownFilterValueHint(filters, index);
 }
 
+// Sort comparator for the runlists dashboard. Default `age` puts the MOST STALE
+// hub first — a triage lens (which nav-map has gone longest untouched?), echoing
+// `dotmd modules --sort cleanup`. `recent` is the old newest-first order.
+// Unknown-age hubs sort last in both directions so they never dominate.
+const RUNLIST_SORTS = new Set(['age', 'recent', 'related', 'title', 'status']);
+function runlistSorter(sort, coordination, config) {
+  const cmpAge = (a, b, dir) => {
+    const av = a.daysSinceUpdate, bv = b.daysSinceUpdate;
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    return dir * (av - bv);
+  };
+  const related = (d) => coordination.get(d.path)?.childCount ?? 0;
+  const byLabel = (a, b) => hubLabel(a).localeCompare(hubLabel(b));
+  if (sort === 'recent') return (a, b) => cmpAge(a, b, 1) || byLabel(a, b);
+  if (sort === 'related') return (a, b) => related(b) - related(a) || cmpAge(a, b, -1) || byLabel(a, b);
+  if (sort === 'title') return byLabel;
+  if (sort === 'status') {
+    return (a, b) => {
+      const ai = config.statusOrder.indexOf(a.status), bi = config.statusOrder.indexOf(b.status);
+      const aIdx = ai === -1 ? Number.MAX_SAFE_INTEGER : ai, bIdx = bi === -1 ? Number.MAX_SAFE_INTEGER : bi;
+      return aIdx - bIdx || cmpAge(a, b, -1) || byLabel(a, b);
+    };
+  }
+  return (a, b) => cmpAge(a, b, -1) || byLabel(a, b); // 'age' (default): most stale first
+}
+
 // `dotmd runlists` — the dedicated coordination-hub dashboard: the `Runlists`
 // section from `dotmd plans`, on its own, showing every hub (no leaf list, no
 // cap by default — runlists are a small bounded set). `--limit N` caps it,
-// `--json` emits structured rows.
+// `--sort age|recent|related|title|status` orders it (default `age`, most stale
+// first), `--json` emits structured rows.
 export function runRunlists(index, argv, config) {
   const json = argv.includes('--json');
   let limit = Infinity;
   const li = argv.indexOf('--limit');
   if (li >= 0 && argv[li + 1]) { const n = Number.parseInt(argv[li + 1], 10); if (Number.isFinite(n)) limit = n; }
+  const si = argv.indexOf('--sort');
+  const sortArg = si >= 0 && argv[si + 1] ? argv[si + 1] : 'age';
+  if (!RUNLIST_SORTS.has(sortArg)) die(`Unknown --sort '${sortArg}'. Use one of: ${[...RUNLIST_SORTS].join(', ')}.`);
 
   const coordination = buildCoordinationIndex(index, config);
   const archived = new Set([
@@ -122,7 +154,7 @@ export function runRunlists(index, argv, config) {
   ]);
   const hubs = index.docs
     .filter(d => coordination.has(d.path) && !archived.has(d.status) && !isArchivedPath(d.path, config))
-    .sort((a, b) => (a.daysSinceUpdate ?? Infinity) - (b.daysSinceUpdate ?? Infinity));
+    .sort(runlistSorter(sortArg, coordination, config));
 
   if (json) {
     const runlists = hubs.map(d => ({
@@ -730,19 +762,6 @@ function renderHubBlock(hub, info, children, maxWidth, topMaxSlug) {
       slug: stripHubPrefix(toSlug(c), hubSlug), indent, maxSlug: childMaxSlug, showTag: true,
     }) + '\n');
   }
-}
-
-// Conventional container dirs whose name adds no disambiguation to a hub label.
-const HUB_CONTAINER_DIRS = new Set(['plans', 'prompts', 'archive', 'archived']);
-
-// Display label for a hub. A bare basename loses context for hubs that live in
-// a subdirectory (e.g. `docs/plans/pos/runlist.md` would read as just
-// `runlist`), so prefix the immediate parent dir unless it's a conventional
-// container. → `pos/runlist`, but `billing-runlist` stays as-is.
-function hubLabel(doc) {
-  const slug = toSlug(doc);
-  const parent = path.basename(path.dirname(doc.path));
-  return HUB_CONTAINER_DIRS.has(parent) ? slug : `${parent}/${slug}`;
 }
 
 // Coordination hubs (prose-first runlists) render in their own compact section:

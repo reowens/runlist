@@ -8,6 +8,7 @@ import {
   normalizeStringList,
   resolveRefPath,
   toRepoPath,
+  toSlug,
 } from './util.mjs';
 import { resolveDocArg } from './index.mjs';
 import { bold, cyan, dim, green, red, yellow } from './color.mjs';
@@ -113,6 +114,21 @@ export function buildCoordinationIndex(index, config) {
     hubs.set(doc.path, { doc, childCount: childPaths.size, childPaths });
   }
   return hubs;
+}
+
+// Conventional container dirs whose name adds no disambiguation to a hub label.
+const HUB_CONTAINER_DIRS = new Set(['plans', 'prompts', 'archive', 'archived']);
+
+// Display label for a hub. A bare basename loses context for hubs that live in
+// a subdirectory (e.g. `docs/plans/pos/runlist.md` would read as just
+// `runlist`), so prefix the immediate parent dir unless it's a conventional
+// container. → `pos/runlist`, but `billing-runlist` stays as-is. Shared by the
+// `dotmd plans` Runlists section, `dotmd runlists`, and `dotmd health` so a hub
+// reads the same everywhere.
+export function hubLabel(doc) {
+  const slug = toSlug(doc);
+  const parent = path.basename(path.dirname(doc.path));
+  return HUB_CONTAINER_DIRS.has(parent) ? slug : `${parent}/${slug}`;
 }
 
 // Bare hub slugs resolve through the shared resolver; the caller keeps its

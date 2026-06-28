@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { buildIndex } from './index.mjs';
 import { bold, dim, green, yellow, red } from './color.mjs';
-import { buildCoordinationIndex } from './runlist.mjs';
+import { buildCoordinationIndex, hubLabel } from './runlist.mjs';
 import { isArchivedPath } from './util.mjs';
 
 export function runHealth(argv, config) {
@@ -23,7 +23,9 @@ export function runHealth(argv, config) {
   ]);
   const isLiveHub = (d) => coordination.has(d.path) && !closedStatuses.has(d.status) && !isArchivedPath(d.path, config);
   const runlistHubs = allPlans.filter(isLiveHub)
-    .sort((a, b) => (a.daysSinceUpdate ?? Infinity) - (b.daysSinceUpdate ?? Infinity));
+    // Most stale first — health is an aging lens, and it matches `dotmd runlists`'
+    // default. Unknown-age hubs sort last so they never top the list.
+    .sort((a, b) => (b.daysSinceUpdate ?? -1) - (a.daysSinceUpdate ?? -1));
   const plans = allPlans.filter(d => !isLiveHub(d));
   const now = Date.now();
 
@@ -92,15 +94,23 @@ export function runHealth(argv, config) {
 
   process.stdout.write(bold('Plan Health') + '\n\n');
 
-  // Pipeline
+  // Pipeline — ordered by the configured status vocab, then any present-but-
+  // unconfigured statuses (custom ones a repo defines, by count). Deriving from
+  // the live status set means in-session/partial/awaiting/etc. all show, and a
+  // dead status never leaves an empty row — unlike the old hand-kept list that
+  // drifted out of sync with the vocabulary.
   process.stdout.write(bold('Pipeline:') + '\n');
-  const pipeline = ['active', 'paused', 'ready', 'planned', 'blocked', 'scoping', 'archived'];
-  for (const s of pipeline) {
-    const count = byStatus[s] || 0;
-    if (count > 0) {
-      const bar = '█'.repeat(Math.min(count, 40));
-      process.stdout.write(`  ${s.padEnd(10)} ${String(count).padStart(4)}  ${dim(bar)}\n`);
-    }
+  const statusOrder = config.statusOrder ?? [];
+  const present = Object.keys(byStatus).filter(s => byStatus[s] > 0);
+  const ordered = [
+    ...statusOrder.filter(s => present.includes(s)),
+    ...present.filter(s => !statusOrder.includes(s)).sort((a, b) => byStatus[b] - byStatus[a]),
+  ];
+  const pad = Math.max(10, ...ordered.map(s => s.length));
+  for (const s of ordered) {
+    const count = byStatus[s];
+    const bar = '█'.repeat(Math.min(count, 40));
+    process.stdout.write(`  ${s.padEnd(pad)} ${String(count).padStart(4)}  ${dim(bar)}\n`);
   }
   process.stdout.write('\n');
 
@@ -110,7 +120,7 @@ export function runHealth(argv, config) {
   if (runlistHubs.length > 0) {
     process.stdout.write(`${bold('Runlists:')} ${runlistHubs.length}  ${dim('· dotmd runlists')}\n`);
     for (const doc of runlistHubs.slice(0, 8)) {
-      const slug = path.basename(doc.path, '.md').padEnd(28);
+      const slug = hubLabel(doc).padEnd(28);
       const age = doc.daysSinceUpdate != null ? `${doc.daysSinceUpdate}d` : '?d';
       const rel = coordination.get(doc.path)?.childCount;
       const relStr = rel ? `  ${dim(`${rel} related`)}` : '';

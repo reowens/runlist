@@ -584,7 +584,7 @@ function runRunlistsCmd(args, opts = {}) {
 }
 
 describe('dotmd runlists (dashboard)', () => {
-  it('lists every coordination hub, newest first, with --json support', () => {
+  it('lists every coordination hub, most stale first, with --json support', () => {
     setupCoordination();
     const r = runRunlistsCmd([]);
     strictEqual(r.status, 0, `stderr: ${r.stderr}`);
@@ -593,12 +593,35 @@ describe('dotmd runlists (dashboard)', () => {
     match(r.stdout, /billing-runlist/);
     // leaves are NOT listed here
     ok(!/unrelated/.test(r.stdout), 'runlists dashboard shows only hubs');
+    // Default sort is `age` (most stale first): billing (updated 06-24) is older
+    // than master (06-25), so it leads.
+    ok(r.stdout.indexOf('billing-runlist') < r.stdout.indexOf('master-runlist'),
+      'stale-first default: older billing before master');
 
     const j = runRunlistsCmd(['--json']);
     const parsed = JSON.parse(j.stdout);
     strictEqual(parsed.count, 2);
     const master = parsed.runlists.find(x => /master-runlist/.test(x.path));
     strictEqual(master.childCount, 2);
+  });
+
+  it('--sort recent reverses to newest-first; --sort related ranks by cluster size', () => {
+    setupCoordination();
+    const recent = runRunlistsCmd(['--sort', 'recent']);
+    strictEqual(recent.status, 0, `stderr: ${recent.stderr}`);
+    ok(recent.stdout.indexOf('master-runlist') < recent.stdout.indexOf('billing-runlist'),
+      'recent: newer master before older billing');
+    // master has 2 related, billing 1 → master leads under --sort related.
+    const related = runRunlistsCmd(['--sort', 'related']);
+    ok(related.stdout.indexOf('master-runlist') < related.stdout.indexOf('billing-runlist'),
+      'related: bigger cluster (master) first');
+  });
+
+  it('rejects an unknown --sort value', () => {
+    setupCoordination();
+    const r = runRunlistsCmd(['--sort', 'bogus']);
+    ok(r.status !== 0, 'should exit non-zero');
+    match(r.stderr, /Unknown --sort 'bogus'/);
   });
 
   it('reports nothing when there are no runlists', () => {
@@ -711,5 +734,48 @@ describe('dotmd health (coordination-hub awareness)', () => {
     strictEqual(parsed.runlists.count, 2);
     strictEqual(parsed.active.count, 2);
     strictEqual(parsed.byStatus.active, 2);
+  });
+
+  it('labels a subdir hub with its parent dir in the Runlists section (pos/runlist)', () => {
+    const plans = setupProject();
+    writeDoc(plans, 'leaf.md', `type: plan
+status: active
+title: Leaf
+created: 2026-06-20
+updated: 2026-06-26`);
+    mkdirSync(path.join(plans, 'pos'), { recursive: true });
+    writeDoc(path.join(plans, 'pos'), 'runlist.md', `type: plan
+status: active
+title: POS Runlist
+execution_mode: coordination
+updated: 2026-06-25`);
+    const r = runCmd('health', []);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    match(r.stdout, /Runlists: 1/);
+    match(r.stdout, /pos\/runlist\s+\d+d/);
+  });
+});
+
+describe('dotmd health (pipeline derived from status vocab)', () => {
+  it('shows live statuses the old hardcoded list hid (in-session, partial)', () => {
+    const plans = setupProject();
+    writeDoc(plans, 'a.md', `type: plan
+status: in-session
+title: A
+created: 2026-06-20
+updated: 2026-06-26`);
+    writeDoc(plans, 'b.md', `type: plan
+status: partial
+title: B
+created: 2026-06-20
+updated: 2026-06-26`);
+    const r = runCmd('health', []);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    const pipeline = r.stdout.slice(r.stdout.indexOf('Pipeline:'), r.stdout.indexOf('Active plans:') >= 0 ? r.stdout.indexOf('Active plans:') : undefined);
+    match(pipeline, /in-session\s+1/);
+    match(pipeline, /partial\s+1/);
+    // dead statuses from the old hardcoded list never render an empty row
+    ok(!/\bready\b/.test(pipeline), 'no dead "ready" row');
+    ok(!/\bscoping\b/.test(pipeline), 'no dead "scoping" row');
   });
 });

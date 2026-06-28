@@ -44,7 +44,7 @@ const FLAG_SPECS = {
   check: { flags: new Set(['--fix', '--errors-only', '--no-collapse', '--json', '--verbose']), values: new Set() },
   doctor: { flags: new Set(['--apply', '--yes', '--dry-run', '-n', '--statuses', '--migrate-template', '--migrate-prompts', '--frontmatter-fix', '--project', '--json', '--include-archived']), values: new Set() },
   runlist: { flags: new Set(['--json', '--full', '--no-index', '--show-files']), values: new Set(), subcommands: new Set(['next']) },
-  runlists: { flags: new Set(['--json', '--limit']), values: new Set(['--limit']) },
+  runlists: { flags: new Set(['--json', '--limit', '--sort']), values: new Set(['--limit', '--sort']) },
   prompts: {
     flags: new Set(['--json', '--status', '--include-archived', '--sort', '--limit', '--all', '--no-index', '--show-files', '--body', '--message', '--title']),
     values: new Set(['--status', '--sort', '--limit', '--body', '--message', '--title']),
@@ -1237,7 +1237,8 @@ size of its \`related_plans:\` cluster, and a one-line descriptor.
 This is the standalone form of the \`Runlists\` section that \`dotmd plans\`
 pins beneath the leaf-plan triage list.
 
-  dotmd runlists               All runlists (a small bounded set), newest first.
+  dotmd runlists               All runlists (a small bounded set), most stale first.
+  dotmd runlists --sort recent Order by recency instead (age|recent|related|title|status).
   dotmd runlists --limit N     Cap the list at N.
   dotmd runlists --json        Structured rows (path, status, childCount, …).`,
 
