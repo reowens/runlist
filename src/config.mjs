@@ -307,8 +307,14 @@ function validateConfig(userConfig, config, validStatuses, indexPath) {
     }
   }
 
-  // staleDays keys must exist in validStatuses
-  if (config.statuses?.staleDays) {
+  // staleDays keys must exist in validStatuses — but only validate the map when
+  // the user actually wrote `statuses.staleDays`. When it's inherited from
+  // defaults (user overrode `statuses.order` but left staleDays unset), the
+  // default map is keyed by default statuses (`ready`, `scoping`, …) that the
+  // user's order may not include — warning there blames the user for keys they
+  // never authored and makes brownfield repos noisy on every command, hook
+  // included. Real typos in a user-provided map are still caught.
+  if (userConfig.statuses?.staleDays && config.statuses?.staleDays) {
     for (const key of Object.keys(config.statuses.staleDays)) {
       if (!validStatuses.has(key)) {
         warnings.push(`Config: statuses.staleDays contains unknown status '${key}'.`);

@@ -240,6 +240,30 @@ describe('init scanning', () => {
     ok(config.includes('blocked'));
   });
 
+  // Onboarding finding #1: the generated config must be internally consistent.
+  // Before the fix it emitted statuses.order but no staleDays, so the resolver
+  // inherited the default staleDays map (keyed by `ready`/`scoping`) and every
+  // command — the hud SessionStart hook included — warned about statuses this
+  // repo never uses. Now init emits a staleDays block scoped to detected
+  // statuses, and a command run against the generated config is warning-free.
+  it('generates an internally consistent config (no staleDays warnings on next command)', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'docs', 'a.md'), '---\nstatus: active\n---\n# A');
+    writeFileSync(path.join(tmpDir, 'docs', 'b.md'), '---\nstatus: wip\n---\n# B');
+    strictEqual(run(['init']).status, 0);
+
+    const config = readFileSync(path.join(tmpDir, 'dotmd.config.mjs'), 'utf8');
+    ok(config.includes('staleDays:'), 'generated config emits a staleDays block');
+    ok(!config.includes('ready') && !config.includes('scoping'),
+      `generated staleDays must not carry default-only keys; got:\n${config}`);
+
+    const after = run(['list']);
+    ok(!/staleDays contains unknown status/.test(after.stdout + after.stderr),
+      `next command must be warning-free; got:\n${after.stdout}\n${after.stderr}`);
+  });
+
   it('detects surfaces from existing frontmatter', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
     mkdirSync(path.join(tmpDir, '.git'));

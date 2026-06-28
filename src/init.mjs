@@ -152,6 +152,16 @@ function countMarkdownFiles(dir) {
   return { withFrontmatter, withoutFrontmatter };
 }
 
+// Sensible default stale thresholds (days) for statuses dotmd recognizes, used
+// only to scope the generated config's staleDays to detected statuses. Mirrors
+// the global + per-type defaults in config.mjs DEFAULTS; the repo's own custom
+// statuses are intentionally absent so we don't invent a threshold for vocab we
+// don't understand.
+const KNOWN_STALE_DAYS = {
+  'in-session': 1, active: 14, ready: 14, planned: 30, blocked: 30,
+  scoping: 30, paused: 3, awaiting: 14, draft: 30, review: 14, pending: 30,
+};
+
 function generateDetectedConfig(scan, rootPath) {
   const lines = [`// dotmd.config.mjs — auto-detected from ${scan.docCount} existing docs`, ''];
   lines.push(`export const root = '${rootPath}';`);
@@ -164,6 +174,18 @@ function generateDetectedConfig(scan, rootPath) {
   if (allStatuses.length > 0) {
     lines.push('export const statuses = {');
     lines.push(`  order: [${allStatuses.map(s => `'${s}'`).join(', ')}],`);
+    // Scope staleDays to the detected statuses. `statuses.staleDays` is a
+    // replace-key, so emitting it here stops the resolver from inheriting the
+    // default map (keyed by `ready`/`scoping`/… that this repo may not use) —
+    // which otherwise makes every command warn about statuses the user never
+    // wrote. Only statuses with a sensible known threshold get an entry;
+    // unrecognized ones (the repo's own vocab) are left for the user to tune.
+    const staleEntries = allStatuses.filter(s => s in KNOWN_STALE_DAYS);
+    if (staleEntries.length > 0) {
+      lines.push('  staleDays: {');
+      for (const s of staleEntries) lines.push(`    '${s}': ${KNOWN_STALE_DAYS[s]},`);
+      lines.push('  },');
+    }
     lines.push('};');
     lines.push('');
   }

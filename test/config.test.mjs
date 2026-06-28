@@ -247,6 +247,31 @@ describe('resolveConfig', () => {
     ok(config.configWarnings.some(w => w.includes("'nonexistent'")), 'warns about unknown status');
   });
 
+  // Onboarding finding #1: a brownfield config that overrides statuses.order
+  // but leaves staleDays unset used to inherit the default staleDays map (keyed
+  // by `ready`/`scoping`) and warn about those keys on every command — blaming
+  // the user for defaults they never wrote. The check now fires only for a
+  // user-authored staleDays map.
+  it('does NOT warn about inherited default staleDays keys when order is overridden', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const root = '.';
+      export const statuses = { order: ['active', 'wip', 'done'] };
+    `);
+    const config = await resolveConfig(tmpDir);
+    ok(!config.configWarnings.some(w => w.includes('statuses.staleDays contains unknown status')),
+      `should not warn about inherited default staleDays keys; got: ${JSON.stringify(config.configWarnings)}`);
+  });
+
+  it('still warns on a genuine typo in a user-provided staleDays map', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const root = '.';
+      export const statuses = { order: ['active', 'wip'], staleDays: { activ: 14 } };
+    `);
+    const config = await resolveConfig(tmpDir);
+    ok(config.configWarnings.some(w => w.includes("statuses.staleDays contains unknown status 'activ'")),
+      `should catch the user's typo; got: ${JSON.stringify(config.configWarnings)}`);
+  });
+
   it('returns empty configWarnings for valid config', async () => {
     writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
       export const root = '.';
