@@ -236,6 +236,10 @@ export async function runStatus(argv, config, opts = {}) {
       process.stdout.write(`${prefix} Would unfile: ${toRepoPath(filePath, config.repoRoot)} → ${toRepoPath(targetPath, config.repoRoot)}\n`);
       finalPath = targetPath;
     }
+    if (finalPath !== filePath) {
+      const refCount = countRefsToUpdate(filePath, finalPath, config);
+      if (refCount > 0) process.stdout.write(`${prefix} Would update references in ${refCount} file(s)\n`);
+    }
     if ((isArchiving || isUnarchiving || isFiling || isUnfiling) && config.indexPath) {
       process.stdout.write(`${prefix} Would regenerate index\n`);
     }
@@ -286,6 +290,22 @@ export async function runStatus(argv, config, opts = {}) {
     finalPath = targetPath;
   }
 
+  // Any of the four moves above shifts the file's directory, which breaks
+  // relative refs in both directions — links FROM the moved file and inbound
+  // refs TO it from other docs. runArchive repairs both; mirror that here so
+  // the deprecated `dotmd status <file> archived` path and the `dotmd set`
+  // unarchive/file/unfile transitions (which route through runStatus, not
+  // runArchive) don't silently leave dangling links.
+  let selfRefsFixed = false;
+  let inboundRefCount = 0;
+  let inboundRefPaths = [];
+  if (finalPath !== filePath) {
+    selfRefsFixed = updateRefsFromMovedFile(filePath, finalPath, config) > 0;
+    const inbound = updateRefsAfterMove(filePath, finalPath, config);
+    inboundRefCount = inbound.count;
+    inboundRefPaths = inbound.paths;
+  }
+
   // Regen the index on every status change — `active → planned` etc. drift
   // the per-status sections just as much as archive crossings. Archive paths
   // also benefit (replaces the previously-gated regen). `--no-index` skips
@@ -298,10 +318,13 @@ export async function runStatus(argv, config, opts = {}) {
   }
 
   process.stdout.write(`${green(toRepoPath(finalPath, config.repoRoot))}: ${oldStatus ?? 'unknown'} → ${newStatus}\n`);
+  if (selfRefsFixed) process.stdout.write('Updated references in moved file.\n');
+  if (inboundRefCount > 0) process.stdout.write(`Updated references in ${inboundRefCount} file(s).\n`);
 
   if (showFiles) {
     const touched = [filePath];
     if (finalPath !== filePath) touched.push(finalPath);
+    touched.push(...inboundRefPaths);
     if (config.indexPath && !noIndex) touched.push(config.indexPath);
     emitFilesFooter(touched, config);
   }

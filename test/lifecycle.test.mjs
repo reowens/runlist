@@ -611,6 +611,79 @@ describe('archive fixes inbound refs (updateRefsAfterMove)', () => {
   });
 });
 
+// runStatus moves (archive/unarchive/file/unfile) shift the file's directory
+// and break refs in both directions, but historically only runArchive repaired
+// them. The deprecated `dotmd status <file> archived` path and the `dotmd set`
+// unarchive/file/unfile transitions route through runStatus, so they used to
+// leave dangling inbound links. These cover that gap.
+describe('runStatus moves fix inbound refs (deprecated status / set unarchive)', () => {
+  function project() {
+    const docsDir = setupProject();
+    mkdirSync(path.join(docsDir, 'plans'), { recursive: true });
+    mkdirSync(path.join(docsDir, 'rfcs'), { recursive: true });
+    writeDoc(docsDir, 'plans/child.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# Child\n');
+    writeDoc(docsDir, 'rfcs/spec.md',
+      'type: doc\nstatus: active\nupdated: 2025-01-01\nrelated_plans:\n  - docs/plans/child.md',
+      '# Spec\n\nBody: [child](docs/plans/child.md).\n');
+    return docsDir;
+  }
+
+  function noBrokenRefs() {
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const cfg = path.join(tmpDir, 'dotmd.config.mjs');
+    const check = spawnSync('node', [bin, 'check', '--config', cfg], { cwd: tmpDir, encoding: 'utf8' });
+    ok(!/does not resolve to an existing file/.test(check.stdout + check.stderr),
+      `dotmd check found a broken ref:\n${check.stdout}\n${check.stderr}`);
+  }
+
+  it('deprecated `dotmd status <file> archived` rewrites inbound repo-relative refs', () => {
+    const docsDir = project();
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const cfg = path.join(tmpDir, 'dotmd.config.mjs');
+
+    const result = spawnSync('node', [bin, 'status', path.join(docsDir, 'plans/child.md'), 'archived', '--config', cfg],
+      { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(result.status, 0, `status archive failed: ${result.stderr}`);
+    ok(/Updated references in 1 file/.test(result.stdout), `expected ref-fix message; got:\n${result.stdout}`);
+
+    const spec = readFileSync(path.join(docsDir, 'rfcs', 'spec.md'), 'utf8');
+    ok(!spec.includes('docs/plans/child.md'), `stale inbound ref left behind:\n${spec}`);
+    noBrokenRefs();
+  });
+
+  it('deprecated status path previews the inbound ref fix under --dry-run', () => {
+    const docsDir = project();
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const cfg = path.join(tmpDir, 'dotmd.config.mjs');
+
+    const result = spawnSync('node', [bin, 'status', path.join(docsDir, 'plans/child.md'), 'archived', '--dry-run', '--config', cfg],
+      { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(result.status, 0, `dry-run failed: ${result.stderr}`);
+    ok(/Would update references in 1 file/.test(result.stdout), `expected dry-run preview; got:\n${result.stdout}`);
+    // Nothing actually moved.
+    ok(existsSync(path.join(docsDir, 'plans', 'child.md')), 'child.md must stay put under --dry-run');
+  });
+
+  it('`dotmd set active` unarchive (via runStatus) rewrites inbound refs', () => {
+    const docsDir = project();
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const cfg = path.join(tmpDir, 'dotmd.config.mjs');
+
+    // Archive first (runArchive), then unarchive via set active (runStatus).
+    let r = spawnSync('node', [bin, 'archive', path.join(docsDir, 'plans/child.md'), '--config', cfg], { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(r.status, 0, `archive failed: ${r.stderr}`);
+    noBrokenRefs();
+
+    r = spawnSync('node', [bin, 'set', 'active', path.join(docsDir, 'archived/child.md'), '--config', cfg], { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(r.status, 0, `unarchive failed: ${r.stderr}`);
+    ok(/Updated references in 1 file/.test(r.stdout), `expected ref-fix message on unarchive; got:\n${r.stdout}`);
+
+    const spec = readFileSync(path.join(docsDir, 'rfcs', 'spec.md'), 'utf8');
+    ok(!spec.includes('archived/child.md'), `inbound ref still points into archived/ after unarchive:\n${spec}`);
+    noBrokenRefs();
+  });
+});
+
 describe('archive collision (same basename twice)', () => {
   it('keeps the prior archive and suffixes the new one with a numeric counter', () => {
     // 0.39.5 (issue #10 finding #6): collisions used to land at
