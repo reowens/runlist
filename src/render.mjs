@@ -5,6 +5,7 @@ import { extractFrontmatter } from './frontmatter.mjs';
 import { summarizeDocBody } from './ai.mjs';
 import { bold, red, yellow, green, dim } from './color.mjs';
 import { categorizeWarnings } from './check-collapse.mjs';
+import { buildCoordinationIndex } from './runlist.mjs';
 
 // Render `currentState` with an `(auto)` prefix when the value was body-scraped
 // rather than read from frontmatter. Lets a reader see at a glance which docs
@@ -322,6 +323,15 @@ export function renderBriefing(index, config) {
   const research = index.docs.filter(d => d.type === 'research');
   const untyped = index.docs.filter(d => !d.type);
 
+  // Coordination hubs (prose-first runlists) are navigation maps, not units of
+  // work — so lift them out of the live-plan status breakdown into their own
+  // `runlists` bucket and drop them from the actionable `>` list, mirroring
+  // `dotmd plans` / `dotmd runlists`. (Sprint `runlist:` hubs stay as ordinary
+  // plans here; their folding treatment is scoped to `dotmd plans`.) On a repo
+  // with no coordination hubs this is a no-op and the output is unchanged.
+  const coordination = buildCoordinationIndex(index, config);
+  const isHub = (p) => coordination.has(p.path);
+
   if (plans.length) {
     // Headline counts LIVE plans first — "30 plans: 25 archived, …" skims as
     // 30 open work items when zero are. "Live" mirrors the `dotmd plans`
@@ -331,16 +341,25 @@ export function renderBriefing(index, config) {
       ...(config.lifecycle?.terminalStatuses ?? []),
     ]);
     const live = plans.filter(p => !closed.has(p.status) && !isArchivedPath(p.path, config));
+    const liveHubs = live.filter(isHub);
     const bySt = {};
-    for (const p of live) { bySt[p.status] = (bySt[p.status] ?? 0) + 1; }
-    const counts = Object.entries(bySt).map(([s, n]) => `${n} ${s}`).join(', ');
+    for (const p of live) { if (isHub(p)) continue; bySt[p.status] = (bySt[p.status] ?? 0) + 1; }
+    // Runlists lead the breakdown (then leaf statuses), and the bucket sums back
+    // to the live total so the headline stays honest.
+    const countParts = [];
+    if (liveHubs.length) countParts.push(`${liveHubs.length} runlist${liveHubs.length === 1 ? '' : 's'}`);
+    countParts.push(...Object.entries(bySt).map(([s, n]) => `${n} ${s}`));
+    const counts = countParts.join(', ');
     const closedCount = plans.length - live.length;
     const closedPart = closedCount ? ` (${closedCount} archived)` : '';
     lines.push(live.length ? `${live.length} live plans${closedPart}: ${counts}` : `0 live plans${closedPart}`);
-    const show = plans.filter(p => p.status === 'in-session' || p.status === 'active');
+    const show = plans.filter(p => (p.status === 'in-session' || p.status === 'active') && !isHub(p));
     for (const p of show) {
       const next = p.nextStep ? `next: ${p.nextStep}` : '(no next step)';
       lines.push(`  > ${path.basename(p.path, '.md')} (${p.status}) ${next}`);
+    }
+    if (liveHubs.length) {
+      lines.push(`  ${liveHubs.length} runlist${liveHubs.length === 1 ? '' : 's'} ${dim('· dotmd runlists')}`);
     }
   }
 

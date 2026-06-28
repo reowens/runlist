@@ -1759,8 +1759,16 @@ async function main() {
       const docs = index.docs.filter(d => d.type === 'doc');
       const research = index.docs.filter(d => d.type === 'research');
       const stale = index.docs.filter(d => d.isStale && !config.lifecycle.skipStaleFor.has(d.status)).length;
+      // Coordination hubs are runlists, not actionable plans — split them out of
+      // inSession/active into their own `runlists` array so the JSON mirrors the
+      // rendered briefing. Empty on repos with no coordination hubs.
+      const { buildCoordinationIndex } = await import('../src/runlist.mjs');
+      const coordination = buildCoordinationIndex(index, config);
+      const isHub = (d) => coordination.has(d.path);
+      const closedStatuses = new Set([...config.lifecycle.archiveStatuses, ...config.lifecycle.terminalStatuses]);
+      const isLiveHub = (d) => isHub(d) && !closedStatuses.has(d.status) && !isArchivedPath(d.path, config);
       process.stdout.write(JSON.stringify({
-        plans: { total: plans.length, inSession: plans.filter(d => d.status === 'in-session').map(d => ({ path: d.path, title: d.title, nextStep: d.nextStep })), active: plans.filter(d => d.status === 'active').map(d => ({ path: d.path, title: d.title, nextStep: d.nextStep })) },
+        plans: { total: plans.length, inSession: plans.filter(d => d.status === 'in-session' && !isHub(d)).map(d => ({ path: d.path, title: d.title, nextStep: d.nextStep })), active: plans.filter(d => d.status === 'active' && !isHub(d)).map(d => ({ path: d.path, title: d.title, nextStep: d.nextStep })), runlists: plans.filter(isLiveHub).map(d => ({ path: d.path, title: d.title, status: d.status, childCount: coordination.get(d.path)?.childCount ?? 0 })) },
         docs: { total: docs.length, active: docs.filter(d => !config.lifecycle.terminalStatuses.has(d.status)).length },
         research: { total: research.length, active: research.filter(d => d.status === 'active').length },
         stale, errorCount: index.errors.length, warningCount: index.warnings.length,

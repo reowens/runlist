@@ -1,13 +1,30 @@
 import path from 'node:path';
 import { buildIndex } from './index.mjs';
 import { bold, dim, green, yellow, red } from './color.mjs';
+import { buildCoordinationIndex } from './runlist.mjs';
+import { isArchivedPath } from './util.mjs';
 
 export function runHealth(argv, config) {
   const json = argv.includes('--json');
   const index = buildIndex(config);
 
   // Only plans (type: plan or untyped docs in plans root)
-  const plans = index.docs.filter(d => d.type === 'plan' || (!d.type && d.root?.includes('plan')));
+  const allPlans = index.docs.filter(d => d.type === 'plan' || (!d.type && d.root?.includes('plan')));
+  // Coordination hubs (prose-first runlists) are navigation maps, not execution
+  // units — they carry no checklist and skew active-plan aging — so lift the
+  // LIVE ones out of the pipeline + active set into a dedicated Runlists tally,
+  // mirroring `dotmd plans` / `dotmd runlists`. Archived hubs stay in `plans` so
+  // the archived/velocity counts are unchanged. No coordination hubs → `plans`
+  // equals the full set and every count below is identical to before.
+  const coordination = buildCoordinationIndex(index, config);
+  const closedStatuses = new Set([
+    ...(config.lifecycle?.archiveStatuses ?? []),
+    ...(config.lifecycle?.terminalStatuses ?? []),
+  ]);
+  const isLiveHub = (d) => coordination.has(d.path) && !closedStatuses.has(d.status) && !isArchivedPath(d.path, config);
+  const runlistHubs = allPlans.filter(isLiveHub)
+    .sort((a, b) => (a.daysSinceUpdate ?? Infinity) - (b.daysSinceUpdate ?? Infinity));
+  const plans = allPlans.filter(d => !isLiveHub(d));
   const now = Date.now();
 
   // Status distribution
@@ -68,6 +85,7 @@ export function runHealth(argv, config) {
       ready: { count: readyPlans.length },
       planned: { count: plannedPlans.length },
       recentlyArchived: { count: recentlyArchived.length, last30d: recentlyArchived.map(d => path.basename(d.path, '.md')) },
+      runlists: { count: runlistHubs.length, hubs: runlistHubs.map(d => ({ path: d.path, title: d.title, status: d.status, childCount: coordination.get(d.path)?.childCount ?? 0 })) },
     }, null, 2) + '\n');
     return;
   }
@@ -85,6 +103,24 @@ export function runHealth(argv, config) {
     }
   }
   process.stdout.write('\n');
+
+  // Runlists (coordination hubs) — held out of the leaf-plan pipeline above and
+  // surfaced as their own tally so they don't inflate the active count. Newest
+  // first, mirroring `dotmd runlists`; capped with a "more" footer.
+  if (runlistHubs.length > 0) {
+    process.stdout.write(`${bold('Runlists:')} ${runlistHubs.length}  ${dim('· dotmd runlists')}\n`);
+    for (const doc of runlistHubs.slice(0, 8)) {
+      const slug = path.basename(doc.path, '.md').padEnd(28);
+      const age = doc.daysSinceUpdate != null ? `${doc.daysSinceUpdate}d` : '?d';
+      const rel = coordination.get(doc.path)?.childCount;
+      const relStr = rel ? `  ${dim(`${rel} related`)}` : '';
+      process.stdout.write(`  ${slug} ${dim(age.padStart(4))}${relStr}\n`);
+    }
+    if (runlistHubs.length > 8) {
+      process.stdout.write(`  ${dim(`...and ${runlistHubs.length - 8} more`)}\n`);
+    }
+    process.stdout.write('\n');
+  }
 
   // Active plan health
   if (activePlans.length > 0) {

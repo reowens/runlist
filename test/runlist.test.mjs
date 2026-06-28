@@ -639,3 +639,77 @@ updated: 2026-06-25`);
     ok(!/master-runlist\.md: reads as a coordination runlist/.test(out), 'explicit coordination hub is not nudged');
   });
 });
+
+function runCmd(cmd, args, opts = {}) {
+  return spawnSync('node', [BIN, cmd, ...args], {
+    cwd: tmpDir, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', COLUMNS: '120' }, ...opts,
+  });
+}
+
+describe('dotmd briefing (coordination-hub awareness)', () => {
+  it('lifts coordination hubs into a runlists bucket and out of the active work list', () => {
+    setupCoordination();
+    const r = runCmd('briefing', []);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    // 2 hubs reclassified out of active → 2 runlists, 2 active leaves; sums to 4.
+    match(r.stdout, /4 live plans: 2 runlists, 2 active/);
+    // leaves appear in the `>` work list; hubs do not.
+    match(r.stdout, /> stripe-testing \(active\)/);
+    match(r.stdout, /> unrelated \(active\)/);
+    ok(!/> master-runlist /.test(r.stdout), 'coordination hub must not appear as a work item');
+    ok(!/> billing-runlist /.test(r.stdout), 'slug-convention hub must not appear as a work item');
+    // discoverability pointer.
+    match(r.stdout, /2 runlists · dotmd runlists/);
+  });
+
+  it('emits a runlists array in --json, split out of active/inSession', () => {
+    setupCoordination();
+    const r = runCmd('briefing', ['--json']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    const parsed = JSON.parse(r.stdout);
+    strictEqual(parsed.plans.runlists.length, 2);
+    strictEqual(parsed.plans.active.length, 2);
+    ok(!parsed.plans.active.some(p => /runlist/.test(p.path)), 'hubs excluded from active[]');
+    const master = parsed.plans.runlists.find(x => /master-runlist/.test(x.path));
+    strictEqual(master.childCount, 2);
+  });
+
+  it('leaves output unchanged on a repo with no coordination hubs', () => {
+    const plans = setupProject();
+    writeDoc(plans, 'leaf.md', `type: plan
+status: active
+title: Leaf
+updated: 2026-06-26
+next_step: do it`);
+    const r = runCmd('briefing', []);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    ok(!/runlist/i.test(r.stdout), 'no runlist wording when there are no hubs');
+    match(r.stdout, /1 live plans: 1 active/);
+  });
+});
+
+describe('dotmd health (coordination-hub awareness)', () => {
+  it('holds coordination hubs out of the pipeline/active aging into a Runlists section', () => {
+    setupCoordination();
+    const r = runCmd('health', []);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    // Pipeline active counts the 2 leaves, not the 2 hubs.
+    match(r.stdout, /active\s+2\s/);
+    // Dedicated runlists tally with the related-cluster count.
+    match(r.stdout, /Runlists: 2\s+· dotmd runlists/);
+    match(r.stdout, /master-runlist\s+.*2 related/);
+    // Active aging lists leaves; hubs are absent from it.
+    match(r.stdout, /Active plans:[\s\S]*stripe-testing/);
+    ok(!/Active plans:[\s\S]*master-runlist/.test(r.stdout), 'hub not in active aging list');
+  });
+
+  it('adds a runlists tally to --json with the active count excluding hubs', () => {
+    setupCoordination();
+    const r = runCmd('health', ['--json']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    const parsed = JSON.parse(r.stdout);
+    strictEqual(parsed.runlists.count, 2);
+    strictEqual(parsed.active.count, 2);
+    strictEqual(parsed.byStatus.active, 2);
+  });
+});
