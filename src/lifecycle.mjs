@@ -749,6 +749,26 @@ export function runTouch(argv, config, opts = {}) {
   try { config.hooks.onTouch?.({ path: toRepoPath(filePath, config.repoRoot) }, { path: toRepoPath(filePath, config.repoRoot), date: today }); } catch (err) { warn(`Hook 'onTouch' threw: ${err.message}`); }
 }
 
+// Rewrite every frontmatter ref token (a `*.md` path in a YAML list item or an
+// inline scalar, quoted or `>`-prefixed) that points at `oldPath` so it points
+// at `newPath`. Each token is resolved doc-relative *and* repo-relative and
+// compared to oldPath by absolute path — mirroring how the body-link branch and
+// `updateRefsFromMovedFile` resolve refs. This replaces an older substring
+// rewrite (`fm.split(oldRelPath).join(newRelPath)`) that only knew doc-relative
+// paths, so it: left repo-relative cross-dir refs (`docs/plans/child.md` from
+// `docs/rfcs/spec.md`) broken; mangled same-dir repo-relative refs into
+// `docs/plans/../archived/child.md`; and could corrupt a `grandchild.md` ref
+// when archiving `child.md` (suffix match). oldPath no longer exists on disk
+// post-`git mv`, so existsSync-based resolveRefPath can't be used here.
+function rewriteFrontmatterRefs(fm, docDir, oldPath, newPath, repoRoot) {
+  return fm.replace(/[^\s"'<>:]+\.md\b/g, (token) => {
+    const docRelAbs = path.resolve(docDir, token);
+    const repoRelAbs = path.resolve(repoRoot, token);
+    if (docRelAbs !== oldPath && repoRelAbs !== oldPath) return token;
+    return path.relative(docDir, newPath).split(path.sep).join('/');
+  });
+}
+
 /**
  * After a file moves (archive/unarchive), update frontmatter references in all
  * docs that pointed to the old location so they point to the new one.
@@ -766,17 +786,7 @@ function updateRefsAfterMove(oldPath, newPath, config) {
     if (!fm) continue;
 
     const docDir = path.dirname(docFile);
-    const oldRelPath = path.relative(docDir, oldPath).split(path.sep).join('/');
-    const newRelPath = path.relative(docDir, newPath).split(path.sep).join('/');
-
-    let newFm = fm;
-    if (newFm.includes(oldRelPath)) {
-      newFm = newFm.split(oldRelPath).join(newRelPath);
-    }
-    const dotSlashOld = './' + oldRelPath;
-    if (newFm.includes(dotSlashOld)) {
-      newFm = newFm.split(dotSlashOld).join(newRelPath);
-    }
+    const newFm = rewriteFrontmatterRefs(fm, docDir, oldPath, newPath, config.repoRoot);
 
     // Body markdown links [text](path.md) or [text](path.md#anchor) pointing
     // at oldPath. resolveRefPath can't be used here: oldPath no longer exists
@@ -856,8 +866,7 @@ function countRefsToUpdate(oldPath, newPath, config) {
     if (!fm) continue;
 
     const docDir = path.dirname(docFile);
-    const oldRelPath = path.relative(docDir, oldPath).split(path.sep).join('/');
-    const fmHit = fm.includes(oldRelPath) || fm.includes('./' + oldRelPath);
+    const fmHit = rewriteFrontmatterRefs(fm, docDir, oldPath, newPath, config.repoRoot) !== fm;
 
     let bodyHit = false;
     if (!fmHit) {

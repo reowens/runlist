@@ -516,6 +516,101 @@ describe('archive ref rewriting for repo-relative refs', () => {
   });
 });
 
+// Regression: archiving a doc must fix INBOUND refs (updateRefsAfterMove), not
+// just the refs FROM the moved file. The pre-fix rewrite was substring-based and
+// only knew the doc-relative form of the moved path, so a repo-relative ref
+// (`docs/plans/child.md`) written from a doc in a *different* subdir never
+// matched and was left pointing at the now-missing original. Same root cause
+// also (a) mangled same-dir repo-relative refs into `docs/plans/../archived/x.md`
+// and (b) could corrupt a `grandchild.md` ref when archiving `child.md`.
+describe('archive fixes inbound refs (updateRefsAfterMove)', () => {
+  function inboundConfig() {
+    const docsDir = setupProject();
+    mkdirSync(path.join(docsDir, 'plans'), { recursive: true });
+    mkdirSync(path.join(docsDir, 'rfcs'), { recursive: true });
+    writeDoc(docsDir, 'plans/child.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# Child\n');
+    return docsDir;
+  }
+
+  function archiveChild(docsDir) {
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const cfg = path.join(tmpDir, 'dotmd.config.mjs');
+    const result = spawnSync('node', [bin, 'archive', path.join(docsDir, 'plans/child.md'), '--config', cfg],
+      { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(result.status, 0, `archive failed: ${result.stderr}`);
+    return result;
+  }
+
+  function assertNoBrokenRefs() {
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const cfg = path.join(tmpDir, 'dotmd.config.mjs');
+    const check = spawnSync('node', [bin, 'check', '--config', cfg], { cwd: tmpDir, encoding: 'utf8' });
+    ok(!/does not resolve to an existing file/.test(check.stdout + check.stderr),
+      `dotmd check found a broken ref after archive:\n${check.stdout}\n${check.stderr}`);
+  }
+
+  it('rewrites a repo-relative frontmatter ref from a doc in another subdir', () => {
+    const docsDir = inboundConfig();
+    writeDoc(docsDir, 'rfcs/spec.md',
+      'type: doc\nstatus: active\nupdated: 2025-01-01\nrelated_plans:\n  - docs/plans/child.md',
+      '# Spec\n');
+
+    archiveChild(docsDir);
+
+    const spec = readFileSync(path.join(docsDir, 'rfcs', 'spec.md'), 'utf8');
+    ok(!spec.includes('docs/plans/child.md'),
+      `stale repo-relative ref left behind:\n${spec}`);
+    const refMatch = spec.match(/related_plans:\n\s+-\s+(\S+)/);
+    ok(refMatch, `expected ref-field entry:\n${spec}`);
+    const resolved = path.resolve(path.join(docsDir, 'rfcs'), refMatch[1]);
+    ok(existsSync(resolved), `rewritten ref \`${refMatch[1]}\` must resolve. Got: ${resolved}`);
+    assertNoBrokenRefs();
+  });
+
+  it('rewrites a same-dir repo-relative ref cleanly (no `../archived` mangling)', () => {
+    const docsDir = inboundConfig();
+    writeDoc(docsDir, 'plans/hub.md',
+      'type: plan\nstatus: active\nupdated: 2025-01-01\nrelated_plans:\n  - child.md\n  - docs/plans/child.md',
+      '# Hub\n');
+
+    archiveChild(docsDir);
+
+    const hub = readFileSync(path.join(docsDir, 'plans', 'hub.md'), 'utf8');
+    ok(!/plans\/\.\.\/archived/.test(hub), `repo-relative ref was mangled with ..:\n${hub}`);
+    ok(!hub.includes('docs/plans/child.md'), `stale repo-relative ref left behind:\n${hub}`);
+    assertNoBrokenRefs();
+  });
+
+  it('does not corrupt a sibling ref whose basename suffixes the archived one', () => {
+    const docsDir = inboundConfig();
+    writeDoc(docsDir, 'plans/grandchild.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# Grandchild\n');
+    writeDoc(docsDir, 'plans/hub.md',
+      'type: plan\nstatus: active\nupdated: 2025-01-01\nrelated_plans:\n  - child.md\n  - grandchild.md',
+      '# Hub\n');
+
+    archiveChild(docsDir);
+
+    const hub = readFileSync(path.join(docsDir, 'plans', 'hub.md'), 'utf8');
+    ok(/-\s+grandchild\.md/.test(hub), `grandchild.md ref must stay untouched:\n${hub}`);
+    assertNoBrokenRefs();
+  });
+
+  it('--dry-run preview counts inbound repo-relative refs it would fix', () => {
+    const docsDir = inboundConfig();
+    writeDoc(docsDir, 'rfcs/spec.md',
+      'type: doc\nstatus: active\nupdated: 2025-01-01\nrelated_plans:\n  - docs/plans/child.md',
+      '# Spec\n');
+
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const cfg = path.join(tmpDir, 'dotmd.config.mjs');
+    const result = spawnSync('node', [bin, 'archive', path.join(docsDir, 'plans/child.md'), '--dry-run', '--config', cfg],
+      { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(result.status, 0, `dry-run failed: ${result.stderr}`);
+    ok(/Would update references in 1 file/.test(result.stdout),
+      `dry-run should preview the inbound ref fix; got:\n${result.stdout}`);
+  });
+});
+
 describe('archive collision (same basename twice)', () => {
   it('keeps the prior archive and suffixes the new one with a numeric counter', () => {
     // 0.39.5 (issue #10 finding #6): collisions used to land at
