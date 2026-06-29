@@ -322,7 +322,7 @@ function runlistHubBody(title, hubSlug, children, bodyInput, today) {
 
 ${bodyInput?.trim() ?? ''}
 
-## Order of operations
+## Order of Operations
 
 ${steps}
 
@@ -347,7 +347,7 @@ function coordinationHubBody(title, bodyInput, today) {
 
 ${bodyInput?.trim() ?? ''}
 
-## Ranked queue
+## Ranked Queue
 
 <!-- One row per coordinated plan, in pickup order; the gating column explains
 dependencies. Wire each plan into related_plans: so the "N related" count and
@@ -439,7 +439,7 @@ function auditPlanBody(title, bodyInput, today) {
 
 ${bodyInput?.trim() ?? ''}
 
-## Findings (ranked)
+## Findings (Ranked)
 
 ### 1. <finding> [impact]
 
@@ -449,7 +449,7 @@ ${bodyInput?.trim() ?? ''}
 
 
 
-## Suggested order
+## Suggested Order
 
 1. <which finding to act on first, and why>
 

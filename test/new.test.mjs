@@ -855,7 +855,7 @@ describe('dotmd new — runlist / coordination scaffolding', () => {
     // Frontmatter carries the ordered runlist array (documented NN naming).
     ok(/runlist:\n\s+- auth-revamp-01-extract\.md\n\s+- auth-revamp-02-rewrite\.md\n\s+- auth-revamp-03-cleanup\.md/.test(hub),
       `hub must carry the runlist array; got:\n${hub}`);
-    ok(hub.includes('## Order of operations'), 'hub has Order of operations');
+    ok(hub.includes('## Order of Operations'), 'hub has Order of Operations');
     ok(hub.includes('[Extract](auth-revamp-01-extract.md)'), 'hub links child 01');
 
     // Three children, named NN, each a planned plan with a parent_plan back-ref.
@@ -884,7 +884,7 @@ describe('dotmd new — runlist / coordination scaffolding', () => {
     strictEqual(r.status, 0, `stderr: ${r.stderr}`);
     const hub = readFileSync(path.join(docsDir, 'plans', 'platform-map.md'), 'utf8');
     ok(hub.includes('execution_mode: coordination'), 'sets execution_mode');
-    ok(hub.includes('## Ranked queue'), 'has ranked-queue skeleton');
+    ok(hub.includes('## Ranked Queue'), 'has ranked-queue skeleton');
     ok(!hub.includes('runlist:'), 'no runlist array on a coordination hub');
     // No NN child files were scaffolded.
     const stray = readdirSync(path.join(docsDir, 'plans')).filter(f => /platform-map-\d\d-/.test(f));
@@ -958,8 +958,8 @@ describe('dotmd new — plan body variants (--lite / --audit)', () => {
     strictEqual(r.status, 0, `stderr: ${r.stderr}`);
     ok(/\(audit plan\)/.test(r.stdout), `Created line should label the shape; got:\n${r.stdout}`);
     const plan = readFileSync(path.join(docsDir, 'plans', 'perf-audit.md'), 'utf8');
-    ok(plan.includes('## Findings (ranked)'), 'audit has Findings (ranked)');
-    ok(plan.includes('## Suggested order'), 'audit has Suggested order');
+    ok(plan.includes('## Findings (Ranked)'), 'audit has Findings (Ranked)');
+    ok(plan.includes('## Suggested Order'), 'audit has Suggested Order');
     ok(plan.includes('## Open Questions'), 'audit has Open Questions');
     // Audits don't use the build-up Phases shape.
     ok(!plan.includes('## Phases'), 'audit has no Phases section');
@@ -971,7 +971,7 @@ describe('dotmd new — plan body variants (--lite / --audit)', () => {
     const r = run(['new', 'plan', 'sec-review', '--findings']);
     strictEqual(r.status, 0, `stderr: ${r.stderr}`);
     const plan = readFileSync(path.join(docsDir, 'plans', 'sec-review.md'), 'utf8');
-    ok(plan.includes('## Findings (ranked)'), 'findings yields the audit shape');
+    ok(plan.includes('## Findings (Ranked)'), 'findings yields the audit shape');
   });
 
   it('routes the body into the variant Problem section', () => {
@@ -1001,5 +1001,35 @@ describe('dotmd new — plan body variants (--lite / --audit)', () => {
     const r = run(['new', 'plan', 'bar', '--lite', '--runlist', 'a,b']);
     ok(r.status !== 0, 'should exit non-zero');
     ok(/mutually exclusive/.test(r.stderr), `expected mutual-exclusion error; got: ${r.stderr}`);
+  });
+
+  it('full-body shortcut: a complete body wins over the coordination skeleton (no duplicate sections)', () => {
+    const docsDir = setupProject();
+    const body = '# Platform Map\n\n## Scope\n\nEverything platform.\n\n## Ranked queue\n\n| # | Plan |\n|---|------|\n| 1 | `a.md` |\n\n## Version History\n\n- Created.';
+    const r = run(['new', 'plan', 'platform', '--coordination', body]);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    const hub = readFileSync(path.join(docsDir, 'plans', 'platform.md'), 'utf8');
+    // execution_mode frontmatter still set — the hub IS a coordination hub.
+    ok(hub.includes('execution_mode: coordination'), 'still a coordination hub');
+    // Each authored section appears exactly once: the skeleton's own Scope /
+    // Ranked queue / Version History are NOT appended below the author's body.
+    strictEqual((hub.match(/^## Scope$/gm) || []).length, 1, 'Scope once');
+    strictEqual((hub.match(/^## Ranked queue$/gm) || []).length, 1, 'Ranked queue once');
+    strictEqual((hub.match(/^## Version History$/gm) || []).length, 1, 'Version History once');
+    // The author's own `# Title` is honored (no nested scaffold title).
+    strictEqual((hub.match(/^# \S/gm) || []).length, 1, 'one top-level title');
+    ok(hub.includes('# Platform Map'), 'author title preserved');
+  });
+
+  it('full-body shortcut: a complete body wins over the lite skeleton too', () => {
+    const docsDir = setupProject();
+    const body = '## Problem\n\nReal problem.\n\n## Phases\n\n### Phase 1 — go ⬜';
+    const r = run(['new', 'plan', 'quick', '--lite', body]);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    const plan = readFileSync(path.join(docsDir, 'plans', 'quick.md'), 'utf8');
+    strictEqual((plan.match(/^## Problem$/gm) || []).length, 1, 'Problem once');
+    strictEqual((plan.match(/^## Phases$/gm) || []).length, 1, 'Phases once');
+    // The lite skeleton's own Version History is dropped — author owns the body.
+    ok(!plan.includes('## Version History'), 'skeleton Version History dropped');
   });
 });
