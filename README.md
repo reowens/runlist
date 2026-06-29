@@ -195,15 +195,34 @@ runlist:
 ---
 ```
 
+Scaffold the whole sprint in one command instead of hand-writing the hub + children:
+
 ```bash
-dotmd runlist <hub>          # children + statuses in order; first non-archived child marked →
-dotmd runlist next <hub>     # pick up the next child (marks in-session + prints it)
-dotmd runlists               # dashboard of coordination-hub runlists (--json, --limit N)
+$ dotmd new plan auth-revamp --runlist extract,rewrite,cleanup
+Created: plans/auth-revamp.md (plan (runlist hub))
+Created: plans/auth-revamp-01-extract.md (plan · runlist child, planned)
+Created: plans/auth-revamp-02-rewrite.md (plan · runlist child, planned)
+Created: plans/auth-revamp-03-cleanup.md (plan · runlist child, planned)
+```
+
+That writes the hub above (the `runlist:` array + an `## Order of operations` link list) plus one `planned` child stub per slug, each carrying a `parent_plan: auth-revamp.md` back-ref. Then walk the sequence:
+
+```bash
+$ dotmd runlist auth-revamp          # the sequence + statuses; → marks the next pickup
+runlist: plans/auth-revamp.md
+  →  1. [planned] plans/auth-revamp-01-extract.md
+     2. [planned] plans/auth-revamp-02-rewrite.md
+     3. [planned] plans/auth-revamp-03-cleanup.md
+
+$ dotmd runlist next auth-revamp     # pick up the → child (planned → in-session) + print its card
+▶ Started: plans/auth-revamp-01-extract.md (planned → in-session)
+
+$ dotmd runlists                     # dashboard of coordination-hub runlists (--json, --limit N)
 ```
 
 `runlist next` stops with a runlist-aware error if the next child isn't in a workable status (`active` / `planned` / `in-session`), so you resolve the blocker before continuing. Each child should set `parent_plan:` pointing back at the hub — `dotmd check` warns when it doesn't. There's no separate doc type: a runlist hub is just a plan with the array.
 
-In `dotmd plans`, hubs are tagged `[RUNLIST]` (not `[ACTIVE]`) with their children folded underneath — the hub row shows `done/total` progress and the next-pickup `→`, so a multi-plan sprint reads as one runlist instead of cluttering the triage list. A child whose hub is filtered out of the view (e.g. `--status active` when the hub is `planned`) still renders on its own.
+In `dotmd plans`, the hub folds its children under one tagged row — `auth-revamp  runlist · 0/3 · next → 01-extract  [RUNLIST]` — so a multi-plan sprint reads as one runlist instead of cluttering the triage list. A child whose hub is filtered out of the view (e.g. `--status active` when the hub is `planned`) still renders on its own.
 
 **Coordination runlists.** A `runlist:` array fits a small ordered *sprint*. For a large, prose-first *coordination map* (a domain hub pointing at many plans, with gating/sequence rationale, sometimes unordered), set `execution_mode: coordination` instead — or just name it `*-runlist`. These aren't folded: `dotmd plans` lifts them into a pinned `Runlists` section and out of the active count, and `dotmd runlists` shows that dashboard standalone. `dotmd briefing` and `dotmd health` do the same — coordination hubs are pulled out of the live/active counts into a `runlists` bucket (briefing) and a held-out `Runlists:` tally (health), so they don't inflate the actionable-plan or aging numbers. The per-hub "N related" count comes from `related_plans:`. `dotmd check` nudges a `*-runlist` hub missing `execution_mode: coordination`.
 
