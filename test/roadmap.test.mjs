@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { resolveConfig } from '../src/config.mjs';
 import { buildIndex } from '../src/index.mjs';
 import { buildRoadmapIndex, isRoadmapHub, isCoordinationHub } from '../src/runlist.mjs';
-import { checkRoadmapHubExecutionMode } from '../src/validate.mjs';
+import { checkRoadmapHubExecutionMode, checkCoordinationHubExecutionMode } from '../src/validate.mjs';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
 let tmpDir;
@@ -198,6 +198,27 @@ next_step: x`);
     const index = buildIndex(config);
     const warnings = checkRoadmapHubExecutionMode(index.docs, config);
     strictEqual(warnings.find(w => w.path === 'docs/plans/master-roadmap.md'), undefined);
+  });
+
+  // Regression: a `*-runlist`-slugged hub promoted to a roadmap must NOT be told
+  // to add `execution_mode: coordination` — it's already an explicit (tier-up)
+  // hub. Caught dogfooding the platform's master-runlist migration.
+  it('coordination nudge skips a roadmap hub even with a *-runlist slug', async () => {
+    const plans = setupProject();
+    writeDoc(plans, 'master-runlist.md', `type: plan
+status: active
+title: Master
+execution_mode: roadmap
+updated: 2026-06-24
+related_plans:
+  - ./billing-runlist.md
+next_step: x`);
+    writeDoc(plans, 'billing-runlist.md', 'type: plan\nstatus: active\nexecution_mode: coordination\ntitle: Billing\nupdated: 2026-06-24\nnext_step: -');
+    const config = await resolveConfig(tmpDir);
+    const index = buildIndex(config);
+    const warnings = checkCoordinationHubExecutionMode(index.docs, config);
+    strictEqual(warnings.find(w => w.path === 'docs/plans/master-runlist.md'), undefined,
+      'a roadmap with a *-runlist slug must not be nudged toward execution_mode: coordination');
   });
 });
 

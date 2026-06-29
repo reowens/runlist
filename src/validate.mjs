@@ -448,7 +448,10 @@ export function checkCoordinationHubExecutionMode(docs, config) {
   for (const doc of docs) {
     if (doc.type && doc.type !== 'plan') continue;
     if (skipStatuses.has(doc.status)) continue;
-    if (doc.executionMode === 'coordination') continue;
+    // A roadmap (`execution_mode: roadmap`) is already an explicit held-out hub —
+    // just a tier up. Don't nudge it toward `coordination` even when its slug is
+    // `*-runlist` (e.g. a `master-runlist` promoted to a roadmap).
+    if (doc.executionMode === 'coordination' || doc.executionMode === 'roadmap') continue;
     const base = (doc.path.split('/').pop() || '').replace(/\.md$/, '');
     if (base !== 'runlist' && !base.endsWith('-runlist')) continue;
     warnings.push({
