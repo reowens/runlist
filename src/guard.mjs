@@ -27,6 +27,14 @@ const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 
 
 const SHELL_READERS = new Set(['cat', 'less', 'more', 'head', 'tail', 'bat', 'view', 'open']);
 
+// Normalize path separators so the guard's `/`-based matching also fires on
+// Windows backslash paths (`docs\prompts\foo.md`). Without this the PreToolUse
+// status-edit/commit-prompt guards silently no-op on Windows — protection
+// absent exactly where it's needed. On POSIX paths this is a no-op.
+function toSlash(p) {
+  return typeof p === 'string' ? p.replace(/\\/g, '/') : p;
+}
+
 // A path that ends in .md and sits under a `prompts/` directory is a
 // session-local saved prompt regardless of which doc root it belongs to —
 // robust across repos without needing the resolved config. Archived prompts
@@ -34,20 +42,23 @@ const SHELL_READERS = new Set(['cat', 'less', 'more', 'head', 'tail', 'bat', 'vi
 // committable history, NOT session-local, so they're explicitly excluded — the
 // guard must not block committing or reading them.
 function isPromptPath(p) {
-  if (typeof p !== 'string' || !p.endsWith('.md')) return false;
-  if (!/(^|\/)prompts\//.test(p)) return false;
-  if (/(^|\/)archived\//.test(p)) return false;
+  const s = toSlash(p);
+  if (typeof s !== 'string' || !s.endsWith('.md')) return false;
+  if (!/(^|\/)prompts\//.test(s)) return false;
+  if (/(^|\/)archived\//.test(s)) return false;
   return true;
 }
 
 // Loose "is this a dotmd-managed doc" test: a .md file under one of the
 // configured doc roots (default `docs/`). Used for the status-edit guard.
 function isManagedDoc(p, config) {
-  if (typeof p !== 'string' || !p.endsWith('.md')) return false;
+  const s = toSlash(p);
+  if (typeof s !== 'string' || !s.endsWith('.md')) return false;
   const roots = config?.docsRoots || (config?.docsRoot ? [config.docsRoot] : ['docs']);
   return roots.some(r => {
-    const base = path.basename(r);
-    return p.includes(`/${base}/`) || p.startsWith(`${base}/`) || p.includes(r);
+    const rNorm = toSlash(r).replace(/\/+$/, '');
+    const base = rNorm.split('/').pop();
+    return s.includes(`/${base}/`) || s.startsWith(`${base}/`) || s.includes(rNorm);
   });
 }
 

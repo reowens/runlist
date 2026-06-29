@@ -5,7 +5,7 @@ import { toRepoPath, die, warn, nowIso, emitFilesFooter } from './util.mjs';
 import { green, dim, bold } from './color.mjs';
 import { isInteractive, promptText } from './prompt.mjs';
 import { regenIndex } from './lifecycle.mjs';
-import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
+import { extractFrontmatter, parseSimpleFrontmatter, normalizeEol } from './frontmatter.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
@@ -203,7 +203,7 @@ Status markers (put in heading text):
 // trap 4. Returns `{ frontmatter: object|null, body: string }`.
 function splitBodyFrontmatter(rawBody) {
   if (!rawBody || typeof rawBody !== 'string') return { frontmatter: null, body: rawBody };
-  if (!rawBody.startsWith('---\n')) return { frontmatter: null, body: rawBody };
+  if (!normalizeEol(rawBody).startsWith('---\n')) return { frontmatter: null, body: rawBody };
   const { frontmatter: fmText, body } = extractFrontmatter(rawBody);
   if (!fmText) return { frontmatter: null, body: rawBody };
   const parsed = parseSimpleFrontmatter(fmText);

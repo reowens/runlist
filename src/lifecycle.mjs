@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
+import { extractFrontmatter, parseSimpleFrontmatter, normalizeEol } from './frontmatter.mjs';
 import { asString, toRepoPath, die, warn, resolveDocPath, resolveRefPath, escapeRegex, nowIso, suggestCandidates, emitFilesFooter, isArchivedPath } from './util.mjs';
 import { gitMv, getGitLastModifiedBatch } from './git.mjs';
 import { buildIndex, collectDocFiles, resolveDocArg } from './index.mjs';
@@ -935,7 +935,7 @@ function countRefsToUpdate(oldPath, newPath, config) {
 // — never auto-creates the section (don't surprise users on old plans/docs).
 export function appendVersionHistory(filePath, entry, { createSection = false } = {}) {
   let raw;
-  try { raw = readFileSync(filePath, 'utf8'); } catch { return false; }
+  try { raw = normalizeEol(readFileSync(filePath, 'utf8')); } catch { return false; }
   if (!raw.startsWith('---\n')) return false;
 
   const endMarker = raw.indexOf('\n---\n', 4);
@@ -979,7 +979,7 @@ export function appendVersionHistory(filePath, entry, { createSection = false } 
 }
 
 export function updateFrontmatter(filePath, updates) {
-  const raw = readFileSync(filePath, 'utf8');
+  const raw = normalizeEol(readFileSync(filePath, 'utf8'));
   // Name the remedy in the error: this is where every status verb lands when a
   // doc was created outside dotmd, and "no frontmatter block" alone left
   // sessions retrying other verbs instead of fixing the doc.
@@ -1009,7 +1009,7 @@ export function updateFrontmatter(filePath, updates) {
 // to updateFrontmatter when a block already exists so callers can hand it any
 // file without pre-checking — the result is the same shape either way.
 export function writeFrontmatter(filePath, fields) {
-  const raw = readFileSync(filePath, 'utf8');
+  const raw = normalizeEol(readFileSync(filePath, 'utf8'));
   if (raw.startsWith('---\n')) {
     updateFrontmatter(filePath, fields);
     return;

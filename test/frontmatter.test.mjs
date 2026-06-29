@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import { strictEqual, deepStrictEqual, ok } from 'node:assert';
-import { extractFrontmatter, parseSimpleFrontmatter, replaceFrontmatter } from '../src/frontmatter.mjs';
+import { extractFrontmatter, parseSimpleFrontmatter, replaceFrontmatter, normalizeEol } from '../src/frontmatter.mjs';
 
 describe('extractFrontmatter', () => {
   it('extracts frontmatter and body', () => {
@@ -36,6 +36,55 @@ describe('extractFrontmatter', () => {
     const { frontmatter, body } = extractFrontmatter(raw);
     strictEqual(frontmatter, 'status: active');
     strictEqual(body, '');
+  });
+});
+
+describe('normalizeEol', () => {
+  it('converts CRLF to LF', () => {
+    strictEqual(normalizeEol('a\r\nb\r\n'), 'a\nb\n');
+  });
+  it('leaves LF text unchanged (same reference)', () => {
+    const lf = 'a\nb\n';
+    strictEqual(normalizeEol(lf), lf);
+  });
+  it('passes non-strings through untouched', () => {
+    strictEqual(normalizeEol(undefined), undefined);
+  });
+});
+
+describe('extractFrontmatter — CRLF (Windows) docs', () => {
+  it('parses a CRLF-authored doc instead of seeing no frontmatter', () => {
+    // The headline bug: a Windows-default CRLF doc was read as untyped/unmanaged.
+    const raw = '---\r\ntype: plan\r\nstatus: active\r\n---\r\n# Hello\r\nbody\r\n';
+    const { frontmatter, body } = extractFrontmatter(raw);
+    strictEqual(frontmatter, 'type: plan\nstatus: active');
+    strictEqual(body, '# Hello\nbody\n');
+  });
+
+  it('round-trips a CRLF doc through the value parser', () => {
+    const raw = '---\r\ntype: plan\r\nstatus: active\r\n---\r\nbody\r\n';
+    const { frontmatter } = extractFrontmatter(raw);
+    deepStrictEqual(parseSimpleFrontmatter(frontmatter), { type: 'plan', status: 'active' });
+  });
+
+  it('normalizes the body of a CRLF doc that has no frontmatter', () => {
+    const raw = '# No frontmatter\r\nSome text.\r\n';
+    const { frontmatter, body } = extractFrontmatter(raw);
+    strictEqual(frontmatter, '');
+    strictEqual(body, '# No frontmatter\nSome text.\n');
+  });
+});
+
+describe('replaceFrontmatter — CRLF (Windows) docs', () => {
+  it('rewrites a CRLF doc and settles it to LF', () => {
+    const raw = '---\r\nstatus: active\r\n---\r\nbody\r\n';
+    const result = replaceFrontmatter(raw, 'status: archived');
+    strictEqual(result, '---\nstatus: archived\n---\nbody\n');
+  });
+
+  it('returns the original bytes untouched when there is no frontmatter', () => {
+    const raw = '# Plain CRLF\r\nbody\r\n';
+    strictEqual(replaceFrontmatter(raw, 'status: active'), raw);
   });
 });
 

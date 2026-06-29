@@ -312,3 +312,53 @@ test('reading an ARCHIVED prompt is not warned (history, not consumable)', () =>
   );
   assert.equal(r, null, `reading an archived prompt must not warn; got ${JSON.stringify(r)}`);
 });
+
+// --- Windows backslash paths ---------------------------------------------
+// On Windows the agent's tool payloads carry backslash-separated paths. The
+// guard's `/`-based matching used to no-op on those, leaving protection silently
+// absent. These pin the separator-agnostic behavior.
+
+test('Edit changing status: in a backslash-path managed doc is denied', () => {
+  const r = evaluateGuard(
+    { tool_name: 'Edit', tool_input: { file_path: 'docs\\plans\\x.md', old_string: 'status: active', new_string: 'status: archived' } },
+    config, notIgnored,
+  );
+  assert.equal(r.decision, 'deny');
+  assert.equal(r.rule, 'edit-status');
+});
+
+test('git add of a backslash-path prompt is denied', () => {
+  const r = evaluateGuard(
+    { tool_name: 'Bash', tool_input: { command: 'git add docs\\prompts\\resume-foo.md' } },
+    config, ignored,
+  );
+  assert.equal(r.decision, 'deny');
+  assert.equal(r.rule, 'commit-prompt');
+});
+
+test('cat of a backslash-path prompt warns', () => {
+  const r = evaluateGuard(
+    { tool_name: 'Bash', tool_input: { command: 'cat docs\\prompts\\foo.md' } },
+    config, notIgnored,
+  );
+  assert.equal(r.decision, 'warn');
+  assert.equal(r.rule, 'cat-prompt');
+});
+
+test('Read on a backslash-path prompt warns', () => {
+  const r = evaluateGuard(
+    { tool_name: 'Read', tool_input: { file_path: 'docs\\prompts\\foo.md' } },
+    config, notIgnored,
+  );
+  assert.equal(r.decision, 'warn');
+  assert.equal(r.rule, 'read-prompt');
+});
+
+test('backslash-path ARCHIVED prompt is still allowed (history, not session-local)', () => {
+  const archivedPath = 'docs\\prompts\\' + 'archived\\resume-foo.md';
+  const r = evaluateGuard(
+    { tool_name: 'Read', tool_input: { file_path: archivedPath } },
+    config, notIgnored,
+  );
+  assert.equal(r, null, `archived backslash prompt must not be guarded; got ${JSON.stringify(r)}`);
+});

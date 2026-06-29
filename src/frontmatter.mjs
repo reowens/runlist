@@ -1,24 +1,40 @@
+// Windows-authored (CRLF) docs otherwise slip past the LF-only fence detection
+// below and read as having NO frontmatter — silently dropping them from the
+// managed set (no type, no status). Normalizing CRLF→LF at every parse/rewrite
+// boundary is the fix; the per-line value parser already strips a trailing \r,
+// so only the fence scan was blind. A managed doc settles to LF the first time a
+// dotmd verb rewrites it — content-preserving line-ending normalization, not
+// corruption. For LF docs this is a no-op (the `\r` guard skips the replace), so
+// existing behavior is byte-identical.
+export function normalizeEol(text) {
+  return typeof text === 'string' && text.includes('\r') ? text.replace(/\r\n/g, '\n') : text;
+}
+
 export function extractFrontmatter(raw) {
-  if (!raw.startsWith('---\n')) {
-    return { frontmatter: '', body: raw };
+  const text = normalizeEol(raw);
+  if (!text.startsWith('---\n')) {
+    return { frontmatter: '', body: text };
   }
 
-  const endMarker = raw.indexOf('\n---\n', 4);
+  const endMarker = text.indexOf('\n---\n', 4);
   if (endMarker === -1) {
-    return { frontmatter: '', body: raw };
+    return { frontmatter: '', body: text };
   }
 
   return {
-    frontmatter: raw.slice(4, endMarker),
-    body: raw.slice(endMarker + 5),
+    frontmatter: text.slice(4, endMarker),
+    body: text.slice(endMarker + 5),
   };
 }
 
 export function replaceFrontmatter(raw, newFrontmatter) {
-  if (!raw.startsWith('---\n')) return raw;
-  const endMarker = raw.indexOf('\n---\n', 4);
+  const text = normalizeEol(raw);
+  // No frontmatter to replace: return the ORIGINAL bytes untouched (a no-op
+  // rewrite must not normalize a file the caller didn't intend to change).
+  if (!text.startsWith('---\n')) return raw;
+  const endMarker = text.indexOf('\n---\n', 4);
   if (endMarker === -1) return raw;
-  const body = raw.slice(endMarker + 5);
+  const body = text.slice(endMarker + 5);
   return `---\n${newFrontmatter}\n---\n${body}`;
 }
 
@@ -34,6 +50,16 @@ export function replaceFrontmatter(raw, newFrontmatter) {
 //   folded block scalar    `key: >\n  one line\n  continues`         → "one line continues"
 //   literal block scalar   `key: |\n  one\n  two`                    → "one\ntwo"
 //   chomping indicators    `>-`, `|-` (strip), `>+`, `|+` (keep), default (clip to one trailing \n)
+//
+// Supported-subset boundary (deliberately NOT a full YAML parser):
+//   - Scalars stay strings except literal `true`/`false`. Numbers, null, and
+//     dates are kept verbatim as strings; callers coerce where they need a type
+//     (so `1.0`, `2025-01-01`, version strings, and numeric-looking ids survive
+//     intact rather than silently changing type).
+//   - Duplicate keys keep the FIRST occurrence; later ones are ignored (and
+//     reported via the optional `warnings` array).
+//   - Nested maps / multi-level indentation are not parsed — only top-level
+//     keys, with one level of `- ` items under an array key.
 export function parseSimpleFrontmatter(text, warnings) {
   const data = {};
   const seenDupKeys = new Set();

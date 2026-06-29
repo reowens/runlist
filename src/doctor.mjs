@@ -11,6 +11,7 @@ import { checkClaudeCommands, removeGeneratedSlashCommands } from './claude-comm
 import { runMigrateTemplate } from './migrate-template.mjs';
 import { runMigratePrompts } from './migrate-prompts.mjs';
 import { runFrontmatterFix } from './frontmatter-fix.mjs';
+import { normalizeEol } from './frontmatter.mjs';
 import { toRepoPath } from './util.mjs';
 
 // Tunable thresholds for `dotmd doctor --statuses` conflation detection.
@@ -165,7 +166,7 @@ function findWorkflowDrift(config) {
   for (const filePath of collectDocFiles(config)) {
     let raw = '';
     try { raw = readFileSync(filePath, 'utf8'); } catch { continue; }
-    if (!raw.startsWith('---\n')) docsWithoutFrontmatter.push(toRepoPath(filePath, config.repoRoot));
+    if (!normalizeEol(raw).startsWith('---\n')) docsWithoutFrontmatter.push(toRepoPath(filePath, config.repoRoot));
   }
 
   const planStatusGaps = [];
