@@ -43,7 +43,7 @@ const FLAG_SPECS = {
   update: { flags: new Set(['--check', '--cli-only', '--plugin-only']), values: new Set() },
   check: { flags: new Set(['--fix', '--errors-only', '--no-collapse', '--json', '--verbose']), values: new Set() },
   doctor: { flags: new Set(['--apply', '--yes', '--dry-run', '-n', '--statuses', '--migrate-template', '--migrate-prompts', '--frontmatter-fix', '--project', '--json', '--include-archived']), values: new Set() },
-  runlist: { flags: new Set(['--json', '--full', '--no-index', '--show-files']), values: new Set(), subcommands: new Set(['next']) },
+  runlist: { flags: new Set(['--json', '--full', '--no-index', '--show-files', '--clear-parent', '--before', '--after']), values: new Set(['--before', '--after']), subcommands: new Set(['next', 'add', 'remove', 'reorder']) },
   runlists: { flags: new Set(['--json', '--limit', '--sort']), values: new Set(['--limit', '--sort']) },
   prompts: {
     flags: new Set(['--json', '--status', '--include-archived', '--sort', '--limit', '--all', '--no-index', '--show-files', '--body', '--message', '--title']),
@@ -235,7 +235,7 @@ Validate & Fix:
 Lifecycle:
   use <file>                        Open a plan (mark in-session + print it) or consume a prompt
   set <status> <file>               Change a document's status (frontmatter write; archive also moves the file)
-  runlist <hub> [next]              Show or walk an ordered group of plans (see \`dotmd help runlist\`)
+  runlist <hub> [next|add|remove|reorder]   Show, walk, or mutate an ordered group of plans (see \`dotmd help runlist\`)
   runlists                          List coordination-hub runlists (the Runlists dashboard)
   status <file> <status>            Transition document status (deprecated; prefer \`set\`)
   archive <file>                    Archive (status + move + update refs)
@@ -1212,7 +1212,7 @@ directory, updates references, and regenerates the index.
 
 Use --dry-run (-n) to preview changes without writing anything.`,
 
-  runlist: `dotmd runlist <hub> [next] — work with an ordered group of plans
+  runlist: `dotmd runlist <hub> [next|add|remove|reorder] — work with an ordered group of plans
 
 A "runlist" is just a plan with a \`runlist:\` array of child plan paths in its
 frontmatter — there is no separate doc type. The hub plan can have any status;
@@ -1225,6 +1225,29 @@ Usage:
                                in-session + prints it). Stops if it's not in a
                                workable status (active / planned / in-session)
                                so you resolve the blocker first.
+  dotmd runlist add <hub> <child...>
+                               Append children to the hub's \`runlist:\` array
+                               (no more hand-editing the YAML). Each child can be:
+                                 • a bare slug (\`cleanup\`) → scaffolds a
+                                   \`planned\` stub \`<hub>-NN-<slug>.md\` next to
+                                   the hub (mirrors \`new plan --runlist\`), or
+                                 • a path/slug of an existing plan → wired in by a
+                                   hub-relative ref, with its \`parent_plan:\` set
+                                   back at the hub.
+                               A plain plan gains a \`runlist:\` (becomes a hub).
+                               Coordination hubs (body-order) aren't handled here.
+  dotmd runlist remove <hub> <child...>
+                               Drop children from the \`runlist:\` array. Children
+                               match by full path or short slug (\`cleanup\` finds
+                               \`<hub>-03-cleanup.md\`). \`--clear-parent\` also blanks
+                               each removed child's \`parent_plan:\` back-ref.
+  dotmd runlist reorder <hub> <child> --before|--after <other>
+  dotmd runlist reorder <hub> <c1> <c2> <c3...>
+                               Move one child relative to another, or pass every
+                               child to set a full new order.
+                               All three mutators take \`--dry-run\` / \`--json\` and
+                               keep any body \`## Order of operations\` link list in
+                               sync (preserving per-item ⬜/✅ markers).
 
 Flags (only meaningful with \`next\`):
   --full             Print full plan body instead of the card.

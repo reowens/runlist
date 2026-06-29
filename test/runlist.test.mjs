@@ -1,6 +1,6 @@
 import { describe, it, afterEach } from 'node:test';
 import { strictEqual, ok, match } from 'node:assert';
-import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -473,6 +473,45 @@ describe('dotmd plans (runlist folding)', () => {
     match(r.stdout, /auth-revamp-03-cleanup\s+9d/);
   });
 
+  it('folds children in runlist order even when a later-added child has a newer mtime', () => {
+    const plans = setupProject();
+    // runlist order is a,b,c but c is the most recently updated — recency sort
+    // would float it to the top; the fold must keep it in runlist position.
+    writeDoc(plans, 'seq.md', `type: plan
+status: active
+title: Seq
+updated: ${daysAgoDate(1)}
+runlist:
+  - seq-01-a.md
+  - seq-02-b.md
+  - seq-03-c.md`);
+    writeDoc(plans, 'seq-01-a.md', `type: plan
+status: planned
+title: A
+parent_plan: seq.md
+updated: ${daysAgoDate(5)}`);
+    writeDoc(plans, 'seq-02-b.md', `type: plan
+status: planned
+title: B
+parent_plan: seq.md
+updated: ${daysAgoDate(4)}`);
+    writeDoc(plans, 'seq-03-c.md', `type: plan
+status: planned
+title: C
+parent_plan: seq.md
+updated: ${daysAgoDate(0)}`); // newest
+
+    const r = runPlans([]);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    // Child rows carry an age column (`0N-x   Nd`); the hub header's
+    // `next → 01-a` does not, so this matches only the three folded children.
+    const rows = r.stdout.split('\n').filter(l => /0\d-[abc]\s+\d+d/.test(l));
+    strictEqual(rows.length, 3);
+    ok(/01-a/.test(rows[0]), `expected 01-a first, got: ${rows[0]}`);
+    ok(/02-b/.test(rows[1]), `expected 02-b second, got: ${rows[1]}`);
+    ok(/03-c/.test(rows[2]), `expected 03-c last, got: ${rows[2]}`);
+  });
+
   it('shows "all archived" once every child is closed', () => {
     setupSprint();
     for (const f of ['auth-revamp-01-extract', 'auth-revamp-02-rewrite', 'auth-revamp-03-cleanup']) {
@@ -546,8 +585,9 @@ describe('dotmd plans (coordination-hub section)', () => {
     setupCoordination();
     const r = runPlans([]);
     strictEqual(r.status, 0, `stderr: ${r.stderr}`);
-    // 4 plans, 2 of them hubs → 2 active leaves, 2 runlists.
-    match(r.stdout, /4 plans · 2 runlists · 2 active/);
+    // 4 docs, 2 of them hubs → headline counts the 2 active leaves only; the
+    // 2 runlists read as a separate sibling, held out of the plan count.
+    match(r.stdout, /2 plans · 2 runlists · 2 active/);
     match(r.stdout, /Runlists \(2\)/);
     // Hubs appear in the section with a related-cluster count, NOT as [ACTIVE]
     // leaf rows. The count is labelled `related` (it's the related_plans cluster).
@@ -781,8 +821,10 @@ describe('dotmd briefing (coordination-hub awareness)', () => {
     setupCoordination();
     const r = runCmd('briefing', []);
     strictEqual(r.status, 0, `stderr: ${r.stderr}`);
-    // 2 hubs reclassified out of active → 2 runlists, 2 active leaves; sums to 4.
-    match(r.stdout, /4 live plans: 2 runlists, 2 active/);
+    // 2 coordination hubs held out of the headline plan count entirely → the
+    // headline reads the 2 active leaves; runlists show on their own pointer line.
+    match(r.stdout, /2 live plans: 2 active/);
+    ok(!/live plans:.*runlist/.test(r.stdout), 'runlists are not summed into the headline breakdown');
     // leaves appear in the `>` work list; hubs do not.
     match(r.stdout, /> stripe-testing \(active\)/);
     match(r.stdout, /> unrelated \(active\)/);
@@ -884,5 +926,360 @@ updated: 2026-06-26`);
     // dead statuses from the old hardcoded list never render an empty row
     ok(!/\bready\b/.test(pipeline), 'no dead "ready" row');
     ok(!/\bscoping\b/.test(pipeline), 'no dead "scoping" row');
+  });
+});
+
+describe('dotmd runlist add <hub> <child...>', () => {
+  function sprintHub(plans) {
+    writeDoc(plans, 'hub.md', `type: plan
+status: active
+title: Auth Revamp
+updated: 2026-05-26
+runlist:
+  - one.md
+  - two.md`);
+    writeDoc(plans, 'one.md', `type: plan
+status: active
+title: One
+parent_plan: hub.md
+updated: 2026-05-26`);
+    writeDoc(plans, 'two.md', `type: plan
+status: active
+title: Two
+parent_plan: hub.md
+updated: 2026-05-26`);
+  }
+
+  it('scaffolds a planned stub for a bare slug and appends it to the runlist array', () => {
+    const plans = setupProject();
+    sprintHub(plans);
+
+    const r = run(['add', 'docs/plans/hub.md', 'deploy']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+
+    // hub frontmatter gained the new child as the 3rd entry, numbered 03.
+    const hub = readFileSync(path.join(plans, 'hub.md'), 'utf8');
+    match(hub, /runlist:\n  - one\.md\n  - two\.md\n  - hub-03-deploy\.md/);
+
+    // the stub exists, is `planned`, and points parent_plan back at the hub.
+    const child = readFileSync(path.join(plans, 'hub-03-deploy.md'), 'utf8');
+    match(child, /^status: planned$/m);
+    match(child, /^parent_plan: hub\.md$/m);
+    match(child, /# Deploy/);
+  });
+
+  it('wires in an existing plan with a hub-relative ref and sets its parent_plan back-ref', () => {
+    const plans = setupProject();
+    sprintHub(plans);
+    writeDoc(plans, 'legacy.md', `type: plan
+status: planned
+title: Legacy
+updated: 2026-05-26`);
+
+    const r = run(['add', 'docs/plans/hub.md', 'legacy']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+
+    const hub = readFileSync(path.join(plans, 'hub.md'), 'utf8');
+    match(hub, /  - legacy\.md/);
+    // no new stub was scaffolded for the existing plan.
+    ok(!/legacy-0/.test(hub), 'existing plan should be referenced as-is, not renumbered');
+
+    const legacy = readFileSync(path.join(plans, 'legacy.md'), 'utf8');
+    match(legacy, /^parent_plan: hub\.md$/m);
+  });
+
+  it('does not clobber an existing parent_plan that points elsewhere', () => {
+    const plans = setupProject();
+    sprintHub(plans);
+    writeDoc(plans, 'other-hub.md', `type: plan
+status: active
+title: Other Hub
+updated: 2026-05-26`);
+    writeDoc(plans, 'claimed.md', `type: plan
+status: planned
+title: Claimed
+parent_plan: other-hub.md
+updated: 2026-05-26`);
+
+    const r = run(['add', 'docs/plans/hub.md', 'claimed']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    // still added to the hub's runlist, but the back-ref is left intact + warned.
+    match(readFileSync(path.join(plans, 'hub.md'), 'utf8'), /  - claimed\.md/);
+    match(readFileSync(path.join(plans, 'claimed.md'), 'utf8'), /^parent_plan: other-hub\.md$/m);
+    match(r.stderr + r.stdout, /already has parent_plan/);
+  });
+
+  it('--dry-run writes nothing (hub + no stub created)', () => {
+    const plans = setupProject();
+    sprintHub(plans);
+    const before = readFileSync(path.join(plans, 'hub.md'), 'utf8');
+
+    const r = run(['add', 'docs/plans/hub.md', 'deploy', '--dry-run']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    match(r.stdout, /\[dry-run\]/);
+    strictEqual(readFileSync(path.join(plans, 'hub.md'), 'utf8'), before, 'hub must be untouched');
+    ok(!existsSync(path.join(plans, 'hub-03-deploy.md')), 'no stub on dry-run');
+  });
+
+  it('dedupes a child already in the runlist and exits nonzero when nothing is left to add', () => {
+    const plans = setupProject();
+    sprintHub(plans);
+
+    const r = run(['add', 'docs/plans/hub.md', 'one']);
+    strictEqual(r.status, 1, 'all-skipped add should fail');
+    match(r.stderr + r.stdout, /already in the runlist/);
+  });
+
+  it('promotes a plain plan (no runlist) into a hub', () => {
+    const plans = setupProject();
+    writeDoc(plans, 'plain.md', `type: plan
+status: active
+title: Plain
+updated: 2026-05-26`);
+
+    const r = run(['add', 'docs/plans/plain.md', 'alpha', 'beta']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    const hub = readFileSync(path.join(plans, 'plain.md'), 'utf8');
+    match(hub, /runlist:\n  - plain-01-alpha\.md\n  - plain-02-beta\.md/);
+    ok(existsSync(path.join(plans, 'plain-01-alpha.md')));
+    ok(existsSync(path.join(plans, 'plain-02-beta.md')));
+  });
+
+  it('refuses a coordination hub with an actionable message', () => {
+    const plans = setupProject();
+    writeDoc(plans, 'master-runlist.md', `type: plan
+status: active
+title: Master
+execution_mode: coordination
+updated: 2026-05-26`, '## Ranked queue\n\n| # | Plan | Why | Status |\n|---|---|---|---|\n');
+
+    const r = run(['add', 'docs/plans/master-runlist.md', 'gamma']);
+    strictEqual(r.status, 1, 'coordination hub add should be refused');
+    match(r.stderr + r.stdout, /coordination hub/);
+    ok(!existsSync(path.join(plans, 'master-runlist-01-gamma.md')), 'no stub scaffolded for refused hub');
+  });
+
+  it('refuses a path token that points at no existing file (scaffolds from bare slugs only)', () => {
+    const plans = setupProject();
+    sprintHub(plans);
+    const r = run(['add', 'docs/plans/hub.md', 'nested/ghost.md']);
+    strictEqual(r.status, 1);
+    match(r.stderr + r.stdout, /Pass a bare slug/);
+  });
+
+  it('--json reports the added children and the resulting runlist', () => {
+    const plans = setupProject();
+    sprintHub(plans);
+    const r = run(['add', 'docs/plans/hub.md', 'deploy', '--json']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    const parsed = JSON.parse(r.stdout);
+    strictEqual(parsed.hub, 'docs/plans/hub.md');
+    strictEqual(parsed.added.length, 1);
+    strictEqual(parsed.added[0].scaffolded, true);
+    strictEqual(parsed.runlist.length, 3);
+    strictEqual(parsed.runlist[2], 'hub-03-deploy.md');
+  });
+
+  it('continues numbering from the current child count', () => {
+    const plans = setupProject();
+    sprintHub(plans); // 2 children already
+    run(['add', 'docs/plans/hub.md', 'three']);   // → hub-03-three.md
+    const r = run(['add', 'docs/plans/hub.md', 'four']); // → hub-04-four.md
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    ok(existsSync(path.join(plans, 'hub-03-three.md')));
+    ok(existsSync(path.join(plans, 'hub-04-four.md')));
+  });
+
+  it('keeps the body `## Order of operations` link list in sync when adding', () => {
+    const plans = setupProject();
+    writeDoc(plans, 'hub.md', `type: plan
+status: active
+title: Hub
+updated: 2026-05-26
+runlist:
+  - one.md
+  - two.md`, `# Hub
+
+## Order of operations
+
+1. [One](one.md) ⬜
+2. [Two](two.md) ⬜
+
+## Version History
+`);
+    writeDoc(plans, 'one.md', `type: plan
+status: active
+title: One
+updated: 2026-05-26`);
+    writeDoc(plans, 'two.md', `type: plan
+status: active
+title: Two
+updated: 2026-05-26`);
+
+    run(['add', 'docs/plans/hub.md', 'deploy']);
+    const hub = readFileSync(path.join(plans, 'hub.md'), 'utf8');
+    match(hub, /3\. \[Deploy\]\(hub-03-deploy\.md\) ⬜/);
+  });
+});
+
+describe('dotmd runlist remove / reorder', () => {
+  // A sprint hub with a body `## Order of operations` list (the `--runlist`
+  // scaffold shape) + child files, so body-sync and slug matching are exercised.
+  function sprintWithBody(plans) {
+    writeDoc(plans, 'sprint.md', `type: plan
+status: active
+title: Sprint
+updated: 2026-05-26
+runlist:
+  - sprint-01-a.md
+  - sprint-02-b.md
+  - sprint-03-c.md`, `# Sprint
+
+## Order of operations
+
+1. [A](sprint-01-a.md) ⬜
+2. [B](sprint-02-b.md) ✅
+3. [C](sprint-03-c.md) ⬜
+
+Pick up the next child with \`dotmd runlist next sprint\`.
+
+## Version History
+`);
+    for (const [f, t] of [['sprint-01-a.md', 'A'], ['sprint-02-b.md', 'B'], ['sprint-03-c.md', 'C']]) {
+      writeDoc(plans, f, `type: plan
+status: planned
+title: ${t}
+parent_plan: sprint.md
+updated: 2026-05-26`);
+    }
+  }
+
+  const order = (plans) => readFileSync(path.join(plans, 'sprint.md'), 'utf8')
+    .match(/runlist:\n((?:  - .*\n?)*)/)[1].split('\n')
+    .map(l => l.replace(/^\s*-\s*/, '').trim()).filter(Boolean);
+
+  it('removes a child by its short slug and renumbers the body order list', () => {
+    const plans = setupProject();
+    sprintWithBody(plans);
+    const r = run(['remove', 'docs/plans/sprint.md', 'b']); // slug → sprint-02-b.md
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    strictEqual(order(plans).join(','), 'sprint-01-a.md,sprint-03-c.md');
+    const hub = readFileSync(path.join(plans, 'sprint.md'), 'utf8');
+    match(hub, /1\. \[A\]\(sprint-01-a\.md\) ⬜\n2\. \[C\]\(sprint-03-c\.md\) ⬜/);
+    ok(!/sprint-02-b/.test(hub), 'removed child gone from body list too');
+  });
+
+  it('--clear-parent blanks the removed child\'s back-ref', () => {
+    const plans = setupProject();
+    sprintWithBody(plans);
+    run(['remove', 'docs/plans/sprint.md', 'b', '--clear-parent']);
+    match(readFileSync(path.join(plans, 'sprint-02-b.md'), 'utf8'), /^parent_plan:\s*$/m);
+  });
+
+  it('remove --dry-run writes nothing', () => {
+    const plans = setupProject();
+    sprintWithBody(plans);
+    const before = readFileSync(path.join(plans, 'sprint.md'), 'utf8');
+    const r = run(['remove', 'docs/plans/sprint.md', 'b', '--dry-run']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    strictEqual(readFileSync(path.join(plans, 'sprint.md'), 'utf8'), before);
+  });
+
+  it('errors when removing a child that is not in the runlist', () => {
+    const plans = setupProject();
+    sprintWithBody(plans);
+    const r = run(['remove', 'docs/plans/sprint.md', 'ghost']);
+    strictEqual(r.status, 1);
+    match(r.stderr + r.stdout, /not in the runlist/);
+  });
+
+  it('reorder --before moves one child and preserves other items\' status markers', () => {
+    const plans = setupProject();
+    sprintWithBody(plans);
+    const r = run(['reorder', 'docs/plans/sprint.md', 'c', '--before', 'a']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    strictEqual(order(plans).join(','), 'sprint-03-c.md,sprint-01-a.md,sprint-02-b.md');
+    // B kept its ✅ through the move.
+    match(readFileSync(path.join(plans, 'sprint.md'), 'utf8'), /\[B\]\(sprint-02-b\.md\) ✅/);
+  });
+
+  it('reorder --after places the child after the anchor', () => {
+    const plans = setupProject();
+    sprintWithBody(plans);
+    run(['reorder', 'docs/plans/sprint.md', 'a', '--after', 'c']);
+    strictEqual(order(plans).join(','), 'sprint-02-b.md,sprint-03-c.md,sprint-01-a.md');
+  });
+
+  it('reorder accepts a full new order (permutation of all children)', () => {
+    const plans = setupProject();
+    sprintWithBody(plans);
+    const r = run(['reorder', 'docs/plans/sprint.md', 'c', 'a', 'b']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    strictEqual(order(plans).join(','), 'sprint-03-c.md,sprint-01-a.md,sprint-02-b.md');
+  });
+
+  it('rejects a partial reorder list (not a full permutation)', () => {
+    const plans = setupProject();
+    sprintWithBody(plans);
+    const r = run(['reorder', 'docs/plans/sprint.md', 'c', 'a']);
+    strictEqual(r.status, 1);
+    match(r.stderr + r.stdout, /needs all 3 children/);
+  });
+
+  it('refuses to move a child relative to itself', () => {
+    const plans = setupProject();
+    sprintWithBody(plans);
+    const r = run(['reorder', 'docs/plans/sprint.md', 'a', '--before', 'a']);
+    strictEqual(r.status, 1);
+    match(r.stderr + r.stdout, /relative to itself/);
+  });
+
+  it('refuses remove/reorder on a hub with no runlist array', () => {
+    const plans = setupProject();
+    writeDoc(plans, 'plain.md', `type: plan
+status: active
+title: Plain
+updated: 2026-05-26`);
+    const r = run(['reorder', 'docs/plans/plain.md', 'x', '--before', 'y']);
+    strictEqual(r.status, 1);
+    match(r.stderr + r.stdout, /no `runlist:` array/);
+  });
+});
+
+describe('dotmd plans --status (Runlists nav discoverability)', () => {
+  it('shows a "hidden by filter" pointer when a status filter hides a live coordination hub', () => {
+    const plans = setupProject();
+    writeDoc(plans, 'master-runlist.md', `type: plan
+status: active
+title: Master
+execution_mode: coordination
+related_plans:
+updated: ${daysAgoDate(2)}`);
+    writeDoc(plans, 'leaf.md', `type: plan
+status: blocked
+title: Leaf
+updated: ${daysAgoDate(2)}`);
+
+    const r = runCmd('plans', ['--status', 'blocked']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    match(r.stdout, /1 runlist hidden by filter\s+·\s+dotmd runlists/);
+  });
+
+  it('does not show the pointer when the filter matches the hub (no filter case)', () => {
+    const plans = setupProject();
+    writeDoc(plans, 'master-runlist.md', `type: plan
+status: active
+title: Master
+execution_mode: coordination
+related_plans:
+updated: ${daysAgoDate(2)}`);
+    writeDoc(plans, 'leaf.md', `type: plan
+status: active
+title: Leaf
+updated: ${daysAgoDate(2)}`);
+
+    const r = runCmd('plans', []);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    ok(!/hidden by filter/.test(r.stdout), 'no pointer without a narrowing filter');
   });
 });

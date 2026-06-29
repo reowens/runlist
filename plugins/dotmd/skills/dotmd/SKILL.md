@@ -69,6 +69,15 @@ Saved prompts (`docs/prompts/*.md`) are **session-local handoff artifacts**, not
   dotmd runlist auth-revamp        # the sequence + statuses; → marks the next pickup
   dotmd runlist next auth-revamp   # pick up the → child (planned → in-session) + print its card
   ```
+  Mutate the runlist through the CLI — never hand-edit the `runlist:` YAML. These keep the array, each child's `parent_plan:` back-ref, and any body `## Order of operations` list in sync (all take `--dry-run`/`--json`):
+  ```bash
+  dotmd runlist add auth-revamp deploy          # append: bare slug → scaffolds a planned stub;
+                                                #   an existing plan's path/slug → wires it in
+  dotmd runlist remove auth-revamp cleanup      # drop a child (match by slug or path); --clear-parent
+                                                #   also blanks the removed child's back-ref
+  dotmd runlist reorder auth-revamp deploy --before rewrite   # move one child
+  dotmd runlist reorder auth-revamp cleanup extract rewrite deploy   # or set a full new order
+  ```
 - At scale (>50 plans): `dotmd modules --sort cleanup` → `dotmd module <name>`
 
 ## Audit (operator)

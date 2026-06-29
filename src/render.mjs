@@ -342,17 +342,17 @@ export function renderBriefing(index, config) {
     ]);
     const live = plans.filter(p => !closed.has(p.status) && !isArchivedPath(p.path, config));
     const liveHubs = live.filter(isHub);
+    const liveLeaves = live.length - liveHubs.length;
     const bySt = {};
     for (const p of live) { if (isHub(p)) continue; bySt[p.status] = (bySt[p.status] ?? 0) + 1; }
-    // Runlists lead the breakdown (then leaf statuses), and the bucket sums back
-    // to the live total so the headline stays honest.
-    const countParts = [];
-    if (liveHubs.length) countParts.push(`${liveHubs.length} runlist${liveHubs.length === 1 ? '' : 's'}`);
-    countParts.push(...Object.entries(bySt).map(([s, n]) => `${n} ${s}`));
-    const counts = countParts.join(', ');
+    // Coordination hubs are navigation maps, not units of work — held OUT of the
+    // headline plan count entirely (they get their own `N runlists · dotmd
+    // runlists` pointer line below). The breakdown is leaf statuses only and sums
+    // back to the leaf count, so "N live plans" means N things to actually work on.
+    const counts = Object.entries(bySt).map(([s, n]) => `${n} ${s}`).join(', ');
     const closedCount = plans.length - live.length;
     const closedPart = closedCount ? ` (${closedCount} archived)` : '';
-    lines.push(live.length ? `${live.length} live plans${closedPart}: ${counts}` : `0 live plans${closedPart}`);
+    lines.push(liveLeaves ? `${liveLeaves} live plans${closedPart}: ${counts}` : `0 live plans${closedPart}`);
     const show = plans.filter(p => (p.status === 'in-session' || p.status === 'active') && !isHub(p));
     for (const p of show) {
       const next = p.nextStep ? `next: ${p.nextStep}` : '(no next step)';

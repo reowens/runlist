@@ -524,7 +524,11 @@ function renderPlansOutput(docs, filters, config, opts = {}) {
   const headerParts = [];
   if (hubCount) headerParts.push(`${hubCount} runlist${hubCount === 1 ? '' : 's'}`);
   headerParts.push(...counts);
-  const header = `${totalAll} ${noun}${headerParts.length ? ' · ' + headerParts.join(' · ') : ''}`;
+  // Hubs are held OUT of the headline plan count — they read as a separate
+  // `N runlist` sibling, never as actionable plans. So "N plans" counts leaves
+  // only and the status segments sum to it (the runlist sibling sits apart).
+  const headlineTotal = totalAll - hubCount;
+  const header = `${headlineTotal} ${noun}${headerParts.length ? ' · ' + headerParts.join(' · ') : ''}`;
   process.stdout.write(dim(header) + '\n');
 
   // Active filter note
@@ -596,6 +600,23 @@ function renderPlansOutput(docs, filters, config, opts = {}) {
       const coordHidden = coordAll.length - coordShown.length;
       if (coordHidden > 0) {
         process.stdout.write(dim(`  ${coordHidden} more runlists  ·  dotmd ${noun} --all\n`));
+      }
+    }
+
+    // Runlist nav stays discoverable under a narrowing filter. The Runlists
+    // section respects the active filter (a coordination hub shows only when its
+    // own status matches), so `--status blocked` legitimately hides an `active`
+    // hub. Rather than silently dropping the map, point at `dotmd runlists` when
+    // a filter hid live hubs — honest count, filter respected, map never lost.
+    if (coordination?.size && activeFilters.length) {
+      const archiveStatuses = config.lifecycle?.archiveStatuses ?? new Set(['archived']);
+      const shownHubs = new Set(coordAll.map(d => d.path));
+      const filterHidden = [...coordination.values()].filter(v =>
+        !shownHubs.has(v.doc.path)
+        && !archiveStatuses.has(v.doc.status)
+        && !isArchivedPath(v.doc.path, config)).length;
+      if (filterHidden > 0) {
+        process.stdout.write(dim(`  ${filterHidden} runlist${filterHidden === 1 ? '' : 's'} hidden by filter  ·  dotmd runlists\n`));
       }
     }
 
@@ -760,8 +781,15 @@ function renderHubBlock(hub, info, children, maxWidth, topMaxSlug) {
   process.stdout.write(header + '\n');
 
   if (children.length === 0) return;
+  // Render rows in runlist order (info.children), not the docs view's recency
+  // sort — a runlist reads in sequence, and a just-added child shouldn't jump to
+  // the top because its mtime is newest. Only children present in the current
+  // view are shown; any not tracked by the runlist index trail at the end.
+  const byPath = new Map(children.map(c => [c.path, c]));
+  const ordered = info.children.map(ic => byPath.get(ic.path)).filter(Boolean);
+  for (const c of children) if (!ordered.includes(c)) ordered.push(c);
   const childMaxSlug = Math.min(28, Math.max(...children.map(c => stripHubPrefix(toSlug(c), hubSlug).length)));
-  for (const c of children) {
+  for (const c of ordered) {
     const isNext = c.path === info.nextChildPath;
     const indent = isNext ? `    ${green('→')} ` : '      ';
     process.stdout.write(formatPlanRow(c, maxWidth, {

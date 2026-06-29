@@ -269,10 +269,10 @@ export function readBodyInput(source) {
 }
 
 // Slug/title helpers shared by name resolution and runlist child generation.
-function slugify(s) {
+export function slugify(s) {
   return s.toLowerCase().replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').replace(/^-|-$/g, '');
 }
-function titleize(s) {
+export function titleize(s) {
   return s.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
@@ -420,7 +420,7 @@ ${bodyInput?.trim() ?? ''}
 // Minimal child plan stub for a scaffolded runlist child. parent_plan points
 // back at the hub (same dir) so \`dotmd doctor\` is satisfied and the reverse
 // link/graph work; status starts `planned` (queued behind the hub).
-function runlistChildContent(childTitle, hubSlug, hubTitle, childStatus, today) {
+export function runlistChildContent(childTitle, hubSlug, hubTitle, childStatus, today) {
   return `---
 type: plan
 status: ${childStatus}

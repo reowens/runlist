@@ -101,7 +101,15 @@ Then:
 - `dotmd runlist next <hub>` — pick up the first non-archived child. If it's not in a pickup-able status (`active` / `planned` / `in-session`), the command stops with a runlist-aware error so you resolve the blocker before continuing.
 - In `dotmd plans`, a hub is tagged `[RUNLIST]` rather than `[ACTIVE]` and its children fold underneath it (with `done/total` progress and the next-pickup `→` on the hub row), so a sprint reads as one runlist instead of N loose plans. A child whose hub is filtered out of the current view still renders standalone.
 
-Each child should set `parent_plan:` pointing back at the hub — `dotmd doctor` warns when it doesn't. Order is authoritative from `runlist:`; `parent_plan` keeps the existing reverse-link semantics (pickup-card Related:, graph).
+**Mutate the runlist through the CLI — never hand-edit the `runlist:` YAML.** Three verbs keep the frontmatter array, each child's `parent_plan:` back-ref, and any body `## Order of operations` link list (incl. per-item ⬜/✅ markers) in sync:
+
+- `dotmd runlist add <hub> <child...>` — append children. A bare slug (`cleanup`) scaffolds a `planned` stub `<hub>-NN-<slug>.md` next to the hub (mirrors `new plan --runlist`); a path/slug of an existing plan wires it in by a hub-relative ref and sets its `parent_plan:`. A plain plan with no `runlist:` becomes a hub. (Coordination/body-order hubs aren't handled by `add` — keep their `## Ranked queue` order by hand.)
+- `dotmd runlist remove <hub> <child...>` — drop children (match by full path or short slug). `--clear-parent` also blanks each removed child's back-ref.
+- `dotmd runlist reorder <hub> <child> --before|--after <other>` — move one child; or `dotmd runlist reorder <hub> <c1> <c2> <c3...>` to set a full new order (a permutation of the children).
+
+All three take `--dry-run` / `--json`.
+
+Each child should set `parent_plan:` pointing back at the hub — `dotmd doctor` warns when it doesn't (the mutation verbs set it for you). Order is authoritative from `runlist:`; `parent_plan` keeps the existing reverse-link semantics (pickup-card Related:, graph).
 
 #### Coordination runlists (prose-first domain maps)
 
