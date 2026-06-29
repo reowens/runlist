@@ -7,6 +7,7 @@ import { validateDoc, validatePlanShape, validateDocShape, checkBidirectionalRef
 import { checkIndex } from './index-file.mjs';
 import { checkClaudeCommands } from './claude-commands.mjs';
 import { checkGlossaryConfig } from './glossary-check.mjs';
+import { checkSkillDrift } from './skill-drift.mjs';
 
 // `fast: true` skips every pass that produces warnings/errors — the rendered
 // index file consumes only status/title/snapshot/etc., not the validation
@@ -135,6 +136,9 @@ export function buildIndex(config, opts = {}) {
 
     const glossaryWarnings = checkGlossaryConfig(config);
     warnings.push(...glossaryWarnings);
+
+    const skillDriftWarnings = checkSkillDrift(config);
+    warnings.push(...skillDriftWarnings);
   }
 
   return {

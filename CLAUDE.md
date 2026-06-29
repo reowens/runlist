@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 dotmd is a CLI (`dotmd-cli` on npm) for managing markdown documents with YAML frontmatter. It indexes, queries, validates, graphs, exports, and lifecycle-manages collections of `.md` files (plans, ADRs, RFCs, design docs). Built as ESM with two npm dependencies (`@notionhq/client`, `notion-to-md` for Notion integration).
 
-**Claude Code plugin.** dotmd also ships as a Claude Code plugin under `plugins/dotmd/` (marketplace manifest at `.claude-plugin/marketplace.json`). The plugin bundles the hooks (`SessionStart`/`SubagentStart` priming via `dotmd hud`, a `PreToolUse` guard via `dotmd guard`) and the canonical agent-facing workflow in `plugins/dotmd/skills/dotmd/SKILL.md`. That SKILL.md is the source of truth for how *other* repos' sessions learn the workflow — keep it in sync with the "Working with plans" guidance below. The user-typed slash commands (`/plans`, `/docs`, `/prompts`, `/baton`) ship from `plugins/dotmd/commands/`. The legacy per-repo `.claude/commands` scaffolding has been **retired** (see `docs/plans/package-dotmd-as-plugin.md`, Phase 4): `src/claude-commands.mjs` no longer generates anything — it only *removes* stale dotmd-generated command files (banner-gated, so hand-authored ones survive). `dotmd hud`/`doctor` sweep them; `dotmd init` recommends installing the plugin instead of scaffolding.
+**Claude Code plugin.** dotmd also ships as a Claude Code plugin under `plugins/dotmd/` (marketplace manifest at `.claude-plugin/marketplace.json`). The plugin bundles the hooks (`SessionStart`/`SubagentStart` priming via `dotmd hud`, a `PreToolUse` guard via `dotmd guard`) and the canonical agent-facing workflow in `plugins/dotmd/skills/dotmd/SKILL.md`. That SKILL.md is the source of truth for how *other* repos' sessions learn the workflow — keep it in sync with the "Working with plans" guidance below. The irreducible verb contract lives in a marked `dotmd:canonical-workflow` block duplicated in both surfaces; `dotmd check` fails (via `src/skill-drift.mjs`) the moment the two copies drift, so that lockstep is mechanical, not manual. The user-typed slash commands (`/plans`, `/docs`, `/prompts`, `/baton`) ship from `plugins/dotmd/commands/`. The legacy per-repo `.claude/commands` scaffolding has been **retired** (see `docs/plans/package-dotmd-as-plugin.md`, Phase 4): `src/claude-commands.mjs` no longer generates anything — it only *removes* stale dotmd-generated command files (banner-gated, so hand-authored ones survive). `dotmd hud`/`doctor` sweep them; `dotmd init` recommends installing the plugin instead of scaffolding.
 
 ## Document Types
 
@@ -35,6 +35,17 @@ Each stop-status maps to a distinct **unstuck-action** — that's the test for w
 To finish work, archive directly: `dotmd archive <plan-file>`. The legacy `done` status was dropped from defaults — `archived` is the closure state.
 
 ### Working with plans (for Claude instances)
+
+**Workflow contract.** The bullets between the markers below are kept byte-identical across this `CLAUDE.md` and the plugin `SKILL.md`; `dotmd check` guards the lockstep (`src/skill-drift.mjs`). Edit them in one surface and you must mirror them in the other — only the marked block is compared, so this framing line can differ per file.
+
+<!-- dotmd:canonical-workflow:start -->
+- **Orient:** `dotmd briefing` — active / paused / ready work, with ages and next steps.
+- **Start a plan:** `dotmd use <plan-file>` — marks it `in-session` and prints the plan card.
+- **Single status verb:** `dotmd set <status> [<file>]` writes the status, validates it against the doc's type, runs lifecycle hooks, fixes refs, and syncs the index. **Never hand-edit a `status:` line.** Add `--note "why"` to record the reason in `## Version History` in the same call.
+- **Close to match reality:** `archived` (shipped) · `partial` (tail deferred — link the successor) · `active` (more work later) · `awaiting` (needs a human decision) · `blocked` (external arrival you can't speed up).
+- **Hand off / save a resume prompt:** `dotmd baton [<slug>] <@draft|->` — saves the resume prompt and releases the in-session plan. Never paste a "here's how to resume" block into chat.
+- **Saved prompts are session-local:** consume with `dotmd use` (no arg = oldest pending), peek with `dotmd prompts show`. Never read them with file tools, never commit `docs/prompts/*.md`.
+<!-- dotmd:canonical-workflow:end -->
 
 `dotmd set <status> [<file>]` is the single status verb. It handles starting, transitioning, and closing a plan based on the target status.
 

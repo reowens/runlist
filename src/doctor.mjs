@@ -8,6 +8,7 @@ import { renderIndexFile, writeIndex } from './index-file.mjs';
 import { renderCheck, renderManualFixes } from './render.mjs';
 import { bold, dim, green, yellow } from './color.mjs';
 import { checkClaudeCommands, removeGeneratedSlashCommands } from './claude-commands.mjs';
+import { checkSkillDrift } from './skill-drift.mjs';
 import { runMigrateTemplate } from './migrate-template.mjs';
 import { runMigratePrompts } from './migrate-prompts.mjs';
 import { runFrontmatterFix } from './frontmatter-fix.mjs';
@@ -191,6 +192,7 @@ function runDoctorProject(config, { json = false } = {}) {
   const claudeCommandWarnings = checkClaudeCommands(config.repoRoot);
   const deprecatedCommandMentions = findDeprecatedCommandMentions(config);
   const { docsWithoutFrontmatter, planStatusGaps } = findWorkflowDrift(config);
+  const skillDriftWarnings = checkSkillDrift(config);
   const result = {
     cliVersion: cliPackage?.version ?? null,
     packageDependency: depVersion,
@@ -198,6 +200,7 @@ function runDoctorProject(config, { json = false } = {}) {
     deprecatedCommandMentions,
     docsWithoutFrontmatter,
     planStatusGaps,
+    skillDriftWarnings,
   };
 
   if (json) {
@@ -225,6 +228,11 @@ function runDoctorProject(config, { json = false } = {}) {
     process.stdout.write(yellow(`- plan status vocab missing: ${planStatusGaps.join(', ')} — \`dotmd use\` and \`dotmd baton\` depend on these; add them to types.plan.statuses in dotmd.config.mjs`) + '\n');
   } else {
     process.stdout.write('- plan status vocab: ok\n');
+  }
+  if (skillDriftWarnings.length) {
+    process.stdout.write(yellow(`- canonical workflow block: drifted — CLAUDE.md and the plugin SKILL.md teach different workflows. Reconcile the block between the \`dotmd:canonical-workflow\` markers in both files.`) + '\n');
+  } else {
+    process.stdout.write('- canonical workflow block: in sync\n');
   }
   return result;
 }

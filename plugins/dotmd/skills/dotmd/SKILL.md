@@ -8,6 +8,17 @@ allowed-tools: "Bash(dotmd:*), Read"
 
 This repo's plans, reference docs, and saved prompts are managed by the **dotmd** CLI (markdown + YAML frontmatter). Always drive them through `dotmd` — never hand-edit frontmatter, never read prompts with the file tools, never commit session-local prompts. The session-start hook prints the live verb sheet and this repo's valid status vocabulary; run `dotmd briefing` any time to refresh it.
 
+**Workflow contract** — the irreducible verbs at a glance; the sections below expand each one.
+
+<!-- dotmd:canonical-workflow:start -->
+- **Orient:** `dotmd briefing` — active / paused / ready work, with ages and next steps.
+- **Start a plan:** `dotmd use <plan-file>` — marks it `in-session` and prints the plan card.
+- **Single status verb:** `dotmd set <status> [<file>]` writes the status, validates it against the doc's type, runs lifecycle hooks, fixes refs, and syncs the index. **Never hand-edit a `status:` line.** Add `--note "why"` to record the reason in `## Version History` in the same call.
+- **Close to match reality:** `archived` (shipped) · `partial` (tail deferred — link the successor) · `active` (more work later) · `awaiting` (needs a human decision) · `blocked` (external arrival you can't speed up).
+- **Hand off / save a resume prompt:** `dotmd baton [<slug>] <@draft|->` — saves the resume prompt and releases the in-session plan. Never paste a "here's how to resume" block into chat.
+- **Saved prompts are session-local:** consume with `dotmd use` (no arg = oldest pending), peek with `dotmd prompts show`. Never read them with file tools, never commit `docs/prompts/*.md`.
+<!-- dotmd:canonical-workflow:end -->
+
 ## Order of operations
 
 1. **Orient** — `dotmd briefing` (or `dotmd plans`) to see active / paused / ready work, ages, and next steps.
