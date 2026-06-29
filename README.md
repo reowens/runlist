@@ -338,6 +338,18 @@ Each built-in type has a template baked in:
 | `doc` | `docs/<slug>.md` | Overview → Version History → Related (build-up shape lite) |
 | `prompt` | `docs/prompts/<slug>.md` | Body is required (see [Saved Prompts](#saved-prompts)) |
 
+**Plan body variants (plans only).** The default `plan` template is the full build-up shape. For a smaller plan, or the recurring audit shape, pass one body-variant flag:
+
+- `--lite` / `--minimal` — Problem → Phases → Version History (drops Goals / Non-Goals / What Exists Today / Constraints / Decisions / Deferred / Closeout).
+- `--audit` / `--findings` — Problem → Findings (ranked) → Suggested order → Open Questions, for "I investigated X, here's what I found" plans.
+
+```bash
+dotmd new plan quick-fix --lite
+dotmd new plan perf-audit --audit
+```
+
+To scaffold an ordered sprint or a coordination map instead, see [Runlists](#runlists-ordered-groups-of-plans) (`--runlist a,b,c` / `--coordination`). The body variants and the hub flags are all mutually exclusive — a plan has exactly one body shape.
+
 Add custom types via `templates` in your config:
 
 ```js

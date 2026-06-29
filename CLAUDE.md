@@ -116,9 +116,13 @@ dotmd new plan auth-revamp                       # type: plan → docs/plans/aut
 dotmd new doc token-refresh-design               # type: doc → docs/token-refresh-design.md
 dotmd new prompt cleanup-tomorrow "..."          # type: prompt → docs/prompts/cleanup-tomorrow.md
 dotmd new my-doc                                 # implicit type: doc
+dotmd new plan quick-fix --lite                  # trimmed plan: Problem → Phases → Version History
+dotmd new plan perf-audit --audit                # findings plan: Problem → Findings (ranked) → Suggested order → Open Questions
 ```
 
 Built-in types: `plan`, `doc`, `prompt`. Add more via `templates` in config.
+
+**Plan body variants (plans only).** The default `plan` template is the full build-up shape (Problem → Goals → … → Phases → Closeout). Pass one body-variant flag for a different shape: `--lite`/`--minimal` (quick plan) or `--audit`/`--findings` (audit shape). They're mutually exclusive with each other and with the `--runlist`/`--coordination` hub flags — a plan has exactly one body shape.
 
 ### Queuing prompts for future sessions
 

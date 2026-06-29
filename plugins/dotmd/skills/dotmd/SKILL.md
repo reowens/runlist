@@ -36,6 +36,7 @@ Valid statuses are type-aware and project-specific — the SessionStart primer l
 - `dotmd new plan auth-revamp` → `docs/plans/auth-revamp.md`
 - `dotmd new doc token-refresh-design` → `docs/token-refresh-design.md`
 - Body input modes (all types): `@path` (preferred for multi-line), `-` (stdin), `--message "…"`, or inline (one-liners only).
+- Plan body variants (plans only, mutually exclusive with each other and `--runlist`/`--coordination`): `--lite`/`--minimal` (Problem → Phases → Version History) and `--audit`/`--findings` (Problem → Findings (ranked) → Suggested order → Open Questions).
 
 **Plan frontmatter field lengths — write them right the first time.** `current_state` is a 2-4 sentence summary (cap 1500 chars); `next_step` is a 1-2 sentence pointer (cap 800). Everything longer goes in the body. If a cap warning fires anyway, run `dotmd doctor --frontmatter-fix` ONCE (it mechanically moves the overflow into the body) — do not hand-trim, re-run `dotmd check` in a loop, or audit other docs' warnings you didn't touch.
 

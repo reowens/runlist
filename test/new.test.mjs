@@ -922,3 +922,84 @@ describe('dotmd new — runlist / coordination scaffolding', () => {
     ok(/must be a bare slug, not a path/.test(r.stderr), `expected path-rejection error; got: ${r.stderr}`);
   });
 });
+
+describe('dotmd new — plan body variants (--lite / --audit)', () => {
+  it('--lite scaffolds a trimmed plan (Problem → Phases → Version History)', () => {
+    const docsDir = setupProject();
+    const r = run(['new', 'plan', 'quick-fix', '--lite']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    ok(/\(lite plan\)/.test(r.stdout), `Created line should label the shape; got:\n${r.stdout}`);
+    const plan = readFileSync(path.join(docsDir, 'plans', 'quick-fix.md'), 'utf8');
+    // Keeps the essentials...
+    ok(plan.includes('## Problem'), 'lite keeps Problem');
+    ok(plan.includes('## Phases'), 'lite keeps Phases');
+    ok(plan.includes('## Version History'), 'lite keeps Version History');
+    // ...and drops the heavy build-up sections + Closeout.
+    for (const dropped of ['## Goals', '## Non-Goals', '## What Exists Today', '## Constraints', '## Decisions', '## Deferred', '## Closeout']) {
+      ok(!plan.includes(dropped), `lite drops ${dropped}; got:\n${plan}`);
+    }
+    // Still a normal plan in frontmatter (no hub markers).
+    ok(plan.includes('type: plan'), 'lite is a plan');
+    ok(!plan.includes('runlist:'), 'lite has no runlist array');
+    ok(!plan.includes('execution_mode:'), 'lite has no execution_mode');
+  });
+
+  it('--minimal is an alias for --lite', () => {
+    const docsDir = setupProject();
+    const r = run(['new', 'plan', 'tiny', '--minimal']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    const plan = readFileSync(path.join(docsDir, 'plans', 'tiny.md'), 'utf8');
+    ok(plan.includes('## Phases') && !plan.includes('## Goals'), 'minimal yields the lite shape');
+  });
+
+  it('--audit scaffolds a findings plan (Findings → Suggested order → Open Questions)', () => {
+    const docsDir = setupProject();
+    const r = run(['new', 'plan', 'perf-audit', '--audit']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    ok(/\(audit plan\)/.test(r.stdout), `Created line should label the shape; got:\n${r.stdout}`);
+    const plan = readFileSync(path.join(docsDir, 'plans', 'perf-audit.md'), 'utf8');
+    ok(plan.includes('## Findings (ranked)'), 'audit has Findings (ranked)');
+    ok(plan.includes('## Suggested order'), 'audit has Suggested order');
+    ok(plan.includes('## Open Questions'), 'audit has Open Questions');
+    // Audits don't use the build-up Phases shape.
+    ok(!plan.includes('## Phases'), 'audit has no Phases section');
+    ok(!plan.includes('## Goals'), 'audit has no Goals section');
+  });
+
+  it('--findings is an alias for --audit', () => {
+    const docsDir = setupProject();
+    const r = run(['new', 'plan', 'sec-review', '--findings']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    const plan = readFileSync(path.join(docsDir, 'plans', 'sec-review.md'), 'utf8');
+    ok(plan.includes('## Findings (ranked)'), 'findings yields the audit shape');
+  });
+
+  it('routes the body into the variant Problem section', () => {
+    const docsDir = setupProject();
+    const r = run(['new', 'plan', 'quick-fix', '--lite', '--body', 'Parser drops trailing commas.']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    const plan = readFileSync(path.join(docsDir, 'plans', 'quick-fix.md'), 'utf8');
+    ok(/## Problem\n\nParser drops trailing commas\./.test(plan), `body should land in Problem; got:\n${plan}`);
+  });
+
+  it('rejects the body variants on non-plan types', () => {
+    setupProject();
+    const r = run(['new', 'doc', 'foo', '--lite']);
+    ok(r.status !== 0, 'should exit non-zero');
+    ok(/only applies to plans/.test(r.stderr), `expected plan-only error; got: ${r.stderr}`);
+  });
+
+  it('rejects --lite together with --audit', () => {
+    setupProject();
+    const r = run(['new', 'plan', 'bar', '--lite', '--audit']);
+    ok(r.status !== 0, 'should exit non-zero');
+    ok(/mutually exclusive/.test(r.stderr), `expected mutual-exclusion error; got: ${r.stderr}`);
+  });
+
+  it('rejects a body variant together with --runlist', () => {
+    setupProject();
+    const r = run(['new', 'plan', 'bar', '--lite', '--runlist', 'a,b']);
+    ok(r.status !== 0, 'should exit non-zero');
+    ok(/mutually exclusive/.test(r.stderr), `expected mutual-exclusion error; got: ${r.stderr}`);
+  });
+});

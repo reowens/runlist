@@ -350,6 +350,73 @@ graph pick it up. -->
 `;
 }
 
+// Body for a `--lite` plan: the full build-up scaffold (Goals / Non-Goals /
+// What Exists Today / Constraints / Decisions / Open Questions / Deferred /
+// Closeout) is stripped down to the essentials — Problem → Phases → Version
+// History — for a quick plan that doesn't need the full ceremony.
+function litePlanBody(title, bodyInput, today) {
+  return `
+# ${title}
+
+> One-paragraph problem statement: what this plan is for, why now.
+
+## Problem
+
+${bodyInput?.trim() ?? ''}
+
+## Phases
+
+<!-- Status markers in heading text: ⬜ not started · 🟡 in progress (pickup
+targets this) · ✅ shipped · ⏭ skipped · 🚧 blocked. -->
+
+### Phase 1 — <title> ⬜
+
+
+
+## Version History
+
+- **${today}** Created.
+`;
+}
+
+// Body for an `--audit` plan: the recurring "investigated X, here's what I
+// found" shape — ranked findings with impact tags, a suggested order to act on
+// them, and open questions. The build-up phases scaffold doesn't fit audits
+// (e.g. the onboarding audit), which is why this shape recurs by hand.
+function auditPlanBody(title, bodyInput, today) {
+  return `
+# ${title}
+
+> One-paragraph: what was audited, and the headline finding.
+
+## Problem
+
+${bodyInput?.trim() ?? ''}
+
+## Findings (ranked)
+
+### 1. <finding> [impact]
+
+
+
+### 2. <finding> [impact]
+
+
+
+## Suggested order
+
+1. <which finding to act on first, and why>
+
+## Open Questions
+
+
+
+## Version History
+
+- **${today}** Created (audit).
+`;
+}
+
 // Minimal child plan stub for a scaffolded runlist child. parent_plan points
 // back at the hub (same dir) so \`dotmd doctor\` is satisfied and the reverse
 // link/graph work; status starts `planned` (queued behind the hub).
@@ -402,11 +469,15 @@ export async function runNew(argv, config, opts = {}) {
   let showFiles = opts.showFiles ?? false;
   let runlistArg = null;     // --runlist a,b,c  → sprint hub + child stubs
   let coordination = false;  // --coordination   → coordination hub skeleton
+  let lite = false;          // --lite/--minimal → trimmed plan body
+  let audit = false;         // --audit/--findings → ranked-findings plan body
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--status' && argv[i + 1]) { status = argv[++i]; continue; }
     if (argv[i] === '--title' && argv[i + 1]) { title = argv[++i]; continue; }
     if (argv[i] === '--runlist' && argv[i + 1]) { runlistArg = argv[++i]; continue; }
     if (argv[i] === '--coordination') { coordination = true; continue; }
+    if (argv[i] === '--lite' || argv[i] === '--minimal') { lite = true; continue; }
+    if (argv[i] === '--audit' || argv[i] === '--findings') { audit = true; continue; }
     // --body is the canonical flag; --message is a back-compat alias.
     if ((argv[i] === '--body' || argv[i] === '--message') && argv[i + 1]) {
       bodyFlagName = argv[i];
@@ -474,16 +545,28 @@ export async function runNew(argv, config, opts = {}) {
     die(`Invalid status \`${status}\` for type \`${typeName}\`\nValid: ${[...effective].join(', ')}`);
   }
 
-  // Runlist/coordination hubs are a plan shape, not a separate type. Guard the
-  // flags to type plan and reject the contradictory combination (a sprint
-  // `runlist:` array vs a prose-first coordination map are different shapes).
+  // Runlist/coordination hubs and the --lite/--audit variants are all plan
+  // *body shapes*, not separate types. Guard them to type plan and reject any
+  // combination — a plan has exactly one body shape (a sprint `runlist:` array,
+  // a prose-first coordination map, a trimmed lite plan, or a ranked-findings
+  // audit are mutually exclusive).
   const isRunlistHub = runlistArg !== null;
   const isCoordinationHub = coordination;
-  if ((isRunlistHub || isCoordinationHub) && typeName !== 'plan') {
-    die(`--${isRunlistHub ? 'runlist' : 'coordination'} only applies to plans. Use: dotmd new plan <name> --${isRunlistHub ? 'runlist a,b,c' : 'coordination'}`);
+  const isLite = lite;
+  const isAudit = audit;
+  const planShapes = [
+    ['--runlist', isRunlistHub],
+    ['--coordination', isCoordinationHub],
+    ['--lite', isLite],
+    ['--audit', isAudit],
+  ].filter(([, on]) => on);
+  if (planShapes.length > 0 && typeName !== 'plan') {
+    const flag = planShapes[0][0];
+    const usage = flag === '--runlist' ? '--runlist a,b,c' : flag;
+    die(`${flag} only applies to plans. Use: dotmd new plan <name> ${usage}`);
   }
-  if (isRunlistHub && isCoordinationHub) {
-    die('--runlist and --coordination are mutually exclusive: a sprint runlist hub carries an ordered `runlist:` array; a coordination hub is a prose-first map (`execution_mode: coordination`). Pick one.');
+  if (planShapes.length > 1) {
+    die(`${planShapes.map(([f]) => f).join(' and ')} are mutually exclusive — a plan has one body shape. Pick one.`);
   }
   const runlistTokens = isRunlistHub
     ? runlistArg.split(',').map(s => s.trim()).filter(Boolean)
@@ -652,6 +735,8 @@ export async function runNew(argv, config, opts = {}) {
     let body;
     if (isRunlistHub) body = runlistHubBody(docTitle, slug, runlistChildren, bodyInput, today);
     else if (isCoordinationHub) body = coordinationHubBody(docTitle, bodyInput, today);
+    else if (isLite) body = litePlanBody(docTitle, bodyInput, today);
+    else if (isAudit) body = auditPlanBody(docTitle, bodyInput, today);
     else body = template.body(docTitle, tmplCtx);
     content = `---\n${fm}\n---\n${body}`;
   }
@@ -669,7 +754,11 @@ export async function runNew(argv, config, opts = {}) {
     rootHint = `Root: ${chosenLabel} (others: ${others.join(', ')} — pass --root <name> to change)\n`;
   }
 
-  const hubKind = isRunlistHub ? ' (runlist hub)' : isCoordinationHub ? ' (coordination hub)' : '';
+  const hubKind = isRunlistHub ? ' (runlist hub)'
+    : isCoordinationHub ? ' (coordination hub)'
+    : isLite ? ' (lite plan)'
+    : isAudit ? ' (audit plan)'
+    : '';
 
   if (dryRun) {
     process.stdout.write(`${dim('[dry-run]')} Would create: ${repoPath}\n`);

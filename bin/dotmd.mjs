@@ -857,6 +857,20 @@ Scaffolding runlists (plans only):
   dotmd new plan auth-revamp --runlist extract,rewrite,cleanup
   dotmd new plan platform --coordination
 
+Plan body variants (plans only — pick one body shape):
+  --lite / --minimal   Trimmed plan: Problem → Phases → Version History. Drops
+                       the full build-up scaffold (Goals / Non-Goals / What
+                       Exists Today / Constraints / Decisions / Deferred /
+                       Closeout) for a quick plan that doesn't need it.
+  --audit / --findings Audit plan: Problem → Findings (ranked) → Suggested order
+                       → Open Questions. The "investigated X, here's what I
+                       found" shape, instead of build-up phases.
+  (The body variants and \`--runlist\`/\`--coordination\` are all mutually
+  exclusive — a plan has exactly one body shape.)
+
+  dotmd new plan quick-fix --lite
+  dotmd new plan perf-audit --audit
+
 Other options:
   --status <s>         Set initial status (defaults to first valid status for the type)
   --title <t>          Override the auto-derived title
