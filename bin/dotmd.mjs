@@ -237,6 +237,8 @@ Lifecycle:
   set <status> <file>               Change a document's status (frontmatter write; archive also moves the file)
   runlist <hub> [next|add|remove|reorder]   Show, walk, or mutate an ordered group of plans (see \`dotmd help runlist\`)
   runlists                          List coordination-hub runlists (the Runlists dashboard)
+  roadmap [<hub>] [next]            Tier-3: show a roadmap (runlists + rolled-up progress), or pick up its next action
+  roadmaps                          List roadmap hubs (the Roadmaps dashboard)
   status <file> <status>            Transition document status (deprecated; prefer \`set\`)
   archive <file>                    Archive (status + move + update refs)
   bulk archive <f1> <f2> ...        Archive multiple files at once
@@ -1518,6 +1520,30 @@ async function main() {
     const index = buildIndex(config);
     applyIndexFilters(index);
     runRunlists(index, restArgs, config);
+    return;
+  }
+  // `dotmd roadmaps` (dashboard over every roadmap hub) and `dotmd roadmap
+  // [<hub>] [next]` (one roadmap, or pick up the next action across its
+  // runlists). The tier-3 layer above `runlists`.
+  if (command === 'roadmaps') {
+    const { buildIndex } = await import('../src/index.mjs');
+    const { runRoadmaps } = await import('../src/roadmap.mjs');
+    const index = buildIndex(config);
+    applyIndexFilters(index);
+    runRoadmaps(index, restArgs, config);
+    return;
+  }
+  if (command === 'roadmap') {
+    const { buildIndex } = await import('../src/index.mjs');
+    const index = buildIndex(config);
+    applyIndexFilters(index);
+    if (restArgs[0] === 'next') {
+      const { runRoadmapNext } = await import('../src/roadmap.mjs');
+      await runRoadmapNext(index, restArgs.slice(1), config, { dryRun });
+      return;
+    }
+    const { runRoadmap } = await import('../src/roadmap.mjs');
+    runRoadmap(index, restArgs, config);
     return;
   }
   if (command === 'prompts') {

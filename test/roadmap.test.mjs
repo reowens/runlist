@@ -33,6 +33,12 @@ function runNew(args) {
   });
 }
 
+function runCmd(args) {
+  return spawnSync('node', [BIN, ...args], {
+    cwd: tmpDir, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' },
+  });
+}
+
 afterEach(() => { if (tmpDir) rmSync(tmpDir, { recursive: true, force: true }); });
 
 describe('isRoadmapHub / isCoordinationHub', () => {
@@ -192,5 +198,52 @@ next_step: x`);
     const index = buildIndex(config);
     const warnings = checkRoadmapHubExecutionMode(index.docs, config);
     strictEqual(warnings.find(w => w.path === 'docs/plans/master-roadmap.md'), undefined);
+  });
+});
+
+describe('roadmap views + integration (CLI)', () => {
+  it('dotmd roadmaps lists the roadmap with its recursive grand total', () => {
+    setupRoadmap();
+    const r = runCmd(['roadmaps']);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stdout, /Roadmaps \(1\)/);
+    match(r.stdout, /master-roadmap\s+.*2\/5/); // billing 1/2 + auth 1/2 + loose 0/1
+  });
+
+  it('dotmd roadmap shows each child runlist row + grand total', () => {
+    setupRoadmap();
+    const r = runCmd(['roadmap']);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stdout, /Roadmap: Master Roadmap\s+2\/5/);
+    match(r.stdout, /billing-runlist\s+.*1\/2/);
+    match(r.stdout, /auth-revamp\s+.*1\/2/);
+  });
+
+  it('dotmd roadmap next picks up the first startable plan across runlists', () => {
+    setupRoadmap();
+    // Walks in related_plans order: billing-runlist (coordination, no body order
+    // → no next) is skipped; auth-revamp (sprint) is skipped too because its only
+    // live child auth-02 is BLOCKED (parked, not startable); so the first genuinely
+    // pickup-able plan across the whole roadmap is the loose-plan child.
+    const r = runCmd(['roadmap', 'next']);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stdout, /loose-plan/);
+    match(r.stdout, /in-session/);
+  });
+
+  it('dotmd plans counts roadmaps separately and gives them a section', () => {
+    setupRoadmap();
+    const r = runCmd(['plans']);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stdout, /1 roadmap/);
+    match(r.stdout, /Roadmaps \(1\)/);
+  });
+
+  it('dotmd runlists excludes the roadmap and points at it', () => {
+    setupRoadmap();
+    const r = runCmd(['runlists']);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stdout, /1 roadmap\s+·\s+dotmd roadmaps/);
+    ok(!/master-roadmap/.test(r.stdout), 'roadmap must not appear in the runlists list');
   });
 });

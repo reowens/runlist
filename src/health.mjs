@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { buildIndex } from './index.mjs';
 import { bold, dim, green, yellow, red } from './color.mjs';
-import { buildCoordinationIndex, hubLabel } from './runlist.mjs';
+import { buildCoordinationIndex, buildRoadmapIndex, isRoadmapHub, hubLabel } from './runlist.mjs';
 import { isArchivedPath } from './util.mjs';
 
 export function runHealth(argv, config) {
@@ -22,10 +22,16 @@ export function runHealth(argv, config) {
     ...(config.lifecycle?.terminalStatuses ?? []),
   ]);
   const isLiveHub = (d) => coordination.has(d.path) && !closedStatuses.has(d.status) && !isArchivedPath(d.path, config);
-  const runlistHubs = allPlans.filter(isLiveHub)
+  const isLiveRoadmap = (d) => isRoadmapHub(d) && !closedStatuses.has(d.status) && !isArchivedPath(d.path, config);
+  const byAgeDesc = (a, b) => (b.daysSinceUpdate ?? -1) - (a.daysSinceUpdate ?? -1);
+  // Roadmaps (tier-3) get their own tally above Runlists — held out of the
+  // pipeline like coordination hubs, but pointed at via `dotmd roadmaps`.
+  const roadmapHubs = allPlans.filter(isLiveRoadmap).sort(byAgeDesc);
+  const roadmapIndex = roadmapHubs.length > 0 ? buildRoadmapIndex(index, config, { coordination }) : new Map();
+  const runlistHubs = allPlans.filter(d => isLiveHub(d) && !isRoadmapHub(d))
     // Most stale first — health is an aging lens, and it matches `dotmd runlists`'
     // default. Unknown-age hubs sort last so they never top the list.
-    .sort((a, b) => (b.daysSinceUpdate ?? -1) - (a.daysSinceUpdate ?? -1));
+    .sort(byAgeDesc);
   const plans = allPlans.filter(d => !isLiveHub(d));
   const now = Date.now();
 
@@ -88,6 +94,7 @@ export function runHealth(argv, config) {
       planned: { count: plannedPlans.length },
       recentlyArchived: { count: recentlyArchived.length, last30d: recentlyArchived.map(d => path.basename(d.path, '.md')) },
       runlists: { count: runlistHubs.length, hubs: runlistHubs.map(d => { const info = coordination.get(d.path); return { path: d.path, title: d.title, status: d.status, childCount: info?.childCount ?? 0, total: info?.total ?? 0, doneCount: info?.doneCount ?? 0, parkedCount: info?.parkedCount ?? 0, nextPickup: info?.nextPickup ?? null }; }) },
+      roadmaps: { count: roadmapHubs.length, hubs: roadmapHubs.map(d => { const info = roadmapIndex.get(d.path); return { path: d.path, title: d.title, status: d.status, childCount: info?.childCount ?? 0, grandTotal: info?.grandTotal ?? 0, grandDone: info?.grandDone ?? 0, grandParked: info?.grandParked ?? 0 }; }) },
     }, null, 2) + '\n');
     return;
   }
@@ -113,6 +120,23 @@ export function runHealth(argv, config) {
     process.stdout.write(`  ${s.padEnd(pad)} ${String(count).padStart(4)}  ${dim(bar)}\n`);
   }
   process.stdout.write('\n');
+
+  // Roadmaps (tier-3) — pinned above Runlists with the recursive grand total.
+  if (roadmapHubs.length > 0) {
+    process.stdout.write(`${bold('Roadmaps:')} ${roadmapHubs.length}  ${dim('· dotmd roadmap')}\n`);
+    for (const doc of roadmapHubs.slice(0, 8)) {
+      const slug = hubLabel(doc).padEnd(28);
+      const age = doc.daysSinceUpdate != null ? `${doc.daysSinceUpdate}d` : '?d';
+      const info = roadmapIndex.get(doc.path);
+      const rollStr = info ? `  ${dim(`${info.grandDone}/${info.grandTotal}`)}` : '';
+      const kidStr = info ? `  ${dim(`${info.childCount} runlists`)}` : '';
+      process.stdout.write(`  ${slug} ${dim(age.padStart(4))}${rollStr}${kidStr}\n`);
+    }
+    if (roadmapHubs.length > 8) {
+      process.stdout.write(`  ${dim(`...and ${roadmapHubs.length - 8} more`)}\n`);
+    }
+    process.stdout.write('\n');
+  }
 
   // Runlists (coordination hubs) — held out of the leaf-plan pipeline above and
   // surfaced as their own tally so they don't inflate the active count. Newest

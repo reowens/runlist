@@ -7,7 +7,7 @@ import { getGitLastModifiedBatch } from './git.mjs';
 import { extractFrontmatter } from './frontmatter.mjs';
 import { summarizeDocBody } from './ai.mjs';
 import { bold, dim, yellow, red, green, blue, magenta, cyan, brightYellow } from './color.mjs';
-import { buildRunlistIndex, buildCoordinationIndex, hubLabel } from './runlist.mjs';
+import { buildRunlistIndex, buildCoordinationIndex, buildRoadmapIndex, isRoadmapHub, hubLabel } from './runlist.mjs';
 
 const STATUS_COLORS = {
   'in-session': (s) => bold(red(s)),
@@ -101,7 +101,8 @@ export function runQuery(index, argv, config, opts = {}) {
     // Runlist folding only applies to plans (prompts have no runlists).
     const runlist = opts.preset === 'plans' ? buildRunlistIndex(index, config) : null;
     const coordination = opts.preset === 'plans' ? buildCoordinationIndex(index, config) : null;
-    renderPlansOutput(docs, filters, config, { noun: opts.preset, runlist, coordination });
+    const roadmap = opts.preset === 'plans' ? buildRoadmapIndex(index, config, { coordination, runlist }) : null;
+    renderPlansOutput(docs, filters, config, { noun: opts.preset, runlist, coordination, roadmap });
     if (docs.length === 0) writeUnknownFilterValueHint(filters, index);
     return;
   }
@@ -157,9 +158,13 @@ export function runRunlists(index, argv, config) {
     ...(config.lifecycle?.archiveStatuses ?? []),
     ...(config.lifecycle?.terminalStatuses ?? []),
   ]);
+  // Roadmaps live in `coordination` (held-out-hub plumbing) but are a tier above
+  // runlists — exclude them here; they get their own `dotmd roadmaps` dashboard.
   const hubs = index.docs
-    .filter(d => coordination.has(d.path) && !archived.has(d.status) && !isArchivedPath(d.path, config))
+    .filter(d => coordination.has(d.path) && !isRoadmapHub(d) && !archived.has(d.status) && !isArchivedPath(d.path, config))
     .sort(runlistSorter(sortArg, coordination, config));
+  const roadmapCount = index.docs
+    .filter(d => isRoadmapHub(d) && !archived.has(d.status) && !isArchivedPath(d.path, config)).length;
 
   if (json) {
     const runlists = hubs.map(d => {
@@ -181,8 +186,13 @@ export function runRunlists(index, argv, config) {
     return;
   }
 
+  const roadmapPointer = roadmapCount > 0
+    ? dim(`  ${roadmapCount} roadmap${roadmapCount === 1 ? '' : 's'}  ·  dotmd roadmaps\n`)
+    : '';
+
   if (hubs.length === 0) {
     process.stdout.write('No runlists found. A runlist is a plan with `execution_mode: coordination` (or a `*-runlist` slug).\n');
+    if (roadmapPointer) process.stdout.write(roadmapPointer);
     return;
   }
 
@@ -191,6 +201,7 @@ export function runRunlists(index, argv, config) {
   renderCoordinationSection(shown, coordination, maxWidth, hubs.length);
   const hidden = hubs.length - shown.length;
   if (hidden > 0) process.stdout.write(dim(`  ${hidden} more  ·  dotmd runlists --limit ${hubs.length}\n`));
+  if (roadmapPointer) process.stdout.write(roadmapPointer);
   process.stdout.write('\n');
 }
 
@@ -497,9 +508,14 @@ function renderPlansOutput(docs, filters, config, opts = {}) {
   // scoped to the flat triage view; grouped views keep their existing shape.
   const runlist = !grouped ? opts.runlist : null;
   const coordination = !grouped ? opts.coordination : null;
+  const roadmap = !grouped ? opts.roadmap : null;
   // A doc is a "runlist" for header/section purposes if it's either a
   // frontmatter-`runlist:` sprint hub or an `execution_mode: coordination` hub.
+  // Roadmaps are also in `coordination` (held-out-hub plumbing), so they read as
+  // hubs here too — but `isRoadmap` is checked first wherever counts/sections
+  // split, lifting them into their own tier above runlists.
   const isHub = (p) => Boolean(runlist?.hubs.has(p) || coordination?.has(p));
+  const isRoadmap = (p) => Boolean(roadmap?.has(p));
 
   // Summary line: middle-dot separator, ALWAYS based on the full pre-limit
   // pipeline so the top-of-page numbers stay honest when --limit is applied.
@@ -515,10 +531,12 @@ function renderPlansOutput(docs, filters, config, opts = {}) {
   // more active plan. Needs per-doc identity, so recompute from the pre-limit
   // matched set rather than the aggregate counts.
   let hubCount = 0;
+  let roadmapCount = 0;
   let counts;
   if ((runlist?.hubs.size || coordination?.size) && filters._matched) {
     const reclassed = {};
     for (const d of filters._matched) {
+      if (isRoadmap(d.path)) { roadmapCount += 1; continue; }
       if (isHub(d.path)) { hubCount += 1; continue; }
       const s = d.status ?? 'unknown';
       reclassed[s] = (reclassed[s] ?? 0) + 1;
@@ -528,12 +546,13 @@ function renderPlansOutput(docs, filters, config, opts = {}) {
     counts = Object.entries(bySt).sort((a, b) => b[1] - a[1]).map(([s, n]) => `${n} ${s}`);
   }
   const headerParts = [];
+  if (roadmapCount) headerParts.push(`${roadmapCount} roadmap${roadmapCount === 1 ? '' : 's'}`);
   if (hubCount) headerParts.push(`${hubCount} runlist${hubCount === 1 ? '' : 's'}`);
   headerParts.push(...counts);
-  // Hubs are held OUT of the headline plan count — they read as a separate
-  // `N runlist` sibling, never as actionable plans. So "N plans" counts leaves
-  // only and the status segments sum to it (the runlist sibling sits apart).
-  const headlineTotal = totalAll - hubCount;
+  // Hubs (runlists + roadmaps) are held OUT of the headline plan count — they
+  // read as separate siblings, never as actionable plans. So "N plans" counts
+  // leaves only and the status segments sum to it.
+  const headlineTotal = totalAll - hubCount - roadmapCount;
   const header = `${headlineTotal} ${noun}${headerParts.length ? ' · ' + headerParts.join(' · ') : ''}`;
   process.stdout.write(dim(header) + '\n');
 
@@ -581,14 +600,17 @@ function renderPlansOutput(docs, filters, config, opts = {}) {
     // both caps. The Runlists section is pinned — it shows whenever hubs exist,
     // independent of how the leaf list fills up.
     const matched = filters._matched ?? docs;
+    const roadmapAll = [];
     const coordAll = [];
     const mainAll = [];
     for (const d of matched) {
-      if (coordination?.has(d.path)) coordAll.push(d);
+      if (isRoadmap(d.path)) roadmapAll.push(d);
+      else if (coordination?.has(d.path)) coordAll.push(d);
       else mainAll.push(d);
     }
     const mainShown = filters.all ? mainAll : mainAll.slice(0, filters.limit);
     const coordShown = filters.all ? coordAll : coordAll.slice(0, filters.limit);
+    const roadmapShown = filters.all ? roadmapAll : roadmapAll.slice(0, filters.limit);
 
     process.stdout.write('\n');
     if (mainShown.length) {
@@ -599,6 +621,15 @@ function renderPlansOutput(docs, filters, config, opts = {}) {
     if (mainHidden > 0) {
       process.stdout.write('\n');
       process.stdout.write(dim(`  ${mainHidden} more ${noun}  ·  dotmd ${noun} --all  ·  dotmd ${noun} status\n`));
+    }
+
+    // Roadmaps tier — pinned above Runlists, with the recursive grand total.
+    if (roadmapShown.length) {
+      renderRoadmapsSection(roadmapShown, roadmap, maxWidth, roadmapAll.length);
+      const roadmapHidden = roadmapAll.length - roadmapShown.length;
+      if (roadmapHidden > 0) {
+        process.stdout.write(dim(`  ${roadmapHidden} more roadmaps  ·  dotmd roadmaps\n`));
+      }
     }
 
     if (coordShown.length) {
@@ -805,6 +836,30 @@ function renderHubBlock(hub, info, children, maxWidth, topMaxSlug) {
     process.stdout.write(formatPlanRow(c, maxWidth, {
       slug: stripHubPrefix(toSlug(c), hubSlug), indent, maxSlug: childMaxSlug, showTag: true,
     }) + '\n');
+  }
+}
+
+// Roadmap hubs (tier-3) render in their own pinned section above Runlists:
+// label · age · recursive grand done/total · child-runlist count · descriptor.
+// The done/total here is the SUM across the roadmap's child runlists (the real
+// bird's-eye), distinct from the Runlists section's per-hub rollup. `dotmd
+// roadmap <hub>` expands one into its child rows.
+function renderRoadmapsSection(roadmapDocs, roadmap, maxWidth, total) {
+  process.stdout.write(`\n${bold(`Roadmaps (${total ?? roadmapDocs.length})`)} ${dim('· dotmd roadmap')}\n`);
+  const maxSlug = Math.min(34, Math.max(...roadmapDocs.map(d => hubLabel(d).length)));
+  for (const doc of roadmapDocs) {
+    const info = roadmap?.get(doc.path);
+    const slug = hubLabel(doc).padEnd(maxSlug);
+    const age = doc.daysSinceUpdate != null ? `${doc.daysSinceUpdate}d` : '—';
+    const ageStr = doc.daysSinceUpdate != null && doc.isStale ? red(age.padStart(4)) : dim(age.padStart(4));
+    const roll = (info ? `${info.grandDone}/${info.grandTotal}` : '').padStart(8);
+    const kids = info ? `${info.childCount} ${info.childCount === 1 ? 'runlist' : 'runlists'}` : '';
+    const statusTag = doc.status && doc.status !== 'active' ? ` ${colorTag(doc.status)}` : '';
+    const desc = (doc.nextStep || doc.currentState || doc.title || '').replace(/\s+/g, ' ').trim();
+    const left = `  ${slug}  ${ageStr}  ${dim(roll)}  ${dim(kids.padEnd(11))}  `;
+    const budget = Math.max(10, maxWidth - visibleLen(left) - visibleLen(statusTag) - 2);
+    const descR = desc.length > budget ? desc.slice(0, Math.max(0, budget - 3)) + '...' : desc;
+    process.stdout.write(`${left}${dim(descR)}${statusTag}\n`);
   }
 }
 

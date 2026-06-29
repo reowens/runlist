@@ -208,7 +208,7 @@ export function buildCoordinationIndex(index, config) {
 // (the views build coordination already); otherwise builds what it needs. Returns
 //   Map<roadmapPath, { doc, children, childCount, grandTotal, grandDone, grandParked }>
 // with each child = { doc, path, kind: 'runlist'|'coordination'|'plan', total,
-// doneCount, parkedCount, nextPickup } in `related_plans` order.
+// doneCount, parkedCount, nextPath, nextLabel } in `related_plans` order.
 export function buildRoadmapIndex(index, config, precomputed = {}) {
   const roadmaps = index.docs.filter(isRoadmapHub);
   if (roadmaps.length === 0) return new Map();
@@ -231,19 +231,28 @@ export function buildRoadmapIndex(index, config, precomputed = {}) {
   };
 
   // Rollup numbers for one child of a roadmap, dispatched by what the child IS:
-  // a sprint runlist hub, a coordination hub, or a plain leaf plan.
+  // a sprint runlist hub, a coordination hub, or a plain leaf plan. `nextPath` /
+  // `nextLabel` give a uniform per-child next-pickup target — the first startable
+  // plan *inside* that child — feeding both the `dotmd roadmap` view and the
+  // Phase-4 cross-runlist `dotmd roadmap next` (walk children → first nextPath).
   const childRollup = (child) => {
     if (runlist.hubs.has(child.path)) {
       const h = runlist.hubs.get(child.path);
-      return { kind: 'runlist', total: h.total, doneCount: h.doneCount, parkedCount: h.parkedCount, nextPickup: null };
+      const nextPath = h.nextChildPath ?? null;
+      return { kind: 'runlist', total: h.total, doneCount: h.doneCount, parkedCount: h.parkedCount,
+        nextPath, nextLabel: nextPath ? path.basename(nextPath, '.md') : null };
     }
     if (coordination.has(child.path)) {
       const h = coordination.get(child.path);
-      return { kind: 'coordination', total: h.total, doneCount: h.doneCount, parkedCount: h.parkedCount, nextPickup: h.nextPickup };
+      return { kind: 'coordination', total: h.total, doneCount: h.doneCount, parkedCount: h.parkedCount,
+        nextPath: h.nextPickup?.path ?? null, nextLabel: h.nextPickup?.label ?? null };
     }
+    // A leaf-plan child is its own next action when it's startable.
     const archived = archiveStatuses.has(child.status) || isArchivedPath(child.path, config);
     const parked = !archived && !isPickupable(child.status);
-    return { kind: 'plan', total: 1, doneCount: archived ? 1 : 0, parkedCount: parked ? 1 : 0, nextPickup: null };
+    const pickupable = !archived && isPickupable(child.status);
+    return { kind: 'plan', total: 1, doneCount: archived ? 1 : 0, parkedCount: parked ? 1 : 0,
+      nextPath: pickupable ? child.path : null, nextLabel: pickupable ? toSlug(child) : null };
   };
 
   const out = new Map();
@@ -456,7 +465,7 @@ function renderRunlist(hubRepoPath, children, opts = {}) {
   const lines = [];
   lines.push(bold(`runlist: ${hubRepoPath}`));
   if (children.length === 0) {
-    lines.push(dim('  (empty — add child plan paths to the hub plan\'s `runlist:` field, or add markdown links under `## Order of operations`)'));
+    lines.push(dim('  (empty — add child plan paths to the hub plan\'s `runlist:` field, or add markdown links under `## Order of Operations`)'));
     return lines.join('\n') + '\n';
   }
   if (opts.source === 'body') {
@@ -617,7 +626,7 @@ async function runRunlistAdd(positional, config, { dryRun, json }) {
   if (isCoord && existingRefs.length === 0) {
     die(
       `${hubRepoPath} is a coordination hub (execution_mode: coordination) — it keeps its order in the body\n` +
-      `(\`## Ranked queue\` table or \`## Order of operations\` list), not a \`runlist:\` array.\n` +
+      `(\`## Ranked Queue\` table or \`## Order of Operations\` list), not a \`runlist:\` array.\n` +
       `Add the plan as a ranked row/link there. \`runlist add\` manages sprint \`runlist:\` arrays.`,
     );
   }

@@ -5,7 +5,7 @@ import { extractFrontmatter } from './frontmatter.mjs';
 import { summarizeDocBody } from './ai.mjs';
 import { bold, red, yellow, green, dim } from './color.mjs';
 import { categorizeWarnings } from './check-collapse.mjs';
-import { buildCoordinationIndex } from './runlist.mjs';
+import { buildCoordinationIndex, isRoadmapHub } from './runlist.mjs';
 
 // Render `currentState` with an `(auto)` prefix when the value was body-scraped
 // rather than read from frontmatter. Lets a reader see at a glance which docs
@@ -342,6 +342,9 @@ export function renderBriefing(index, config) {
     ]);
     const live = plans.filter(p => !closed.has(p.status) && !isArchivedPath(p.path, config));
     const liveHubs = live.filter(isHub);
+    // Roadmaps (tier-3) are held out like runlists but pointed at separately.
+    const liveRoadmaps = live.filter(p => isRoadmapHub(p));
+    const liveRunlists = liveHubs.length - liveRoadmaps.length;
     const liveLeaves = live.length - liveHubs.length;
     const bySt = {};
     for (const p of live) { if (isHub(p)) continue; bySt[p.status] = (bySt[p.status] ?? 0) + 1; }
@@ -358,8 +361,11 @@ export function renderBriefing(index, config) {
       const next = p.nextStep ? `next: ${p.nextStep}` : '(no next step)';
       lines.push(`  > ${path.basename(p.path, '.md')} (${p.status}) ${next}`);
     }
-    if (liveHubs.length) {
-      lines.push(`  ${liveHubs.length} runlist${liveHubs.length === 1 ? '' : 's'} ${dim('· dotmd runlists')}`);
+    if (liveRoadmaps.length) {
+      lines.push(`  ${liveRoadmaps.length} roadmap${liveRoadmaps.length === 1 ? '' : 's'} ${dim('· dotmd roadmaps')}`);
+    }
+    if (liveRunlists) {
+      lines.push(`  ${liveRunlists} runlist${liveRunlists === 1 ? '' : 's'} ${dim('· dotmd runlists')}`);
     }
   }
 
