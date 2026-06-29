@@ -90,6 +90,7 @@ Saved prompts (`docs/prompts/*.md`) are **session-local handoff artifacts**, not
   dotmd runlist reorder auth-revamp deploy --before rewrite   # move one child
   dotmd runlist reorder auth-revamp cleanup extract rewrite deploy   # or set a full new order
   ```
+- `dotmd roadmap` / `dotmd roadmaps` — the tier ABOVE runlists. A hub with `execution_mode: roadmap` (scaffold `dotmd new plan <hub> --roadmap`) composes *runlists* via `related_plans:` and rolls their `done/total` up into a recursive grand total. `dotmd roadmap <hub>` shows each child runlist's progress + next-pickup; `dotmd roadmap next` opens the first startable plan across all of them. `dotmd check` nudges a coordination hub whose children are themselves runlists toward `execution_mode: roadmap`.
 - At scale (>50 plans): `dotmd modules --sort cleanup` → `dotmd module <name>`
 
 ## Audit (operator)

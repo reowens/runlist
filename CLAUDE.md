@@ -126,6 +126,24 @@ Each child should set `parent_plan:` pointing back at the hub — `dotmd doctor`
 
 A `runlist:` array suits a small, strictly-ordered *sprint*. For a large, prose-first *coordination map* — a domain hub that points at many plans, carries gating/sequence rationale, and is sometimes unordered — set `execution_mode: coordination` instead (a `*-runlist` slug is the fallback signal). These hubs aren't folded: in `dotmd plans` they're lifted out of the leaf-plan flow into a pinned `Runlists` section and pulled out of the active count (so they read as runlists, not active plans). `dotmd briefing` and `dotmd health` apply the same reclassification — coordination hubs are pulled out of the live/active count into a `runlists` bucket (briefing) or a held-out `Runlists:` tally + section (health), so they never inflate the actionable-plan numbers or aging stats. `dotmd runlists` shows that dashboard on its own (`--json`, `--limit N`, `--sort age|recent|related|title|status` — default `age` = most stale first). The per-hub **`done/total` rollup** counts archived vs. resolved `related_plans:` children — the same progress signal sprint `runlist:` hubs show, now extended to coordination hubs (a hint, not a contract: `related_plans` is a *related* cluster that can include peer/parent runlists). `--json` also carries `doneCount`/`total`/`parkedCount`. When a hub encodes its order as **markdown links** — a `## Ranked queue` table or a `## Order of operations` link list — `dotmd runlists`/`dotmd health` surface a `next → <child>` (first **pickup-able** ranked plan — archived and parked ranks are skipped, resolved to its live status), and `dotmd runlist <hub>`/`runlist next <hub>` work on it like a sprint hub. Order encoded only as prose (backtick slugs, narrative priorities) is deliberately *not* guessed at — those hubs show no arrow, like a blank rollup. `dotmd check` nudges a `*-runlist` hub that's missing `execution_mode: coordination`.
 
+#### Roadmaps (tier-3: composing runlists)
+
+A roadmap is the tier *above* runlists: `execution_mode: roadmap` on a hub whose `related_plans:` point at other hubs (runlists / coordination hubs). It exists for the one thing a coordination hub can't do — **roll progress up across runlists**. Where a runlist shows its own `done/total`, a roadmap *sums* its children into a grand total (`master 280/520`), recursively (a child runlist contributes its own rollup; a leaf-plan child counts as one unit). Scaffold with `dotmd new plan <hub> --roadmap`.
+
+- `dotmd roadmap [<hub>]` — one roadmap: each child runlist's `done/total` + that runlist's next-pickup `→`, with the recursive grand total in the header. No arg shows the sole roadmap (or the dashboard when there are several).
+- `dotmd roadmaps` — the dashboard over all roadmap hubs (mirrors `dotmd runlists`).
+- `dotmd roadmap [<hub>] next` — the cross-runlist next-pickup: walks the child runlists in `related_plans` (priority) order and opens the FIRST startable plan found in any of them — "what do I do next across the whole roadmap?". Skips a child runlist whose only candidates are parked/done, the same pickup gate `runlist next` uses.
+
+Roadmaps are held out of the active-plan count like coordination hubs, and lifted into their own pinned tier ABOVE the Runlists section in `dotmd plans` / `briefing` / `health` (so they never double-count their own child runlists). `dotmd check` nudges a coordination hub whose `related_plans:` children are themselves runlists to set `execution_mode: roadmap`. The three-tier picture:
+
+```
+roadmap   → runlists, progress rolled up         ← execution_mode: roadmap
+  runlist → ordered / clustered plans, done/total ← runlist: array OR execution_mode: coordination
+    plan  → unit of work
+```
+
+Time horizons (now/next/later/icebox) are an *optional* body-section flavor, not the organizing axis — the tier composes by domain. (A horizon-grouped `dotmd roadmap` view is deliberately deferred until a horizon-organized roadmap actually exists; building it speculatively would repeat the prematurity the roadmap-layer plan's Phase 0 ruled against.)
+
 ### Creating documents
 
 Signature: `dotmd new <type> <name> [body]`. `<type>` is required (defaults to `doc` if omitted).
