@@ -35,6 +35,17 @@ function writeDoc(plansDir, filename, frontmatter, body = '') {
   writeFileSync(filePath, `---\n${frontmatter}\n---\n${body}`);
 }
 
+// Fixed-date fixtures drift: a rendered age like `6d` is only correct on one
+// calendar day. Derive `updated` relative to today (UTC, matching the floor used
+// by computeDaysSinceUpdate) so the `Nd` age assertions below stay deterministic
+// whenever the suite runs.
+function daysAgoDate(n) {
+  const d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  d.setUTCDate(d.getUTCDate() - n);
+  return d.toISOString().slice(0, 10);
+}
+
 afterEach(() => {
   if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
 });
@@ -370,7 +381,7 @@ function setupSprint() {
   writeDoc(plans, 'auth-revamp.md', `type: plan
 status: active
 title: Auth Revamp
-updated: 2026-06-20
+updated: ${daysAgoDate(8)}
 runlist:
   - auth-revamp-01-extract.md
   - auth-revamp-02-rewrite.md
@@ -380,24 +391,24 @@ next_step: ship the auth revamp sprint`);
 status: active
 title: Extract
 parent_plan: auth-revamp.md
-updated: 2026-06-22
+updated: ${daysAgoDate(6)}
 next_step: pull auth code into its own module`);
   writeDoc(plans, 'auth-revamp-02-rewrite.md', `type: plan
 status: planned
 title: Rewrite
 parent_plan: auth-revamp.md
-updated: 2026-06-21
+updated: ${daysAgoDate(7)}
 next_step: rewrite the token refresh flow`);
   writeDoc(plans, 'auth-revamp-03-cleanup.md', `type: plan
 status: planned
 title: Cleanup
 parent_plan: auth-revamp.md
-updated: 2026-06-19
+updated: ${daysAgoDate(9)}
 next_step: delete the legacy auth shims`);
   writeDoc(plans, 'unrelated-plan.md', `type: plan
 status: active
 title: Unrelated
-updated: 2026-06-25
+updated: ${daysAgoDate(3)}
 next_step: do the standalone thing`);
   return plans;
 }

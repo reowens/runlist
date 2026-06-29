@@ -77,6 +77,11 @@ export function runFocus(index, argv, config) {
 
 export function runQuery(index, argv, config, opts = {}) {
   const filters = parseQueryArgs(argv);
+  // Global --type/--root are stripped by the dispatcher and applied to the
+  // index before it reaches here; reflect them in the filter echo so JSON
+  // metadata isn't reported as unfiltered when the result set is narrowed.
+  if (opts.type && !filters.types) filters.types = opts.type.split(',').map(v => v.trim()).filter(Boolean);
+  if (opts.root && !filters.root) filters.root = opts.root;
   if (filters.body && !filters.keyword) {
     die('`--body` extends a keyword search into document bodies — pass `--keyword <term>` (or use `dotmd grep <term>`).');
   }

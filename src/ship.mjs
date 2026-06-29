@@ -12,6 +12,12 @@ const ALLOWLIST_PATTERNS = [
   /^test\//,
   /^bin\//,
   /^docs\//,
+  // Plugin artifacts ship in lockstep with the CLI (the plugin-based workflow
+  // is canonical), so a dirty SKILL.md / command / hook / manifest is a release
+  // change. `.claude/commands/` stays for repos that still hand-author slash
+  // commands — harmless, and dropping it would un-stage their edits.
+  /^plugins\//,
+  /^\.claude-plugin\//,
   /^\.claude\/commands\//,
   /^dotmd\.config\.example\.mjs$/,
   /^dotmd\.config\.mjs$/,

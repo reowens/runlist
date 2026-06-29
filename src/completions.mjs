@@ -1,52 +1,77 @@
 import { die } from './util.mjs';
+import { KNOWN_COMMANDS } from './commands.mjs';
 
-const COMMANDS = [
-  'list', 'json', 'check', 'coverage', 'stats', 'graph', 'deps', 'unblocks', 'health', 'glossary', 'briefing', 'context', 'focus', 'query', 'grep',
-  'plans', 'runlist', 'runlists', 'stale', 'actionable', 'index', 'status', 'set', 'archive', 'bulk', 'touch', 'doctor', 'lint', 'rename', 'migrate',
-  'fix-refs', 'notion', 'export', 'summary', 'watch', 'diff', 'init', 'new', 'completions', 'journal',
-];
+// Derive the completable command list from the dispatcher's canonical verb list
+// so completions never drift behind new commands. A tiny denylist drops verbs
+// that exist but shouldn't be tab-completed (internal self-test).
+const COMPLETION_DENYLIST = new Set(['self-check']);
+const COMMANDS = KNOWN_COMMANDS.filter(c => !COMPLETION_DENYLIST.has(c));
 
 const GLOBAL_FLAGS = ['--config', '--dry-run', '--verbose', '--root', '--type', '--help', '--version'];
 
+// Shared filter flags for the query-style commands (mirrors QUERY_FLAGS in
+// bin/dotmd.mjs). Kept as one array so query/grep/stale/actionable/plans stay
+// in lockstep.
+const QUERY_FLAGS = [
+  '--type', '--status', '--keyword', '--body', '--owner', '--surface', '--module',
+  '--domain', '--audience', '--execution-mode', '--updated-since', '--limit', '--sort',
+  '--group', '--all', '--include-archived', '--exclude-archived', '--stale',
+  '--has-next-step', '--has-blockers', '--checklist-open', '--json', '--git',
+  '--summarize', '--summarize-limit', '--model',
+];
+
 const COMMAND_FLAGS = {
-  query: ['--type', '--status', '--keyword', '--body', '--module', '--surface', '--domain', '--owner',
-          '--updated-since', '--stale', '--has-next-step', '--has-blockers',
-          '--checklist-open', '--sort', '--limit', '--all', '--git', '--json',
-          '--summarize', '--summarize-limit', '--model'],
-  grep: ['--type', '--status', '--limit', '--all', '--json', '--sort',
-         '--module', '--surface', '--domain', '--owner'],
-  index: ['--write'],
+  query: QUERY_FLAGS,
+  grep: QUERY_FLAGS,
+  stale: QUERY_FLAGS,
+  actionable: QUERY_FLAGS,
+  plans: ['status', ...QUERY_FLAGS],
   list: ['--verbose', '--json'],
+  briefing: ['--json'],
+  context: ['--json', '--compact', '--summarize', '--model'],
+  'agent-context': ['--json'],
+  hud: ['--json', '--subagent'],
+  index: ['--write'],
   coverage: ['--json'],
-  new: ['--status', '--title', '--template', '--list-templates', '--root'],
-  diff: ['--stat', '--since', '--summarize', '--model'],
-  check: ['--errors-only', '--fix', '--json'],
   stats: ['--json'],
   graph: ['--dot', '--json', '--status', '--module', '--surface'],
   deps: ['--json', '--depth'],
   unblocks: ['--json'],
   health: ['--json'],
   glossary: ['--list', '--json'],
-  bulk: ['archive'],
+  modules: ['--sort', '--json'],
+  module: ['--json'],
+  surfaces: ['--json'],
+  runlists: ['--json', '--limit', '--sort'],
+  runlist: ['next', '--json', '--full', '--no-index', '--show-files'],
+  prompts: ['list', 'next', 'use', 'show', 'archive', 'new', 'hold', 'unhold',
+            '--json', '--status', '--include-archived', '--sort', '--limit', '--all'],
+  use: [],
+  next: [],
+  baton: ['--status', '--note', '--body', '--message', '--dry-run'],
+  set: [],
+  status: [],
+  archive: ['--note', '--no-index', '--show-files', '--closeout-template'],
+  bulk: ['archive', 'tag'],
+  statuses: ['list', 'add', '--type', '--like', '--json'],
+  update: ['--check', '--cli-only', '--plugin-only'],
+  misuse: ['--json', '--tail', '--by-rule', '--repo'],
+  journal: ['--tail', '--errors', '--session', '--since', '--by-command', '--json'],
+  new: ['--status', '--title', '--template', '--list-templates', '--root', '--message', '--body'],
   notion: ['import', 'export', 'sync', '--force', '--dry-run'],
   export: ['--format', '--output', '--status', '--module', '--root', '--type'],
   focus: ['--json'],
-  plans: ['--status', '--json', '--sort', '--limit', '--all', '--stale', '--has-next-step'],
-  stale: ['--json', '--sort', '--limit', '--all'],
-  actionable: ['--json', '--sort', '--limit', '--all'],
-  briefing: ['--json'],
-  status: [],
-  archive: [],
-  doctor: [],
-  watch: [],
+  summary: ['--model', '--max-tokens', '--json'],
+  diff: ['--stat', '--since', '--summarize', '--model'],
+  touch: ['--git'],
+  check: ['--fix', '--errors-only', '--no-collapse', '--json', '--verbose'],
+  doctor: ['--apply', '--yes', '--dry-run', '--statuses', '--migrate-template',
+           '--migrate-prompts', '--frontmatter-fix', '--project', '--json', '--include-archived'],
   lint: ['--fix'],
+  ship: [],
   rename: [],
   migrate: [],
   'fix-refs': [],
-  summary: ['--model', '--max-tokens', '--json'],
-  context: ['--summarize', '--model', '--json'],
-  touch: ['--git'],
-  journal: ['--tail', '--errors', '--session', '--since', '--by-command', '--json'],
 };
 
 function bashCompletion() {

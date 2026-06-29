@@ -451,20 +451,20 @@ Composes with the usual query flags:
   dotmd grep retries --limit 5             cap results (default: unlimited)
   dotmd grep retries --json                machine-readable (bodyMatches per doc)`,
 
-  ship: `dotmd ship [patch|minor|major] — regen + commit + bump in one step
+  ship: `dotmd ship [patch|minor|major] — commit + bump in one step
 
 Bundles the release steps into a single command:
-  1. Regenerate \`.claude/commands/*.md\` with the TARGET version stamp
-     (the post-bump version, so the slash-command files match the new
-     release and no dirty tree lingers after).
-  2. Auto-stage every dirty file matching the release allowlist
-     (src/, test/, bin/, docs/, .claude/commands/, package*.json,
-     dotmd.config*.mjs, README.md, CLAUDE.md, .gitignore). Anything
-     outside the allowlist is left dirty — secrets, WIP, etc. never get
-     bundled in.
-  3. Commit with an auto-generated \`chore: release <version>\` message.
-  4. Run \`npm version <bump>\` to bump package.json, tag, push, run
+  1. Auto-stage every dirty file matching the release allowlist
+     (src/, test/, bin/, docs/, plugins/, .claude-plugin/,
+     .claude/commands/, package*.json, dotmd.config*.mjs, README.md,
+     CLAUDE.md, .gitignore). Anything outside the allowlist is left
+     dirty — secrets, WIP, etc. never get bundled in.
+  2. Commit with an auto-generated \`chore: release <version>\` message.
+  3. Run \`npm version <bump>\` to bump package.json, tag, push, run
      the publish workflow, and reinstall locally.
+
+(Per-repo \`.claude/commands\` scaffolding is retired — the dotmd plugin's
+SKILL.md is canonical now — so ship no longer regenerates anything.)
 
 Options:
   --dry-run, -n          Show what would happen without staging or bumping.
@@ -758,10 +758,10 @@ Modes:
                          in their Version History would be misleading).
   --migrate-template --json  Machine-readable result.
   --frontmatter-fix      Auto-fix the long-frontmatter warnings that
-                         \`dotmd check\` flags: \`current_state\` >500 chars
-                         or \`next_step\` >300 chars. Truncates the
+                         \`dotmd check\` flags: \`current_state\` >1500 chars
+                         or \`next_step\` >800 chars. Truncates the
                          frontmatter field at the nearest sentence
-                         boundary under the target (300 / 200) and
+                         boundary under the target (1200 / 600) and
                          appends the remainder to a \`## Current State\`
                          / \`## Next Step\` body section (created above
                          the first H2 if absent, appended otherwise).
@@ -867,7 +867,7 @@ Other options:
 
 For plans, the default status vocabulary is: in-session, active, planned,
 blocked, partial, paused, awaiting, queued-after, archived.
-For prompts: pending (default), claimed, archived.
+For prompts: pending (default), held, shelved, claimed, archived.
 
 Use --dry-run (-n) to preview without creating the file.`,
 
@@ -1287,7 +1287,6 @@ the whole docs tree is scanned.`,
 
 async function main() {
   const args = process.argv.slice(2);
-  let command = args[0] ?? 'list';
 
   // Pre-config flags
   if (args.includes('--version') || args.includes('-v')) {
@@ -1295,8 +1294,70 @@ async function main() {
     return;
   }
 
+  // Normalize global flags from ANYWHERE in argv (before OR after the command)
+  // so `dotmd --config x list` resolves `list` as the command, not `--config`.
+  // Value flags (--config/--root/--type) consume the next token; the booleans
+  // (--dry-run/-n/--verbose) are read positionally below. --help/-h stay in the
+  // leftover stream and are handled by the blocks just below.
+  let explicitConfig = null;
+  let rootArg = null;
+  let typeArg = null;
+  const normalized = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--config' && args[i + 1]) { explicitConfig = args[++i]; continue; }
+    if (a === '--type' && args[i + 1]) { typeArg = args[++i]; continue; }
+    if (a === '--root' && args[i + 1]) { rootArg = args[++i]; continue; }
+    if (a === '--dry-run' || a === '-n' || a === '--verbose') continue;
+    normalized.push(a);
+  }
+  const dryRun = args.includes('--dry-run') || args.includes('-n');
+  const verbose = args.includes('--verbose');
+  let command = normalized[0] ?? 'list';
+  const restArgs = normalized.slice(1);
+
+  // Reconstruct the active global flags for proxy commands (e.g. `watch`) that
+  // re-invoke the CLI in a child process and must propagate them through.
+  const globalFlagArgs = () => {
+    const out = [];
+    if (explicitConfig) out.push('--config', explicitConfig);
+    if (rootArg) out.push('--root', rootArg);
+    if (typeArg) out.push('--type', typeArg);
+    if (dryRun) out.push('--dry-run');
+    if (verbose) out.push('--verbose');
+    return out;
+  };
+
+  // Apply global --root / --type filters to an index in place. Shared by the
+  // common index path below AND the early-dispatched commands (plans, runlists,
+  // presets) that build their own index, so filtering is consistent everywhere.
+  // Recomputes BOTH countsByStatus and countsByType so filtered JSON never
+  // reports corpus-wide tallies.
+  function applyIndexFilters(idx) {
+    if (rootArg) {
+      idx.docs = idx.docs.filter(d => d.root === rootArg || d.root.endsWith('/' + rootArg) || d.root.split('/').pop() === rootArg);
+    }
+    if (typeArg) {
+      const types = typeArg.split(',').map(t => t.trim()).filter(Boolean);
+      idx.docs = idx.docs.filter(d => types.includes(d.type));
+    }
+    if (rootArg || typeArg) {
+      idx.errors = idx.errors.filter(e => idx.docs.some(d => d.path === e.path));
+      idx.warnings = idx.warnings.filter(w => idx.docs.some(d => d.path === w.path));
+      idx.countsByStatus = {};
+      idx.countsByType = {};
+      for (const doc of idx.docs) {
+        const status = doc.status ?? 'unknown';
+        idx.countsByStatus[status] = (idx.countsByStatus[status] ?? 0) + 1;
+        const type = doc.type || 'unknown';
+        if (!idx.countsByType[type]) idx.countsByType[type] = {};
+        idx.countsByType[type][status] = (idx.countsByType[type][status] ?? 0) + 1;
+      }
+    }
+  }
+
   if (command === 'help' || command === '--help' || command === '-h') {
-    const topic = args[1];
+    const topic = restArgs[0];
     if (topic) {
       const key = `help:${topic}`;
       if (HELP[key]) { process.stdout.write(`${HELP[key]}\n`); return; }
@@ -1324,21 +1385,9 @@ async function main() {
 
   if (command === 'completions') {
     const { runCompletions } = await import('../src/completions.mjs');
-    runCompletions(args.slice(1));
+    runCompletions(restArgs);
     return;
   }
-
-  // Extract --config flag
-  let explicitConfig = null;
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--config' && args[i + 1]) {
-      explicitConfig = args[i + 1];
-      break;
-    }
-  }
-
-  const dryRun = args.includes('--dry-run') || args.includes('-n');
-  const verbose = args.includes('--verbose');
 
   const config = await resolveConfig(process.cwd(), explicitConfig);
   _resolvedConfig = config;
@@ -1351,20 +1400,9 @@ async function main() {
     return;
   }
 
-  // Watch is a pure proxy — pass raw args so the child process gets all flags
-  if (command === 'watch') { const { runWatch } = await import('../src/watch.mjs'); runWatch(args.slice(1), config); return; }
-
-  // Strip global flags from restArgs so commands don't have to filter them
-  const restArgs = [];
-  let rootArg = null;
-  let typeArg = null;
-  for (let i = 1; i < args.length; i++) {
-    if (args[i] === '--config') { i++; continue; }
-    if (args[i] === '--type' && args[i + 1]) { typeArg = args[++i]; continue; }
-    if (args[i] === '--root' && args[i + 1]) { rootArg = args[++i]; continue; }
-    if (args[i] === '--dry-run' || args[i] === '-n' || args[i] === '--verbose') continue;
-    restArgs.push(args[i]);
-  }
+  // Watch is a proxy — re-inject the active globals so the child re-resolves
+  // the same config/filters.
+  if (command === 'watch') { const { runWatch } = await import('../src/watch.mjs'); runWatch([...globalFlagArgs(), ...restArgs], config); return; }
 
   // Hook commands (`hud`, `guard`) fire in EVERY repo via the globally-enabled
   // plugin — `guard` runs on every Bash/Read/Edit. They must stay silent where
@@ -1395,7 +1433,8 @@ async function main() {
     const { buildIndex } = await import('../src/index.mjs');
     const { runQuery } = await import('../src/query.mjs');
     const index = buildIndex(config);
-    runQuery(index, [...config.presets[command], ...restArgs], config, { preset: command });
+    applyIndexFilters(index);
+    runQuery(index, [...config.presets[command], ...restArgs], config, { preset: command, type: typeArg, root: rootArg });
     return;
   }
 
@@ -1407,6 +1446,7 @@ async function main() {
     const { buildIndex } = await import('../src/index.mjs');
     const { runQuery } = await import('../src/query.mjs');
     const index = buildIndex(config);
+    applyIndexFilters(index);
     const sub = restArgs[0];
     let defaults;
     let extras = restArgs;
@@ -1416,7 +1456,7 @@ async function main() {
     } else {
       defaults = ['--type', 'plan', '--exclude-archived', '--sort', 'updated', '--limit', '10'];
     }
-    runQuery(index, [...defaults, ...extras], config, { preset: 'plans' });
+    runQuery(index, [...defaults, ...extras], config, { preset: 'plans', type: typeArg, root: rootArg });
     return;
   }
   // `dotmd runlists` (plural) — the coordination-hub dashboard (the `Runlists`
@@ -1426,6 +1466,7 @@ async function main() {
     const { buildIndex } = await import('../src/index.mjs');
     const { runRunlists } = await import('../src/query.mjs');
     const index = buildIndex(config);
+    applyIndexFilters(index);
     runRunlists(index, restArgs, config);
     return;
   }
@@ -1531,33 +1572,7 @@ async function main() {
   const AUTO_HEAL_INDEX_COMMANDS = new Set(['check']);
   const index = buildIndex(config, { autoHealIndex: AUTO_HEAL_INDEX_COMMANDS.has(command) && !checkHasPathScope });
 
-  // Apply --root and --type filters
-  const rootFilter = rootArg;
-  const typeFilter = typeArg;
-
-  function applyIndexFilters(idx) {
-    if (rootFilter) {
-      idx.docs = idx.docs.filter(d => d.root === rootFilter || d.root.endsWith('/' + rootFilter) || d.root.split('/').pop() === rootFilter);
-    }
-    if (typeFilter) {
-      const types = typeFilter.split(',').map(t => t.trim()).filter(Boolean);
-      idx.docs = idx.docs.filter(d => types.includes(d.type));
-    }
-    if (rootFilter || typeFilter) {
-      idx.errors = idx.errors.filter(e => idx.docs.some(d => d.path === e.path));
-      idx.warnings = idx.warnings.filter(w => idx.docs.some(d => d.path === w.path));
-      idx.countsByStatus = {};
-      for (const doc of idx.docs) {
-        const s = doc.status ?? 'unknown';
-        idx.countsByStatus[s] = (idx.countsByStatus[s] ?? 0) + 1;
-      }
-    }
-  }
-
   applyIndexFilters(index);
-
-  if (rootFilter || typeFilter) {
-  }
 
   if (verbose) {
     process.stderr.write(`Docs found: ${index.docs.length}\n`);
@@ -1685,7 +1700,7 @@ async function main() {
   }
 
   if (command === 'focus') { runFocus(index, restArgs, config); return; }
-  if (command === 'query') { runQuery(index, restArgs, config); return; }
+  if (command === 'query') { runQuery(index, restArgs, config, { type: typeArg, root: rootArg }); return; }
   // `dotmd grep <term>` — ergonomic alias for `query --keyword <term> --body`.
   // Unlimited by default (grep semantics) unless the caller bounds it themselves.
   if (command === 'grep') {

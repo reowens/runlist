@@ -76,6 +76,8 @@ export const excludeDirs = ['evidence'];
 //     // pending prompts on session start; `dotmd prompts next` claims the oldest.
 //     statuses: {
 //       'pending':  { context: 'expanded', staleDays: 30 },
+//       'held':     { context: 'counted', quiet: true },   // saved but not next: hidden from hud/briefing, skipped by no-arg `use`
+//       'shelved':  { context: 'counted', quiet: true },   // legacy alias for held
 //       'claimed':  { context: 'counted', quiet: true },
 //       'archived': { context: 'counted', archive: true, terminal: true, quiet: true },
 //     },

@@ -482,6 +482,34 @@ describe('init Claude integration', () => {
     ok(!existsSync(path.join(tmpDir, '.claude', 'commands')));
   });
 
+  it('recommends the plugin in a greenfield repo when only ~/.claude exists', () => {
+    // No project .claude/, but the user runs Claude Code elsewhere — the plugin
+    // nudge (and the global-install requirement) should still surface.
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    const home = mkdtempSync(path.join(os.tmpdir(), 'dotmd-home-'));
+    mkdirSync(path.join(home, '.claude'), { recursive: true });
+    const result = run(['init'], tmpDir, { home });
+    rmSync(home, { recursive: true, force: true });
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(!existsSync(path.join(tmpDir, '.claude')), 'init must not create a project .claude/');
+    ok(result.stdout.includes('/plugin install dotmd'),
+      `greenfield Claude user should still get the plugin nudge; got: ${result.stdout}`);
+    ok(/npm i -g dotmd-cli/.test(result.stdout),
+      `should call out the global-install requirement; got: ${result.stdout}`);
+  });
+
+  it('stays silent about the plugin when no Claude Code is present anywhere', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    const home = mkdtempSync(path.join(os.tmpdir(), 'dotmd-home-')); // empty home, no .claude
+    const result = run(['init'], tmpDir, { home });
+    rmSync(home, { recursive: true, force: true });
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(!result.stdout.includes('/plugin install dotmd'),
+      `no Claude anywhere → no plugin nudge; got: ${result.stdout}`);
+  });
+
   it('recommends the plugin (and a manual SessionStart fallback) when .claude/ exists and hook is unwired', () => {
     // Init now leads with the dotmd plugin — its bundled hooks + skill travel
     // to every session automatically. The hand-wired `dotmd hud` SessionStart

@@ -28,7 +28,12 @@ try {
     spawnSync('claude', ['plugin', 'update', 'dotmd@dotmd'], { stdio: 'ignore', timeout: 60000 });
     process.stdout.write('dotmd: refreshed the Claude Code plugin — restart your session (or /reload-plugins) to apply.\n');
   } else {
-    process.stdout.write('dotmd CLI installed. Using the Claude Code plugin? Run `dotmd update` to refresh it too, then restart.\n');
+    // The CLI just installed fresh, so only the plugin can be stale — point at
+    // the targeted refresh rather than the full `dotmd update` (CLI + plugin).
+    const nudge = hasClaude
+      ? 'dotmd CLI installed. Using the Claude Code plugin? Run `dotmd update --plugin-only` to refresh it, then restart.'
+      : 'dotmd CLI installed.';
+    process.stdout.write(`${nudge}\n`);
   }
 } catch {
   // Best effort only — never break the install.

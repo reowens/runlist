@@ -355,16 +355,24 @@ export async function runInit(cwd, config, opts = {}) {
   // Claude Code integration. dotmd no longer scaffolds per-repo
   // `.claude/commands/*.md` slash commands — the dotmd plugin's SKILL.md is the
   // canonical agent-facing workflow now, and `dotmd hud` injects this repo's
-  // status vocab at runtime. If a `.claude/` exists, sweep any retired
-  // generated command files (banner-gated, so hand-authored ones survive) and
-  // point the user at the plugin instead.
-  if (existsSync(path.join(cwd, '.claude'))) {
+  // status vocab at runtime.
+  const hasProjectClaude = existsSync(path.join(cwd, '.claude'));
+  // A project `.claude/` proves it; a user-global `~/.claude/` means they run
+  // Claude Code elsewhere, so the plugin nudge is still relevant before this
+  // repo has any `.claude/` of its own (the common greenfield case).
+  const likelyClaudeUser = hasProjectClaude || existsSync(path.join(os.homedir(), '.claude'));
+
+  // If a `.claude/` exists, sweep any retired generated command files
+  // (banner-gated, so hand-authored ones survive).
+  if (hasProjectClaude) {
     const removed = removeGeneratedSlashCommands(cwd, { dryRun });
     for (const r of removed) {
       const verb = dryRun ? 'would remove' : 'removed';
       process.stdout.write(`  ${dryTag}${yellow('clean')}   .claude/commands/${r.name} (retired — ${verb}; guidance ships via the dotmd plugin)\n`);
     }
+  }
 
+  if (likelyClaudeUser) {
     const sessionStart = detectSessionStartHook(cwd);
     if (sessionStart.wired) {
       process.stdout.write(`  ${dim('exists')}  ${sessionStart.file} (SessionStart hook for \`dotmd hud\` already wired)\n`);
@@ -373,6 +381,8 @@ export async function runInit(cwd, config, opts = {}) {
       process.stdout.write(`            travel to every session and subagent automatically:\n\n`);
       process.stdout.write(`              /plugin marketplace add reowens/dotmd\n`);
       process.stdout.write(`              /plugin install dotmd@dotmd\n\n`);
+      process.stdout.write(`            The plugin's hooks call \`dotmd\` on your PATH, so install the CLI\n`);
+      process.stdout.write(`            globally too — ${green('npm i -g dotmd-cli')} (a project devDependency won't power them).\n\n`);
       process.stdout.write(`            Or, without the plugin, wire \`dotmd hud\` at SessionStart by hand —\n`);
       process.stdout.write(`            add to .claude/settings.json (merge into any existing hooks):\n\n`);
       process.stdout.write(`              "hooks": { "SessionStart": [\n`);

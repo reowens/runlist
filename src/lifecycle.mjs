@@ -457,26 +457,37 @@ export function runArchive(argv, config, opts = {}) {
   const parsed = parseSimpleFrontmatter(frontmatter);
   const oldStatus = asString(parsed.status) ?? 'unknown';
 
+  // Preserve a configured custom archive status (e.g. `done` with archive:true)
+  // when one is threaded through from `dotmd set <archive-status>`. Fall back to
+  // the canonical `archived`, or — if the config has no `archived` at all — its
+  // first declared archive status, so we never write a status the config can't
+  // validate.
+  const archiveStatuses = config.lifecycle.archiveStatuses;
+  const defaultArchiveStatus = archiveStatuses.has('archived')
+    ? 'archived'
+    : (archiveStatuses.values().next().value ?? 'archived');
+  const targetStatus = opts.archiveStatus ?? defaultArchiveStatus;
+
   // Heal stuck frontmatter (issue #13): file is under archiveDir/ but its
   // status hasn't been flipped. Flip in place; don't try to move (it's already
   // archived on disk) and don't refuse — refusal leaves the drift permanent.
   if (inArchiveDir) {
-    if (oldStatus === 'archived') {
+    if (oldStatus === targetStatus) {
       die(`Already archived: ${toRepoPath(filePath, config.repoRoot)}`);
     }
     const today = nowIso();
     const repoPathHeal = toRepoPath(filePath, config.repoRoot);
     if (dryRun) {
       const prefix = dim('[dry-run]');
-      out.write(`${prefix} Would heal frontmatter in place: status: ${oldStatus} → archived, updated: ${today}\n`);
+      out.write(`${prefix} Would heal frontmatter in place: status: ${oldStatus} → ${targetStatus}, updated: ${today}\n`);
       out.write(`${prefix} Would skip git mv (file already under \`${config.archiveDir}/\`)\n`);
       return;
     }
-    updateFrontmatter(filePath, { status: 'archived', updated: today });
+    updateFrontmatter(filePath, { status: targetStatus, updated: today });
     const healEntry = `Archived (frontmatter healed in place from \`${oldStatus}\`)${note ? ` — ${note}` : '.'}`;
     appendVersionHistory(filePath, healEntry, { createSection: Boolean(note) });
     if (!noIndex) regenIndex(config);
-    out.write(`${green('✓ Healed')}: ${repoPathHeal} (${oldStatus} → archived; file already under \`${config.archiveDir}/\`)\n`);
+    out.write(`${green('✓ Healed')}: ${repoPathHeal} (${oldStatus} → ${targetStatus}; file already under \`${config.archiveDir}/\`)\n`);
     const touched = [repoPathHeal];
     if (config.indexPath && !noIndex) touched.push(config.indexPath);
     if (showFiles) emitFilesFooter(touched, config);
@@ -505,7 +516,7 @@ export function runArchive(argv, config, opts = {}) {
     } else if (closeoutAction?.action === 'skip') {
       out.write(`${prefix} \`## Closeout\` section already present — no injection\n`);
     }
-    out.write(`${prefix} Would update frontmatter: status: ${oldStatus} → archived, updated: ${today}\n`);
+    out.write(`${prefix} Would update frontmatter: status: ${oldStatus} → ${targetStatus}, updated: ${today}\n`);
     if (note) {
       out.write(`${prefix} Would append Version History: - **${today}** Archived — ${note}\n`);
     }
@@ -530,7 +541,7 @@ export function runArchive(argv, config, opts = {}) {
     writeFileSync(filePath, `---\n${frontmatter}\n---\n${closeoutAction.newBody}`, 'utf8');
   }
 
-  updateFrontmatter(filePath, { status: 'archived', updated: today });
+  updateFrontmatter(filePath, { status: targetStatus, updated: today });
   appendVersionHistory(filePath, note ? `Archived — ${note}` : 'Archived.', { createSection: Boolean(note) });
 
   mkdirSync(targetDir, { recursive: true });
@@ -614,7 +625,10 @@ export async function runSet(argv, config, opts = {}) {
     const archiveArgs = [filePath];
     if (noIndex) archiveArgs.push('--no-index');
     if (showFiles) archiveArgs.push('--show-files');
-    return runArchive(archiveArgs, config, { dryRun, note });
+    // Preserve the exact target status — a config may name its archive status
+    // `done` (with archive:true) rather than `archived`. Without this, runArchive
+    // would silently rewrite it to `archived`.
+    return runArchive(archiveArgs, config, { dryRun, note, archiveStatus: newStatus });
   }
 
   // `partial` promises a successor tracking the deferred tail. When neither a
@@ -784,7 +798,9 @@ export function runTouch(argv, config, opts = {}) {
 // when archiving `child.md` (suffix match). oldPath no longer exists on disk
 // post-`git mv`, so existsSync-based resolveRefPath can't be used here.
 function rewriteFrontmatterRefs(fm, docDir, oldPath, newPath, repoRoot) {
-  return fm.replace(/[^\s"'<>:]+\.md\b/g, (token) => {
+  // Exclude [ ] , from the token so flow-array elements (`refs: [a.md, b.md]`)
+  // match individually rather than swallowing the bracket and failing to resolve.
+  return fm.replace(/[^\s"'<>:[\],]+\.md\b/g, (token) => {
     const docRelAbs = path.resolve(docDir, token);
     const repoRelAbs = path.resolve(repoRoot, token);
     if (docRelAbs !== oldPath && repoRelAbs !== oldPath) return token;
@@ -848,24 +864,28 @@ function updateRefsFromMovedFile(oldPath, newPath, config) {
   // when the source moves. Without the repo-root fallback, repo-relative refs
   // silently skipped rewriting (existsSync on the doubled doc-relative path
   // returned false).
+  // Token-based: rewrite every `*.md` path that resolved to a real file from
+  // the old location, regardless of YAML shape — block-sequence list items
+  // (`  - ./path.md`), inline scalars (`parent_plan: hub.md`), and flow arrays
+  // (`related_plans: [a.md, b.md]`). Quotes sit outside the matched token, so
+  // `"./path.md"` rewrites in place. Mirrors rewriteFrontmatterRefs (inbound).
   let newFm = frontmatter;
-  const refRegex = /^(\s+-\s+)(\S+\.md)$/gm;
-  newFm = newFm.replace(refRegex, (match, prefix, refPath) => {
-    const absTarget = resolveRefPath(refPath, oldDir, config.repoRoot);
-    if (!absTarget) return match;
-    const newRelPath = path.relative(newDir, absTarget).split(path.sep).join('/');
-    return `${prefix}${newRelPath}`;
+  newFm = newFm.replace(/[^\s"'<>:[\],]+\.md\b/g, (token) => {
+    const absTarget = resolveRefPath(token, oldDir, config.repoRoot);
+    if (!absTarget) return token;
+    return path.relative(newDir, absTarget).split(path.sep).join('/');
   });
 
-  // Fix body markdown links [text](path.md)
+  // Fix body markdown links [text](path.md) and [text](path.md#anchor) — the
+  // trailing fragment is preserved across the rewrite.
   let newBody = body;
-  const linkRegex = /(\[[^\]]*\]\()([^)]+\.md)(\))/g;
-  newBody = newBody.replace(linkRegex, (match, pre, href, post) => {
-    if (href.startsWith('http')) return match;
+  const linkRegex = /(\[[^\]]*\]\()([^)#]+\.md)(#[^)]*)?(\))/g;
+  newBody = newBody.replace(linkRegex, (match, pre, href, frag, post) => {
+    if (/^https?:/i.test(href)) return match;
     const absTarget = resolveRefPath(href, oldDir, config.repoRoot);
     if (!absTarget) return match;
     const newHref = path.relative(newDir, absTarget).split(path.sep).join('/');
-    return `${pre}${newHref}${post}`;
+    return `${pre}${newHref}${frag ?? ''}${post}`;
   });
 
   if (newFm !== frontmatter || newBody !== body) {

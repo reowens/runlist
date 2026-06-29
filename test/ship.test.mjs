@@ -1,6 +1,6 @@
 import { describe, it, afterEach } from 'node:test';
-import { strictEqual, ok, deepStrictEqual } from 'node:assert';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { strictEqual, ok } from 'node:assert';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -25,6 +25,13 @@ describe('isAllowed', () => {
     ok(isAllowed('bin/dotmd.mjs'));
     ok(isAllowed('docs/plans/foo.md'));
     ok(isAllowed('.claude/commands/plans.md'));
+    // Plugin artifacts ship in lockstep with the CLI.
+    ok(isAllowed('plugins/dotmd/skills/dotmd/SKILL.md'));
+    ok(isAllowed('plugins/dotmd/commands/plans.md'));
+    ok(isAllowed('plugins/dotmd/hooks.json'));
+    ok(isAllowed('plugins/dotmd/bin/dotmd-hook'));
+    ok(isAllowed('plugins/dotmd/.claude-plugin/plugin.json'));
+    ok(isAllowed('.claude-plugin/marketplace.json'));
     ok(isAllowed('package.json'));
     ok(isAllowed('package-lock.json'));
     ok(isAllowed('dotmd.config.mjs'));
@@ -115,6 +122,25 @@ describe('dotmd ship (--dry-run, end-to-end)', () => {
       `should warn about skipped non-allowlist file, got:\n${result.stderr}`);
   });
 
+  it('stages dirty plugin artifacts (plugin ships in lockstep)', () => {
+    setupRepo();
+    mkdirSync(path.join(tmpDir, 'plugins', 'dotmd', 'skills', 'dotmd'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'plugins', 'dotmd', 'skills', 'dotmd', 'SKILL.md'), '# skill\n');
+    mkdirSync(path.join(tmpDir, '.claude-plugin'), { recursive: true });
+    writeFileSync(path.join(tmpDir, '.claude-plugin', 'marketplace.json'), '{}\n');
+    // Outside the allowlist — must stay skipped even with plugin files present.
+    writeFileSync(path.join(tmpDir, 'secret.env'), 'X=1\n');
+
+    const result = run(['ship', '--dry-run']);
+    strictEqual(result.status, 0, `dry-run should succeed: ${result.stderr}`);
+    ok(/plugins\/dotmd\/skills\/dotmd\/SKILL\.md/.test(result.stdout),
+      `plugin SKILL.md should be queued for staging, got:\n${result.stdout}`);
+    ok(/\.claude-plugin\/marketplace\.json/.test(result.stdout),
+      `marketplace manifest should be queued for staging, got:\n${result.stdout}`);
+    ok(!/Would stage[\s\S]*secret\.env/.test(result.stdout),
+      `secret.env must not be staged, got:\n${result.stdout}`);
+  });
+
   it('does not regenerate slash commands (scaffolding is retired)', () => {
     setupRepo();
     mkdirSync(path.join(tmpDir, '.claude', 'commands'), { recursive: true });
@@ -127,5 +153,21 @@ describe('dotmd ship (--dry-run, end-to-end)', () => {
     strictEqual(result.status, 0, `dry-run should succeed: ${result.stderr}`);
     ok(!/regenerate slash commands/i.test(result.stdout),
       `ship must not mention slash-command regeneration, got:\n${result.stdout}`);
+  });
+});
+
+// The OTHER release path: `npm version` (the documented one). Its lifecycle
+// script must stage the whole plugin tree, not just the version-stamped
+// manifests, or an edited SKILL.md / command / hook never reaches the release.
+describe('npm version lifecycle stages plugin artifacts', () => {
+  it('git-adds the plugins/ and .claude-plugin/ trees', () => {
+    const pkg = JSON.parse(
+      readFileSync(path.resolve(import.meta.dirname, '..', 'package.json'), 'utf8'),
+    );
+    const versionScript = pkg.scripts.version ?? '';
+    ok(/git add\b[^;&|]*\bplugins\b/.test(versionScript),
+      `version script should git add the plugins/ tree, got: ${versionScript}`);
+    ok(/git add\b[^;&|]*\.claude-plugin\b/.test(versionScript),
+      `version script should git add .claude-plugin/, got: ${versionScript}`);
   });
 });
