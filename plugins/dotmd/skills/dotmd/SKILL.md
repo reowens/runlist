@@ -67,6 +67,7 @@ Saved prompts (`docs/prompts/*.md`) are **session-local handoff artifacts**, not
   #   → hub auth-revamp.md (runlist: [...] + an ## Order of operations list)
   #   + auth-revamp-01-extract.md … -03-cleanup.md (status planned, parent_plan back-ref)
   dotmd runlist auth-revamp        # the sequence + statuses; → marks the next pickup
+                                   #   (first pickup-able child; archived + parked children skipped)
   dotmd runlist next auth-revamp   # pick up the → child (planned → in-session) + print its card
   ```
   Mutate the runlist through the CLI — never hand-edit the `runlist:` YAML. These keep the array, each child's `parent_plan:` back-ref, and any body `## Order of operations` list in sync (all take `--dry-run`/`--json`):

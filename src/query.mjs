@@ -768,9 +768,13 @@ function renderHubBlock(hub, info, children, maxWidth, topMaxSlug) {
   const hubSlug = toSlug(hub);
   const nextDoc = info.nextChildPath ? info.children.find(c => c.path === info.nextChildPath)?.doc : null;
   const nextLabel = nextDoc ? stripHubPrefix(toSlug(nextDoc), hubSlug) : null;
+  // No pickup-able child: "N parked" when a live-but-unstartable child remains
+  // (the runlist is stuck, not finished), else "all archived" (truly done).
   const descr = nextLabel
     ? `runlist · ${info.doneCount}/${info.total} · next → ${nextLabel}`
-    : `runlist · ${info.doneCount}/${info.total} · all archived`;
+    : info.parkedCount > 0
+      ? `runlist · ${info.doneCount}/${info.total} · ${info.parkedCount} parked`
+      : `runlist · ${info.doneCount}/${info.total} · all archived`;
 
   // Header row: hub slug + descriptor, with `[RUNLIST]` right-aligned like a tag.
   const slugCell = hubSlug.padEnd(topMaxSlug);

@@ -160,6 +160,43 @@ updated: 2026-05-26`);
     strictEqual(parsed.children[0].path, 'docs/plans/one.md');
     strictEqual(parsed.children[0].status, 'active');
   });
+
+  it('marks → on the first pickup-able child, skipping a parked one, and notes parked when none remain', () => {
+    const plans = setupProject();
+    writeDoc(plans, 'hub.md', `type: plan
+status: active
+title: Hub
+updated: 2026-05-26
+runlist:
+  - one.md
+  - two.md`);
+    // First child parked, second pickup-able → → lands on the second.
+    writeDoc(plans, 'one.md', `type: plan
+status: partial
+title: One
+parent_plan: hub.md
+updated: 2026-05-26`);
+    writeDoc(plans, 'two.md', `type: plan
+status: planned
+title: Two
+parent_plan: hub.md
+updated: 2026-05-26`);
+    const r = run(['docs/plans/hub.md']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    match(r.stdout, /\s+1\. \[partial\] docs\/plans\/one\.md/);   // no → on the parked child
+    match(r.stdout, /→\s+2\. \[planned\] docs\/plans\/two\.md/);
+
+    // Now make the second child parked too → no pickup-able child → parked note.
+    writeDoc(plans, 'two.md', `type: plan
+status: blocked
+title: Two
+parent_plan: hub.md
+updated: 2026-05-26`);
+    const r2 = run(['docs/plans/hub.md']);
+    strictEqual(r2.status, 0, `stderr: ${r2.stderr}`);
+    match(r2.stdout, /No pickup-able child — 2 parked/);
+    ok(!/Hub is ready for archive/.test(r2.stdout), 'parked hub is not "ready for archive"');
+  });
 });
 
 describe('dotmd runlist <hub> slug resolution', () => {
@@ -232,7 +269,41 @@ modules: [test]`);
     match(twoRaw, /status: in-session/);
   });
 
-  it('stops with a runlist-aware error when the next child is awaiting', () => {
+  it('advances past a parked child to the first pickup-able one', () => {
+    const plans = setupProject();
+    // First non-archived child is parked (awaiting) — next must skip it and pick
+    // up the pickup-able `planned` child behind it, not stop on the parked one.
+    writeDoc(plans, 'hub.md', `type: plan
+status: active
+title: Hub
+updated: 2026-05-26
+runlist:
+  - parked.md
+  - ready.md`);
+    writeDoc(plans, 'parked.md', `type: plan
+status: awaiting
+title: Parked
+parent_plan: hub.md
+modules: [test]
+updated: 2026-05-26`);
+    writeDoc(plans, 'ready.md', `type: plan
+status: planned
+title: Ready
+parent_plan: hub.md
+updated: 2026-05-26`);
+    spawnSync('git', ['add', '-A'], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-q', '-m', 'init'], { cwd: tmpDir });
+
+    const r = run(['next', 'docs/plans/hub.md']);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    match(r.stderr, /Started.*docs\/plans\/ready\.md/);
+    const readyRaw = readFileSync(path.join(plans, 'ready.md'), 'utf8');
+    match(readyRaw, /status: in-session/);
+    // The parked child is untouched.
+    match(readFileSync(path.join(plans, 'parked.md'), 'utf8'), /status: awaiting/);
+  });
+
+  it('stops with a runlist-aware error when every remaining child is parked', () => {
     const plans = setupProject();
     writeDoc(plans, 'hub.md', `type: plan
 status: active
@@ -252,7 +323,10 @@ updated: 2026-05-26`);
     const r = run(['next', 'docs/plans/hub.md']);
     ok(r.status !== 0, 'should exit non-zero');
     match(r.stderr, /runlist docs\/plans\/hub\.md/);
+    match(r.stderr, /every remaining child is parked/);
     match(r.stderr, /status: awaiting/);
+    // Surfaces the unstick verbs so the agent has a path forward.
+    match(r.stderr, /dotmd set active <child>/);
   });
 
   it('reports when all children are archived', () => {
@@ -444,6 +518,69 @@ describe('buildRunlistIndex', () => {
     strictEqual(hub.doneCount, 1, 'archived child counts as done even after it moved dirs');
     strictEqual(hub.nextChildPath, 'docs/plans/auth-revamp-02-rewrite.md', 'next pickup skips the archived child');
   });
+
+  it('skips parked children as next-pickup without counting them as done', async () => {
+    const plans = setupProject();
+    // [archived, partial, active]: next-pickup must advance past the parked
+    // `partial` child to the `active` one, but the partial must NOT tick
+    // done/total (skipped ≠ shipped) — it lands in parkedCount instead.
+    writeDoc(plans, 'hub.md', `type: plan
+status: active
+title: Hub
+updated: ${daysAgoDate(1)}
+runlist:
+  - docs/plans/archived/one.md
+  - two.md
+  - three.md`);
+    writeDoc(path.join(plans, 'archived'), 'one.md', `type: plan
+status: archived
+title: One
+updated: ${daysAgoDate(5)}`);
+    writeDoc(plans, 'two.md', `type: plan
+status: partial
+title: Two
+parent_plan: hub.md
+modules: [test]
+updated: ${daysAgoDate(4)}`);
+    writeDoc(plans, 'three.md', `type: plan
+status: active
+title: Three
+parent_plan: hub.md
+updated: ${daysAgoDate(3)}`);
+    const config = await resolveConfig(tmpDir);
+    const index = buildIndex(config);
+    const hub = buildRunlistIndex(index, config).hubs.get('docs/plans/hub.md');
+    strictEqual(hub.doneCount, 1, 'only the archived child counts as done');
+    strictEqual(hub.parkedCount, 1, 'the partial child counts as parked, not done');
+    strictEqual(hub.nextChildPath, 'docs/plans/three.md', 'next pickup skips the parked partial child');
+  });
+
+  it('reports nextChildPath null + parkedCount when every live child is parked', async () => {
+    const plans = setupProject();
+    writeDoc(plans, 'hub.md', `type: plan
+status: active
+title: Hub
+updated: ${daysAgoDate(1)}
+runlist:
+  - docs/plans/archived/done.md
+  - parked.md`);
+    writeDoc(path.join(plans, 'archived'), 'done.md', `type: plan
+status: archived
+title: Done
+updated: ${daysAgoDate(5)}`);
+    writeDoc(plans, 'parked.md', `type: plan
+status: partial
+title: Parked
+parent_plan: hub.md
+modules: [test]
+updated: ${daysAgoDate(4)}`);
+    const config = await resolveConfig(tmpDir);
+    const index = buildIndex(config);
+    const hub = buildRunlistIndex(index, config).hubs.get('docs/plans/hub.md');
+    strictEqual(hub.nextChildPath, null, 'no pickup-able child → no next');
+    strictEqual(hub.doneCount, 1);
+    strictEqual(hub.parkedCount, 1);
+  });
 });
 
 describe('dotmd plans (runlist folding)', () => {
@@ -461,6 +598,31 @@ describe('dotmd plans (runlist folding)', () => {
     match(r.stdout, /02-rewrite\s+7d/);
     // Standalone plan still renders with its own [ACTIVE] tag.
     match(r.stdout, /unrelated-plan\s+3d.*\[ACTIVE\]/);
+  });
+
+  it('shows "N parked" (not "all archived") when no child is pickup-able but one is parked', () => {
+    const plans = setupProject();
+    writeDoc(plans, 'hub.md', `type: plan
+status: active
+title: Hub
+updated: ${daysAgoDate(1)}
+runlist:
+  - docs/plans/archived/done.md
+  - tail.md`);
+    writeDoc(path.join(plans, 'archived'), 'done.md', `type: plan
+status: archived
+title: Done
+updated: ${daysAgoDate(5)}`);
+    writeDoc(plans, 'tail.md', `type: plan
+status: partial
+title: Tail
+parent_plan: hub.md
+modules: [test]
+updated: ${daysAgoDate(3)}`);
+    const r = runPlans([]);
+    strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+    match(r.stdout, /hub\s+runlist · 1\/2 · 1 parked/);
+    ok(!/all archived/.test(r.stdout), 'a parked-but-unfinished runlist is not "all archived"');
   });
 
   it('renders a child standalone when its hub is filtered out of the view', () => {
@@ -688,6 +850,47 @@ describe('coordination-hub next-pickup (body ranked queue)', () => {
     strictEqual(hub.nextPickup.status, 'active');
     // Hub's leading module segment stripped, like sprint children drop the prefix.
     strictEqual(hub.nextPickup.label, 'brand-conflicts');
+  });
+
+  it('advances nextPickup past a parked ranked child to the first pickup-able one', async () => {
+    const plans = setupProject();
+    // Rank 1 archived, rank 2 partial (parked), rank 3 active → next-pickup is
+    // rank 3: a parked ranked child is skipped, never surfaced as `→`.
+    writeDoc(plans, 'roadmap-runlist.md', `type: plan
+status: active
+title: Roadmap Runlist
+execution_mode: coordination
+updated: 2026-06-25`, `# Roadmap Runlist
+
+## Ranked queue
+
+| Rank | Plan | Status |
+|------|------|--------|
+| 1 | [roadmap-shipped](archived/roadmap-shipped.md) | archived |
+| 2 | [roadmap-tail](./roadmap-tail.md) | partial |
+| 3 | [roadmap-next](./roadmap-next.md) | active |
+`);
+    writeDoc(path.join(plans, 'archived'), 'roadmap-shipped.md', `type: plan
+status: archived
+title: Shipped
+updated: 2026-06-10`);
+    writeDoc(plans, 'roadmap-tail.md', `type: plan
+status: partial
+title: Tail
+parent_plan: roadmap-runlist.md
+modules: [test]
+updated: 2026-06-24`);
+    writeDoc(plans, 'roadmap-next.md', `type: plan
+status: active
+title: Next
+parent_plan: roadmap-runlist.md
+updated: 2026-06-23`);
+    const config = await resolveConfig(tmpDir);
+    const index = buildIndex(config);
+    const hub = buildCoordinationIndex(index, config).get('docs/plans/roadmap-runlist.md');
+    ok(hub.nextPickup, 'a pickup-able ranked child resolves');
+    strictEqual(hub.nextPickup.path, 'docs/plans/roadmap-next.md', 'skips the parked partial rank');
+    strictEqual(hub.nextPickup.status, 'active');
   });
 
   it('returns nextPickup: null when the hub body has no parseable order', async () => {

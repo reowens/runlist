@@ -1219,12 +1219,19 @@ frontmatter — there is no separate doc type. The hub plan can have any status;
 the order of the children comes from the array.
 
 Usage:
-  dotmd runlist <hub>          Show children + their statuses, in order.
-                               The first non-archived child is marked \`→\`.
-  dotmd runlist next <hub>     Open the first non-archived child (marks it
-                               in-session + prints it). Stops if it's not in a
-                               workable status (active / planned / in-session)
-                               so you resolve the blocker first.
+  dotmd runlist <hub>          Show children + their statuses, in order. The
+                               first pickup-able child (active / planned /
+                               in-session) is marked \`→\`. Archived (done) and
+                               parked children (blocked / partial / paused /
+                               awaiting / queued-after) are skipped — \`→\`
+                               advances to the first child you can actually
+                               start. Parked ≠ done: they don't count toward
+                               done/total.
+  dotmd runlist next <hub>     Open the first pickup-able child (marks it
+                               in-session + prints it), advancing past archived
+                               and parked children. If every remaining child is
+                               parked, stops and lists them + the unstick verbs
+                               so you resolve a blocker first.
   dotmd runlist add <hub> <child...>
                                Append children to the hub's \`runlist:\` array
                                (no more hand-editing the YAML). Each child can be:
