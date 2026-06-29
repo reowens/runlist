@@ -162,15 +162,21 @@ export function runRunlists(index, argv, config) {
     .sort(runlistSorter(sortArg, coordination, config));
 
   if (json) {
-    const runlists = hubs.map(d => ({
-      path: d.path,
-      status: d.status,
-      title: d.title,
-      childCount: coordination.get(d.path)?.childCount ?? 0,
-      nextPickup: coordination.get(d.path)?.nextPickup ?? null,
-      updated: d.updated,
-      nextStep: d.nextStep ?? null,
-    }));
+    const runlists = hubs.map(d => {
+      const info = coordination.get(d.path);
+      return {
+        path: d.path,
+        status: d.status,
+        title: d.title,
+        childCount: info?.childCount ?? 0,
+        total: info?.total ?? 0,
+        doneCount: info?.doneCount ?? 0,
+        parkedCount: info?.parkedCount ?? 0,
+        nextPickup: info?.nextPickup ?? null,
+        updated: d.updated,
+        nextStep: d.nextStep ?? null,
+      };
+    });
     process.stdout.write(JSON.stringify({ count: runlists.length, runlists }, null, 2) + '\n');
     return;
   }
@@ -803,11 +809,11 @@ function renderHubBlock(hub, info, children, maxWidth, topMaxSlug) {
 }
 
 // Coordination hubs (prose-first runlists) render in their own compact section:
-// label · age · rough related-cluster size · one-line descriptor. No fold, no
-// per-row tag — the section header is the signal. The count is the resolved
-// `related_plans:` cluster, which includes peer/parent runlists, so it's
-// labelled `related` (not `plans`) to stay honest. Status shows only when it's
-// not the expected `active` (e.g. a `partial` hub).
+// label · age · done/total rollup · one-line descriptor. No fold, no per-row tag
+// — the section header is the signal. The rollup counts archived vs. resolved
+// `related_plans:` children; that cluster can include peer/parent runlists, so
+// it's a progress hint, not a contract (see buildCoordinationIndex). Status shows
+// only when it's not the expected `active` (e.g. a `partial` hub).
 function renderCoordinationSection(coordDocs, coordination, maxWidth, total) {
   process.stdout.write(`\n${bold(`Runlists (${total ?? coordDocs.length})`)}\n`);
   const maxSlug = Math.min(34, Math.max(...coordDocs.map(d => hubLabel(d).length)));
@@ -816,7 +822,7 @@ function renderCoordinationSection(coordDocs, coordination, maxWidth, total) {
     const slug = hubLabel(doc).padEnd(maxSlug);
     const age = doc.daysSinceUpdate != null ? `${doc.daysSinceUpdate}d` : '—';
     const ageStr = doc.daysSinceUpdate != null && doc.isStale ? red(age.padStart(4)) : dim(age.padStart(4));
-    const count = info?.childCount ? `${String(info.childCount).padStart(2)} related` : '          ';
+    const count = (info?.total ? `${info.doneCount}/${info.total}` : '').padStart(7);
     const statusTag = doc.status && doc.status !== 'active' ? ` ${colorTag(doc.status)}` : '';
     const desc = (doc.nextStep || doc.currentState || doc.title || '').replace(/\s+/g, ' ').trim();
 

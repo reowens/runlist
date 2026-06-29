@@ -140,15 +140,39 @@ export function buildCoordinationIndex(index, config) {
     if (!isCoordinationHub(doc)) continue;
     const dir = path.dirname(path.join(config.repoRoot, doc.path));
     const refs = doc.refFields?.related_plans ?? [];
+    // Resolve the `related_plans` cluster to child plan docs (deduped by path;
+    // self and non-plans excluded). This is the membership set the rollup counts
+    // over — `related_plans` is the only child signal a prose-first coordination
+    // hub carries in frontmatter (its *body* order drives next-pickup, not
+    // membership). It's an approximation — a *related* cluster can include peer
+    // or parent runlists — so the done/total is a progress hint, not a contract.
     const childPaths = new Set();
+    const children = [];
     for (const ref of refs) {
       const child = resolveRef(ref, dir);
-      if (child && child.path !== doc.path && (child.type === 'plan' || child.type == null)) {
-        childPaths.add(child.path);
-      }
+      if (!child || child.path === doc.path) continue;
+      if (!(child.type === 'plan' || child.type == null)) continue;
+      if (childPaths.has(child.path)) continue;
+      childPaths.add(child.path);
+      const archived = archiveStatuses.has(child.status) || isArchivedPath(child.path, config);
+      children.push({ path: child.path, status: child.status ?? null, archived });
     }
+    // Rollup, mirroring buildRunlistIndex: done = archived; parked = live but not
+    // startable (blocked/partial/paused/awaiting/queued-after). `childCount`
+    // stays an alias of `total` so existing callers (sorters, JSON) keep working.
+    const doneCount = children.filter(c => c.archived).length;
+    const parkedCount = children.filter(c => !c.archived && !isPickupable(c.status)).length;
     const nextPickup = resolveHubNextPickup(doc, dir, resolveRef, archiveStatuses, config);
-    hubs.set(doc.path, { doc, childCount: childPaths.size, childPaths, nextPickup });
+    hubs.set(doc.path, {
+      doc,
+      childCount: childPaths.size,
+      total: childPaths.size,
+      doneCount,
+      parkedCount,
+      childPaths,
+      children,
+      nextPickup,
+    });
   }
   return hubs;
 }

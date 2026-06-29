@@ -740,6 +740,30 @@ describe('isCoordinationHub / buildCoordinationIndex', () => {
     ok(!hubs.has('docs/plans/stripe-testing.md'));
     ok(!hubs.has('docs/plans/unrelated.md'));
   });
+
+  it('rolls up done/total/parked over related_plans children', async () => {
+    const plans = setupProject();
+    writeDoc(plans, 'epic-runlist.md', `type: plan
+status: active
+title: Epic
+execution_mode: coordination
+updated: 2026-06-25
+related_plans:
+  - ./shipped.md
+  - ./blocked-child.md
+  - ./ready.md
+next_step: x`);
+    writeDoc(plans, 'shipped.md', 'type: plan\nstatus: archived\ntitle: Shipped\nupdated: 2026-06-24\nnext_step: -');
+    writeDoc(plans, 'blocked-child.md', 'type: plan\nstatus: blocked\ntitle: Blocked\nupdated: 2026-06-24\nnext_step: -');
+    writeDoc(plans, 'ready.md', 'type: plan\nstatus: active\ntitle: Ready\nupdated: 2026-06-24\nnext_step: -');
+    const config = await resolveConfig(tmpDir);
+    const index = buildIndex(config);
+    const info = buildCoordinationIndex(index, config).get('docs/plans/epic-runlist.md');
+    strictEqual(info.total, 3);
+    strictEqual(info.doneCount, 1);   // shipped.md (archived)
+    strictEqual(info.parkedCount, 1); // blocked-child.md (blocked, not startable)
+    strictEqual(info.childCount, 3);  // back-compat alias of total
+  });
 });
 
 describe('dotmd plans (coordination-hub section)', () => {
@@ -751,10 +775,10 @@ describe('dotmd plans (coordination-hub section)', () => {
     // 2 runlists read as a separate sibling, held out of the plan count.
     match(r.stdout, /2 plans · 2 runlists · 2 active/);
     match(r.stdout, /Runlists \(2\)/);
-    // Hubs appear in the section with a related-cluster count, NOT as [ACTIVE]
-    // leaf rows. The count is labelled `related` (it's the related_plans cluster).
-    match(r.stdout, /master-runlist\s+\d+d\s+2 related/);
-    match(r.stdout, /billing-runlist\s+\d+d\s+1 related/);
+    // Hubs appear in the section with a done/total rollup over their related_plans
+    // children, NOT as [ACTIVE] leaf rows. Neither hub's children are archived → 0/N.
+    match(r.stdout, /master-runlist\s+\d+d\s+0\/2/);
+    match(r.stdout, /billing-runlist\s+\d+d\s+0\/1/);
     // Leaves still render as normal tagged rows.
     match(r.stdout, /unrelated\s+\d+d.*\[ACTIVE\]/);
     ok(!/master-runlist.*\[ACTIVE\]/.test(r.stdout), 'hub must not render as an [ACTIVE] leaf');
@@ -1070,9 +1094,9 @@ describe('dotmd health (coordination-hub awareness)', () => {
     strictEqual(r.status, 0, `stderr: ${r.stderr}`);
     // Pipeline active counts the 2 leaves, not the 2 hubs.
     match(r.stdout, /active\s+2\s/);
-    // Dedicated runlists tally with the related-cluster count.
+    // Dedicated runlists tally with the done/total rollup over related_plans.
     match(r.stdout, /Runlists: 2\s+· dotmd runlists/);
-    match(r.stdout, /master-runlist\s+.*2 related/);
+    match(r.stdout, /master-runlist\s+.*0\/2/);
     // Active aging lists leaves; hubs are absent from it.
     match(r.stdout, /Active plans:[\s\S]*stripe-testing/);
     ok(!/Active plans:[\s\S]*master-runlist/.test(r.stdout), 'hub not in active aging list');
