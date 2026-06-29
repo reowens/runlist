@@ -39,6 +39,25 @@ function modulesScaffold(ctx, kind /* 'doc' | 'plan' */) {
   return 'modules:';
 }
 
+// Full-body shortcut shared by the default plan scaffold and every plan body
+// variant (--lite / --audit / --runlist / --coordination hubs). When the
+// author's body input already carries its own `## Section` headings, it's a
+// complete body they wrote start-to-finish — return it verbatim (honoring a
+// leading `# Title`, otherwise prepending the scaffold title) rather than
+// nesting it inside the builder's single slot (`## Problem` / `## Scope`) and
+// appending skeleton sections after it. Without this, a full coordination/lite/
+// audit/runlist body got duplicated: the whole document landed under `## Scope`
+// and the skeleton's own `## Ranked queue` / `## Version History` were appended
+// below (leaving stray `## Closeout` etc.). Returns the verbatim body string,
+// or null when the input is section-content (no `## ` heading) and should flow
+// into the builder's slot as before.
+function fullBodyShortcut(title, bodyInput) {
+  const b = (bodyInput ?? '').trim();
+  if (!b || !/^##\s+\S/m.test(b)) return null;
+  const hasOwnTitle = /^#\s+\S/.test(b);
+  return hasOwnTitle ? `\n${b}\n` : `\n# ${title}\n\n${b}\n`;
+}
+
 const BUILTIN_TEMPLATES = {
   doc: {
     description: 'Reference doc, design note, module overview — build-up shape lite',
@@ -100,18 +119,12 @@ ${ctx?.bodyInput?.trim() ?? ''}
       'next_step:',
     ].join('\n'),
     body: (t, ctx) => {
+      // Full-body shortcut (shared with the plan variants): a body that already
+      // authors `## Section` headings is a complete plan the user/agent wrote
+      // start-to-finish — return it verbatim and drop the scaffold ladder.
+      const authored = fullBodyShortcut(t, ctx?.bodyInput);
+      if (authored !== null) return authored;
       const bodyInput = ctx?.bodyInput?.trim() ?? '';
-      // Full-body shortcut: if the input already authors `## Section` headings,
-      // it's a complete plan body the user/agent wrote start-to-finish. Drop
-      // the scaffold's later sections to avoid duplicate empty `## Goals`,
-      // `## Phases`, etc. below the user's already-filled versions. A bare title
-      // (`# X`) at the head of the body is honored — we don't double-print the
-      // scaffold's title. Otherwise emit the scaffold and slot the body into
-      // `## Problem` as before (section-content mode).
-      if (/^##\s+\S/m.test(bodyInput)) {
-        const hasOwnTitle = /^#\s+\S/.test(bodyInput);
-        return hasOwnTitle ? `\n${bodyInput}\n` : `\n# ${t}\n\n${bodyInput}\n`;
-      }
       return `
 # ${t}
 
@@ -350,6 +363,39 @@ graph pick it up. -->
 `;
 }
 
+// Body for a roadmap hub: the tier-3 hub that composes *runlists* (not leaf
+// plans) and rolls their progress up. Mirrors the coordination-hub shape but its
+// ranked rows point at runlists, and `dotmd roadmap` reads it. Children are wired
+// via related_plans: (each should be a runlist / coordination hub).
+function roadmapHubBody(title, hubSlug, bodyInput, today) {
+  return `
+# ${title}
+
+> One-paragraph: the domain this roadmap composes. A roadmap points at *runlists*
+> (not leaf plans) and rolls their done/total up — see \`dotmd roadmap ${hubSlug}\`.
+
+## Scope
+
+${bodyInput?.trim() ?? ''}
+
+## Runlists
+
+<!-- One row per child runlist, in priority order. Wire each into related_plans:
+so the rollup + graph pick it up. Children should be runlists / coordination hubs
+(execution_mode: coordination) or sprint runlist: hubs — not leaf plans.
+Optional horizon flavor: replace this table with ## Now / ## Next / ## Later /
+## Icebox sections, each linking the runlists in that horizon. -->
+
+| # | Runlist | Why / gating | Progress |
+|---|---------|--------------|----------|
+| 1 | \`<name>-runlist.md\` | | |
+
+## Version History
+
+- **${today}** Created (roadmap hub).
+`;
+}
+
 // Body for a `--lite` plan: the full build-up scaffold (Goals / Non-Goals /
 // What Exists Today / Constraints / Decisions / Open Questions / Deferred /
 // Closeout) is stripped down to the essentials — Problem → Phases → Version
@@ -469,6 +515,7 @@ export async function runNew(argv, config, opts = {}) {
   let showFiles = opts.showFiles ?? false;
   let runlistArg = null;     // --runlist a,b,c  → sprint hub + child stubs
   let coordination = false;  // --coordination   → coordination hub skeleton
+  let roadmap = false;       // --roadmap        → tier-3 roadmap hub skeleton
   let lite = false;          // --lite/--minimal → trimmed plan body
   let audit = false;         // --audit/--findings → ranked-findings plan body
   for (let i = 0; i < argv.length; i++) {
@@ -476,6 +523,7 @@ export async function runNew(argv, config, opts = {}) {
     if (argv[i] === '--title' && argv[i + 1]) { title = argv[++i]; continue; }
     if (argv[i] === '--runlist' && argv[i + 1]) { runlistArg = argv[++i]; continue; }
     if (argv[i] === '--coordination') { coordination = true; continue; }
+    if (argv[i] === '--roadmap') { roadmap = true; continue; }
     if (argv[i] === '--lite' || argv[i] === '--minimal') { lite = true; continue; }
     if (argv[i] === '--audit' || argv[i] === '--findings') { audit = true; continue; }
     // --body is the canonical flag; --message is a back-compat alias.
@@ -552,11 +600,13 @@ export async function runNew(argv, config, opts = {}) {
   // audit are mutually exclusive).
   const isRunlistHub = runlistArg !== null;
   const isCoordinationHub = coordination;
+  const isRoadmap = roadmap;
   const isLite = lite;
   const isAudit = audit;
   const planShapes = [
     ['--runlist', isRunlistHub],
     ['--coordination', isCoordinationHub],
+    ['--roadmap', isRoadmap],
     ['--lite', isLite],
     ['--audit', isAudit],
   ].filter(([, on]) => on);
@@ -732,9 +782,19 @@ export async function runNew(argv, config, opts = {}) {
     // on top of the standard plan scaffold, then swap in a purpose-built body.
     if (isRunlistHub) fm = mergeBodyFrontmatter(fm, { runlist: runlistChildren.map(c => c.file) }, typeName);
     if (isCoordinationHub) fm = mergeBodyFrontmatter(fm, { execution_mode: 'coordination' }, typeName);
+    if (isRoadmap) fm = mergeBodyFrontmatter(fm, { execution_mode: 'roadmap' }, typeName);
     let body;
-    if (isRunlistHub) body = runlistHubBody(docTitle, slug, runlistChildren, bodyInput, today);
+    // A full authored body (own `## Section` headings) wins over every variant
+    // skeleton too — otherwise the whole document gets nested in the builder's
+    // single slot and the skeleton is appended below it (duplicate Scope /
+    // Ranked queue / Version History). The default plan body applies the same
+    // shortcut inside template.body, so only the variant branches need it here.
+    const variantBody = isRunlistHub || isCoordinationHub || isRoadmap || isLite || isAudit;
+    const authored = variantBody ? fullBodyShortcut(docTitle, bodyInput) : null;
+    if (authored !== null) body = authored;
+    else if (isRunlistHub) body = runlistHubBody(docTitle, slug, runlistChildren, bodyInput, today);
     else if (isCoordinationHub) body = coordinationHubBody(docTitle, bodyInput, today);
+    else if (isRoadmap) body = roadmapHubBody(docTitle, slug, bodyInput, today);
     else if (isLite) body = litePlanBody(docTitle, bodyInput, today);
     else if (isAudit) body = auditPlanBody(docTitle, bodyInput, today);
     else body = template.body(docTitle, tmplCtx);
@@ -756,6 +816,7 @@ export async function runNew(argv, config, opts = {}) {
 
   const hubKind = isRunlistHub ? ' (runlist hub)'
     : isCoordinationHub ? ' (coordination hub)'
+    : isRoadmap ? ' (roadmap hub)'
     : isLite ? ' (lite plan)'
     : isAudit ? ' (audit plan)'
     : '';

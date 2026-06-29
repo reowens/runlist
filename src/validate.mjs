@@ -460,6 +460,62 @@ export function checkCoordinationHubExecutionMode(docs, config) {
   return warnings;
 }
 
+// Roadmap-hub nudge: a coordination hub whose `related_plans:` children are
+// *themselves* hubs (runlists / coordination hubs) is structurally a tier-3
+// roadmap — dotmd renders it flat (a hub among its own children, no recursive
+// rollup) until `execution_mode: roadmap` is set. Nudge, never auto-promote: the
+// explicit field beats structural magic for a primitive (Open Q in the
+// roadmap-layer plan). Fires only when ≥2 children AND a majority are hubs, so a
+// coordination hub that merely references one sibling runlist isn't mislabelled.
+export function checkRoadmapHubExecutionMode(docs, config) {
+  const warnings = [];
+  const skipStatuses = new Set([
+    ...(config.lifecycle.terminalStatuses ?? []),
+    ...(config.lifecycle.skipWarningsFor ?? []),
+  ]);
+  const byPath = new Map(docs.map(d => [d.path, d]));
+  const byBasename = new Map();
+  for (const d of docs) {
+    const base = d.path.split('/').pop();
+    if (!byBasename.has(base)) byBasename.set(base, d);
+  }
+  const looksLikeHub = (d) => {
+    if (!d) return false;
+    if (d.executionMode === 'coordination' || d.executionMode === 'roadmap') return true;
+    if (Array.isArray(d.refFields?.runlist) && d.refFields.runlist.length > 0) return true;
+    const b = (d.path.split('/').pop() || '').replace(/\.md$/, '');
+    return b === 'runlist' || b.endsWith('-runlist');
+  };
+  for (const doc of docs) {
+    if (doc.type && doc.type !== 'plan') continue;
+    if (skipStatuses.has(doc.status)) continue;
+    if (doc.executionMode === 'roadmap') continue;       // already a roadmap
+    if (doc.executionMode !== 'coordination') continue;  // only nudge explicit coordination hubs
+    const refs = doc.refFields?.related_plans ?? [];
+    if (refs.length === 0) continue;
+    const dir = path.dirname(path.join(config.repoRoot, doc.path));
+    let resolved = 0, hubChildren = 0;
+    const seen = new Set();
+    for (const ref of refs) {
+      const abs = resolveRefPath(ref, dir, config.repoRoot);
+      let child = abs ? byPath.get(toRepoPath(abs, config.repoRoot)) ?? null : null;
+      if (!child) child = byBasename.get(ref.split('/').pop()) ?? null;
+      if (!child || child.path === doc.path || seen.has(child.path)) continue;
+      seen.add(child.path);
+      resolved++;
+      if (looksLikeHub(child)) hubChildren++;
+    }
+    if (hubChildren >= 2 && hubChildren > resolved / 2) {
+      warnings.push({
+        path: doc.path,
+        level: 'warning',
+        message: `is a coordination hub whose ${hubChildren} of ${resolved} \`related_plans:\` children are themselves runlists — that's structurally a tier-3 roadmap. Set \`execution_mode: roadmap\` so \`dotmd roadmap\` rolls their progress up (recursive done/total) instead of rendering it flat among them.`,
+      });
+    }
+  }
+  return warnings;
+}
+
 export function checkGitStaleness(docs, config) {
   const warnings = [];
   const gitDates = getGitLastModifiedBatch(config.repoRoot);

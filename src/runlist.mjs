@@ -105,9 +105,26 @@ export function buildRunlistIndex(index, config) {
 export function isCoordinationHub(doc) {
   if (!doc) return false;
   if (doc.type && doc.type !== 'plan') return false;
-  if (doc.executionMode === 'coordination') return true;
+  // Broad "held-out navigational hub" predicate: both coordination hubs and the
+  // tier-3 roadmap (`execution_mode: roadmap`) are lifted out of the active count
+  // and into a hub section. `isRoadmapHub` is the finer split the tier-3 views
+  // use to promote a roadmap above the Runlists section; here a roadmap counts as
+  // a coordination hub so all the existing held-out plumbing covers it for free.
+  if (doc.executionMode === 'coordination' || doc.executionMode === 'roadmap') return true;
   const base = (doc.path.split('/').pop() || '').replace(/\.md$/, '');
   return base === 'runlist' || base.endsWith('-runlist');
+}
+
+// A *roadmap* is the tier-3 hub: a coordination hub whose children are themselves
+// hubs (runlists / coordination hubs), with progress rolled up across them. The
+// signal is explicit — `execution_mode: roadmap` — with NO slug-convention
+// fallback (unlike coordination hubs' `*-runlist`): there's no naming convention
+// for roadmaps, and `dotmd check` nudges the structural case (a coordination hub
+// that points at other hubs) toward the explicit field rather than auto-promoting.
+export function isRoadmapHub(doc) {
+  if (!doc) return false;
+  if (doc.type && doc.type !== 'plan') return false;
+  return doc.executionMode === 'roadmap';
 }
 
 // Map each coordination hub to a `childCount` derived from its `related_plans:`
@@ -175,6 +192,82 @@ export function buildCoordinationIndex(index, config) {
     });
   }
   return hubs;
+}
+
+// Build the tier-3 rollup. For each roadmap hub, resolve its children (the
+// `related_plans:` cluster, exactly like a coordination hub's membership) and
+// roll each child's own done/total up into a grand total. A child that is itself
+// a hub contributes its hub rollup — sprint via `buildRunlistIndex`, coordination
+// via `buildCoordinationIndex`; a plain-plan child contributes one unit. The
+// grand total is the SUM of the children's totals (not a deduped union), so it
+// always equals the sum of the per-child rows the dashboard renders — two child
+// runlists that share a plan double-count it, the same "progress hint, not a
+// contract" approximation coordination-hub rollup already carries.
+//
+// Reuses precomputed `coordination` / `runlist` indexes when the caller has them
+// (the views build coordination already); otherwise builds what it needs. Returns
+//   Map<roadmapPath, { doc, children, childCount, grandTotal, grandDone, grandParked }>
+// with each child = { doc, path, kind: 'runlist'|'coordination'|'plan', total,
+// doneCount, parkedCount, nextPickup } in `related_plans` order.
+export function buildRoadmapIndex(index, config, precomputed = {}) {
+  const roadmaps = index.docs.filter(isRoadmapHub);
+  if (roadmaps.length === 0) return new Map();
+
+  const coordination = precomputed.coordination ?? buildCoordinationIndex(index, config);
+  const runlist = precomputed.runlist ?? buildRunlistIndex(index, config);
+  const archiveStatuses = config.lifecycle?.archiveStatuses ?? new Set(['archived']);
+
+  const docByPath = new Map(index.docs.map(d => [d.path, d]));
+  const byBasename = new Map();
+  for (const d of index.docs) {
+    const base = d.path.split('/').pop();
+    if (!byBasename.has(base)) byBasename.set(base, d);
+  }
+  const resolveRef = (ref, dir) => {
+    const abs = resolveRefPath(ref, dir, config.repoRoot);
+    let child = abs ? docByPath.get(toRepoPath(abs, config.repoRoot)) ?? null : null;
+    if (!child) child = byBasename.get(ref.split('/').pop()) ?? null;
+    return child;
+  };
+
+  // Rollup numbers for one child of a roadmap, dispatched by what the child IS:
+  // a sprint runlist hub, a coordination hub, or a plain leaf plan.
+  const childRollup = (child) => {
+    if (runlist.hubs.has(child.path)) {
+      const h = runlist.hubs.get(child.path);
+      return { kind: 'runlist', total: h.total, doneCount: h.doneCount, parkedCount: h.parkedCount, nextPickup: null };
+    }
+    if (coordination.has(child.path)) {
+      const h = coordination.get(child.path);
+      return { kind: 'coordination', total: h.total, doneCount: h.doneCount, parkedCount: h.parkedCount, nextPickup: h.nextPickup };
+    }
+    const archived = archiveStatuses.has(child.status) || isArchivedPath(child.path, config);
+    const parked = !archived && !isPickupable(child.status);
+    return { kind: 'plan', total: 1, doneCount: archived ? 1 : 0, parkedCount: parked ? 1 : 0, nextPickup: null };
+  };
+
+  const out = new Map();
+  for (const doc of roadmaps) {
+    const dir = path.dirname(path.join(config.repoRoot, doc.path));
+    const refs = doc.refFields?.related_plans ?? [];
+    const seen = new Set();
+    const children = [];
+    let grandTotal = 0, grandDone = 0, grandParked = 0;
+    for (const ref of refs) {
+      const child = resolveRef(ref, dir);
+      if (!child || child.path === doc.path) continue;
+      if (!(child.type === 'plan' || child.type == null)) continue;
+      if (seen.has(child.path)) continue;
+      seen.add(child.path);
+      const roll = childRollup(child);
+      grandTotal += roll.total;
+      grandDone += roll.doneCount;
+      grandParked += roll.parkedCount;
+      children.push({ doc: child, path: child.path, ...roll });
+    }
+    out.set(doc.path, { doc, children, childCount: children.length, grandTotal, grandDone, grandParked });
+  }
+  return out;
 }
 
 // Conventional container dirs whose name adds no disambiguation to a hub label.

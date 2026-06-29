@@ -853,10 +853,15 @@ Scaffolding runlists (plans only):
   --coordination       Create a prose-first coordination hub: \`execution_mode:
                        coordination\` + a \`## Ranked queue\` skeleton (no children).
                        Surfaces in \`dotmd runlists\`, held out of the active count.
-  (\`--runlist\` and \`--coordination\` are mutually exclusive.)
+  --roadmap            Create a tier-3 roadmap hub: \`execution_mode: roadmap\` + a
+                       \`## Runlists\` skeleton. A roadmap composes *runlists* (not
+                       leaf plans) and rolls their done/total up — see
+                       \`dotmd roadmap\`. Wire child runlists via \`related_plans:\`.
+  (\`--runlist\`, \`--coordination\`, \`--roadmap\` are mutually exclusive.)
 
   dotmd new plan auth-revamp --runlist extract,rewrite,cleanup
   dotmd new plan platform --coordination
+  dotmd new plan q3 --roadmap
 
 Plan body variants (plans only — pick one body shape):
   --lite / --minimal   Trimmed plan: Problem → Phases → Version History. Drops
@@ -866,8 +871,8 @@ Plan body variants (plans only — pick one body shape):
   --audit / --findings Audit plan: Problem → Findings (ranked) → Suggested order
                        → Open Questions. The "investigated X, here's what I
                        found" shape, instead of build-up phases.
-  (The body variants and \`--runlist\`/\`--coordination\` are all mutually
-  exclusive — a plan has exactly one body shape.)
+  (The body variants and \`--runlist\`/\`--coordination\`/\`--roadmap\` are all
+  mutually exclusive — a plan has exactly one body shape.)
 
   dotmd new plan quick-fix --lite
   dotmd new plan perf-audit --audit
