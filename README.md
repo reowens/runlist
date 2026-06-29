@@ -9,6 +9,7 @@ Index, query, validate, and lifecycle-manage any collection of `.md` files — p
 ```bash
 npm install -g dotmd-cli    # global — use `dotmd` anywhere
 npm install -D dotmd-cli    # project devDep — use via npm scripts
+npx dotmd-cli init          # try it without installing — scaffold a repo first
 # requires Node.js >= 20
 ```
 
@@ -26,6 +27,19 @@ The plugin bundles the hooks (`SessionStart`/`SubagentStart` priming, a `PreTool
 > **The plugin requires a _global_ CLI install.** Its hooks resolve `dotmd` from your `PATH`, so run `npm install -g dotmd-cli`. A project devDependency (`npm install -D dotmd-cli`) lives at `./node_modules/.bin/dotmd` — off `PATH` — so the hooks silently no-op (no errors, just no priming/guarding). Use the devDep for `npm run` scripts; use the global install for the plugin.
 
 > **Upgrading to 0.57.0+:** per-repo `.claude/commands/{plans,docs,baton}.md` scaffolding is retired — that guidance now ships via the plugin's workflow skill and `/plans`, `/docs`, `/prompts`, `/baton` commands. On the next `dotmd hud` (SessionStart), dotmd removes those generated files (only banner-stamped `<!-- dotmd-generated -->` ones — your hand-authored command files are never touched). If you'd committed them, you'll see deletions to commit — that's expected. Run `claude plugin update dotmd@dotmd` to pick up `/baton`.
+
+### Updating
+
+The CLI and the Claude Code plugin are versioned in lockstep but ship as separate artifacts, so upgrading one can leave the other behind. `dotmd update` keeps them aligned:
+
+```bash
+dotmd update                 # update both: npm CLI + the plugin
+dotmd update --check         # report CLI vs plugin versions, change nothing (no network)
+dotmd update --cli-only      # just the npm CLI
+dotmd update --plugin-only   # just the plugin (what to run after a plain npm upgrade)
+```
+
+`--plugin-only` is the usual fixup: after `npm i -g dotmd-cli@latest` the CLI is fresh but the plugin is stale, so run `dotmd update --plugin-only`, then restart the session (or `/reload-plugins`).
 
 ## Quick Start
 

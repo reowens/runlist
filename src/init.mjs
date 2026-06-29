@@ -190,9 +190,15 @@ function generateDetectedConfig(scan, rootPath) {
     lines.push('');
   }
 
-  if (scan.surfaces.size > 0) {
+  if (scan.surfaces.size > 0 || scan.modules.size > 0) {
     lines.push('export const taxonomy = {');
-    lines.push(`  surfaces: [${[...scan.surfaces].sort().map(s => `'${s}'`).join(', ')}],`);
+    // Emit the full detected set so every existing doc passes — taxonomy
+    // enforcement only flags values outside the list, and the scan collected
+    // all of them. New surfaces/modules added later warn until appended here.
+    if (scan.surfaces.size > 0)
+      lines.push(`  surfaces: [${[...scan.surfaces].sort().map(s => `'${s}'`).join(', ')}],`);
+    if (scan.modules.size > 0)
+      lines.push(`  modules: [${[...scan.modules].sort().map(m => `'${m}'`).join(', ')}],`);
     lines.push('};');
     lines.push('');
   }

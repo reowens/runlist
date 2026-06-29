@@ -276,6 +276,19 @@ describe('init scanning', () => {
     ok(config.includes('taxonomy'));
   });
 
+  it('detects modules from existing frontmatter', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'docs', 'a.md'), '---\nstatus: active\nmodules:\n  - billing\n---\n# A');
+    const result = run(['init']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    const config = readFileSync(path.join(tmpDir, 'dotmd.config.mjs'), 'utf8');
+    ok(config.includes('taxonomy'));
+    ok(config.includes('modules'));
+    ok(config.includes('billing'));
+  });
+
   it('detects reference fields from existing frontmatter', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
     mkdirSync(path.join(tmpDir, '.git'));

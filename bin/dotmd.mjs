@@ -255,6 +255,7 @@ Create & Export:
 
 Setup:
   init                              Create starter config + docs directory
+  update [--check|--cli-only|--plugin-only]  Update the CLI + Claude Code plugin (--check reports skew, no network)
   statuses [list|add|set|remove|migrate]  Manage per-project status taxonomy
   help statuses                     Full status vocabulary + unstuck-actions + transitions
   watch [command]                   Re-run a command on file changes
