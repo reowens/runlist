@@ -203,7 +203,9 @@ export async function runBaton(argv, config, opts = {}) {
     } else {
       const setArgs = [status, planPath];
       if (note) setArgs.push('--note', note);
-      archiveResult = await runSet(setArgs, config, { dryRun });
+      // viaBaton: this release IS the handoff — don't let runSet nudge "leave a
+      // baton" on top of the baton we're in the middle of.
+      archiveResult = await runSet(setArgs, config, { dryRun, viaBaton: true });
       statusChanged = true;
     }
   }

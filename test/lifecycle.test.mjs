@@ -1243,3 +1243,103 @@ describe('type-aware archive destination (lifecycle.archiveNestedTypes)', () => 
     ok(!existsSync(path.join(tmpDir, 'docs', 'prompts', 'archived', 'r.md')), 'not nested when opted out');
   });
 });
+
+describe('set — baton-on-exit nudge', () => {
+  const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+  const NUDGE = /leave a baton/;
+
+  function runCli(args, extraEnv = {}) {
+    return spawnSync('node', [bin, ...args], {
+      cwd: tmpDir, encoding: 'utf8',
+      // DOTMD_JOURNAL off by default so the journal-suppression path is only
+      // exercised by the test that opts in.
+      env: { ...process.env, DOTMD_JOURNAL: '0', ...extraEnv },
+    });
+  }
+
+  function plan(name, fmExtra = '') {
+    return writeDoc(docsDir, name, `type: plan\nstatus: in-session${fmExtra ? '\n' + fmExtra : ''}`, `# ${name}\n`);
+  }
+
+  let docsDir;
+  function setup() { docsDir = setupProject(); }
+
+  it('nudges on a baton-less in-session release with a known next_step', () => {
+    setup();
+    plan('alpha.md', 'next_step: wire up the parser');
+    const r = runCli(['set', 'active', 'docs/alpha.md']);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stderr, NUDGE);
+    // Suggests the plan's own slug in slug mode (status already moved).
+    match(r.stderr, /dotmd baton alpha @draft/);
+  });
+
+  it('nudges on every non-terminal stop status (partial/awaiting/blocked)', () => {
+    for (const status of ['partial', 'awaiting', 'blocked']) {
+      setup();
+      plan('beta.md', 'next_step: keep going');
+      const r = runCli(['set', status, 'docs/beta.md']);
+      strictEqual(r.status, 0, r.stderr);
+      match(r.stderr, NUDGE, `expected nudge for set ${status}`);
+    }
+  });
+
+  it('does NOT nudge when the plan has no next_step (nothing to resume into)', () => {
+    setup();
+    plan('gamma.md');
+    const r = runCli(['set', 'active', 'docs/gamma.md']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(!NUDGE.test(r.stderr), `unexpected nudge: ${r.stderr}`);
+  });
+
+  it('does NOT nudge when the old status was not in-session (pure triage)', () => {
+    setup();
+    // active (not in-session) → blocked: a triage move, no session work owed.
+    writeDoc(docsDir, 'delta.md', 'type: plan\nstatus: active\nnext_step: do it', '# delta\n');
+    const r = runCli(['set', 'blocked', 'docs/delta.md']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(!NUDGE.test(r.stderr), `unexpected nudge: ${r.stderr}`);
+  });
+
+  it('does NOT nudge on a fully-done archive (terminal close)', () => {
+    setup();
+    plan('epsilon.md', 'next_step: more later');
+    const r = runCli(['set', 'archived', 'docs/epsilon.md']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(!NUDGE.test(r.stderr), `unexpected nudge: ${r.stderr}`);
+  });
+
+  it('does NOT nudge for baton\'s own release (the baton IS the handoff)', () => {
+    setup();
+    plan('zeta.md', 'next_step: continue');
+    const draft = path.join(tmpDir, 'draft.md');
+    writeFileSync(draft, 'resume draft body\n');
+    const r = runCli(['baton', 'docs/zeta.md', `@${draft}`]);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stderr, /Baton passed/);
+    ok(!NUDGE.test(r.stderr), `baton double-nudged: ${r.stderr}`);
+  });
+
+  it('does NOT nudge when a baton was already saved this session (journal)', () => {
+    setup();
+    const env = { DOTMD_JOURNAL: '1', CLAUDE_CODE_SESSION_ID: 'sess-nudge-test' };
+    plan('eta.md', 'next_step: a');
+    plan('theta.md', 'next_step: b');
+    const draft = path.join(tmpDir, 'd.md');
+    writeFileSync(draft, 'draft\n');
+
+    // Control: same session, no prior baton → nudge fires.
+    const ctrl = runCli(['set', 'active', 'docs/eta.md'], env);
+    match(ctrl.stderr, NUDGE);
+
+    // Hand off theta via baton (records a `baton` journal entry for this sid).
+    const b = runCli(['baton', 'docs/theta.md', `@${draft}`], env);
+    strictEqual(b.status, 0, b.stderr);
+
+    // Re-start eta, then release it again — the prior baton suppresses the nudge.
+    runCli(['set', 'in-session', 'docs/eta.md'], env);
+    const r = runCli(['set', 'active', 'docs/eta.md'], env);
+    strictEqual(r.status, 0, r.stderr);
+    ok(!NUDGE.test(r.stderr), `nudged despite a prior baton this session: ${r.stderr}`);
+  });
+});

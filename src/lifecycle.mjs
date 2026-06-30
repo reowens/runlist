@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter, normalizeEol } from './frontmatter.mjs';
-import { asString, toRepoPath, die, warn, resolveDocPath, resolveRefPath, escapeRegex, nowIso, suggestCandidates, emitFilesFooter, isArchivedPath } from './util.mjs';
+import { asString, toRepoPath, die, warn, resolveDocPath, resolveRefPath, escapeRegex, nowIso, suggestCandidates, emitFilesFooter, isArchivedPath, currentSessionId } from './util.mjs';
+import { readJournalEntries } from './journal.mjs';
 import { gitMv, getGitLastModifiedBatch } from './git.mjs';
 import { buildIndex, collectDocFiles, resolveDocArg } from './index.mjs';
 import { renderIndexFile, writeIndex } from './index-file.mjs';
@@ -598,6 +599,24 @@ export function runArchive(argv, config, opts = {}) {
 // `dotmd set in-session <path>` is refused — acquiring a lease is asymmetric
 // enough to deserve its own verb (`dotmd pickup`), and silently routing here
 // would skip the lease-acquisition path entirely.
+
+// Did THIS session already hand off via `dotmd baton`? The journal records the
+// top-level argv of every invocation; a successful `baton …` means a resume
+// prompt was saved this session, so the closure nudge would be redundant. Best
+// effort — a disabled journal degrades to "might nudge," which is harmless for
+// an advisory line. (baton's own internal `runSet` is suppressed by `viaBaton`,
+// since its journal entry isn't written until the process exits.)
+function batonSavedThisSession(config) {
+  const sid = currentSessionId();
+  let entries = [];
+  try { entries = readJournalEntries(config); } catch { return false; }
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = entries[i];
+    if (e?.sid === sid && (e.exit ?? 0) === 0 && Array.isArray(e.argv) && e.argv[0] === 'baton') return true;
+  }
+  return false;
+}
+
 export async function runSet(argv, config, opts = {}) {
   const { dryRun } = opts;
   const noIndex = argv.includes('--no-index');
@@ -631,26 +650,56 @@ export async function runSet(argv, config, opts = {}) {
     return runArchive(archiveArgs, config, { dryRun, note, archiveStatus: newStatus });
   }
 
-  // `partial` promises a successor tracking the deferred tail. When neither a
-  // --note nor any doc reference exists to point at it, remind — advisory
-  // only, computed before the transition (filing may move the file).
+  // Two advisory reminders, both computed from one pre-transition frontmatter
+  // read (a non-archive `set` never moves the file, so the path stays valid).
+  // Advisory only — never block the transition.
   let partialReminder = false;
-  if (newStatus === 'partial' && !note) {
-    try {
-      const { frontmatter: fmRaw, body } = extractFrontmatter(readFileSync(filePath, 'utf8'));
-      const related = parseSimpleFrontmatter(fmRaw).related_plans;
+  let batonNudge = false;
+  try {
+    const { frontmatter: fmRaw, body } = extractFrontmatter(readFileSync(filePath, 'utf8'));
+    const fm = parseSimpleFrontmatter(fmRaw);
+
+    // `partial` promises a successor tracking the deferred tail. When neither a
+    // --note nor any doc reference exists to point at it, remind.
+    if (newStatus === 'partial' && !note) {
+      const related = fm.related_plans;
       const hasRelated = Array.isArray(related) ? related.length > 0 : Boolean(asString(related)?.trim());
       partialReminder = !hasRelated && !/[\w./-]+\.md\b/.test(body);
-    } catch { /* advisory only */ }
-  }
+    }
+
+    // Baton-on-exit backstop (the one core-loop step with no other mechanical
+    // catch). Fire ONLY on the baton-less in-session release: a plan you were
+    // actively working (old status `in-session`) is being parked at a
+    // non-terminal stop status while a known next pickup (`next_step`) remains,
+    // and no baton was saved this session. `archived` never reaches here (routed
+    // to runArchive above), so this can't fire on a fully-done close. Gating on
+    // `in-session` keeps it off pure triage of never-started plans — where no
+    // session work is owed a handoff — which is how the nag-fatigue risk is
+    // managed. Suppressed for baton's own internal release via `opts.viaBaton`.
+    if (!opts.viaBaton) {
+      const docType = asString(fm.type) ?? 'plan';
+      const oldStatus = asString(fm.status);
+      const nextStep = asString(fm.next_step)?.trim();
+      batonNudge = docType === 'plan'
+        && oldStatus === 'in-session'
+        && newStatus !== 'in-session'
+        && Boolean(nextStep)
+        && !batonSavedThisSession(config);
+    }
+  } catch { /* advisory only */ }
 
   const statusArgs = [filePath, newStatus];
   if (noIndex) statusArgs.push('--no-index');
   if (showFiles) statusArgs.push('--show-files');
   await runStatus(statusArgs, config, { dryRun, suppressDeprecation: true, note });
 
-  if (partialReminder && !dryRun) {
-    warn('partial usually references the successor plan tracking the tail — add a link to the body, or rerun with --note "tail tracked in <plan>".');
+  if (!dryRun) {
+    if (partialReminder) {
+      warn('partial usually references the successor plan tracking the tail — add a link to the body, or rerun with --note "tail tracked in <plan>".');
+    }
+    if (batonNudge) {
+      warn(`wrapping up? leave a baton so the next session picks up cleanly — \`dotmd baton ${path.basename(filePath, '.md')} @draft\` saves a resume prompt (no copy-paste into chat).`);
+    }
   }
 }
 
