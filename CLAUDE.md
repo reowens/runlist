@@ -243,6 +243,7 @@ Everything is automated — do NOT manually `git push`, `git tag`, `npm publish`
 4. Creates GitHub Release with auto-generated notes
 5. Waits for GitHub Actions `publish.yml` to `npm publish`
 6. Installs the new version locally via `npm install -g`
+7. Refreshes the Claude Code plugin (`claude plugin update dotmd@dotmd`) — restart the session (or `/reload-plugins`) to apply
 
 **If it fails partway through:** Check if the tag was pushed (`git log --oneline -1`). If yes, the GitHub Actions publish workflow is probably already running — check GitHub Actions. If not, run `git push origin main --tags` manually and the rest will follow.
 

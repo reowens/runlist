@@ -72,4 +72,20 @@ echo "→ installing dotmd-cli@${VERSION} globally"
 npm cache clean --force >/dev/null 2>&1 || true
 npm install -g "dotmd-cli@${VERSION}"
 
+# The Claude Code plugin ships from this repo in lockstep with the CLI, but
+# `npm install -g` doesn't refresh the installed plugin copy (the CLI's
+# postinstall only nudges, and allow-scripts policies can suppress even that).
+# Refresh it here, where `claude` is known to be on the release machine.
+# Best-effort: a plugin-cache hiccup must not fail an otherwise-good release.
+if command -v claude >/dev/null 2>&1; then
+  echo "→ refreshing Claude Code plugin dotmd@dotmd"
+  if claude plugin update dotmd@dotmd; then
+    echo "  restart your Claude Code session (or /reload-plugins) to apply."
+  else
+    echo "⚠ plugin refresh failed — run \`dotmd update --plugin-only\` manually." >&2
+  fi
+else
+  echo "⚠ \`claude\` not on PATH — plugin not refreshed; run \`dotmd update --plugin-only\`." >&2
+fi
+
 echo "✓ released and installed dotmd-cli@${VERSION}"
