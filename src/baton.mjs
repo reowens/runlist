@@ -31,9 +31,9 @@ function matchesDocRef(doc, ref) {
 // or lock — in-session is just frontmatter — so ownership is reconstructed
 // from the per-repo journal: the last `use <plan>` / `set in-session <plan>`
 // this sid ran whose target is still in-session. Falls back to "the only
-// in-session plan" when the journal can't answer (disabled, or another tool
-// flipped the status). Returns { plan, via, inSession }; plan is null when
-// there's no defensible answer (caller decides how to ask).
+// in-session plan" when the journal is *silent* for this session (disabled, or
+// another tool flipped the status). Returns { plan, via, inSession }; plan is
+// null when there's no defensible answer (caller decides how to ask).
 export function findOwnedPlan(config, index = null) {
   const idx = index ?? buildIndex(config);
   const inSession = idx.docs.filter(d => d.type === 'plan' && d.status === 'in-session');
@@ -42,6 +42,13 @@ export function findOwnedPlan(config, index = null) {
   const sid = currentSessionId();
   let entries = [];
   try { entries = readJournalEntries(config); } catch { entries = []; }
+  // Did THIS session issue any ownership command at all (`use` / `set in-session`
+  // / `status … in-session`)? If it did but none matched an in-session plan, this
+  // session's work lives elsewhere (e.g. it consumed a `use <prompt>`, or worked
+  // a plan that's since been released) — so the lone in-session plan is
+  // presumptively *another* session's, and auto-selecting it would flip a
+  // stranger's status. Track that to gate the single-in-session fast path below.
+  let sawOwnershipRef = false;
   for (let i = entries.length - 1; i >= 0; i--) {
     const e = entries[i];
     if (e?.sid !== sid || !Array.isArray(e.argv) || (e.exit ?? 0) !== 0) continue;
@@ -51,11 +58,19 @@ export function findOwnedPlan(config, index = null) {
     else if (a[0] === 'set' && a[1] === 'in-session') ref = a.slice(2).find(x => typeof x === 'string' && !x.startsWith('-'));
     else if (a[0] === 'status' && a.includes('in-session')) ref = a.slice(1).find(x => typeof x === 'string' && !x.startsWith('-') && x !== 'in-session');
     if (!ref) continue;
+    sawOwnershipRef = true;
     const doc = inSession.find(d => matchesDocRef(d, ref));
     if (doc) return { plan: doc, via: 'journal', inSession };
   }
 
-  if (inSession.length === 1) return { plan: inSession[0], via: 'single-in-session', inSession };
+  // Single-in-session fast path — ONLY when the journal is silent about this
+  // session's ownership intent. If this sid *did* run an ownership command that
+  // pointed somewhere other than the lone in-session plan, refuse and let the
+  // caller demand an explicit slug/plan rather than hand off a plan this session
+  // never touched (the cross-session baton misfire).
+  if (inSession.length === 1 && !sawOwnershipRef) {
+    return { plan: inSession[0], via: 'single-in-session', inSession };
+  }
   return { plan: null, via: null, inSession };
 }
 

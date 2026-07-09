@@ -40,11 +40,17 @@ function writePlan(name, { status = 'in-session', frontmatter = true } = {}) {
 
 // Seed the journal so findOwnedPlan attributes a plan to this "session".
 function journalOwn(planRepoPath, sid = 'test-sid') {
+  journalArgv(['use', planRepoPath], sid);
+}
+
+// Seed an arbitrary journal entry (e.g. `use <prompt>` under another sid) to
+// exercise ownership-signal gating.
+function journalArgv(argv, sid = 'test-sid') {
   const dir = path.join(tmpDir, '.dotmd');
   mkdirSync(dir, { recursive: true });
   const entry = {
     ts: new Date().toISOString(), sid, pid: 1,
-    argv: ['use', planRepoPath], exit: 0, ms: 1, v: '0.0.0',
+    argv, exit: 0, ms: 1, v: '0.0.0',
   };
   appendFileSync(path.join(dir, 'journal.jsonl'), JSON.stringify(entry) + '\n');
 }
@@ -132,6 +138,48 @@ describe('dotmd baton', () => {
     strictEqual(r.status, 0, r.stderr);
     match(r.stderr, /only in-session plan/);
     ok(existsSync(path.join(docsDir, 'prompts', 'resume-solo.md')));
+  });
+
+  it('does NOT hand off the lone in-session plan when this session worked elsewhere (misfire repro)', () => {
+    // Session A owns `theirs` (in-session, journal-attributed to sid A).
+    // Session B consumed a `use <prompt>` — an ownership command that points at
+    // no in-session plan — then runs `baton` with no arg. Baton must refuse, not
+    // flip A's plan.
+    writePlan('theirs');
+    journalOwn('docs/plans/theirs.md', 'session-A');
+    journalArgv(['use', 'docs/prompts/resume-my-real-work.md'], 'session-B');
+
+    const r = run(['baton', '--message', 'resume my real work'], { sid: 'session-B' });
+    ok(r.status !== 0, `baton should refuse; stderr: ${r.stderr}`);
+    match(r.stderr, /No in-session plan/);
+    // A's plan is untouched and no misnamed prompt was minted.
+    ok(readFileSync(path.join(plansDir, 'theirs.md'), 'utf8').includes('status: in-session'),
+      "other session's plan must stay in-session");
+    ok(!existsSync(path.join(docsDir, 'prompts', 'resume-theirs.md')),
+      'no resume prompt named after the stranger plan');
+  });
+
+  it('does NOT grab the lone in-session plan when this session used a since-released plan', () => {
+    // This sid ran `use other` (now `active`, not in-session); a different lone
+    // plan is in-session. The ownership signal points elsewhere → refuse.
+    writePlan('released', { status: 'active' });
+    writePlan('someone-elses');
+    journalArgv(['use', 'docs/plans/released.md'], 'test-sid');
+
+    const r = run(['baton', '--message', 'x']);
+    ok(r.status !== 0, `should refuse; stderr: ${r.stderr}`);
+    match(r.stderr, /No in-session plan/);
+    ok(readFileSync(path.join(plansDir, 'someone-elses.md'), 'utf8').includes('status: in-session'));
+  });
+
+  it('still fast-paths the lone in-session plan when the journal ties this sid to it', () => {
+    // The legit single-session case: this sid `use`d the plan (journal match).
+    writePlan('solo');
+    journalOwn('docs/plans/solo.md');
+    const r = run(['baton', '--message', 'resume solo']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(existsSync(path.join(docsDir, 'prompts', 'resume-solo.md')));
+    ok(readFileSync(path.join(plansDir, 'solo.md'), 'utf8').includes('status: active'), 'flipped to active');
   });
 
   it('dies listing candidates when multiple in-session plans are unattributable', () => {
