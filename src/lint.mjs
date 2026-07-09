@@ -73,12 +73,26 @@ export function runLint(argv, config, opts = {}) {
     // existing plural array happens at apply-time so the message reflects
     // just what's being introduced from the singular form.
     for (const { singular, plural } of [{ singular: 'module', plural: 'modules' }, { singular: 'surface', plural: 'surfaces' }]) {
-      const val = asString(parsed[singular]);
-      if (!val) continue;
-      const values = val.includes(',')
-        ? val.split(',').map(s => s.trim()).filter(Boolean)
-        : [val];
-      fixes.push({ field: singular, oldValue: val, newValue: values, pluralKey: plural, type: 'singular-to-plural' });
+      const rawVal = parsed[singular];
+      const val = asString(rawVal);
+      if (val) {
+        // Inline value (`surface: foo`) → migrate into the plural array.
+        const values = val.includes(',')
+          ? val.split(',').map(s => s.trim()).filter(Boolean)
+          : [val];
+        fixes.push({ field: singular, oldValue: val, newValue: values, pluralKey: plural, type: 'singular-to-plural' });
+      } else if (singular in parsed && (!Array.isArray(rawVal) || rawVal.length === 0)) {
+        // Empty deprecated key (`surface:` with nothing after it, which the
+        // parser yields as `[]`) — usually sitting right above a populated
+        // `surfaces:`. There's no value to migrate; the deprecation warning
+        // just wants the dead line gone. `validate` treats the empty `[]` as
+        // present (so it warns), while the old `asString` gate here saw it as
+        // absent and skipped — the exact no-op reported in issue #17. Emit a
+        // drop fix so `lint --fix` does what the warning advertises. A
+        // populated block-form singular (rawVal.length > 0) is left untouched:
+        // too rare to risk mis-editing.
+        fixes.push({ field: singular, pluralKey: plural, type: 'drop-singular' });
+      }
     }
 
     // Trailing whitespace in values
@@ -102,8 +116,22 @@ export function runLint(argv, config, opts = {}) {
   // Also get non-fixable issues from index, excluding issues we can already fix
   const index = buildIndex(config);
   const fixablePaths = new Set(fixable.map(f => f.repoPath));
+  // Singular-key deprecation warnings whose fix `lint --fix` will actually make.
+  // Without this, those warnings landed in BOTH the "fixable" preview and the
+  // "non-fixable" list, so the header claimed "N non-fixable" while every line
+  // told you to run `lint --fix` (issue #17, item 8).
+  const fixableSingularKeys = new Set();
+  for (const { repoPath, fixes } of fixable) {
+    for (const f of fixes) {
+      if (f.type === 'singular-to-plural' || f.type === 'drop-singular') {
+        fixableSingularKeys.add(`${repoPath}::${f.field}`);
+      }
+    }
+  }
   const nonFixable = [...index.errors, ...index.warnings].filter(issue => {
     if (issue.message.includes('Missing frontmatter `status`') && fixablePaths.has(issue.path)) return false;
+    const dep = issue.message.match(/^`(module|surface):` \(singular\) is deprecated/);
+    if (dep && fixableSingularKeys.has(`${issue.path}::${dep[1]}`)) return false;
     return true;
   });
 
@@ -120,6 +148,8 @@ export function runLint(argv, config, opts = {}) {
             process.stdout.write(dim(`    missing status (fixable via AI)\n`));
           } else if (f.type === 'singular-to-plural') {
             process.stdout.write(dim(`    ${f.field}: "${f.oldValue}" → ${f.pluralKey}: [${f.newValue.join(', ')}]\n`));
+          } else if (f.type === 'drop-singular') {
+            process.stdout.write(dim(`    remove deprecated \`${f.field}:\` (empty; \`${f.pluralKey}:\` is the live key)\n`));
           } else if (f.type === 'eof') {
             process.stdout.write(dim(`    missing newline at end of file\n`));
           } else if (f.type === 'add') {
@@ -155,6 +185,7 @@ export function runLint(argv, config, opts = {}) {
     let needsEofFix = false;
     const trimFixes = [];
     const singularToPlural = [];
+    const dropSingular = [];
 
     for (const f of fixes) {
       if (f.type === 'rename-key') {
@@ -165,6 +196,8 @@ export function runLint(argv, config, opts = {}) {
         trimFixes.push(f);
       } else if (f.type === 'singular-to-plural') {
         singularToPlural.push(f);
+      } else if (f.type === 'drop-singular') {
+        dropSingular.push(f);
       } else {
         updates[f.field] = f.newValue;
       }
@@ -208,6 +241,19 @@ export function runLint(argv, config, opts = {}) {
         } else {
           newFm += `\n${sa.pluralKey}:\n${sa.newValue.map(v => `  - ${v}`).join('\n')}`;
         }
+        raw = replaceFrontmatter(raw, newFm.trim());
+        writeFileSync(filePath, raw, 'utf8');
+      }
+
+      // Drop empty deprecated singular keys. The value is known-empty (the fix
+      // is only emitted for `[]`/`''`), so this matches the bare `key:` line
+      // exactly — never a line carrying content — and removes it.
+      for (const ds of dropSingular) {
+        let raw = readFileSync(filePath, 'utf8');
+        const { frontmatter: fm } = extractFrontmatter(raw);
+        const newFm = fm
+          .replace(new RegExp(`^${escapeRegex(ds.field)}:[ \\t]*$`, 'm'), '')
+          .replace(/\n{2,}/g, '\n');
         raw = replaceFrontmatter(raw, newFm.trim());
         writeFileSync(filePath, raw, 'utf8');
       }
@@ -259,6 +305,8 @@ export function runLint(argv, config, opts = {}) {
         }
       } else if (f.type === 'singular-to-plural') {
         process.stdout.write(`${prefix}  ${dim(`${f.field}: "${f.oldValue}" → ${f.pluralKey}: [${f.newValue.join(', ')}]`)}\n`);
+      } else if (f.type === 'drop-singular') {
+        process.stdout.write(`${prefix}  ${dim(`removed deprecated \`${f.field}:\` (empty)`)}\n`);
       } else if (f.type === 'add') {
         process.stdout.write(`${prefix}  ${dim(`add ${f.field}: ${f.newValue}`)}\n`);
       } else {

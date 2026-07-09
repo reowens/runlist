@@ -16,7 +16,7 @@ async function loadDeps() {
     notionClient = Client;
     notionToMd = NotionToMarkdown;
   } catch {
-    die('Notion dependencies not installed. Run: npm install @notionhq/client notion-to-md');
+    die('Notion integration needs its optional dependencies. Run: npm install @notionhq/client notion-to-md\n(These ship as optionalDependencies — a plain `npm i -g dotmd-cli` installs them unless you passed `--omit=optional`.)');
   }
 }
 

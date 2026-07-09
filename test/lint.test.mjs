@@ -214,4 +214,53 @@ describe('dotmd lint', () => {
     const catalogLines = content.split('\n').filter(l => /^\s*-\s+catalog\s*$/.test(l));
     strictEqual(catalogLines.length, 1, `expected single catalog entry, got: ${content}`);
   });
+
+  // issue #17 item 1: an EMPTY deprecated singular key sitting above a populated
+  // plural. The parser yields `[]`, `validate` warns, but `lint --fix` used to
+  // no-op it (asString([]) is falsy). It must now drop the dead line — and
+  // preserve the plural's values.
+  it('--fix drops an empty singular surface:/module: and keeps the plural values (F18, issue #17)', () => {
+    const docsDir = setupProject();
+    writeFileSync(path.join(docsDir, 'e.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\nsurface:\nsurfaces:\n  - db\nmodule:\nmodules:\n  - core\n---\n# E\n');
+
+    const result = run(['lint', '--fix']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+
+    const content = readFileSync(path.join(docsDir, 'e.md'), 'utf8');
+    ok(!/^surface:/m.test(content), `empty singular surface: removed: ${content}`);
+    ok(!/^module:/m.test(content), `empty singular module: removed: ${content}`);
+    ok(/^surfaces:\n\s+- db$/m.test(content), `surfaces value preserved: ${content}`);
+    ok(/^modules:\n\s+- core$/m.test(content), `modules value preserved: ${content}`);
+  });
+
+  it('--fix drops an empty singular even with no plural counterpart present (F18)', () => {
+    const docsDir = setupProject();
+    writeFileSync(path.join(docsDir, 'e2.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\nsurface:\n---\n# E2\n');
+
+    const result = run(['lint', '--fix']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+
+    const content = readFileSync(path.join(docsDir, 'e2.md'), 'utf8');
+    ok(!/^surface:/m.test(content), `empty singular surface: removed: ${content}`);
+  });
+
+  // issue #17 item 8: the singular-deprecation warnings must not appear in the
+  // "non-fixable" list once `lint --fix` can resolve them.
+  it('lint does not list a fixable singular deprecation as non-fixable (issue #17)', () => {
+    const docsDir = setupProject();
+    writeFileSync(path.join(docsDir, 'e3.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\nsurface:\nsurfaces:\n  - db\n---\n# E3\n');
+
+    const report = run(['lint']);
+    strictEqual(report.status, 0, `stderr: ${report.stderr}`);
+    ok(report.stdout.includes('remove deprecated `surface:`'), `previewed as fixable: ${report.stdout}`);
+    const nonFixableIdx = report.stdout.indexOf('non-fixable');
+    if (nonFixableIdx !== -1) {
+      const tail = report.stdout.slice(nonFixableIdx);
+      ok(!/`surface:` \(singular\) is deprecated/.test(tail),
+        `singular deprecation must not be under non-fixable: ${report.stdout}`);
+    }
+  });
 });
