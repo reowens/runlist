@@ -182,6 +182,48 @@ describe('dotmd baton', () => {
     ok(readFileSync(path.join(plansDir, 'solo.md'), 'utf8').includes('status: active'), 'flipped to active');
   });
 
+  it('stamps the created resume prompt with a `plan:` link back to its plan', () => {
+    writePlan('kinetic');
+    journalOwn('docs/plans/kinetic.md');
+    const r = run(['baton', '--message', 'resume kinetic']);
+    strictEqual(r.status, 0, r.stderr);
+    const prompt = readFileSync(path.join(docsDir, 'prompts', 'resume-kinetic.md'), 'utf8');
+    match(prompt, /^plan:\s*docs\/plans\/kinetic\.md\s*$/m);
+  });
+
+  it('round-trip: consuming a baton prompt claims its plan so the next baton hands it off', () => {
+    // Session A hands off `kinetic` (→ active) with a plan-linked resume prompt.
+    writePlan('kinetic');
+    journalOwn('docs/plans/kinetic.md', 'session-A');
+    const a = run(['baton', '--message', 'A: wire the endpoint'], { sid: 'session-A' });
+    strictEqual(a.status, 0, a.stderr);
+    ok(readFileSync(path.join(plansDir, 'kinetic.md'), 'utf8').includes('status: active'), 'A released to active');
+
+    // Session B consumes the resume prompt → the plan is claimed in-session.
+    const b1 = run(['use', 'resume-kinetic.md'], { sid: 'session-B' });
+    strictEqual(b1.status, 0, b1.stderr);
+    match(b1.stderr, /Claimed.*kinetic\.md/);
+    ok(readFileSync(path.join(plansDir, 'kinetic.md'), 'utf8').includes('status: in-session'),
+      'consume claimed the plan in-session');
+
+    // Session B batons with no arg → resolves the claimed plan via the journal
+    // (NOT the single-in-session fast path) and hands it off.
+    const b2 = run(['baton', '--message', 'B: add the retry'], { sid: 'session-B' });
+    strictEqual(b2.status, 0, `B's baton should resolve the claimed plan; stderr: ${b2.stderr}`);
+    match(b2.stderr, /Baton passed/);
+    ok(readFileSync(path.join(plansDir, 'kinetic.md'), 'utf8').includes('status: active'),
+      'B released the claimed plan to active');
+  });
+
+  it('consume does not claim a plan whose link is stale (plan archived/removed)', () => {
+    // A resume prompt pointing at a nonexistent plan must consume cleanly, no claim.
+    writeFileSync(path.join(docsDir, 'prompts', 'resume-ghost.md'),
+      '---\ntype: prompt\nstatus: pending\nplan: docs/plans/ghost.md\n---\n# resume\n\nbody\n');
+    const r = run(['use', 'resume-ghost.md']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(!/Claimed/.test(r.stderr), `no claim for a stale link; stderr: ${r.stderr}`);
+  });
+
   it('dies listing candidates when multiple in-session plans are unattributable', () => {
     writePlan('plan-a');
     writePlan('plan-b');

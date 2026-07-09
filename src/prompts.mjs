@@ -1,12 +1,17 @@
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync, statSync, existsSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
-import { asString, toRepoPath, die, resolveDocPath, isArchivedPath } from './util.mjs';
-import { buildIndex } from './index.mjs';
+import { asString, toRepoPath, die, resolveDocPath, isArchivedPath, currentSessionId } from './util.mjs';
+import { buildIndex, resolveDocArg } from './index.mjs';
 import { runQuery } from './query.mjs';
-import { runArchive, runStatus } from './lifecycle.mjs';
+import { runArchive, runStatus, updateFrontmatter } from './lifecycle.mjs';
+import { appendJournalEntry } from './journal.mjs';
 import { runNew } from './new.mjs';
 import { green, dim } from './color.mjs';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
 
 // `resume` is an alias for `use` — agents reach for "resume" when continuing a
 // session; `use` reads as internal mechanics. Both names stay valid; the
@@ -283,6 +288,48 @@ export function consumePrompt(filePath, config, opts) {
 
   const consumedPath = archiveResult?.newRepoPath ?? repoPath;
   process.stderr.write(`${green('✓ Consumed')}: ${consumedPath}\n`);
+
+  // Consume = claim: a baton-created resume prompt carries `plan: <path>`.
+  // Adopt that plan for THIS session so the next `dotmd baton` (with no arg)
+  // hands it off — closing the cross-session ownership loop that otherwise dies
+  // at the prompt boundary.
+  claimPromptPlan(asString(parsed.plan), config);
+}
+
+// Flip the resume prompt's linked plan to in-session for this session and
+// record the ownership in the journal. The journal entry matters: baton's
+// `findOwnedPlan` reconstructs ownership from journaled `set in-session <plan>`
+// commands, and the outer `use <prompt>` argv can't tie a prompt ref to a plan
+// — so without this synthetic entry the claim would be invisible to baton (and,
+// with the misfire gate, would even make the next baton refuse).
+function claimPromptPlan(planRef, config) {
+  if (!planRef) return;
+  let planPath = null;
+  try { planPath = resolveDocPath(planRef, config) ?? resolveDocArg(planRef, config, { dieOnMiss: false }); }
+  catch { planPath = null; }
+  if (!planPath || !existsSync(planPath)) return; // link went stale (plan renamed/removed) — the resume body already printed, so stay quiet
+
+  let planFm;
+  try { planFm = parseSimpleFrontmatter(extractFrontmatter(readFileSync(planPath, 'utf8')).frontmatter); }
+  catch { return; }
+  const cur = asString(planFm.status);
+  // Only claim a startable plan. Already in-session → someone's on it (don't
+  // steal); archived/terminal → the link is stale. Either way, leave it be.
+  if (!cur || cur === 'in-session' || cur === 'archived') return;
+
+  const repoPath = toRepoPath(planPath, config.repoRoot);
+  try { updateFrontmatter(planPath, { status: 'in-session' }); }
+  catch { return; }
+  try {
+    // `v` MUST be the real CLI version: the journal rotates when a new entry's
+    // version differs from the file's first entry, so a sentinel here would shove
+    // our just-written claim into the backup file where findOwnedPlan can't see it.
+    appendJournalEntry(config, {
+      ts: new Date().toISOString(), sid: currentSessionId(), pid: process.pid,
+      argv: ['set', 'in-session', repoPath], exit: 0, ms: 0, v: pkg.version,
+    });
+  } catch { /* journal is best-effort — the status flip already landed */ }
+  process.stderr.write(`${green('→ Claimed')}: ${repoPath} (in-session)\n`);
 }
 
 // Read-only peek: print the body WITHOUT consuming. The sanctioned triage path

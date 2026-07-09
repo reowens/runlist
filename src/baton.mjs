@@ -5,7 +5,8 @@ import { asString, toRepoPath, die, warn, currentSessionId } from './util.mjs';
 import { buildIndex, resolveDocArg } from './index.mjs';
 import { readJournalEntries } from './journal.mjs';
 import { runNew, readBodyInput } from './new.mjs';
-import { runSet } from './lifecycle.mjs';
+import { runSet, updateFrontmatter } from './lifecycle.mjs';
+import { resolvePromptInput } from './prompts.mjs';
 import { green, dim } from './color.mjs';
 
 // `dotmd baton` is the one-command handoff: save the resume prompt AND release
@@ -207,6 +208,17 @@ export async function runBaton(argv, config, opts = {}) {
     }
   }
   if (!createdSlug) die(`Could not find a free prompt slug for ${slugBase} (tried ${slugBase}-2 … ${slugBase}-9).`);
+
+  // Link the prompt back to its plan so the next session's `dotmd use` re-claims
+  // it (consume = claim). The resume-<slug> filename is a lossy link under -N
+  // suffixing / plan renames; the explicit `plan:` field is the durable one.
+  // Best-effort: a resolve/write hiccup must never fail an otherwise-good handoff.
+  if (planPath && !dryRun) {
+    try {
+      const promptPath = resolvePromptInput(createdSlug, config, { dieOnMiss: false });
+      if (promptPath) updateFrontmatter(promptPath, { plan: repoPath });
+    } catch { /* stamping is best-effort */ }
+  }
 
   // 2. Release the plan — exactly one status flip. Skipped entirely in slug
   // mode: with no plan involved there is nothing to release.

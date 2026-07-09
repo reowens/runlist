@@ -79,6 +79,8 @@ dotmd baton <slug> @/tmp/draft.md
 
 Either way the prompt lands under `docs/prompts/<name>.md` with `status: pending`. The next session runs `dotmd hud` (the SessionStart hook), sees the pending prompt, and consumes it with `dotmd use <file>` (or `dotmd use` with no arg for the oldest). That command atomically prints the body and archives the prompt so it can't be double-consumed. To peek at a prompt without consuming it, `dotmd prompts show <file>`.
 
+**Consume = claim (the handoff loop closes itself).** When `dotmd baton` releases a plan, it stamps the resume prompt with a `plan:` link back to that plan. Consuming such a prompt with `dotmd use` doesn't just print the body — it also **claims the linked plan for this session** (flips it to `in-session` and records the ownership), printing `→ Claimed docs/plans/<x>.md`. So the picked-up work is already `in-session` and, crucially, *this* session's later `dotmd baton` (no arg) hands off that plan automatically — you don't re-run `dotmd use <plan>` first. Only a startable plan is claimed: an already-in-session plan (someone's on it) or an archived/renamed target (stale link) is left untouched.
+
 Use this whenever you'd otherwise print a multi-line "here's how to resume" block.
 
 ### Grouping plans into runlists

@@ -1078,9 +1078,10 @@ Examples:
 The "save a resume prompt" verb. Works mid-anything:
 
 Plan mode (a plan is in-session, or you pass one):
-  1. Saves a resume prompt named resume-<plan-slug> (collision-safe: -2, -3, …).
-     The prompt is session-local — the next session's hud surfaces it; never
-     paste resume text into chat.
+  1. Saves a resume prompt named resume-<plan-slug> (collision-safe: -2, -3, …),
+     stamped with a plan: link so consuming it re-claims the plan (see \`dotmd
+     use\`). The prompt is session-local — the next session's hud surfaces it;
+     never paste resume text into chat.
   2. Releases the plan: one status flip, in-session → active by default
      (--status to override, --note to record why in ## Version History).
   3. Prints the exact \`git commit\` for the plan's frontmatter change — the
