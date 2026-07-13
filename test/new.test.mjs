@@ -1,9 +1,11 @@
 import { describe, it, afterEach } from 'node:test';
-import { strictEqual, ok } from 'node:assert';
+import { strictEqual, ok, rejects } from 'node:assert';
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
+import { resolveConfig } from '../src/config.mjs';
+import { runNew } from '../src/new.mjs';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
 let tmpDir;
@@ -842,10 +844,59 @@ describe('dotmd new — type-first CLI', () => {
       const content = readFileSync(path.join(tmpDir, 'docs', 'with-body.md'), 'utf8');
       ok(content.includes('note body'), `custom template should receive body: ${content}`);
     });
+
+    it('does not invoke custom template functions during --dry-run', () => {
+      tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-new-'));
+      mkdirSync(path.join(tmpDir, '.git'));
+      mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+      const sentinel = path.join(tmpDir, 'template-sentinel');
+      writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+        import { writeFileSync } from 'node:fs';
+        export const root = 'docs';
+        export const templates = {
+          explosive: (name) => {
+            writeFileSync(${JSON.stringify(sentinel)}, name);
+            return '---\\ntype: doc\\nstatus: active\\n---\\n# ' + name;
+          },
+        };
+      `);
+
+      const r = run(['new', 'explosive', 'preview-only', '--dry-run']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      ok(/Target:/.test(r.stdout), 'preview still describes the target');
+      ok(/Custom template rendering skipped/.test(r.stdout), 'preview discloses that custom rendering was not validated');
+      ok(!/Would create/.test(r.stdout), 'preview does not claim custom rendering will succeed');
+      ok(!existsSync(sentinel), 'custom template function was not invoked');
+      ok(!existsSync(path.join(tmpDir, 'docs', 'preview-only.md')), 'document was not created');
+    });
   });
 });
 
 describe('dotmd new — runlist / coordination scaffolding', () => {
+  it('rolls the hub and every child back when child publication fails', async () => {
+    const docsDir = setupProject();
+    const config = await resolveConfig(tmpDir, path.join(tmpDir, 'dotmd.config.mjs'));
+    await rejects(runNew(['plan', 'atomic-hub', 'Atomic hub body.', '--runlist', 'one,two'], config, {
+      testHooks: { afterSetCommit: count => { if (count === 2) throw new Error('child publication failure'); } },
+    }), /child publication failure/);
+    strictEqual(existsSync(path.join(docsDir, 'plans', 'atomic-hub.md')), false);
+    strictEqual(existsSync(path.join(docsDir, 'plans', 'atomic-hub-01-one.md')), false);
+    strictEqual(existsSync(path.join(docsDir, 'plans', 'atomic-hub-02-two.md')), false);
+  });
+
+  it('leaves pre-existing runlist children unchanged while atomically creating the hub and absent children', () => {
+    const docsDir = setupProject();
+    const plans = path.join(docsDir, 'plans');
+    mkdirSync(plans, { recursive: true });
+    const existing = path.join(plans, 'mixed-hub-01-one.md');
+    writeFileSync(existing, 'existing-child\n');
+    const result = run(['new', 'plan', 'mixed-hub', '--runlist', 'one,two']);
+    strictEqual(result.status, 0, result.stderr);
+    strictEqual(readFileSync(existing, 'utf8'), 'existing-child\n');
+    ok(existsSync(path.join(plans, 'mixed-hub.md')));
+    ok(existsSync(path.join(plans, 'mixed-hub-02-two.md')));
+    ok(/left as-is/.test(result.stderr));
+  });
   it('--runlist creates a sprint hub plus one child stub per slug', () => {
     const docsDir = setupProject();
     const r = run(['new', 'plan', 'auth-revamp', '--runlist', 'extract,rewrite,cleanup']);
@@ -899,6 +950,19 @@ describe('dotmd new — runlist / coordination scaffolding', () => {
     ok(/Would create child: docs\/plans\/auth-revamp-02-rewrite\.md/.test(r.stdout), 'previews child 02');
     ok(!existsSync(path.join(docsDir, 'plans', 'auth-revamp.md')), 'hub not written under --dry-run');
     ok(!existsSync(path.join(docsDir, 'plans', 'auth-revamp-01-extract.md')), 'child not written under --dry-run');
+  });
+
+  it('--dry-run reports an existing runlist child as unchanged', () => {
+    const docsDir = setupProject();
+    const existing = path.join(docsDir, 'plans', 'auth-revamp-01-extract.md');
+    mkdirSync(path.dirname(existing), { recursive: true });
+    writeFileSync(existing, 'existing child\n');
+
+    const r = run(['new', 'plan', 'auth-revamp', '--runlist', 'extract,rewrite', '--dry-run']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(/Would leave existing child unchanged: docs\/plans\/auth-revamp-01-extract\.md/.test(r.stdout), r.stdout);
+    ok(/Would create child: docs\/plans\/auth-revamp-02-rewrite\.md/.test(r.stdout), r.stdout);
+    strictEqual(readFileSync(existing, 'utf8'), 'existing child\n');
   });
 
   it('rejects --runlist / --coordination on non-plan types', () => {

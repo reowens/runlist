@@ -1,9 +1,11 @@
 import { describe, it, afterEach } from 'node:test';
-import { strictEqual, ok } from 'node:assert';
+import { strictEqual, ok, throws } from 'node:assert';
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
+import { resolveConfig } from '../src/config.mjs';
+import { runTouch } from '../src/lifecycle.mjs';
 
 let tmpDir;
 
@@ -233,6 +235,32 @@ describe('touch --git', () => {
     const result = run(['touch', '--git']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(result.stdout.includes('in sync'), 'reports all in sync');
+  });
+
+  it('fails before writing when Git metadata is incomplete', async () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-touchgit-'));
+    spawnSync('git', ['init'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
+    const docsDir = path.join(tmpDir, 'docs');
+    mkdirSync(docsDir, { recursive: true });
+    const configPath = path.join(tmpDir, 'dotmd.config.mjs');
+    writeFileSync(configPath, `export const root = 'docs';`);
+    const docPath = path.join(docsDir, 'stale.md');
+    const original = '---\nstatus: active\nupdated: 2020-01-01\n---\n# Stale\n';
+    writeFileSync(docPath, original);
+    spawnSync('git', ['add', '.'], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-m', 'first'], { cwd: tmpDir });
+    writeFileSync(docPath, original + '\nChanged\n');
+    spawnSync('git', ['add', '.'], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-m', 'second'], { cwd: tmpDir });
+
+    const config = await resolveConfig(tmpDir, configPath);
+    throws(
+      () => runTouch(['--git'], config, { gitMetadataOptions: { maxCommits: 1 } }),
+      /incomplete Git metadata \(commit-limit\).*no files were changed/,
+    );
+    strictEqual(readFileSync(docPath, 'utf8'), original + '\nChanged\n');
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, it, afterEach } from 'node:test';
 import { ok } from 'node:assert';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, realpathSync } from 'node:fs';
+import { existsSync, mkdtempSync, writeFileSync, mkdirSync, rmSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -72,6 +72,30 @@ describe('diff command', () => {
     ok(result.stdout.includes('plan.md'), `shows filename, got: ${result.stdout}`);
     ok(result.stdout.includes('2024-01-15'), 'shows updated date');
     ok(result.stdout.includes('Updated content') || result.stdout.includes('Original content'), `shows diff content, got: ${result.stdout}`);
+  });
+
+  it('--summarize --dry-run discloses skipped hooks instead of a model failure', () => {
+    const docsDir = setupProject();
+    const filePath = writeDocAt(docsDir, 'preview.md',
+      'status: active\nupdated: 2024-01-15', '# Preview\n\nOriginal.\n',
+      '2024-01-10T12:00:00');
+    writeFileSync(filePath, '---\nstatus: active\nupdated: 2024-01-15\n---\n# Preview\n\nChanged.\n');
+    spawnSync('git', ['add', filePath], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-m', 'update preview'], {
+      cwd: tmpDir,
+      env: { ...process.env, GIT_AUTHOR_DATE: '2024-01-20T12:00:00', GIT_COMMITTER_DATE: '2024-01-20T12:00:00' },
+    });
+    const sentinel = path.join(tmpDir, 'diff-summary-sentinel');
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      import { writeFileSync } from 'node:fs';
+      export const root = 'docs';
+      export function summarizeDiff() { writeFileSync(${JSON.stringify(sentinel)}, 'called'); return 'summary'; }
+    `);
+
+    const result = run(['diff', filePath, '--summarize', '--dry-run']);
+    ok(result.stdout.includes('Summary generation skipped'), result.stdout);
+    ok(!result.stdout.includes('model call failed'), result.stdout);
+    ok(!existsSync(sentinel), 'summarizeDiff hook was not invoked');
   });
 
   it('--stat shows stat format', () => {

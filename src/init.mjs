@@ -313,7 +313,7 @@ export async function runInit(cwd, config, opts = {}) {
     process.stdout.write(`                 export const root = [${subs.map(s => `'${s}'`).join(', ')}];\n`);
   }
 
-  // .gitignore: ensure .dotmd/ is ignored (session leases live there)
+  // .gitignore: ensure .dotmd/ is ignored (session ownership records live there)
   const gitignorePath = path.join(cwd, '.gitignore');
   const ignoreLine = '.dotmd/';
   if (existsSync(gitignorePath)) {

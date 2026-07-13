@@ -29,21 +29,29 @@ export function compareVersions(a, b) {
 // Read Claude Code's plugin install record to find the installed dotmd plugin's
 // id + version. Network-free. `opts.home` is injectable for tests. Returns
 // { id, version } or null when nothing is installed / the file is absent.
-export function readInstalledPlugin(opts = {}) {
+export function readInstalledPluginRecords(opts = {}) {
   const home = opts.home || os.homedir();
   const file = path.join(home, '.claude', 'plugins', 'installed_plugins.json');
   try {
     const j = JSON.parse(readFileSync(file, 'utf8'));
     const plugins = j.plugins || {};
-    const id = plugins[DEFAULT_PLUGIN_ID]
-      ? DEFAULT_PLUGIN_ID
-      : Object.keys(plugins).find(k => /^dotmd@/.test(k));
+    const id = opts.id
+      ? (plugins[opts.id] ? opts.id : null)
+      : plugins[DEFAULT_PLUGIN_ID]
+        ? DEFAULT_PLUGIN_ID
+        : Object.keys(plugins).find(k => /^dotmd@/.test(k));
     if (!id) return null;
-    const entry = Array.isArray(plugins[id]) ? plugins[id][0] : plugins[id];
-    return { id, version: entry?.version ?? null };
+    const entries = Array.isArray(plugins[id]) ? plugins[id] : [plugins[id]];
+    return { id, entries: entries.filter(Boolean) };
   } catch {
     return null;
   }
+}
+
+export function readInstalledPlugin(opts = {}) {
+  const records = readInstalledPluginRecords(opts);
+  if (!records) return null;
+  return { id: records.id, version: records.entries[0]?.version ?? null };
 }
 
 // Decide which steps `dotmd update` should run. Pure — no side effects — so the
@@ -77,7 +85,11 @@ function which(bin) {
   }
 }
 
-export function runUpdate(argv, _config) {
+function executableName(bin) {
+  return process.platform === 'win32' && !bin.endsWith('.cmd') ? `${bin}.cmd` : bin;
+}
+
+export function runUpdate(argv, _config, opts = {}) {
   const check = argv.includes('--check');
   const cliOnly = argv.includes('--cli-only');
   const pluginOnly = argv.includes('--plugin-only');
@@ -99,18 +111,34 @@ export function runUpdate(argv, _config) {
   }
 
   const steps = planUpdate({ cliOnly, pluginOnly }, { plugin, hasClaude: which('claude'), hasNpm: which('npm') });
+  if (opts.dryRun) {
+    for (const step of steps) {
+      if (step.kind === 'skip') process.stdout.write(dim(`[dry-run] skip: ${step.reason}\n`));
+      else process.stdout.write(dim(`[dry-run] Would run: ${step.cmd.join(' ')}\n`));
+    }
+    return;
+  }
   let ran = false;
+  let failed = false;
   for (const s of steps) {
     if (s.kind === 'skip') {
       process.stdout.write(dim(`skip: ${s.reason}\n`));
       continue;
     }
     process.stdout.write(dim(`$ ${s.cmd.join(' ')}\n`));
-    const r = spawnSync(s.cmd[0], s.cmd.slice(1), { stdio: 'inherit' });
+    const r = spawnSync(executableName(s.cmd[0]), s.cmd.slice(1), {
+      stdio: 'inherit',
+      shell: process.platform === 'win32',
+    });
     ran = true;
-    if (r.status !== 0) process.stdout.write(yellow(`(${s.cmd[0]} exited ${r.status ?? '?'})\n`));
+    if (r.status !== 0) {
+      failed = true;
+      process.stdout.write(yellow(`(${s.cmd[0]} exited ${r.status ?? '?'})\n`));
+      break;
+    }
   }
-  if (ran) {
+  if (ran && !failed) {
     process.stdout.write(green('\n✓ restart your Claude Code session (or /reload-plugins) to apply.\n'));
   }
+  if (failed) process.exitCode = 1;
 }

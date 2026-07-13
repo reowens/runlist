@@ -66,6 +66,30 @@ describe('multi-root: list', () => {
     strictEqual(planDoc.root, 'docs/plans');
     strictEqual(modDoc.root, 'docs/modules');
   });
+
+  it('assigns overlapping roots to the most specific owner and validates its root status', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-overlap-root-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, 'docs', 'plans'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const root = ['docs', 'docs/plans'];
+      export const statuses = {
+        rootStatuses: { 'docs/plans': ['nested-only'] },
+      };
+    `);
+    writeFileSync(path.join(tmpDir, 'docs', 'plans', 'nested.md'),
+      '---\nstatus: nested-only\nupdated: 2026-01-01\n---\n# Nested\n');
+
+    const jsonResult = run(['json']);
+    strictEqual(jsonResult.status, 0, `stderr: ${jsonResult.stderr}`);
+    const index = JSON.parse(jsonResult.stdout);
+    strictEqual(index.docs.length, 1, 'overlapping scans dedupe the document');
+    strictEqual(index.docs[0].root, 'docs/plans');
+    ok(!index.docs[0].errors.some(error => error.message.includes('Unknown status')), 'nested-root status is valid');
+
+    const checkResult = run(['check']);
+    strictEqual(checkResult.status, 0, `stdout: ${checkResult.stdout}\nstderr: ${checkResult.stderr}`);
+  });
 });
 
 describe('multi-root: --root filter', () => {
@@ -107,6 +131,27 @@ describe('multi-root: archive within root', () => {
       'archived within modules root');
     ok(!existsSync(path.join(tmpDir, 'docs', 'plans', 'archived', 'mod-b.md')),
       'not archived to plans root');
+  });
+
+  it('keeps sibling-prefix roots separate on the host path separator', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-prefix-root-'));
+    spawnSync('git', ['init'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
+    mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+    mkdirSync(path.join(tmpDir, 'docs-extra'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = ['docs', 'docs-extra'];`);
+    const source = path.join(tmpDir, 'docs-extra', 'owned.md');
+    writeFileSync(source, '---\ntype: doc\nstatus: active\nupdated: 2025-01-01\n---\n# Owned\n');
+    spawnSync('git', ['add', '.'], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-m', 'init'], { cwd: tmpDir });
+
+    const result = run(['archive', source]);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(existsSync(path.join(tmpDir, 'docs-extra', 'archived', 'owned.md')),
+      'archives under the owning sibling-prefix root');
+    ok(!existsSync(path.join(tmpDir, 'docs', 'archived', 'owned.md')),
+      'does not fall back to the first configured root');
   });
 });
 
@@ -154,6 +199,24 @@ describe('multi-root: graph', () => {
     ok(graph.edges.length > 0, 'has edges');
     ok(graph.edges.some(e => e.source.includes('plans') && e.target.includes('modules')),
       'has cross-root edge');
+  });
+
+  it('keeps equal root-relative HTML and DOT identities distinct', () => {
+    setupMultiRoot();
+    writeFileSync(path.join(tmpDir, 'docs', 'plans', 'same.md'), '---\nstatus: active\n---\n# Plan Same\n');
+    writeFileSync(path.join(tmpDir, 'docs', 'modules', 'same.md'), '---\nstatus: active\n---\n# Module Same\n');
+
+    const outDir = path.join(tmpDir, 'site');
+    const html = run(['export', '--format', 'html', '--output', outDir]);
+    strictEqual(html.status, 0, `stderr: ${html.stderr}`);
+    const fallbackFiles = readFileSync(path.join(outDir, 'index.html'), 'utf8').match(/__dotmd\/[a-f0-9]{64}\.html/g) ?? [];
+    strictEqual(new Set(fallbackFiles).size, 2, 'allocates distinct stable pages');
+    for (const href of fallbackFiles) ok(existsSync(path.join(outDir, ...href.split('/'))), `emits ${href}`);
+
+    const dot = run(['graph', '--dot']);
+    strictEqual(dot.status, 0, `stderr: ${dot.stderr}`);
+    ok(dot.stdout.includes('"docs/plans/same.md"'));
+    ok(dot.stdout.includes('"docs/modules/same.md"'));
   });
 });
 

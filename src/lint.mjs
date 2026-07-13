@@ -6,6 +6,7 @@ import { buildIndex, collectDocFiles } from './index.mjs';
 import { updateFrontmatter } from './lifecycle.mjs';
 import { runMLX, checkUvAvailable } from './ai.mjs';
 import { bold, green, yellow, dim } from './color.mjs';
+import { authorizeManagedSweep, findLexicalDocsRoot } from './managed-path.mjs';
 
 const KEY_RENAMES = {
   nextStep: 'next_step',
@@ -32,8 +33,7 @@ export function runLint(argv, config, opts = {}) {
 
     // Missing type (fixable — infer from root: plans → 'plan', else 'doc')
     if (!asString(parsed.type)) {
-      const roots = config.docsRoots || [config.docsRoot];
-      const docRoot = roots.find(r => filePath.startsWith(r)) ?? config.docsRoot;
+      const docRoot = findLexicalDocsRoot(filePath, config) ?? config.docsRoot;
       const rootLabel = path.relative(config.repoRoot, docRoot).split(path.sep).join('/');
       // If the root label contains 'plan' (e.g. 'docs/plans'), default to plan type
       const inferredType = rootLabel.includes('plan') ? 'plan' : 'doc';
@@ -176,6 +176,7 @@ export function runLint(argv, config, opts = {}) {
   }
 
   // Fix mode
+  authorizeManagedSweep(fixable.map(item => item.filePath), config, { kind: 'Lint fix source' });
   const prefix = dryRun ? dim('[dry-run] ') : '';
   let totalFixes = 0;
 
@@ -322,4 +323,3 @@ export function runLint(argv, config, opts = {}) {
 
   process.stdout.write(`\n${prefix}${totalFixes} fix${totalFixes !== 1 ? 'es' : ''} applied across ${fixable.length} file(s).\n`);
 }
-

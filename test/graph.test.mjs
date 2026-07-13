@@ -126,6 +126,29 @@ describe('buildGraph', () => {
     strictEqual(graph.stats.edgeCount, 1);
   });
 
+  it('does not merge edge tuples whose pipe-joined forms collide', { skip: process.platform === 'win32' && 'Windows filenames cannot contain pipes' }, () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-graph-tuples-'));
+    const repoRoot = tmpDir;
+    for (const relative of [
+      'docs/a.md',
+      'docs/a.md|docs/b.md',
+      'docs/c.md',
+      'docs/b.md|docs/c.md',
+    ]) {
+      const file = path.join(repoRoot, relative);
+      mkdirSync(path.dirname(file), { recursive: true });
+      writeFileSync(file, '# Test\n');
+    }
+    const config = makeConfig({ repoRoot, docsRoot: path.join(repoRoot, 'docs') });
+    const graph = buildGraph(makeIndex([
+      makeDoc({ path: 'docs/a.md', refFields: { supports: ['docs/b.md|docs/c.md'] } }),
+      makeDoc({ path: 'docs/a.md|docs/b.md', refFields: { supports: ['docs/c.md'] } }),
+      makeDoc({ path: 'docs/c.md' }),
+      makeDoc({ path: 'docs/b.md|docs/c.md' }),
+    ]), config);
+    strictEqual(graph.stats.edgeCount, 2);
+  });
+
   it('handles self-references', () => {
     const config = makeConfig();
     const index = makeIndex([
@@ -252,8 +275,8 @@ describe('renderGraphDot', () => {
     const graph = buildGraph(index, config);
     const dot = renderGraphDot(graph, config);
     ok(dot.startsWith('digraph dotmd {'), 'starts with digraph');
-    ok(dot.includes('"a"'), 'includes node a');
-    ok(dot.includes('"b"'), 'includes node b');
+    ok(dot.includes('"docs/a.md"'), 'includes full node a identity');
+    ok(dot.includes('"docs/b.md"'), 'includes full node b identity');
     ok(dot.includes('->'), 'includes edge');
     ok(dot.trimEnd().endsWith('}'), 'ends with closing brace');
   });
@@ -278,6 +301,56 @@ describe('renderGraphDot', () => {
     const dot = renderGraphDot(graph, config);
     ok(dot.includes('style=dashed'), 'broken edge is dashed');
     ok(dot.includes('color=red'), 'broken edge is red');
+  });
+
+  it('keeps duplicate basenames and synthetic targets distinct by full path', () => {
+    const graph = {
+      nodes: [
+        { id: 'docs/a/foo.md', slug: 'foo', status: 'active' },
+        { id: 'docs/b/foo.md', slug: 'foo', status: 'planned' },
+      ],
+      edges: [
+        { source: 'docs/a/foo.md', target: 'missing/a/bar.md', field: 'supports', type: 'unidirectional', broken: true, external: false },
+        { source: 'docs/b/foo.md', target: 'missing/b/bar.md', field: 'supports', type: 'unidirectional', broken: true, external: false },
+      ],
+    };
+    const dot = renderGraphDot(graph, makeConfig());
+    for (const id of ['docs/a/foo.md', 'docs/b/foo.md', 'missing/a/bar.md', 'missing/b/bar.md']) {
+      ok(dot.includes(`"${id}"`), `includes ${id}`);
+    }
+  });
+
+  it('escapes DOT IDs, labels, statuses, and fields', () => {
+    const graph = {
+      nodes: [{ id: 'docs/a"\\\n.md', slug: 'a"\\', status: 'active\rstatus' }],
+      edges: [{ source: 'docs/a"\\\n.md', target: 'missing/\u0001.md', field: 'field"\\\n', type: 'unidirectional', broken: true, external: false }],
+    };
+    const dot = renderGraphDot(graph, makeConfig());
+    ok(dot.includes('docs/a\\"\\\\\\n.md'), 'escapes node ID');
+    ok(dot.includes('active\\rstatus'), 'escapes status');
+    ok(dot.includes('field\\"\\\\\\n'), 'escapes field');
+    ok(dot.includes('missing/\\x01.md'), 'escapes control character');
+
+    const graphviz = spawnSync('dot', ['-Tdot'], { input: dot, encoding: 'utf8' });
+    if (graphviz.error?.code !== 'ENOENT') strictEqual(graphviz.status, 0, graphviz.stderr);
+  });
+
+  it('tracks rendered and reverse edges as tuples when values contain pipes', () => {
+    const graph = {
+      nodes: [
+        { id: 'a', slug: 'a', status: 'active' },
+        { id: 'a|b', slug: 'a-b', status: 'active' },
+        { id: 'b|c', slug: 'b-c', status: 'active' },
+        { id: 'c', slug: 'c', status: 'active' },
+      ],
+      edges: [
+        { source: 'a', target: 'b|c', field: 'd', type: 'bidirectional', broken: false, external: false },
+        { source: 'a|b', target: 'c', field: 'd', type: 'bidirectional', broken: false, external: false },
+      ],
+    };
+    const dot = renderGraphDot(graph, makeConfig());
+    strictEqual((dot.match(/ -> /g) || []).length, 2);
+    ok(!dot.includes('dir=both'), 'does not invent reverse edges from joined-key collisions');
   });
 });
 

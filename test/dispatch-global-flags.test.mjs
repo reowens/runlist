@@ -120,6 +120,8 @@ describe('filtered JSON reflects the active filters', () => {
     const r = run(['--config', configPath, 'agent-context', '--type', 'prompt']);
     strictEqual(r.status, 0);
     const ctx = JSON.parse(r.stdout);
-    deepStrictEqual(Object.keys(ctx.countsByType), ['prompt']);
+    deepStrictEqual(Object.keys(ctx.counts.byType), ['prompt']);
+    deepStrictEqual(Object.keys(ctx.statusVocabulary), ['prompt']);
+    deepStrictEqual(ctx.scope.types, ['prompt']);
   });
 });

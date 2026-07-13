@@ -4,7 +4,9 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync, realpathSync, existsSync
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { getGitLastModified, gitMv, gitDiffSince } from '../src/git.mjs';
+import { getGitLastModified, getGitLastModifiedBatch, gitMv, gitDiffSince, inspectGitCommandPaths } from '../src/git.mjs';
+import { checkGitStaleness } from '../src/validate.mjs';
+import { filterDocs } from '../src/query.mjs';
 
 let tmpDir;
 
@@ -49,6 +51,97 @@ describe('getGitLastModified', () => {
     commitFile(initFile, 'init\n');
     const result = getGitLastModified('nonexistent.md', tmpDir);
     strictEqual(result, null);
+  });
+});
+
+describe('getGitLastModifiedBatch', () => {
+  it('scopes history and returned dates to the requested managed paths', () => {
+    setupRepo();
+    commitFile(path.join(tmpDir, 'managed.md'), '# Managed\n', '2024-01-10T12:00:00Z');
+    commitFile(path.join(tmpDir, 'unrelated.txt'), 'noise\n', '2025-01-10T12:00:00Z');
+
+    const result = getGitLastModifiedBatch(tmpDir, ['managed.md']);
+    strictEqual(result.complete, true);
+    strictEqual(result.reason, null);
+    strictEqual(result.dates.size, 1);
+    ok(result.dates.get('managed.md').startsWith('2024-01-10'));
+    strictEqual(result.dates.has('unrelated.txt'), false);
+  });
+
+  it('returns known dates and explicit metadata when the commit limit is reached', () => {
+    setupRepo();
+    commitFile(path.join(tmpDir, 'oldest.md'), '# Oldest\n', '2024-01-01T12:00:00Z');
+    commitFile(path.join(tmpDir, 'middle.md'), '# Middle\n', '2024-02-01T12:00:00Z');
+    commitFile(path.join(tmpDir, 'newest.md'), '# Newest\n', '2024-03-01T12:00:00Z');
+
+    const result = getGitLastModifiedBatch(tmpDir, ['oldest.md', 'middle.md', 'newest.md'], { maxCommits: 2 });
+    strictEqual(result.complete, false);
+    strictEqual(result.reason, 'commit-limit');
+    ok(result.dates.has('newest.md'));
+    ok(result.dates.has('middle.md'));
+    strictEqual(result.dates.has('oldest.md'), false);
+  });
+
+  it('reports output truncation instead of silently returning an empty map', () => {
+    setupRepo();
+    const filePath = path.join(tmpDir, 'repeated.md');
+    commitFile(filePath, '# 0\n', '2024-01-01T12:00:00Z');
+    for (let i = 1; i <= 4; i++) {
+      commitFile(filePath, `# ${i}\n`, `2024-01-0${i + 1}T12:00:00Z`);
+    }
+
+    const result = getGitLastModifiedBatch(tmpDir, ['repeated.md'], { maxBuffer: 64 });
+    strictEqual(result.complete, false);
+    strictEqual(result.reason, 'output-limit');
+  });
+
+  it('treats a non-Git directory as gracefully empty history', () => {
+    tmpDir = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'dotmd-no-git-')));
+    const result = getGitLastModifiedBatch(tmpDir, ['doc.md']);
+    strictEqual(result.complete, true);
+    strictEqual(result.reason, null);
+    strictEqual(result.dates.size, 0);
+  });
+
+  it('keeps known staleness warnings and adds one warning for partial history', () => {
+    setupRepo();
+    const filePath = path.join(tmpDir, 'doc.md');
+    commitFile(filePath, '# First\n', '2024-01-01T12:00:00Z');
+    commitFile(filePath, '# Latest\n', '2025-01-01T12:00:00Z');
+    const docsRoot = tmpDir;
+    const warnings = checkGitStaleness([
+      { path: 'doc.md', status: 'active', updated: '2020-01-01' },
+    ], {
+      repoRoot: tmpDir,
+      docsRoot,
+      lifecycle: { skipStaleFor: new Set() },
+    }, { maxCommits: 1 });
+
+    strictEqual(warnings.filter(warning => warning.message.includes('behind git history')).length, 1);
+    strictEqual(warnings.filter(warning => warning.message.includes('Git metadata is incomplete')).length, 1);
+  });
+
+  it('uses known dates and emits one query warning for partial history', () => {
+    setupRepo();
+    const filePath = path.join(tmpDir, 'doc.md');
+    commitFile(filePath, '# First\n', '2024-01-01T12:00:00Z');
+    commitFile(filePath, '# Latest\n', '2025-01-01T12:00:00Z');
+    const doc = { path: 'doc.md', status: 'active', updated: '2020-01-01', daysSinceUpdate: 1, isStale: false };
+    let stderr = '';
+    const originalWrite = process.stderr.write;
+    process.stderr.write = chunk => { stderr += String(chunk); return true; };
+    try {
+      const result = filterDocs([doc], { git: true, sort: 'updated', all: true, limit: 10 }, {
+        repoRoot: tmpDir,
+        raw: {},
+        staleDaysByStatus: { active: 14 },
+      }, { maxCommits: 1 });
+      strictEqual(result.length, 1);
+      ok(result[0].daysSinceUpdate > 1, 'known Git date replaces the frontmatter age');
+    } finally {
+      process.stderr.write = originalWrite;
+    }
+    strictEqual((stderr.match(/Git metadata is incomplete/g) ?? []).length, 1);
   });
 });
 
@@ -160,5 +253,110 @@ describe('gitDiffSince', () => {
       result.includes('changed') || result.includes('insertion') || result.includes('deletion'),
       `stat output should contain change summary, got: ${result}`
     );
+  });
+});
+
+describe('inspectGitCommandPaths', () => {
+  it('finds add-eligible paths for broad and directory pathspecs, excluding ignored files', () => {
+    setupRepo();
+    commitFile(path.join(tmpDir, '.gitignore'), 'docs/prompts/ignored.md\n');
+    mkdirSync(path.join(tmpDir, 'docs', 'prompts'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'docs', 'prompts', 'live.md'), 'live\n');
+    writeFileSync(path.join(tmpDir, 'docs', 'prompts', 'ignored.md'), 'secret\n');
+    writeFileSync(path.join(tmpDir, 'outside.txt'), 'outside\n');
+
+    const all = inspectGitCommandPaths('add', ['-A'], tmpDir);
+    ok(all.includes('docs/prompts/live.md'));
+    ok(!all.includes('docs/prompts/ignored.md'));
+    const scoped = inspectGitCommandPaths('add', ['docs'], tmpDir);
+    ok(scoped.includes('docs/prompts/live.md'));
+    ok(!scoped.includes('outside.txt'));
+    const forceAll = inspectGitCommandPaths('add', ['-f', '-A'], tmpDir);
+    ok(forceAll.includes('docs/prompts/ignored.md'));
+    const bundledForceAll = inspectGitCommandPaths('add', ['-fA'], tmpDir);
+    ok(bundledForceAll.includes('docs/prompts/ignored.md'));
+  });
+
+  it('finds staged paths for pathless commit and tracked changes for commit -a', () => {
+    setupRepo();
+    const prompt = path.join(tmpDir, 'docs', 'prompts', 'live.md');
+    mkdirSync(path.dirname(prompt), { recursive: true });
+    commitFile(prompt, 'initial\n');
+    writeFileSync(prompt, 'modified\n');
+
+    const beforeStage = inspectGitCommandPaths('commit', [], tmpDir);
+    ok(!beforeStage.includes('docs/prompts/live.md'), 'pathless commit only sees staged paths');
+    const allTracked = inspectGitCommandPaths('commit', ['-a', '-m', 'save'], tmpDir);
+    ok(allTracked.includes('docs/prompts/live.md'), 'commit -a includes tracked worktree changes');
+    const bundledAll = inspectGitCommandPaths('commit', ['-am', 'save'], tmpDir);
+    ok(bundledAll.includes('docs/prompts/live.md'), 'commit -am parses -a and skips its message value');
+    const attachedMessage = inspectGitCommandPaths('commit', ['-msave'], tmpDir);
+    ok(!attachedMessage.includes('docs/prompts/live.md'), 'letters in an attached -m value are not parsed as flags');
+    spawnSync('git', ['add', prompt], { cwd: tmpDir });
+    const staged = inspectGitCommandPaths('commit', ['-m', 'save'], tmpDir);
+    ok(staged.includes('docs/prompts/live.md'));
+    const templated = inspectGitCommandPaths('commit', ['--template', 'message.txt'], tmpDir);
+    ok(templated.includes('docs/prompts/live.md'), '--template value is not mistaken for a pathspec');
+  });
+
+  it('models add -u, add -f, deletions, and commit -a final worktree state', () => {
+    setupRepo();
+    mkdirSync(path.join(tmpDir, 'docs', 'prompts'), { recursive: true });
+    commitFile(path.join(tmpDir, '.gitignore'), 'docs/prompts/forced.md\n');
+    const tracked = path.join(tmpDir, 'docs', 'prompts', 'tracked.md');
+    commitFile(tracked, 'initial\n');
+    writeFileSync(path.join(tmpDir, 'docs', 'prompts', 'untracked.md'), 'new\n');
+    writeFileSync(path.join(tmpDir, 'docs', 'prompts', 'forced.md'), 'ignored\n');
+
+    const updateOnly = inspectGitCommandPaths('add', ['-u'], tmpDir);
+    ok(!updateOnly.includes('docs/prompts/untracked.md'));
+    const forced = inspectGitCommandPaths('add', ['-f', 'docs/prompts/forced.md'], tmpDir);
+    ok(forced.includes('docs/prompts/forced.md'));
+
+    rmSync(tracked);
+    ok(!inspectGitCommandPaths('add', ['-A'], tmpDir).includes('docs/prompts/tracked.md'), 'deleted prompt has no body to add');
+    writeFileSync(tracked, 'initial\n');
+    writeFileSync(tracked, 'staged change\n');
+    spawnSync('git', ['add', tracked], { cwd: tmpDir });
+    writeFileSync(tracked, 'initial\n');
+    ok(!inspectGitCommandPaths('commit', ['-a', '-m', 'save'], tmpDir).includes('docs/prompts/tracked.md'),
+      'commit -a replaces the staged change with the reverted worktree state');
+  });
+
+  it('returns no path for a clean explicit prompt', () => {
+    setupRepo();
+    const prompt = path.join(tmpDir, 'docs', 'prompts', 'clean.md');
+    mkdirSync(path.dirname(prompt), { recursive: true });
+    commitFile(prompt, 'clean\n');
+    strictEqual(inspectGitCommandPaths('add', ['docs/prompts/clean.md'], tmpDir).length, 0);
+    strictEqual(inspectGitCommandPaths('commit', ['--', 'docs/prompts/clean.md'], tmpDir).length, 0);
+  });
+
+  it('returns no eligible paths for Git dry-run forms', () => {
+    setupRepo();
+    const prompt = path.join(tmpDir, 'docs', 'prompts', 'preview.md');
+    mkdirSync(path.dirname(prompt), { recursive: true });
+    writeFileSync(prompt, 'preview\n');
+    strictEqual(inspectGitCommandPaths('add', ['--dry-run', '.'], tmpDir).length, 0);
+    strictEqual(inspectGitCommandPaths('add', ['-nA'], tmpDir).length, 0);
+    spawnSync('git', ['add', prompt], { cwd: tmpDir });
+    strictEqual(inspectGitCommandPaths('commit', ['--dry-run'], tmpDir).length, 0);
+  });
+
+  it('includes staged prompts for commit --include and explicit paths on an unborn branch', () => {
+    setupRepo();
+    mkdirSync(path.join(tmpDir, 'docs', 'prompts'), { recursive: true });
+    const prompt = path.join(tmpDir, 'docs', 'prompts', 'live.md');
+    writeFileSync(prompt, 'live\n');
+    spawnSync('git', ['add', prompt], { cwd: tmpDir });
+    const unborn = inspectGitCommandPaths('commit', ['--', 'docs/prompts/live.md'], tmpDir);
+    ok(unborn.includes('docs/prompts/live.md'));
+
+    spawnSync('git', ['commit', '-m', 'initial'], { cwd: tmpDir });
+    writeFileSync(prompt, 'changed\n');
+    spawnSync('git', ['add', prompt], { cwd: tmpDir });
+    writeFileSync(path.join(tmpDir, 'safe.txt'), 'safe\n');
+    const include = inspectGitCommandPaths('commit', ['--include', 'safe.txt'], tmpDir);
+    ok(include.includes('docs/prompts/live.md'), '--include also commits pre-existing staged changes');
   });
 });

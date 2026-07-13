@@ -108,14 +108,14 @@ describe('plan-shape lint', () => {
     ok(w.message.includes('modules: ["auth", "identity"]'), `migration target should dedupe: ${w.message}`);
   });
 
-  it('warns on lowercase ## Open questions heading drift', () => {
+  it('accepts case-only ## Open questions heading variants', () => {
     const docsDir = setupProject();
     writeDoc(docsDir, 'plan.md', `type: plan\nstatus: active\nupdated: 2026-05-13`, `# P\n\n## Open questions\n\n- q\n`);
+    writeDoc(docsDir, 'lower.md', `type: plan\nstatus: active\nupdated: 2026-05-13`, `# P\n\n## open questions\n\n- q\n`);
 
     const idx = checkJson();
     const w = idx.warnings.find(x => x.message.startsWith('Heading drift'));
-    ok(w, 'expected heading drift warning');
-    ok(w.message.includes('Open Questions'), 'suggests the canonical form');
+    strictEqual(w, undefined, 'case-only heading differences have no behavioral effect');
   });
 
   it('warns on ## Out of scope heading (should be ## Non-Goals)', () => {

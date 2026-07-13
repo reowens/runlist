@@ -75,16 +75,21 @@ function printFileDiff(relPath, since, diffOutput, opts) {
   process.stdout.write(bold(relPath) + dim(` (updated: ${since})`) + '\n');
 
   if (opts.summarize) {
+    const previewSkipped = Boolean(opts.config?._execution?.suppressSideEffects);
     let summary;
     try {
-      summary = opts.config?.hooks?.summarizeDiff
+      summary = previewSkipped
+        ? null
+        : opts.config?.hooks?.summarizeDiff
         ? opts.config.hooks.summarizeDiff(diffOutput, relPath)
         : summarizeDiffText(diffOutput, relPath, opts.model);
     } catch (err) {
       warn(`Hook 'summarizeDiff' threw: ${err.message}`);
       summary = null;
     }
-    if (summary) {
+    if (previewSkipped) {
+      process.stdout.write(dim('  [preview] Summary generation skipped; models and custom summarizeDiff hooks are not invoked.') + '\n');
+    } else if (summary) {
       process.stdout.write(dim(`  Summary: ${summary}`) + '\n');
     } else {
       warn('  Summary unavailable (model call failed)');
@@ -94,4 +99,3 @@ function printFileDiff(relPath, since, diffOutput, opts) {
   process.stdout.write(diffOutput);
   process.stdout.write('\n');
 }
-

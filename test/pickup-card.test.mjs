@@ -5,6 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { walkSections, detectMarker, findActivePhase, summarizePhases } from '../src/section.mjs';
+import { buildCard, renderCard } from '../src/pickup-card.mjs';
 
 let tmpDir;
 const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
@@ -112,6 +113,27 @@ describe('findActivePhase', () => {
 });
 
 describe('pickup card (integration)', () => {
+  it('exposes full-file coordinates for LF, CRLF, and no-frontmatter bodies', () => {
+    const config = { repoRoot: '/repo', docsRoot: '/repo/docs', docsRoots: ['/repo/docs'] };
+    const body = '# Plan\n\n## Phases\n\n### Phase 1 — active 🟡\n\nbody\n';
+    const lf = buildCard('/repo/docs/plan.md', `---\ntype: plan\nstatus: active\n---\n${body}`, config);
+    strictEqual(lf.bodyLineOffset, 4);
+    strictEqual(lf.coordinateSpace, 'file');
+    strictEqual(lf.activePhase.lineStart, 9);
+    strictEqual(lf.activePhase.lineEnd, 12);
+    strictEqual(lf.phases.phases[0].lineStart, 9);
+    strictEqual(lf.outline.find(item => item.heading === 'Phases').lineStart, 7);
+    ok(renderCard(lf).includes('(lines 9-12)'), 'human card uses file coordinates');
+
+    const crlf = buildCard('/repo/docs/plan.md', `---\r\ntype: plan\r\nstatus: active\r\n---\r\n${body.replaceAll('\n', '\r\n')}`, config);
+    strictEqual(crlf.bodyLineOffset, 4);
+    strictEqual(crlf.activePhase.lineStart, 9);
+
+    const plain = buildCard('/repo/docs/plain.md', body, config);
+    strictEqual(plain.bodyLineOffset, 0);
+    strictEqual(plain.activePhase.lineStart, 5);
+  });
+
   it('renders pointers not bodies', () => {
     const docsDir = setupProject();
     const planPath = writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active\nupdated: 2025-01-01\nnext_step: validate then commit', `# Plan Title

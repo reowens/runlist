@@ -2,6 +2,12 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Removed
+
+- **Removed the unsupported Notion import/export/sync integration.** The shipped implementation targeted a retired SDK contract and had no API-level compatibility coverage, so the command, config surface, completion entries, package keyword, implementation, and optional dependencies have been removed rather than advertised as functional. Restoration requires data-source API mocks, stable `notion_id` identity, YAML-safe serialization, an explicit conflict policy, partial-failure reporting, and a live workspace smoke test.
+
 ## 0.61.0 — 2026-06-11
 
 ### Added

@@ -50,12 +50,13 @@ afterEach(() => {
 //   - stdout emits the command primer line (the verb cheat-sheet) plus ONLY
 //     signals that carry a direct instruction for this session: pending
 //     prompts (consume with `dotmd use`) and a journal-attributed in-session
-//     plan (continue / hand off with baton). Passive state — error counts,
+//     durably owned plan (continue / hand off with baton). Passive state — error counts,
 //     journal chatter, refresh notices — stays suppressed; those nudged
 //     agents into phantom follow-up work.
 //   - `--json` still returns the structured shape (owned/prompts/errors/
 //     journal) for any programmatic caller, and skips the human primer
-//   - slash-command staleness is still self-healed, but silently (no stdout)
+//   - SessionStart is passive: no index healing, hook calls, journaling, or
+//     retired slash-command cleanup
 describe('dotmd hud', () => {
   it('always emits the command primer (one line)', () => {
     setupProject();
@@ -65,6 +66,39 @@ describe('dotmd hud', () => {
     ok(/set <status>/.test(r.stdout), `primer should name the set verb; got: ${r.stdout}`);
     ok(/new <type>/.test(r.stdout), `primer should name the new verb; got: ${r.stdout}`);
     ok(/\buse\b/.test(r.stdout), `primer should name the use verb; got: ${r.stdout}`);
+    ok(r.stdout.includes('Plan statuses: in-session, active, planned'), `primer should include configured plan vocabulary; got: ${r.stdout}`);
+  });
+
+  it('prints bounded custom status vocabulary for sessions and subagents', () => {
+    setupProject();
+    const statuses = Array.from({ length: 20 }, (_, i) => `status-${String(i).padStart(2, '0')}`);
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const root = 'docs';
+      export const types = { plan: { statuses: ${JSON.stringify(statuses)}, context: { expanded: ['status-00'], listed: [], counted: ${JSON.stringify(statuses.slice(1))} } } };
+    `);
+    const session = runCli(['hud']);
+    strictEqual(session.status, 0, session.stderr);
+    ok(session.stdout.includes('status-00'), session.stdout);
+    ok(session.stdout.includes('dotmd statuses list --type plan'), session.stdout);
+    ok(/\(\+\d+;/.test(session.stdout), session.stdout);
+
+    const subagent = runCli(['hud', '--subagent']);
+    strictEqual(subagent.status, 0, subagent.stderr);
+    ok(subagent.stdout.includes('status-00'), subagent.stdout);
+    ok(subagent.stdout.includes('dotmd statuses list --type plan'), subagent.stdout);
+  });
+
+  it('surfaces custom expanded prompt statuses', () => {
+    const docsDir = setupProject();
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const root = 'docs';
+      export const types = { prompt: { statuses: { urgent: { context: 'expanded' }, held: { context: 'listed' }, archived: { context: 'counted', terminal: true, archive: true } } } };
+    `);
+    mkdirSync(path.join(docsDir, 'prompts'), { recursive: true });
+    writeDoc(docsDir, 'prompts/urgent.md', 'type: prompt\nstatus: urgent\ncreated: 2025-01-01', 'act now\n');
+    const result = runCli(['hud']);
+    strictEqual(result.status, 0, result.stderr);
+    ok(result.stdout.includes('docs/prompts/urgent.md'), result.stdout);
   });
 
   it('surfaces pending prompts as an actionable instruction; passive state stays suppressed', () => {
@@ -91,23 +125,19 @@ describe('dotmd hud', () => {
     ok(j.errors >= 1, 'validation errors present in --json');
   });
 
-  it('announces YOUR in-session plan when the journal attributes it to this sid', () => {
+  it('announces YOUR in-session plan when durable ownership attributes it to this sid', () => {
     const docsDir = setupProject();
-    // Journal must be on for attribution.
-    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';\nexport const journal = true;\n`);
-    writeDoc(docsDir, 'mine.md', 'type: plan\nstatus: in-session\nupdated: 2025-01-01', '# Mine\n');
+    writeDoc(docsDir, 'mine.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# Mine\n');
     writeDoc(docsDir, 'theirs.md', 'type: plan\nstatus: in-session\nupdated: 2025-01-01', '# Theirs\n');
-    const entry = { ts: '2025-01-02T00:00:00.000Z', sid: 'sess-A', pid: 1, argv: ['use', 'docs/mine.md'], exit: 0, ms: 1, v: '0.0.0' };
-    writeFileSync(path.join(tmpDir, '.dotmd', 'journal.jsonl'), JSON.stringify(entry) + '\n');
+    const claimed = runCli(['use', 'docs/mine.md'], { session: 'sess-A' });
+    strictEqual(claimed.status, 0, claimed.stderr);
 
     const r = runCli(['hud'], { session: 'sess-A' });
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
     ok(r.stdout.includes('in-session (yours): docs/mine.md'), `owned plan announced; got: ${r.stdout}`);
     ok(r.stdout.includes('dotmd baton'), `handoff verb named; got: ${r.stdout}`);
 
-    // A different session sees no owned line — and crucially, the
-    // single-in-session fallback must NOT print at SessionStart (that plan
-    // likely belongs to another live session).
+    // A different session sees no owned line.
     const other = runCli(['hud'], { session: 'sess-B' });
     ok(!other.stdout.includes('in-session (yours)'), `no owned line for an unattributed sid; got: ${other.stdout}`);
   });
@@ -140,7 +170,7 @@ describe('dotmd hud', () => {
     JSON.parse(r.stdout); // should parse clean
   });
 
-  it('removes retired generated slash-command files silently (no notice in stdout)', () => {
+  it('leaves retired generated slash-command files for explicit maintenance', () => {
     setupProject();
     const cmdDir = path.join(tmpDir, '.claude', 'commands');
     mkdirSync(cmdDir, { recursive: true });
@@ -154,10 +184,44 @@ describe('dotmd hud', () => {
     ok(!/slash commands|removed|cleaned/i.test(r.stdout), `cleanup must be silent; got: ${r.stdout}`);
     ok(/dotmd:/.test(r.stdout), `primer line should still emit; got: ${r.stdout}`);
 
-    // The cleanup side effect still runs: the retired generated file is deleted,
-    // the hand-authored one is left untouched.
-    ok(!existsSync(generatedPath), 'retired generated file should be removed');
+    // HUD is passive. Explicit doctor/init maintenance owns retired cleanup.
+    ok(existsSync(generatedPath), 'retired generated file should remain untouched');
     ok(existsSync(userPath), 'hand-authored command must survive');
+  });
+
+  it('does not heal the index, invoke config hooks, or journal HUD calls', () => {
+    const docsDir = setupProject();
+    const validateSentinel = path.join(tmpDir, 'validate-sentinel');
+    const transformSentinel = path.join(tmpDir, 'transform-sentinel');
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), [
+      `import { writeFileSync } from 'node:fs';`,
+      `export const root = 'docs';`,
+      `export const journal = true;`,
+      `export const index = { path: 'docs/docs.md', startMarker: '<!-- START -->', endMarker: '<!-- END -->' };`,
+      `export function validate() { writeFileSync(${JSON.stringify(validateSentinel)}, 'called'); return {}; }`,
+      `export function transformDoc(doc) { writeFileSync(${JSON.stringify(transformSentinel)}, 'called'); return doc; }`,
+      '',
+    ].join('\n'));
+    writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# Plan\n');
+    const indexPath = path.join(docsDir, 'docs.md');
+    const staleIndex = '# Docs\n\n<!-- START -->\nold\n<!-- END -->\n';
+    writeFileSync(indexPath, staleIndex);
+
+    for (const args of [['hud'], ['hud', '--json']]) {
+      const r = runCli(args);
+      strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
+      strictEqual(readFileSync(indexPath, 'utf8'), staleIndex, `${args.join(' ')} left index untouched`);
+      if (args.includes('--json')) {
+        const output = JSON.parse(r.stdout);
+        strictEqual(output.errors, null, 'hook-incomplete HUD validation is not authoritative');
+        strictEqual(output.validationPreview.status, 'built-in-only');
+        ok(output.validationPreview.skippedHooks.includes('validate'));
+        strictEqual(typeof output.builtInErrors, 'number');
+      }
+    }
+    ok(!existsSync(validateSentinel), 'validate hook was not invoked');
+    ok(!existsSync(transformSentinel), 'transformDoc hook was not invoked');
+    ok(!existsSync(path.join(tmpDir, '.dotmd', 'journal.jsonl')), 'HUD did not append a journal entry');
   });
 
   it('does not touch user-managed slash-command files (no banner)', () => {
@@ -266,6 +330,7 @@ describe('hud misuse recap', () => {
 
   function entry(rule, { repo = tmpDir, daysAgo = 0 } = {}) {
     return {
+      schema: 2,
       ts: new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString(),
       repo, rule, decision: 'warn', tool: 'Edit', detail: 'x.md',
     };

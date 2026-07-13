@@ -38,7 +38,7 @@ function writeCrlfPlan(name, status = 'active') {
 
 function run(args) {
   return spawnSync('node', [bin, ...args, '--config', configPath], {
-    cwd: tmpDir, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' },
+    cwd: tmpDir, encoding: 'utf8', env: { ...process.env, DOTMD_SESSION_ID: 'crlf-test-session', NO_COLOR: '1' },
   });
 }
 

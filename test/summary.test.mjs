@@ -1,6 +1,6 @@
 import { describe, it, afterEach } from 'node:test';
 import { strictEqual, ok } from 'node:assert';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -113,6 +113,59 @@ describe('summary command', () => {
     const result = run(['summary', 'docs/a.md']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(result.stdout.includes('Hook summary for Hooked'), 'uses hook');
+  });
+
+  it('context --json --summarize --dry-run does not invoke summary hooks', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-summary-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+    const sentinel = path.join(tmpDir, 'summary-sentinel');
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      import { writeFileSync } from 'node:fs';
+      export const root = 'docs';
+      export function summarizeDoc() { writeFileSync(${JSON.stringify(sentinel)}, 'called'); return 'summary'; }
+    `);
+    writeFileSync(path.join(tmpDir, 'docs', 'a.md'), '---\nstatus: active\ntitle: Test\n---\n# Test\nBody.\n');
+
+    const result = run(['context', '--json', '--summarize', '--dry-run']);
+    strictEqual(result.status, 0, result.stderr);
+    const output = JSON.parse(result.stdout);
+    strictEqual(output.summaryPreview?.status, 'skipped-preview');
+    ok(!existsSync(sentinel), 'summary hook was not invoked');
+
+    const textResult = run(['context', '--summarize', '--dry-run']);
+    strictEqual(textResult.status, 0, textResult.stderr);
+    ok(textResult.stdout.includes('AI summaries skipped'), textResult.stdout);
+
+    const queryResult = run(['query', '--summarize', '--json', '--dry-run']);
+    strictEqual(queryResult.status, 0, queryResult.stderr);
+    strictEqual(JSON.parse(queryResult.stdout).summaryPreview?.status, 'skipped-preview');
+    ok(!existsSync(sentinel), 'summary hook was not invoked by context/query previews');
+  });
+
+  it('summary --dry-run reports a skipped preview instead of a model failure', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-summary-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+    const sentinel = path.join(tmpDir, 'summary-sentinel');
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      import { writeFileSync } from 'node:fs';
+      export const root = 'docs';
+      export function summarizeDoc() { writeFileSync(${JSON.stringify(sentinel)}, 'called'); return 'summary'; }
+    `);
+    writeFileSync(path.join(tmpDir, 'docs', 'a.md'), '---\nstatus: active\ntitle: Test\n---\n# Test\nBody.\n');
+
+    const result = run(['summary', 'docs/a.md', '--dry-run']);
+    strictEqual(result.status, 0, result.stderr);
+    ok(result.stdout.includes('Summary generation skipped'), result.stdout);
+    ok(!result.stdout.includes('model call failed'), result.stdout);
+    ok(!existsSync(sentinel), 'summary hook was not invoked');
+
+    const jsonResult = run(['summary', 'docs/a.md', '--json', '--dry-run']);
+    strictEqual(jsonResult.status, 0, jsonResult.stderr);
+    const output = JSON.parse(jsonResult.stdout);
+    strictEqual(output.summary, null);
+    strictEqual(output.summaryStatus, 'skipped-preview');
   });
 });
 

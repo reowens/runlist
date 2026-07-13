@@ -2,6 +2,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { die, warn, toRepoPath } from './util.mjs';
+import { assertGitIndex } from './git.mjs';
 import { green, dim, yellow } from './color.mjs';
 
 // Files dotmd ship will auto-stage when they're dirty. Anything outside this
@@ -44,26 +45,28 @@ export function isAllowed(repoPath) {
   return ALLOWLIST_PATTERNS.some(re => re.test(repoPath));
 }
 
-function listDirtyFiles(repoRoot) {
-  // -u expands untracked directories into individual file entries; without it,
-  // a fresh `docs/` shows up as a single `?? docs/` line and the allowlist
-  // check sees no per-file paths to whitelist.
-  const result = spawnSync('git', ['status', '--porcelain', '-u'], { cwd: repoRoot, encoding: 'utf8' });
+export function listDirtyFiles(repoRoot) {
+  const result = spawnSync('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all'], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+  });
   if (result.status !== 0) die(`git status failed: ${result.stderr}`);
-  return result.stdout
-    .split('\n')
-    .filter(Boolean)
-    .map(line => {
-      const status = line.slice(0, 2);
-      let rawPath = line.slice(3);
-      // Renames/copies render as `R  orig -> new` (and `C  orig -> new`); only
-      // the destination is a real file we can `git add`. Without splitting on
-      // ` -> `, the literal "orig -> new" string is handed to git, which fails
-      // with "did not match any files" and aborts the ship.
-      const arrow = rawPath.indexOf(' -> ');
-      if (arrow !== -1) rawPath = rawPath.slice(arrow + 4);
-      return { status, path: rawPath };
-    });
+  const fields = result.stdout.split('\0');
+  const files = [];
+  for (let i = 0; i < fields.length; i++) {
+    const record = fields[i];
+    if (!record) continue;
+    const status = record.slice(0, 2);
+    const destination = record.slice(3);
+    files.push({ status, path: destination });
+    if (status.includes('R')) {
+      const source = fields[++i];
+      if (source) files.push({ status, path: source });
+    } else if (status.includes('C')) {
+      i++; // Porcelain -z includes the unchanged copy source as a second field.
+    }
+  }
+  return files;
 }
 
 export async function runShip(argv, config, opts = {}) {
@@ -81,6 +84,12 @@ export async function runShip(argv, config, opts = {}) {
   const target = bumpVersion(current, bump);
 
   process.stdout.write(`${green('→')} Shipping ${current} → ${target} (${bump})\n`);
+
+  try {
+    assertGitIndex(config.repoRoot);
+  } catch (err) {
+    die(`Refusing to ship with inherited staged files. ${err.message}`);
+  }
 
   // Per-repo slash-command scaffolding is retired (the dotmd plugin's SKILL.md
   // is canonical now), so there is nothing to regenerate at ship time. Any
@@ -114,9 +123,19 @@ export async function runShip(argv, config, opts = {}) {
     return;
   }
 
+  if (allSkipped.length > 0) {
+    die('Refusing to create a release preparation commit while skipped files are dirty. Commit, stash, or remove them first.');
+  }
+
   if (allToStage.length > 0) {
     const add = spawnSync('git', ['add', '--', ...allToStage], { cwd: config.repoRoot, encoding: 'utf8' });
     if (add.status !== 0) die(`git add failed: ${add.stderr}`);
+
+    try {
+      assertGitIndex(config.repoRoot, allToStage);
+    } catch (err) {
+      die(`Refusing to commit an unexpected Git index. ${err.message}`);
+    }
 
     const subject = `chore: release ${target}`;
     const body = `Auto-staged by \`dotmd ship\`:\n${allToStage.map(p => `- ${p}`).join('\n')}`;
@@ -137,7 +156,7 @@ export async function runShip(argv, config, opts = {}) {
     stdio: 'inherit',
   });
   if (npmResult.status !== 0) {
-    warn('`npm version` failed. The bump commit + tag may already exist locally. Inspect with `git log -1` and `git tag --sort=-creatordate | head` before retrying.');
+    warn('`npm version` failed. If the target tag exists, run `npm run release:resume`; otherwise follow the rollback/rerun guidance from the version lifecycle.');
     process.exit(npmResult.status ?? 1);
   }
 

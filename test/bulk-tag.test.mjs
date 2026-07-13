@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { resolveConfig } from '../src/config.mjs';
 import { runBulkTag, inferTypeFromPath } from '../src/bulk-tag.mjs';
 
+const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
 let tmpDir;
 let stdoutChunks;
 let originalWrite;
@@ -157,6 +158,24 @@ describe('runBulkTag', () => {
     ok(bContent.includes('status: active'), 'b.md status overridden');
   });
 
+  it('CLI preserves command-local --type and --status after bulk-tag', () => {
+    const docsDir = setup();
+    mkdirSync(path.join(docsDir, 'plans'));
+    const filePath = path.join(docsDir, 'plans', 'cli.md');
+    writeFileSync(filePath, '# CLI\n');
+
+    const result = spawnSync('node', [BIN, 'bulk-tag', '--type', 'doc', '--status', 'active', 'docs/plans/cli.md'], {
+      cwd: tmpDir,
+      encoding: 'utf8',
+      env: { ...process.env, NO_COLOR: '1' },
+    });
+
+    strictEqual(result.status, 0, result.stderr);
+    const content = readFileSync(filePath, 'utf8');
+    ok(content.includes('type: doc'), 'post-command --type reaches bulk-tag');
+    ok(content.includes('status: active'), 'post-command --status reaches bulk-tag');
+  });
+
   it('--json emits a structured candidate list', async () => {
     const docsDir = setup();
     const filePath = path.join(docsDir, 'foo.md');
@@ -190,5 +209,28 @@ describe('runBulkTag', () => {
     const after = readFileSync(archived, 'utf8');
     strictEqual(after, before, 'archived file must not be tagged');
     ok(out.includes('No untagged files found'), `archived-only repo should report no candidates; got: ${out}`);
+  });
+
+  it('uses the nested plans root for type inference and archive exclusion', async () => {
+    const docsDir = setup();
+    const plansDir = path.join(docsDir, 'plans');
+    const archiveDir = path.join(plansDir, 'archived');
+    mkdirSync(archiveDir, { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = ['docs', 'docs/plans'];\n`);
+    const active = path.join(plansDir, 'active.md');
+    const archived = path.join(archiveDir, 'old.md');
+    writeFileSync(active, '# Active plan\n');
+    writeFileSync(archived, '# Archived plan\n');
+    const archivedBefore = readFileSync(archived, 'utf8');
+
+    const config = await resolveConfig(tmpDir);
+    captureStdout();
+    runBulkTag([], config, {});
+    releaseStdout();
+
+    const activeContent = readFileSync(active, 'utf8');
+    ok(activeContent.includes('type: plan'), `nested plans root should infer plan: ${activeContent}`);
+    ok(activeContent.includes('status: planned'), 'nested plans root should use the plan default status');
+    strictEqual(readFileSync(archived, 'utf8'), archivedBefore, 'nested archived file must remain untouched');
   });
 });

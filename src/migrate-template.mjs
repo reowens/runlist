@@ -4,6 +4,7 @@ import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { asString, toRepoPath, nowIso } from './util.mjs';
 import { collectDocFiles } from './index.mjs';
 import { bold, green, yellow, dim } from './color.mjs';
+import { authorizeManagedSweep } from './managed-path.mjs';
 
 const HEADING_RENAMES = [
   { from: /^##\s+Open questions\s*$/gm, to: '## Open Questions' },
@@ -117,6 +118,7 @@ export function runMigrateTemplate(argv, config, opts = {}) {
     files = collectDocFiles(config);
     if (!includeArchived) files = files.filter(f => !isInArchive(f, config));
   }
+  authorizeManagedSweep(files, config, { kind: 'Template migration source' });
 
   const results = [];
   let totalChanges = 0;

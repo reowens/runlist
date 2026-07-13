@@ -44,7 +44,7 @@ function run(args, env = {}) {
 }
 
 function writeJournalEntry(entry) {
-  writeFileSync(journalFile, JSON.stringify(entry) + '\n', { flag: 'a' });
+  writeFileSync(journalFile, JSON.stringify({ schema: 2, ...entry }) + '\n', { flag: 'a' });
 }
 
 afterEach(() => { if (tmpDir) rmSync(tmpDir, { recursive: true, force: true }); });
@@ -162,5 +162,24 @@ describe('F17c: repeat-failure hints', () => {
     ok(r.status !== 0);
     match(r.stderr, /Tip:.*queue one|pass an explicit prompt file/i,
       `expected next-with-empty-queue template. stderr: ${r.stderr}`);
+  });
+
+  it('global flags before the command still match canonicalized journal argv', () => {
+    const invoke = () => spawnSync('node', [bin, '--config', configPath, 'use', 'no-such-file.md'], {
+      cwd: tmpDir,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        NO_COLOR: '1',
+        DOTMD_JOURNAL: '1',
+        CLAUDE_CODE_SESSION_ID: FIXED_SID,
+        CLAUDE_SESSION_ID: FIXED_SID,
+      },
+    });
+    const first = invoke();
+    ok(first.status !== 0);
+    const second = invoke();
+    ok(second.status !== 0);
+    match(second.stderr, /Tip:/);
   });
 });

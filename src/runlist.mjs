@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter, replaceFrontmatter } from './frontmatter.mjs';
 import { extractFirstHeading } from './extractors.mjs';
@@ -17,8 +17,9 @@ import {
 import { resolveDocArg } from './index.mjs';
 import { runlistChildContent, slugify, titleize } from './new.mjs';
 import { bold, cyan, dim, green, red, yellow } from './color.mjs';
-
-const PICKUPABLE_STATUSES = new Set(['active', 'planned', 'in-session']);
+import { authorizeManagedDestination, authorizeManagedSource } from './managed-path.mjs';
+import { mutateFileSet, MutationConflictError } from './atomic-mutation.mjs';
+import { pickupFactsForDoc } from './pickup.mjs';
 
 // A child is the runlist's NEXT PICKUP only when a session could start it right
 // now — i.e. its status is one `dotmd use` accepts. The "parked" statuses
@@ -30,8 +31,9 @@ const PICKUPABLE_STATUSES = new Set(['active', 'planned', 'in-session']);
 // never counts toward `done/total` — that tally tracks closed (archived) only.
 // This keeps the `→` marker in agreement with `runlist next`, which already
 // gates on PICKUPABLE_STATUSES.
-function isPickupable(status) {
-  return PICKUPABLE_STATUSES.has(status);
+function isPickupable(status, doc, config) {
+  if (!doc || !config) return false;
+  return pickupFactsForDoc({ ...doc, status }, config).pickupable;
 }
 
 // Build a hub/child map straight from the in-memory index — no disk IO. A doc
@@ -77,7 +79,7 @@ export function buildRunlistIndex(index, config) {
 
     // Next pickup = first child a session can actually start. Skip archived
     // (done) AND parked children alike; advance to the first pickup-able one.
-    const next = children.find(c => !c.missing && !c.archived && isPickupable(c.status)) ?? null;
+    const next = children.find(c => !c.missing && !c.archived && isPickupable(c.status, c.doc, config)) ?? null;
     hubs.set(hub.path, {
       hub,
       total: children.length,
@@ -85,7 +87,7 @@ export function buildRunlistIndex(index, config) {
       // Live-but-not-startable children (parked: blocked/partial/paused/…). Lets
       // the `dotmd plans` fold say "N parked" instead of mislabelling a hub with
       // a parked-but-unfinished child as "all archived".
-      parkedCount: children.filter(c => !c.missing && !c.archived && !isPickupable(c.status)).length,
+      parkedCount: children.filter(c => !c.missing && !c.archived && !isPickupable(c.status, c.doc, config)).length,
       children,
       nextChildPath: next?.path ?? null,
     });
@@ -172,13 +174,13 @@ export function buildCoordinationIndex(index, config) {
       if (childPaths.has(child.path)) continue;
       childPaths.add(child.path);
       const archived = archiveStatuses.has(child.status) || isArchivedPath(child.path, config);
-      children.push({ path: child.path, status: child.status ?? null, archived });
+      children.push({ path: child.path, status: child.status ?? null, archived, doc: child });
     }
     // Rollup, mirroring buildRunlistIndex: done = archived; parked = live but not
     // startable (blocked/partial/paused/awaiting/queued-after). `childCount`
     // stays an alias of `total` so existing callers (sorters, JSON) keep working.
     const doneCount = children.filter(c => c.archived).length;
-    const parkedCount = children.filter(c => !c.archived && !isPickupable(c.status)).length;
+    const parkedCount = children.filter(c => !c.archived && !isPickupable(c.status, c.doc, config)).length;
     const nextPickup = resolveHubNextPickup(doc, dir, resolveRef, archiveStatuses, config);
     hubs.set(doc.path, {
       doc,
@@ -249,8 +251,8 @@ export function buildRoadmapIndex(index, config, precomputed = {}) {
     }
     // A leaf-plan child is its own next action when it's startable.
     const archived = archiveStatuses.has(child.status) || isArchivedPath(child.path, config);
-    const parked = !archived && !isPickupable(child.status);
-    const pickupable = !archived && isPickupable(child.status);
+    const parked = !archived && !isPickupable(child.status, child, config);
+    const pickupable = !archived && isPickupable(child.status, child, config);
     return { kind: 'plan', total: 1, doneCount: archived ? 1 : 0, parkedCount: parked ? 1 : 0,
       nextPath: pickupable ? child.path : null, nextLabel: pickupable ? toSlug(child) : null };
   };
@@ -321,6 +323,7 @@ function resolveRunlistRefs(refs, hubAbsPath, config) {
         ref,
         path: repoPath,
         status: asString(childFm.status) ?? null,
+        type: asString(childFm.type) ?? null,
         // Fall back to the body H1 (like the main index) before the bare
         // filename — runlist child stubs carry their title as an H1, not a
         // `title:` field, so this keeps the synced body order list readable.
@@ -421,7 +424,7 @@ function resolveHubNextPickup(hubDoc, hubDir, resolveRef, archiveStatuses, confi
     // queued-after) — the hub's next-pickup is the first startable plan, the
     // same gate sprint runlists use, so a hub never points `→` at a child a
     // session can't actually pick up.
-    if (!isPickupable(child.status)) continue;
+    if (!isPickupable(child.status, child, config)) continue;
     return { path: child.path, status: child.status ?? null, label: coordinationChildLabel(child, hubDoc) };
   }
   return null;
@@ -483,7 +486,7 @@ function renderRunlist(hubRepoPath, children, opts = {}) {
     }
     // → marks the first child a session can actually start: skip archived and
     // parked (blocked/partial/paused/awaiting/queued-after) alike.
-    const isNext = !nextPicked && isPickupable(c.status);
+    const isNext = !nextPicked && isPickupable(c.status, c, opts.config);
     if (isNext) nextPicked = true;
     const marker = isNext ? green('→') : ' ';
     const statusTag = `[${colorStatus(c.status)}]`;
@@ -573,25 +576,31 @@ function classifyChildToken(token, hubDir, hubSlug, pos, config) {
 // already resolves to the hub. Never clobbers a parent_plan that points
 // elsewhere (warns instead — the child may belong to another hub). Returns
 // true when it wrote, false when it left the file alone.
-function setChildParentPlan(childAbs, hubAbs, config, { dryRun }) {
+function planChildParentUpdate(childAbs, hubAbs, config) {
   const raw = readFileSync(childAbs, 'utf8');
   const { frontmatter: fmRaw } = extractFrontmatter(raw);
-  if (fmRaw == null) return false;
+  if (fmRaw == null) return { wrote: false };
   const fm = parseSimpleFrontmatter(fmRaw);
   const childDir = path.dirname(childAbs);
   const existing = asString(fm.parent_plan);
   if (existing) {
     const resolved = resolveRefPath(existing, childDir, config.repoRoot);
-    if (resolved === hubAbs) return false; // already points at this hub
+    if (resolved === hubAbs) return { wrote: false }; // already points at this hub
     warn(`${toRepoPath(childAbs, config.repoRoot)} already has parent_plan: ${existing} — left as-is (not pointing it at the hub).`);
-    return false;
+    return { wrote: false };
   }
   const ref = path.relative(childDir, hubAbs).split(path.sep).join('/');
-  if (dryRun) return true;
-  let newFm = upsertFrontmatterField(fmRaw, 'parent_plan', `parent_plan: ${ref}`);
-  newFm = upsertFrontmatterField(newFm, 'updated', `updated: ${nowIso()}`);
-  writeFileSync(childAbs, replaceFrontmatter(raw, newFm), 'utf8');
-  return true;
+  return { wrote: true, update: { path: childAbs, expectedContent: raw, render: current => {
+    const { frontmatter: currentFm } = extractFrontmatter(current);
+    const currentParsed = parseSimpleFrontmatter(currentFm);
+    const currentParent = asString(currentParsed.parent_plan);
+    if (currentParent && resolveRefPath(currentParent, childDir, config.repoRoot) !== hubAbs) {
+      throw new MutationConflictError(`Child parent_plan changed while the runlist mutation was being prepared: ${toRepoPath(childAbs, config.repoRoot)}`);
+    }
+    let updatedFm = upsertFrontmatterField(currentFm, 'parent_plan', `parent_plan: ${ref}`);
+    updatedFm = upsertFrontmatterField(updatedFm, 'updated', `updated: ${nowIso()}`);
+    return replaceFrontmatter(current, updatedFm);
+  } } };
 }
 
 // `dotmd runlist add <hub> <child...>` — append children to a hub's `runlist:`
@@ -599,15 +608,17 @@ function setChildParentPlan(childAbs, hubAbs, config, { dryRun }) {
 // exist (mirroring `dotmd new plan --runlist`) and wiring each child's
 // `parent_plan:` back-ref. Coordination hubs (body-order, no `runlist:` array)
 // are out of this path — guarded with an actionable message.
-async function runRunlistAdd(positional, config, { dryRun, json }) {
+async function runRunlistAdd(positional, config, { dryRun, json, testHooks }) {
   const hubInput = positional[0];
   const childTokens = positional.slice(1);
   if (!hubInput || childTokens.length === 0) {
     die('Usage: dotmd runlist add <hub-plan> <child...>  (one or more child slugs or plan paths)');
   }
 
-  const hubAbs = resolveHubInput(hubInput, config);
+  let hubAbs = resolveHubInput(hubInput, config);
   if (!hubAbs) die(`Hub plan not found: ${hubInput}`);
+  const hubAuthorization = authorizeManagedSource(hubAbs, config, { kind: 'Runlist hub source' });
+  hubAbs = hubAuthorization.path;
   const hubRepoPath = toRepoPath(hubAbs, config.repoRoot);
   const hubDir = path.dirname(hubAbs);
   const hubSlug = path.basename(hubAbs, '.md');
@@ -644,6 +655,11 @@ async function runRunlistAdd(positional, config, { dryRun, json }) {
   for (const token of childTokens) {
     pos += 1;
     const c = classifyChildToken(token, hubDir, hubSlug, pos, config);
+    if (c.kind === 'existing') {
+      authorizeManagedSource(c.abs, config, { kind: 'Runlist child source' });
+    } else {
+      authorizeManagedDestination(c.abs, config, { root: hubAuthorization.root, kind: 'Runlist child scaffold destination' });
+    }
     if (c.abs === hubAbs) { warn(`Skipping "${token}" — a hub can't list itself.`); pos -= 1; continue; }
     if (resolvedExisting.has(c.abs)) { warn(`Skipping "${token}" — already in the runlist (${c.repoPath}).`); pos -= 1; continue; }
     resolvedExisting.add(c.abs);
@@ -668,26 +684,26 @@ async function runRunlistAdd(positional, config, { dryRun, json }) {
   const prefix = dryRun ? `${dim('[dry-run]')} ` : '';
   if (!json) process.stdout.write(bold(`${prefix}runlist add → ${hubRepoPath}`) + '\n');
 
+  const updates = [];
+  const creations = [];
   for (const c of toAdd) {
     if (c.kind === 'scaffold') {
-      if (!dryRun) {
-        if (existsSync(c.abs)) {
-          warn(`Child already exists, left as-is: ${c.repoPath}`);
-        } else {
-          writeFileSync(c.abs, runlistChildContent(c.title, hubSlug, hubTitle, 'planned', today), 'utf8');
-        }
-      }
+      creations.push({ path: c.abs, content: runlistChildContent(c.title, hubSlug, hubTitle, 'planned', today) });
       if (!json) process.stdout.write(`${prefix}  ${green('+')} ${c.repoPath} ${dim('(scaffolded · planned)')}\n`);
     } else {
-      const wrote = setChildParentPlan(c.abs, hubAbs, config, { dryRun });
-      const note = wrote ? 'existing · parent_plan set' : 'existing';
+      const planned = planChildParentUpdate(c.abs, hubAbs, config);
+      if (planned.update) updates.push(planned.update);
+      const note = planned.wrote ? 'existing · parent_plan set' : 'existing';
       if (!json) process.stdout.write(`${prefix}  ${green('+')} ${c.repoPath} ${dim(`(${note})`)}\n`);
     }
   }
 
-  // Write the hub's `runlist:` array (+ bump `updated:`, + sync the body order
-  // list). The child stubs are already on disk, so title resolution works.
-  if (!dryRun) writeHubRunlist(hubAbs, newRefs, config, today);
+  // Preflight every child and the hub under one ordered lock set, then publish
+  // with rollback so a conflict cannot leave one side updated without the other.
+  if (!dryRun) {
+    updates.push(hubRunlistUpdate(hubAbs, newRefs, config, today, hubRaw, toAdd));
+    mutateFileSet({ updates, creations }, { repoRoot: config.repoRoot, testHooks });
+  }
 
   if (!json) {
     process.stdout.write(dim(`  runlist now has ${newRefs.length} ${newRefs.length === 1 ? 'child' : 'children'}.`) + '\n');
@@ -753,20 +769,20 @@ function syncOrderList(body, orderedRefs, titleFor) {
 // Authoritative hub write: set `runlist:` to `newRefs`, bump `updated:`, and
 // resync the body order list. Shared by add/remove/reorder so all three keep
 // the frontmatter array and the body link list consistent.
-function writeHubRunlist(hubAbs, newRefs, config, today) {
-  const raw = readFileSync(hubAbs, 'utf8');
-  const { frontmatter: fmRaw, body } = extractFrontmatter(raw);
-  let newFm = upsertFrontmatterField(fmRaw, 'runlist', serializeBlockArray('runlist', newRefs));
-  newFm = upsertFrontmatterField(newFm, 'updated', `updated: ${today}`);
-
+function hubRunlistUpdate(hubAbs, newRefs, config, today, expectedRaw, added = []) {
   const titles = new Map();
   for (const r of resolveRunlistRefs(newRefs, hubAbs, config)) {
     if (r.title) titles.set(r.ref.split('/').pop(), r.title);
   }
+  for (const child of added) titles.set(child.ref.split('/').pop(), child.title);
   const titleFor = (ref) => titles.get(ref.split('/').pop()) ?? titleize(path.basename(ref, '.md'));
-  const newBody = syncOrderList(body, newRefs, titleFor);
-
-  writeFileSync(hubAbs, `---\n${newFm}\n---\n${newBody}`, 'utf8');
+  return { path: hubAbs, expectedContent: expectedRaw, render: raw => {
+    const { frontmatter: fmRaw, body } = extractFrontmatter(raw);
+    let newFm = upsertFrontmatterField(fmRaw, 'runlist', serializeBlockArray('runlist', newRefs));
+    newFm = upsertFrontmatterField(newFm, 'updated', `updated: ${today}`);
+    const newBody = syncOrderList(body, newRefs, titleFor);
+    return `---\n${newFm}\n---\n${newBody}`;
+  } };
 }
 
 // Match a child token to one of the hub's existing runlist refs. Resolves
@@ -801,28 +817,34 @@ function findRefForToken(token, existingRefs, hubDir, config) {
 
 // Clear a removed child's `parent_plan:` when it points back at this hub (so the
 // reverse link doesn't dangle). Leaves a parent_plan pointing elsewhere alone.
-function clearChildParentPlan(childAbs, hubAbs, config, { dryRun }) {
+function planClearChildParent(childAbs, hubAbs, config) {
   let raw;
-  try { raw = readFileSync(childAbs, 'utf8'); } catch { return false; }
+  try { raw = readFileSync(childAbs, 'utf8'); } catch { return { wrote: false }; }
   const { frontmatter: fmRaw } = extractFrontmatter(raw);
-  if (fmRaw == null) return false;
+  if (fmRaw == null) return { wrote: false };
   const fm = parseSimpleFrontmatter(fmRaw);
   const existing = asString(fm.parent_plan);
-  if (!existing) return false;
-  if (resolveRefPath(existing, path.dirname(childAbs), config.repoRoot) !== hubAbs) return false;
-  if (dryRun) return true;
-  let newFm = upsertFrontmatterField(fmRaw, 'parent_plan', 'parent_plan:');
-  newFm = upsertFrontmatterField(newFm, 'updated', `updated: ${nowIso()}`);
-  writeFileSync(childAbs, replaceFrontmatter(raw, newFm), 'utf8');
-  return true;
+  if (!existing) return { wrote: false };
+  if (resolveRefPath(existing, path.dirname(childAbs), config.repoRoot) !== hubAbs) return { wrote: false };
+  return { wrote: true, update: { path: childAbs, expectedContent: raw, render: current => {
+    const { frontmatter: currentFm } = extractFrontmatter(current);
+    const currentParent = asString(parseSimpleFrontmatter(currentFm).parent_plan);
+    if (!currentParent || resolveRefPath(currentParent, path.dirname(childAbs), config.repoRoot) !== hubAbs) {
+      throw new MutationConflictError(`Child parent_plan changed while the runlist mutation was being prepared: ${toRepoPath(childAbs, config.repoRoot)}`);
+    }
+    let updatedFm = upsertFrontmatterField(currentFm, 'parent_plan', 'parent_plan:');
+    updatedFm = upsertFrontmatterField(updatedFm, 'updated', `updated: ${nowIso()}`);
+    return replaceFrontmatter(current, updatedFm);
+  } } };
 }
 
 // Shared front half of remove/reorder: resolve the hub, read its `runlist:`,
 // die if it isn't a sprint hub with an array to mutate.
 function loadSprintHub(hubInput, verb, config) {
   if (!hubInput) die(`Usage: dotmd runlist ${verb} <hub-plan> <child...>`);
-  const hubAbs = resolveHubInput(hubInput, config);
+  let hubAbs = resolveHubInput(hubInput, config);
   if (!hubAbs) die(`Hub plan not found: ${hubInput}`);
+  hubAbs = authorizeManagedSource(hubAbs, config, { kind: `Runlist ${verb} hub source` }).path;
   const hubRepoPath = toRepoPath(hubAbs, config.repoRoot);
   const hubDir = path.dirname(hubAbs);
   const raw = readFileSync(hubAbs, 'utf8');
@@ -833,11 +855,11 @@ function loadSprintHub(hubInput, verb, config) {
     die(`${hubRepoPath} has no \`runlist:\` array to ${verb} from.` +
       (fm.execution_mode === 'coordination' ? ' (It is a coordination hub — order lives in the body.)' : ''));
   }
-  return { hubAbs, hubRepoPath, hubDir, existingRefs };
+  return { hubAbs, hubRepoPath, hubDir, existingRefs, raw };
 }
 
-async function runRunlistRemove(positional, config, { dryRun, json, clearParent }) {
-  const { hubAbs, hubRepoPath, hubDir, existingRefs } = loadSprintHub(positional[0], 'remove', config);
+async function runRunlistRemove(positional, config, { dryRun, json, clearParent, testHooks }) {
+  const { hubAbs, hubRepoPath, hubDir, existingRefs, raw: hubRaw } = loadSprintHub(positional[0], 'remove', config);
   const childTokens = positional.slice(1);
   if (childTokens.length === 0) die('Usage: dotmd runlist remove <hub-plan> <child...>');
 
@@ -849,6 +871,15 @@ async function runRunlistRemove(positional, config, { dryRun, json, clearParent 
   }
   const newRefs = existingRefs.filter(r => !removeRefs.includes(r));
   const today = nowIso();
+  const clearTargets = [];
+  if (clearParent) {
+    for (const ref of removeRefs) {
+      const abs = resolveRefPath(ref, hubDir, config.repoRoot);
+      if (!abs) die(`Cannot clear parent_plan: runlist child does not resolve: ${ref}`);
+      const authorized = authorizeManagedSource(abs, config, { kind: 'Runlist removed child source' });
+      clearTargets.push({ ref, abs: authorized.path });
+    }
+  }
 
   if (json) {
     process.stdout.write(JSON.stringify({ hub: hubRepoPath, removed: removeRefs, runlist: newRefs, clearedParent: !!clearParent, dryRun: !!dryRun }, null, 2) + '\n');
@@ -857,14 +888,21 @@ async function runRunlistRemove(positional, config, { dryRun, json, clearParent 
     for (const ref of removeRefs) process.stdout.write(`${dryRun ? dim('[dry-run]') + ' ' : ''}  ${red('-')} ${ref}\n`);
   }
 
-  if (!dryRun) writeHubRunlist(hubAbs, newRefs, config, today);
+  const clearUpdates = [];
   if (clearParent) {
-    for (const ref of removeRefs) {
-      const abs = resolveRefPath(ref, hubDir, config.repoRoot);
-      if (abs && clearChildParentPlan(abs, hubAbs, config, { dryRun }) && !json) {
+    for (const { abs } of clearTargets) {
+      const planned = planClearChildParent(abs, hubAbs, config);
+      if (planned.update) clearUpdates.push(planned.update);
+      if (planned.wrote && !json) {
         process.stdout.write(`${dryRun ? dim('[dry-run]') + ' ' : ''}  ${dim(`cleared parent_plan on ${toRepoPath(abs, config.repoRoot)}`)}\n`);
       }
     }
+  }
+  if (!dryRun) {
+    mutateFileSet({ updates: [hubRunlistUpdate(hubAbs, newRefs, config, today, hubRaw), ...clearUpdates] }, {
+      repoRoot: config.repoRoot,
+      testHooks,
+    });
   }
   if (!json) process.stdout.write(dim(`  runlist now has ${newRefs.length} ${newRefs.length === 1 ? 'child' : 'children'}.`) + '\n');
 }
@@ -885,12 +923,12 @@ function parseReorderArgs(argv) {
   return { hubInput: pos[0], children: pos.slice(1), before, after };
 }
 
-async function runRunlistReorder(argv, config, { dryRun, json }) {
+async function runRunlistReorder(argv, config, { dryRun, json, testHooks }) {
   const { hubInput, children, before, after } = parseReorderArgs(argv);
   if (!hubInput || children.length === 0) {
     die('Usage: dotmd runlist reorder <hub> <child> --before|--after <other>\n   or: dotmd runlist reorder <hub> <child1> <child2> ...  (full new order)');
   }
-  const { hubAbs, hubRepoPath, hubDir, existingRefs } = loadSprintHub(hubInput, 'reorder', config);
+  const { hubAbs, hubRepoPath, hubDir, existingRefs, raw: hubRaw } = loadSprintHub(hubInput, 'reorder', config);
 
   let newRefs;
   if (before || after) {
@@ -926,7 +964,7 @@ async function runRunlistReorder(argv, config, { dryRun, json }) {
     process.stdout.write(bold(`${dryRun ? dim('[dry-run]') + ' ' : ''}runlist reorder → ${hubRepoPath}`) + '\n');
     newRefs.forEach((ref, i) => process.stdout.write(`${dryRun ? dim('[dry-run]') + ' ' : ''}  ${String(i + 1).padStart(2)}. ${ref}\n`));
   }
-  if (!dryRun) writeHubRunlist(hubAbs, newRefs, config, today);
+  if (!dryRun) mutateFileSet({ updates: [hubRunlistUpdate(hubAbs, newRefs, config, today, hubRaw)] }, { repoRoot: config.repoRoot, testHooks });
 }
 
 export async function runRunlist(argv, config, opts = {}) {
@@ -936,13 +974,13 @@ export async function runRunlist(argv, config, opts = {}) {
   // Subcommand dispatch: mutators (`add`/`remove`/`reorder`) vs `next` (pickup)
   // vs `show` (default).
   if (positional[0] === 'add') {
-    return runRunlistAdd(positional.slice(1), config, { dryRun: opts.dryRun, json });
+    return runRunlistAdd(positional.slice(1), config, { dryRun: opts.dryRun, json, testHooks: opts.testHooks });
   }
   if (positional[0] === 'remove') {
-    return runRunlistRemove(positional.slice(1), config, { dryRun: opts.dryRun, json, clearParent: argv.includes('--clear-parent') });
+    return runRunlistRemove(positional.slice(1), config, { dryRun: opts.dryRun, json, clearParent: argv.includes('--clear-parent'), testHooks: opts.testHooks });
   }
   if (positional[0] === 'reorder') {
-    return runRunlistReorder(argv, config, { dryRun: opts.dryRun, json });
+    return runRunlistReorder(argv, config, { dryRun: opts.dryRun, json, testHooks: opts.testHooks });
   }
 
   const sub = positional[0] === 'next' ? 'next' : 'show';
@@ -971,7 +1009,7 @@ export async function runRunlist(argv, config, opts = {}) {
       }, null, 2) + '\n');
       return;
     }
-    process.stdout.write(renderRunlist(hubRepoPath, children, { archiveStatuses, source }));
+    process.stdout.write(renderRunlist(hubRepoPath, children, { archiveStatuses, source, config }));
     return;
   }
 
@@ -979,7 +1017,7 @@ export async function runRunlist(argv, config, opts = {}) {
   // Skip both archived (done) and parked (blocked/partial/paused/awaiting/
   // queued-after) children: the runlist advances to the first pickup-able one,
   // so the picked target is guaranteed in a `dotmd use`-able status.
-  const target = children.find(c => !c.missing && !archiveStatuses.has(c.status) && isPickupable(c.status));
+  const target = children.find(c => !c.missing && !archiveStatuses.has(c.status) && isPickupable(c.status, c, config));
   if (!target) {
     if (children.length === 0) die(`Hub ${hubRepoPath} has empty \`runlist:\` — nothing to pick up.`);
     // Live (non-archived, non-missing) children that exist but aren't startable.

@@ -3,6 +3,7 @@ import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { asString, toRepoPath, escapeRegex, warn } from './util.mjs';
 import { collectDocFiles } from './index.mjs';
 import { bold, green, dim } from './color.mjs';
+import { authorizeManagedSweep } from './managed-path.mjs';
 
 // Caps must stay in lockstep with the warnings emitted by validatePlanShape in
 // src/validate.mjs — that's where the user first sees these numbers. Targets
@@ -16,6 +17,7 @@ const FIELDS = [
 export function runFrontmatterFix(config, opts = {}) {
   const { dryRun, out = process.stdout } = opts;
   const allFiles = collectDocFiles(config);
+  authorizeManagedSweep(allFiles, config, { kind: 'Frontmatter fix source' });
   const results = [];
 
   for (const filePath of allFiles) {

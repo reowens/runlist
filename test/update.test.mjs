@@ -1,10 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { spawnSync } from 'node:child_process';
 import { compareVersions, readInstalledPlugin, planUpdate } from '../src/update.mjs';
 import { detectVersionDrift } from '../src/hud.mjs';
+import { verifyInstalledPluginVersion } from '../scripts/verify-installed-plugin.mjs';
 
 test('compareVersions orders semver and tolerates junk', () => {
   assert.equal(compareVersions('0.53.0', '0.54.0'), -1);
@@ -48,6 +50,39 @@ test('readInstalledPlugin returns null when absent', () => {
   });
 });
 
+test('verifyInstalledPluginVersion requires an exact installed version', () => {
+  withHome((home) => {
+    writeInstalled(home, { 'dotmd@dotmd': [{ version: '0.69.0' }] });
+    assert.equal(verifyInstalledPluginVersion('0.69.0', { home }).ok, true);
+    assert.deepEqual(verifyInstalledPluginVersion('0.70.0', { home }), {
+      ok: false,
+      reason: 'dotmd@dotmd has 0.69.0, expected 0.70.0',
+    });
+  });
+});
+
+test('verifyInstalledPluginVersion reports a missing plugin', () => {
+  withHome((home) => {
+    assert.deepEqual(verifyInstalledPluginVersion('0.69.0', { home }), {
+      ok: false,
+      reason: 'dotmd@dotmd plugin is not installed',
+    });
+  });
+});
+
+test('verifyInstalledPluginVersion rejects alternate or mixed installed scopes', () => {
+  withHome((home) => {
+    writeInstalled(home, { 'dotmd@other': [{ version: '0.69.0' }] });
+    assert.equal(verifyInstalledPluginVersion('0.69.0', { home }).ok, false);
+
+    writeInstalled(home, { 'dotmd@dotmd': [{ version: '0.69.0' }, { version: '0.68.0' }] });
+    assert.deepEqual(verifyInstalledPluginVersion('0.69.0', { home }), {
+      ok: false,
+      reason: 'dotmd@dotmd has 0.68.0, expected 0.69.0',
+    });
+  });
+});
+
 test('planUpdate: both halves when tools present and plugin installed', () => {
   const steps = planUpdate({}, { plugin: { id: 'dotmd@dotmd', version: '0.53.0' }, hasClaude: true, hasNpm: true });
   assert.deepEqual(steps.map(s => s.kind), ['cli', 'plugin']);
@@ -71,6 +106,33 @@ test('planUpdate: plugin not installed → skip', () => {
   const steps = planUpdate({ pluginOnly: true }, { plugin: null, hasClaude: true, hasNpm: true });
   assert.equal(steps[0].kind, 'skip');
   assert.match(steps[0].reason, /not installed/);
+});
+
+test('update --dry-run previews global commands without executing them', () => {
+  withHome((home) => {
+    writeInstalled(home, { 'dotmd@dotmd': [{ version: '0.69.0' }] });
+    const fakeBin = path.join(home, 'bin');
+    mkdirSync(fakeBin, { recursive: true });
+    const sentinel = path.join(home, 'executed');
+    for (const name of ['npm', 'claude']) {
+      const file = path.join(fakeBin, process.platform === 'win32' ? `${name}.cmd` : name);
+      if (process.platform === 'win32') writeFileSync(file, `@echo called > ${JSON.stringify(sentinel)}\r\n`);
+      else {
+        writeFileSync(file, `#!/bin/sh\nprintf called > ${JSON.stringify(sentinel)}\n`);
+        chmodSync(file, 0o755);
+      }
+    }
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const result = spawnSync('node', [bin, 'update', '--dry-run'], {
+      cwd: home,
+      encoding: 'utf8',
+      env: { ...process.env, HOME: home, USERPROFILE: home, PATH: `${fakeBin}${path.delimiter}${process.env.PATH}` },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /\[dry-run\] Would run: npm i -g/);
+    assert.match(result.stdout, /\[dry-run\] Would run: claude plugin update/);
+    assert.equal(existsSync(sentinel), false);
+  });
 });
 
 // --- hud version-drift detector ---

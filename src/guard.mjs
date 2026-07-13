@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isGitIgnored } from './git.mjs';
+import { inspectGitCommandPaths } from './git.mjs';
 import { recordGuardEvent } from './journal.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -41,11 +41,12 @@ function toSlash(p) {
 // (`…/prompts/archived/…`, the default nested archive for the prompt type) are
 // committable history, NOT session-local, so they're explicitly excluded — the
 // guard must not block committing or reading them.
-function isPromptPath(p) {
+function isPromptPath(p, config) {
   const s = toSlash(p);
   if (typeof s !== 'string' || !s.endsWith('.md')) return false;
   if (!/(^|\/)prompts\//.test(s)) return false;
-  if (/(^|\/)archived\//.test(s)) return false;
+  const archiveDir = toSlash(config?.archiveDir || 'archived').replace(/^\/+|\/+$/g, '');
+  if (archiveDir && s.split('/').includes(archiveDir)) return false;
   return true;
 }
 
@@ -62,11 +63,38 @@ function isManagedDoc(p, config) {
   });
 }
 
-// Pull bare path-looking tokens out of a shell command. Good enough to spot the
-// prompt file in `git add docs/prompts/foo.md` or `cat docs/prompts/foo.md`.
+// Minimal shell lexer: preserve quoted/escaped spaces and drop quote syntax so
+// command/path decisions operate on argument boundaries rather than whitespace.
 function shellTokens(command) {
   if (typeof command !== 'string') return [];
-  return command.split(/\s+/).map(t => t.replace(/^['"]|['"]$/g, '')).filter(Boolean);
+  const tokens = [];
+  let token = '';
+  let quote = null;
+  let escaped = false;
+  for (let i = 0; i < command.length; i++) {
+    const char = command[i];
+    if (escaped) { token += char; escaped = false; continue; }
+    if (char === '\\' && quote !== "'") {
+      const next = command[i + 1];
+      if (next && /[\s'"\\|&;]/.test(next)) escaped = true;
+      else token += char;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = null;
+      else token += char;
+      continue;
+    }
+    if (char === '"' || char === "'") { quote = char; continue; }
+    if (/\s/.test(char)) {
+      if (token) { tokens.push(token); token = ''; }
+      continue;
+    }
+    token += char;
+  }
+  if (escaped) token += '\\';
+  if (token) tokens.push(token);
+  return tokens;
 }
 
 // Drop heredoc bodies, keeping the command line that opens them. Heredoc
@@ -95,17 +123,90 @@ function stripHeredocBodies(command) {
 // fire on the segment whose program actually touches the prompt — `dotmd check
 // docs/prompts/x.md; git commit -- docs/plans/y.md` commits no prompt.
 function shellSegments(command) {
-  return stripHeredocBodies(command)
-    .split(/\|\|?|&&|;|\n/)
-    .map(s => s.trim())
-    .filter(Boolean);
+  const input = stripHeredocBodies(command);
+  const segments = [];
+  let segment = '';
+  let quote = null;
+  let escaped = false;
+  for (let i = 0; i < input.length; i++) {
+    const char = input[i];
+    if (escaped) { segment += char; escaped = false; continue; }
+    if (char === '\\' && quote !== "'") { segment += char; escaped = true; continue; }
+    if (quote) {
+      segment += char;
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") { quote = char; segment += char; continue; }
+    const pair = input.slice(i, i + 2);
+    if (char === ';' || char === '\n' || char === '|' || pair === '&&') {
+      if (segment.trim()) segments.push(segment.trim());
+      segment = '';
+      if (pair === '&&' || pair === '||') i += 1;
+      continue;
+    }
+    segment += char;
+  }
+  if (segment.trim()) segments.push(segment.trim());
+  return segments;
 }
 
-// Blank out quoted strings that contain whitespace — prose, not paths. A
-// commit message like `-m "handoff saved to docs/prompts/x.md"` only *mentions*
-// a prompt; `git add "docs/prompts/foo.md"` (no inner whitespace) survives.
-function stripProseStrings(s) {
-  return s.replace(/"([^"]*)"|'([^']*)'/g, (m, d, q) => (/\s/.test(d ?? q ?? '') ? '""' : m));
+function executableIndex(tokens) {
+  let i = 0;
+  const assignment = /^[A-Za-z_][A-Za-z0-9_]*=/;
+  let unwrapping = true;
+  while (unwrapping) {
+    while (assignment.test(tokens[i] ?? '')) i += 1;
+    if (tokens[i] === 'env') {
+      i += 1;
+      while (i < tokens.length) {
+        if (tokens[i] === '-u' || tokens[i] === '--unset') { i += 2; continue; }
+        if (tokens[i].startsWith('-') || assignment.test(tokens[i])) { i += 1; continue; }
+        break;
+      }
+      continue;
+    }
+    if (tokens[i] === 'command') {
+      i += 1;
+      while (tokens[i]?.startsWith('-')) i += 1;
+      continue;
+    }
+    if (tokens[i] === 'sudo') {
+      i += 1;
+      while (tokens[i]?.startsWith('-')) {
+        if (['-u', '--user', '-g', '--group', '-h', '--host', '-p', '--prompt', '-C', '--chdir'].includes(tokens[i])) i += 2;
+        else i += 1;
+      }
+      continue;
+    }
+    unwrapping = false;
+  }
+  return i;
+}
+
+function parseGitInvocation(tokens, baseCwd) {
+  let i = executableIndex(tokens);
+  if (path.basename(tokens[i] ?? '') !== 'git') return null;
+  i += 1;
+  let cwd = baseCwd;
+  const valueOptions = new Set(['-c', '--namespace', '--super-prefix', '--config-env']);
+  while (i < tokens.length && tokens[i].startsWith('-')) {
+    const option = tokens[i];
+    if (option === '-C' && tokens[i + 1]) {
+      cwd = path.resolve(cwd, tokens[i + 1]);
+      i += 2;
+    } else if (option.startsWith('-C') && option.length > 2) {
+      cwd = path.resolve(cwd, option.slice(2));
+      i += 1;
+    } else if (option === '--git-dir' || option === '--work-tree'
+      || option.startsWith('--git-dir=') || option.startsWith('--work-tree=')) {
+      return null; // non-standard repository context: fail open rather than inspect the wrong tree
+    } else if (valueOptions.has(option)) i += 2;
+    else i += 1;
+  }
+  const subcommand = tokens[i];
+  if (!/^(add|commit|stage)$/.test(subcommand ?? '')) return null;
+  return { subcommand, args: tokens.slice(i + 1), cwd };
 }
 
 // Decision level for the status-edit rules. Hand-editing `status:` has no
@@ -136,36 +237,39 @@ const STREAM_EDITOR_INPLACE = [
   /\bg?awk\b[^|;&<>]*\binplace\b/,
 ];
 
-function evalBash(command, config, isIgnored) {
+function evalBash(command, config, inspectGitPaths, baseCwd) {
   const segments = shellSegments(command);
+  let cwd = baseCwd;
 
   for (const seg of segments) {
-    const segTokens = shellTokens(stripProseStrings(seg));
+    const segTokens = shellTokens(seg);
     if (!segTokens.length) continue;
-    const cmd0 = path.basename(segTokens[0]);
-    const promptTokens = segTokens.filter(isPromptPath);
+    const commandIndex = executableIndex(segTokens);
+    const cmd0 = path.basename(segTokens[commandIndex] ?? '');
+    const promptTokens = segTokens.filter(token => isPromptPath(token, config));
+    if (cmd0 === 'cd' && segTokens[commandIndex + 1]) {
+      cwd = path.resolve(cwd, segTokens[commandIndex + 1]);
+      continue;
+    }
 
-    // Rule A — committing/adding a gitignored prompt. The exact failure the
-    // guard exists for: an agent reflexively `git add`s a session-local prompt
-    // that lives under a gitignored path, and the commit dies confusingly.
-    // Scoped to the git segment's own arguments: a prompt path in a sibling
-    // segment (`dotmd check docs/prompts/x.md; git commit …`) or inside a
-    // quoted commit message is a mention, not a commit.
-    if (cmd0 === 'git' && /^(add|commit|stage)$/.test(segTokens[1] ?? '') && promptTokens.length) {
-      const ignored = promptTokens.filter(p => isIgnored(p));
-      const targets = ignored.length ? ignored : promptTokens;
-      const ignoredNote = ignored.length
-        ? ` ${ignored.join(', ')} is gitignored — it cannot be committed.`
-        : '';
-      return {
-        decision: 'deny',
-        rule: 'commit-prompt',
-        detail: command,
-        reason:
-          `Saved prompts (${targets.join(', ')}) are session-local dotmd artifacts, not source to commit.${ignoredNote} ` +
-          `Don't git add/commit them — commit your other changes without the prompt in the pathspec. ` +
-          `The next session consumes a prompt with \`dotmd use <file>\` (or \`dotmd use\` for the oldest pending), which prints the body and archives it atomically.`,
-      };
+    // Rule A — deny only when Git's current state says the command would
+    // actually include a live prompt. This covers broad forms (`add .`, `-A`,
+    // pathless commit, commit -a) without blocking ignored or clean prompts.
+    const git = parseGitInvocation(segTokens, cwd);
+    if (git) {
+      const includedPaths = inspectGitPaths(git.subcommand, git.args, git.cwd);
+      const targets = [...new Set(includedPaths.filter(candidate => isPromptPath(candidate, config)))];
+      if (targets.length > 0) {
+        return {
+          decision: 'deny',
+          rule: 'commit-prompt',
+          detail: `git ${git.subcommand} ${targets.join(' ')}`,
+          reason:
+            `Saved prompts (${targets.join(', ')}) are session-local dotmd artifacts, not source to commit. ` +
+            `Don't git add/commit them — commit your other changes without the prompt in the pathspec. ` +
+            `The next session consumes a prompt with \`dotmd use <file>\` (or \`dotmd use\` for the oldest pending), which prints the body and archives it atomically.`,
+        };
+      }
     }
 
     // Rule B — reading a prompt through the shell instead of consuming it.
@@ -173,37 +277,34 @@ function evalBash(command, config, isIgnored) {
       return {
         decision: 'warn',
         rule: 'cat-prompt',
-        detail: command,
+        detail: `${cmd0} ${promptTokens.join(' ')}`,
         reason:
           `${promptTokens.join(', ')} is a saved dotmd prompt. To start work from it, run \`dotmd use ${promptTokens[0]}\` — ` +
-          `it prints the body and archives the prompt in one atomic step (prevents double-consumption). ` +
+          `it commits archive/claim before at-most-once body output (prevents double-consumption). ` +
           `Just peeking or triaging (not consuming)? \`dotmd prompts show ${promptTokens[0]}\` reads it without archiving. Don't \`${cmd0}\` it directly.`,
       };
     }
-  }
 
-  // Rule C — in-place stream-editing `status:` in a managed doc. Same wrong-move
-  // as the Edit-tool rule, reached via the shell. Heredoc bodies are document
-  // content (often prose *describing* these rules), not commands.
-  const stripped = stripHeredocBodies(command);
-  if (/status/.test(stripped) && STREAM_EDITOR_INPLACE.some(re => re.test(stripped))) {
-    const managed = shellTokens(stripped).filter(t => isManagedDoc(t, config));
-    if (managed.length) {
-      return editStatusResult(managed[0], config, command);
+    // Rule C — only an actual in-place stream-editor invocation can be a
+    // status edit. Quoted prose printed by echo/printf is not executable code.
+    if (/^(?:sed|perl|g?awk)$/.test(cmd0) && /status/.test(seg)
+      && STREAM_EDITOR_INPLACE.some(re => re.test(seg))) {
+      const managed = segTokens.filter(token => isManagedDoc(token, config));
+      if (managed.length > 0) return editStatusResult(managed[0], config, `status-edit ${managed[0]}`);
     }
   }
 
   return null;
 }
 
-function evalRead(filePath) {
-  if (!isPromptPath(filePath)) return null;
+function evalRead(filePath, config) {
+  if (!isPromptPath(filePath, config)) return null;
   return {
     decision: 'warn',
     rule: 'read-prompt',
     detail: filePath,
     reason:
-      `${filePath} is a saved dotmd prompt. To start work from it, run \`dotmd use ${filePath}\` — it prints the body and archives the prompt atomically so it can't be double-consumed. ` +
+      `${filePath} is a saved dotmd prompt. To start work from it, run \`dotmd use ${filePath}\` — it commits archive/claim before at-most-once body output so it can't be double-consumed. ` +
       `Just peeking or triaging (not consuming)? \`dotmd prompts show ${filePath}\` reads it without archiving.`,
   };
 }
@@ -247,12 +348,14 @@ function evalEdit(input, config, deps = {}) {
 // need a real git tree. Returns null (no opinion) or a result object.
 export function evaluateGuard(payload, config, deps = {}) {
   if (process.env.DOTMD_GUARD === '0') return null;
+  if (!config?.configFound) return null;
   const tool = payload?.tool_name;
   const input = payload?.tool_input || {};
-  const isIgnored = deps.isIgnored || ((p) => isGitIgnored(p, config?.repoRoot));
+  const inspectGitPaths = deps.inspectGitPaths
+    || ((subcommand, args, cwd) => inspectGitCommandPaths(subcommand, args, cwd ?? deps.gitCwd ?? process.cwd()));
 
-  if (tool === 'Bash') return evalBash(input.command || '', config, isIgnored);
-  if (tool === 'Read') return evalRead(input.file_path || '');
+  if (tool === 'Bash') return evalBash(input.command || '', config, inspectGitPaths, deps.gitCwd ?? process.cwd());
+  if (tool === 'Read') return evalRead(input.file_path || '', config);
   if (tool === 'Edit' || tool === 'Write' || tool === 'MultiEdit') return evalEdit(input, config, deps);
   return null;
 }
@@ -293,7 +396,7 @@ function emit(result) {
   process.stdout.write(JSON.stringify({ hookSpecificOutput }) + '\n');
 }
 
-export async function runGuard(argv, config) {
+export async function runGuard(argv, config, opts = {}) {
   let payload = {};
   try {
     const raw = await readStdin();
@@ -309,7 +412,7 @@ export async function runGuard(argv, config) {
     result = null;
   }
 
-  if (result) {
+  if (result && !opts.dryRun) {
     recordGuardEvent({
       repo: config?.repoRoot,
       tool: payload?.tool_name,

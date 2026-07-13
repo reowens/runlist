@@ -124,6 +124,19 @@ describe('dotmd lint', () => {
     ok(content.endsWith('\n'), 'EOF newline added');
   });
 
+  it('--fix infers plan type from the most-specific overlapping root', () => {
+    const docsDir = setupProject();
+    const plansDir = path.join(docsDir, 'plans');
+    mkdirSync(plansDir, { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = ['docs', 'docs/plans'];\n`);
+    const file = path.join(plansDir, 'nested.md');
+    writeFileSync(file, '---\nstatus: active\nupdated: 2025-01-01\n---\n# Nested\n');
+
+    const result = run(['lint', '--fix']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(readFileSync(file, 'utf8').includes('type: plan'), 'nested plans root should infer type: plan');
+  });
+
   it('reports no issues for clean docs', () => {
     const docsDir = setupProject();
     writeFileSync(path.join(docsDir, 'clean.md'), '---\ntype: doc\nstatus: active\nupdated: 2025-01-01\ntitle: Clean\nsummary: A clean doc\ncurrent_state: all good\nnext_step: nothing\n---\n\n# Clean\n\n> A clean doc\n');

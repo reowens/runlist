@@ -28,7 +28,7 @@ function setupProject() {
 }
 
 function writeEntries(entries) {
-  const lines = entries.map(e => JSON.stringify(e)).join('\n') + '\n';
+  const lines = entries.map(e => JSON.stringify({ schema: 2, ...e })).join('\n') + '\n';
   writeFileSync(journalFile, lines);
 }
 

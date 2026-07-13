@@ -13,17 +13,18 @@ export function normalizeEol(text) {
 export function extractFrontmatter(raw) {
   const text = normalizeEol(raw);
   if (!text.startsWith('---\n')) {
-    return { frontmatter: '', body: text };
+    return { frontmatter: '', body: text, bodyLineOffset: 0 };
   }
 
   const endMarker = text.indexOf('\n---\n', 4);
   if (endMarker === -1) {
-    return { frontmatter: '', body: text };
+    return { frontmatter: '', body: text, bodyLineOffset: 0 };
   }
 
   return {
     frontmatter: text.slice(4, endMarker),
     body: text.slice(endMarker + 5),
+    bodyLineOffset: text.slice(0, endMarker + 5).split('\n').length - 1,
   };
 }
 

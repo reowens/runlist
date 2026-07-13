@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-dotmd is a CLI (`dotmd-cli` on npm) for managing markdown documents with YAML frontmatter. It indexes, queries, validates, graphs, exports, and lifecycle-manages collections of `.md` files (plans, ADRs, RFCs, design docs). Built as ESM with zero required runtime dependencies — the only two npm packages (`@notionhq/client`, `notion-to-md`) are **`optionalDependencies`**, pulled in for the `dotmd notion` integration and lazy-loaded (`src/notion.mjs`); every other command runs on Node.js builtins alone. If they're absent (e.g. `npm install --omit=optional`), only `dotmd notion` degrades, with a "run npm install …" hint.
+dotmd is a CLI (`dotmd-cli` on npm) for managing markdown documents with YAML frontmatter. It indexes, queries, validates, graphs, exports, and lifecycle-manages collections of `.md` files (plans, ADRs, RFCs, design docs). Built as ESM using Node.js builtins with zero runtime dependencies.
 
-**Claude Code plugin.** dotmd also ships as a Claude Code plugin under `plugins/dotmd/` (marketplace manifest at `.claude-plugin/marketplace.json`). The plugin bundles the hooks (`SessionStart`/`SubagentStart` priming via `dotmd hud`, a `PreToolUse` guard via `dotmd guard`) and the canonical agent-facing workflow in `plugins/dotmd/skills/dotmd/SKILL.md`. That SKILL.md is the source of truth for how *other* repos' sessions learn the workflow — keep it in sync with the "Working with plans" guidance below. The irreducible verb contract lives in a marked `dotmd:canonical-workflow` block duplicated in both surfaces; `dotmd check` fails (via `src/skill-drift.mjs`) the moment the two copies drift, so that lockstep is mechanical, not manual. The user-typed slash commands (`/plans`, `/docs`, `/prompts`, `/baton`) ship from `plugins/dotmd/commands/`. The legacy per-repo `.claude/commands` scaffolding has been **retired** (see `docs/plans/package-dotmd-as-plugin.md`, Phase 4): `src/claude-commands.mjs` no longer generates anything — it only *removes* stale dotmd-generated command files (banner-gated, so hand-authored ones survive). `dotmd hud`/`doctor` sweep them; `dotmd init` recommends installing the plugin instead of scaffolding.
+**Claude Code plugin.** dotmd also ships as a Claude Code plugin under `plugins/dotmd/` (marketplace manifest at `.claude-plugin/marketplace.json`). The plugin bundles the hooks (`SessionStart`/`SubagentStart` priming via `dotmd hud`, a `PreToolUse` guard via `dotmd guard`) and the canonical agent-facing workflow in `plugins/dotmd/skills/dotmd/SKILL.md`. That SKILL.md is the source of truth for how *other* repos' sessions learn the workflow — keep it in sync with the "Working with plans" guidance below. The irreducible verb contract lives in a marked `dotmd:canonical-workflow` block duplicated in both surfaces; `dotmd check` fails (via `src/skill-drift.mjs`) the moment the two copies drift, so that lockstep is mechanical, not manual. The user-typed slash commands (`/plans`, `/docs`, `/prompts`, `/baton`) ship from `plugins/dotmd/commands/`. The legacy per-repo `.claude/commands` scaffolding has been **retired** (see `docs/plans/package-dotmd-as-plugin.md`, Phase 4): `src/claude-commands.mjs` no longer generates anything — it only *removes* stale dotmd-generated command files (banner-gated, so hand-authored ones survive). Explicit `dotmd doctor`/`init` maintenance removes them; passive `dotmd hud` does not mutate repository state.
 
 ## Document Types
 
@@ -22,7 +22,7 @@ Every document has a `type:` field in its frontmatter. Types determine which sta
 
 Each stop-status maps to a distinct **unstuck-action** — that's the test for whether the status earns its keep.
 
-- **`in-session`** — A Claude instance is actively working on this plan right now. When you start working on a plan, set it to `in-session`. It's just a frontmatter status — there's no checkout, lock, or lease.
+- **`in-session`** — An agent session is actively working on this plan right now. `dotmd use` writes the status plus a local, gitignored ownership record; another session cannot resume/release it without an explicit `--force` recovery.
 - **`active`** — Ready for a Claude session to pick up and work on.
 - **`planned`** — Queued for future work, not yet ready to execute.
 - **`blocked`** — *Unstuck-action: monitor.* External arrival on its own schedule (hardware, vendor delivery, third-party rollout). You can't speed it up.
@@ -56,7 +56,7 @@ To finish work, archive directly: `dotmd archive <plan-file>`. The legacy `done`
    - Shipped + tail deferred → `dotmd set partial <plan-file>` (reference the successor plan in the body)
    - Need more work later → `dotmd set active <plan-file>`
    - Stuck on a human decision → `dotmd set awaiting <plan-file>`
-   `set <status> <file>` just writes the new status to frontmatter — no checkout to release, no lock to clear.
+   `set <status> <file>` writes frontmatter and atomically releases local ownership when leaving `in-session`.
    Add `--note "why"` to any `set`/`archive` to append the reason to `## Version History` in the same call (creates the section if missing) — prefer it over a separate body edit. `set partial` without a note or successor link prints a reminder.
 4. To see plans: `dotmd plans` (live), `dotmd plans --status active`, `dotmd plans --status in-session`
 
@@ -69,7 +69,7 @@ dotmd baton @/tmp/draft.md        # saves resume-<plan-slug>, flips the plan
                                   # in-session → active, prints the exact git commit
 ```
 
-`--status paused|awaiting|partial|blocked` overrides the release status; `--note "why"` records the reason. Baton resolves *your* plan via the journal (or takes it explicitly: `dotmd baton <plan-file> @draft`). It is the whole closeout — no extra status changes, no `dotmd use`, no repo triage on the way out.
+`--status paused|awaiting|partial|blocked` overrides the release status; `--note "why"` records the reason. Baton resolves *your* plan from its local, gitignored ownership record (or takes it explicitly: `dotmd baton <plan-file> @draft`); journal entries and global in-session counts never grant ownership. It is the whole closeout — prompt creation, status/history, and ownership release commit together, with no extra status changes or repo triage on the way out.
 
 No plan involved? Same verb, slug mode — saves `resume-<slug>` and touches nothing else:
 
@@ -77,7 +77,7 @@ No plan involved? Same verb, slug mode — saves `resume-<slug>` and touches not
 dotmd baton <slug> @/tmp/draft.md
 ```
 
-Either way the prompt lands under `docs/prompts/<name>.md` with `status: pending`. The next session runs `dotmd hud` (the SessionStart hook), sees the pending prompt, and consumes it with `dotmd use <file>` (or `dotmd use` with no arg for the oldest). That command atomically prints the body and archives the prompt so it can't be double-consumed. To peek at a prompt without consuming it, `dotmd prompts show <file>`.
+Either way the prompt lands under `docs/prompts/<name>.md` with `status: pending`. The next session runs `dotmd hud` (the SessionStart hook), sees the pending prompt, and consumes it with `dotmd use <file>` (or `dotmd use` with no arg for the oldest). Consumption commits the archive/claim before writing the body to stdout, so output is at-most-once and the prompt cannot be double-consumed. If stdout fails, recover with `dotmd prompts show <archived-path>`.
 
 **Consume = claim (the handoff loop closes itself).** When `dotmd baton` releases a plan, it stamps the resume prompt with a `plan:` link back to that plan. Consuming such a prompt with `dotmd use` doesn't just print the body — it also **claims the linked plan for this session** (flips it to `in-session` and records the ownership), printing `→ Claimed docs/plans/<x>.md`. So the picked-up work is already `in-session` and, crucially, *this* session's later `dotmd baton` (no arg) hands off that plan automatically — you don't re-run `dotmd use <plan>` first. Only a startable plan is claimed: an already-in-session plan (someone's on it) or an archived/renamed target (stale link) is left untouched.
 
@@ -244,10 +244,10 @@ Everything is automated — do NOT manually `git push`, `git tag`, `npm publish`
 3. Pushes to `origin main --tags`
 4. Creates GitHub Release with auto-generated notes
 5. Waits for GitHub Actions `publish.yml` to `npm publish`
-6. Installs the new version locally via `npm install -g`
+6. Installs the new version locally via `npm install -g`, then synchronizes and verifies every PATH-visible `dotmd` copy (for example Homebrew + NVM prefixes)
 7. Refreshes the Claude Code plugin (`claude plugin update dotmd@dotmd`) — restart the session (or `/reload-plugins`) to apply
 
-**If it fails partway through:** Check if the tag was pushed (`git log --oneline -1`). If yes, the GitHub Actions publish workflow is probably already running — check GitHub Actions. If not, run `git push origin main --tags` manually and the rest will follow.
+Release preflight requires a clean `main` that descends from `origin/main`; `--force` cannot bypass it. On failure, run `npm run release:resume`: before publication it either recovers a missing tag for a completed version commit or restores an incomplete bump and prints the exact `npm version <version>` retry. Once the tag exists, never bump again; resume atomically retries only the intended branch+tag push, reuses/reruns the GitHub workflow, and finishes registry/global CLI/plugin verification.
 
 ## Architecture
 
@@ -262,7 +262,7 @@ Everything is automated — do NOT manually `git push`, `git tag`, `npm publish`
 ## Key Conventions
 
 - **Pure ESM.** All files use `.mjs` extension and `import`/`export`.
-- **Minimal dependencies.** Everything beyond Notion integration uses Node.js builtins.
+- **Minimal dependencies.** Runtime code uses Node.js builtins only.
 - **Document types.** Every doc should have `type: plan|doc|prompt` (or a custom type from config). Each type has its own valid statuses. Status validation is type-aware (type > root > global).
 - **Rich status definitions.** `types.<type>.statuses` accepts an object form where each status co-locates all behavior (`context`, `staleDays`, `requiresModule`, `terminal`, `archive`, `skipStale`, `skipWarnings`). This eliminates the need for separate `lifecycle`, `statuses.staleDays`, `taxonomy.moduleRequiredFor`, and `context` sections. Array form remains backwards compatible.
 - **Hook pattern.** Config functions are automatically detected as hooks. See `dotmd.config.example.mjs` for the full hook API.

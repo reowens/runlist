@@ -4,7 +4,7 @@ import { fixBrokenRefs } from './fix-refs.mjs';
 import { runLint } from './lint.mjs';
 import { runTouch } from './lifecycle.mjs';
 import { buildIndex, collectDocFiles } from './index.mjs';
-import { renderIndexFile, writeIndex } from './index-file.mjs';
+import { writeRenderedIndex } from './index-file.mjs';
 import { renderCheck, renderManualFixes } from './render.mjs';
 import { bold, dim, green, yellow } from './color.mjs';
 import { checkClaudeCommands, removeGeneratedSlashCommands } from './claude-commands.mjs';
@@ -66,13 +66,20 @@ export function runDoctor(argv, config, opts = {}) {
     return;
   }
 
-  const { dryRun } = opts;
+  const { dryRun, testHooks } = opts;
   // 0.37.0 (F4): the mode banner makes it impossible to mistake a preview run
   // for a real one — and tells the user the exact flag that flips it.
   const modeNote = dryRun
     ? dim('[preview — run with --apply to write]')
     : dim('[applying changes]');
   process.stdout.write(bold('dotmd doctor') + ' ' + modeNote + '\n\n');
+  if (dryRun) {
+    const skippedHooks = ['validate', 'transformDoc', 'formatSnapshot', 'renderCheck']
+      .filter(name => typeof config.hooks?.[name] === 'function');
+    if (skippedHooks.length > 0) {
+      process.stdout.write(dim(`[preview] Custom ${skippedHooks.join(', ')} hook${skippedHooks.length === 1 ? '' : 's'} skipped; diagnostics and rendering below use built-in behavior only.\n\n`));
+    }
+  }
 
   // Step 1: Fix broken references
   process.stdout.write(bold('1. Fixing broken references...') + '\n');
@@ -95,8 +102,7 @@ export function runDoctor(argv, config, opts = {}) {
   } else if (dryRun) {
     process.stdout.write('[dry-run] Would regenerate index.\n');
   } else {
-    const index = buildIndex(config);
-    writeIndex(renderIndexFile(index, config), config);
+    writeRenderedIndex(() => buildIndex(config, { fast: true }), config, { testHooks });
     process.stdout.write('Index updated.\n');
   }
 
@@ -126,7 +132,8 @@ export function runDoctor(argv, config, opts = {}) {
   }
 
   // Step 6: Show remaining check
-  process.stdout.write('\n' + bold('6. Remaining issues:') + '\n');
+  const issueLabel = dryRun ? '6. Remaining issues in current tree (preview fixes above were not applied):' : '6. Remaining issues:';
+  process.stdout.write('\n' + bold(issueLabel) + '\n');
   const freshIndex = buildIndex(config);
   process.stdout.write(renderCheck(freshIndex, config));
   const manual = renderManualFixes(freshIndex);

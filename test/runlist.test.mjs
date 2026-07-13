@@ -1,12 +1,12 @@
 import { describe, it, afterEach } from 'node:test';
-import { strictEqual, ok, match } from 'node:assert';
+import { strictEqual, ok, match, rejects } from 'node:assert';
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { resolveConfig } from '../src/config.mjs';
 import { buildIndex } from '../src/index.mjs';
-import { buildRunlistIndex, buildCoordinationIndex, isCoordinationHub } from '../src/runlist.mjs';
+import { buildRunlistIndex, buildCoordinationIndex, isCoordinationHub, runRunlist } from '../src/runlist.mjs';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
 let tmpDir;
@@ -15,7 +15,7 @@ function run(args, opts = {}) {
   return spawnSync('node', [BIN, 'runlist', ...args], {
     cwd: tmpDir,
     encoding: 'utf8',
-    env: { ...process.env, NO_COLOR: '1' },
+    env: { ...process.env, DOTMD_SESSION_ID: 'runlist-test-session', NO_COLOR: '1' },
     ...opts,
   });
 }
@@ -301,6 +301,27 @@ updated: 2026-05-26`);
     match(readyRaw, /status: in-session/);
     // The parked child is untouched.
     match(readFileSync(path.join(plans, 'parked.md'), 'utf8'), /status: awaiting/);
+  });
+
+  it('skips a child busy in another session and picks the next child', () => {
+    const plans = setupProject();
+    writeDoc(plans, 'hub.md', `type: plan
+status: active
+title: Hub
+updated: 2026-05-26
+runlist:
+  - busy.md
+  - free.md`);
+    writeDoc(plans, 'busy.md', 'type: plan\nstatus: active\ntitle: Busy\nupdated: 2026-05-26');
+    writeDoc(plans, 'free.md', 'type: plan\nstatus: active\ntitle: Free\nupdated: 2026-05-26');
+    const claim = spawnSync('node', [BIN, 'use', path.join(plans, 'busy.md')], {
+      cwd: tmpDir, encoding: 'utf8', env: { ...process.env, DOTMD_SESSION_ID: 'other-session', NO_COLOR: '1' },
+    });
+    strictEqual(claim.status, 0, claim.stderr);
+    const result = run(['next', 'hub.md']);
+    strictEqual(result.status, 0, result.stderr);
+    match(result.stderr, /Started.*free\.md/);
+    match(readFileSync(path.join(plans, 'busy.md'), 'utf8'), /status: in-session/);
   });
 
   it('stops with a runlist-aware error when every remaining child is parked', () => {
@@ -1157,6 +1178,21 @@ updated: 2026-06-26`);
 });
 
 describe('dotmd runlist add <hub> <child...>', () => {
+  it('rolls back every child and hub write when a cross-file commit fails', async () => {
+    const plans = setupProject();
+    writeDoc(plans, 'hub.md', `type: plan\nstatus: active\ntitle: Hub\nupdated: 2026-01-01`);
+    writeDoc(plans, 'child.md', `type: plan\nstatus: planned\ntitle: Child\nupdated: 2026-01-01`);
+    const hub = path.join(plans, 'hub.md');
+    const child = path.join(plans, 'child.md');
+    const hubBefore = readFileSync(hub, 'utf8');
+    const childBefore = readFileSync(child, 'utf8');
+    const config = await resolveConfig(tmpDir, path.join(tmpDir, 'dotmd.config.mjs'));
+    await rejects(runRunlist(['add', 'docs/plans/hub.md', 'docs/plans/child.md'], config, {
+      testHooks: { afterSetCommit: count => { if (count === 1) throw new Error('injected runlist failure'); } },
+    }), /injected runlist failure/);
+    strictEqual(readFileSync(hub, 'utf8'), hubBefore);
+    strictEqual(readFileSync(child, 'utf8'), childBefore);
+  });
   function sprintHub(plans) {
     writeDoc(plans, 'hub.md', `type: plan
 status: active

@@ -49,6 +49,7 @@ function journalArgv(argv, sid = 'test-sid') {
   const dir = path.join(tmpDir, '.dotmd');
   mkdirSync(dir, { recursive: true });
   const entry = {
+    schema: 2,
     ts: new Date().toISOString(), sid, pid: 1,
     argv, exit: 0, ms: 1, v: '0.0.0',
   };
@@ -120,24 +121,23 @@ describe('dotmd baton', () => {
     ok(plan.includes('status: in-session'), 'plan untouched');
   });
 
-  it('resolves the owned plan from the journal when no plan arg given', () => {
+  it('does not treat journal attribution as ownership', () => {
     writePlan('mine');
     writePlan('theirs');
     journalOwn('docs/plans/mine.md');
     const r = run(['baton', '--message', 'resume mine']);
-    strictEqual(r.status, 0, r.stderr);
-    ok(existsSync(path.join(docsDir, 'prompts', 'resume-mine.md')), 'owned plan picked');
+    ok(r.status !== 0, r.stderr);
+    ok(!existsSync(path.join(docsDir, 'prompts', 'resume-mine.md')));
     ok(!existsSync(path.join(docsDir, 'prompts', 'resume-theirs.md')));
     const theirs = readFileSync(path.join(plansDir, 'theirs.md'), 'utf8');
     ok(theirs.includes('status: in-session'), 'other session\'s plan untouched');
   });
 
-  it('falls back to the only in-session plan without a journal match', () => {
+  it('does not fall back to the only global in-session plan', () => {
     writePlan('solo');
     const r = run(['baton', '--message', 'resume solo']);
-    strictEqual(r.status, 0, r.stderr);
-    match(r.stderr, /only in-session plan/);
-    ok(existsSync(path.join(docsDir, 'prompts', 'resume-solo.md')));
+    ok(r.status !== 0, r.stderr);
+    ok(!existsSync(path.join(docsDir, 'prompts', 'resume-solo.md')));
   });
 
   it('does NOT hand off the lone in-session plan when this session worked elsewhere (misfire repro)', () => {
@@ -151,7 +151,7 @@ describe('dotmd baton', () => {
 
     const r = run(['baton', '--message', 'resume my real work'], { sid: 'session-B' });
     ok(r.status !== 0, `baton should refuse; stderr: ${r.stderr}`);
-    match(r.stderr, /No in-session plan/);
+    match(r.stderr, /No valid in-session plan/);
     // A's plan is untouched and no misnamed prompt was minted.
     ok(readFileSync(path.join(plansDir, 'theirs.md'), 'utf8').includes('status: in-session'),
       "other session's plan must stay in-session");
@@ -168,14 +168,13 @@ describe('dotmd baton', () => {
 
     const r = run(['baton', '--message', 'x']);
     ok(r.status !== 0, `should refuse; stderr: ${r.stderr}`);
-    match(r.stderr, /No in-session plan/);
+    match(r.stderr, /No valid in-session plan/);
     ok(readFileSync(path.join(plansDir, 'someone-elses.md'), 'utf8').includes('status: in-session'));
   });
 
-  it('still fast-paths the lone in-session plan when the journal ties this sid to it', () => {
-    // The legit single-session case: this sid `use`d the plan (journal match).
-    writePlan('solo');
-    journalOwn('docs/plans/solo.md');
+  it('uses the sole durable ownership record for no-target baton', () => {
+    writePlan('solo', { status: 'active' });
+    strictEqual(run(['use', 'docs/plans/solo.md']).status, 0);
     const r = run(['baton', '--message', 'resume solo']);
     strictEqual(r.status, 0, r.stderr);
     ok(existsSync(path.join(docsDir, 'prompts', 'resume-solo.md')));
@@ -183,18 +182,19 @@ describe('dotmd baton', () => {
   });
 
   it('stamps the created resume prompt with a `plan:` link back to its plan', () => {
-    writePlan('kinetic');
-    journalOwn('docs/plans/kinetic.md');
+    writePlan('kinetic', { status: 'active' });
+    strictEqual(run(['use', 'docs/plans/kinetic.md']).status, 0);
     const r = run(['baton', '--message', 'resume kinetic']);
     strictEqual(r.status, 0, r.stderr);
     const prompt = readFileSync(path.join(docsDir, 'prompts', 'resume-kinetic.md'), 'utf8');
     match(prompt, /^plan:\s*docs\/plans\/kinetic\.md\s*$/m);
+    match(prompt, /resume kinetic/, 'atomic link stamping preserves the prompt body');
   });
 
   it('round-trip: consuming a baton prompt claims its plan so the next baton hands it off', () => {
     // Session A hands off `kinetic` (→ active) with a plan-linked resume prompt.
-    writePlan('kinetic');
-    journalOwn('docs/plans/kinetic.md', 'session-A');
+    writePlan('kinetic', { status: 'active' });
+    strictEqual(run(['use', 'docs/plans/kinetic.md'], { sid: 'session-A' }).status, 0);
     const a = run(['baton', '--message', 'A: wire the endpoint'], { sid: 'session-A' });
     strictEqual(a.status, 0, a.stderr);
     ok(readFileSync(path.join(plansDir, 'kinetic.md'), 'utf8').includes('status: active'), 'A released to active');
@@ -206,8 +206,7 @@ describe('dotmd baton', () => {
     ok(readFileSync(path.join(plansDir, 'kinetic.md'), 'utf8').includes('status: in-session'),
       'consume claimed the plan in-session');
 
-    // Session B batons with no arg → resolves the claimed plan via the journal
-    // (NOT the single-in-session fast path) and hands it off.
+    // Session B batons with no arg using the durable ownership record.
     const b2 = run(['baton', '--message', 'B: add the retry'], { sid: 'session-B' });
     strictEqual(b2.status, 0, `B's baton should resolve the claimed plan; stderr: ${b2.stderr}`);
     match(b2.stderr, /Baton passed/);
@@ -215,30 +214,51 @@ describe('dotmd baton', () => {
       'B released the claimed plan to active');
   });
 
-  it('consume does not claim a plan whose link is stale (plan archived/removed)', () => {
-    // A resume prompt pointing at a nonexistent plan must consume cleanly, no claim.
-    writeFileSync(path.join(docsDir, 'prompts', 'resume-ghost.md'),
-      '---\ntype: prompt\nstatus: pending\nplan: docs/plans/ghost.md\n---\n# resume\n\nbody\n');
-    const r = run(['use', 'resume-ghost.md']);
-    strictEqual(r.status, 0, r.stderr);
-    ok(!/Claimed/.test(r.stderr), `no claim for a stale link; stderr: ${r.stderr}`);
+  it('consume claim is independent of journal records for later baton ownership', () => {
+    writePlan('claimed', { status: 'active' });
+    writePlan('other', { status: 'in-session' });
+    writeFileSync(path.join(docsDir, 'prompts', 'resume-claimed.md'),
+      '---\ntype: prompt\nstatus: pending\nplan: docs/plans/claimed.md\n---\n# Resume\n\ncontinue\n');
+    const journal = path.join(tmpDir, '.dotmd', 'journal.jsonl');
+    ok(!existsSync(journal), 'precondition: no journal history');
+
+    const consume = run(['use', 'resume-claimed.md'], { sid: 'fresh-session' });
+    strictEqual(consume.status, 0, consume.stderr);
+    const entries = readFileSync(journal, 'utf8').trim().split('\n').map(JSON.parse);
+    ok(!entries.some(entry => entry.argv?.join(' ') === 'set in-session docs/plans/claimed.md'));
+    ok(entries.every(entry => entry.schema === 2), 'outer journal remains observability-only');
+    ok(existsSync(path.join(tmpDir, '.dotmd', 'ownership')), 'durable ownership was created');
+
+    const baton = run(['baton', '--message', 'continue claimed'], { sid: 'fresh-session' });
+    strictEqual(baton.status, 0, baton.stderr);
+    match(baton.stderr, /Baton passed.*claimed/);
+    ok(readFileSync(path.join(plansDir, 'other.md'), 'utf8').includes('status: in-session'), 'unowned plan was untouched');
   });
 
-  it('dies listing candidates when multiple in-session plans are unattributable', () => {
+  it('stale linked plan leaves the prompt pending and unchanged', () => {
+    writeFileSync(path.join(docsDir, 'prompts', 'resume-ghost.md'),
+      '---\ntype: prompt\nstatus: pending\nplan: docs/plans/ghost.md\n---\n# resume\n\nbody\n');
+    const promptPath = path.join(docsDir, 'prompts', 'resume-ghost.md');
+    const before = readFileSync(promptPath, 'utf8');
+    const r = run(['use', 'resume-ghost.md']);
+    ok(r.status !== 0);
+    match(r.stderr, /prompt was not consumed/);
+    strictEqual(readFileSync(promptPath, 'utf8'), before);
+  });
+
+  it('does not infer ownership from multiple unattributed in-session plans', () => {
     writePlan('plan-a');
     writePlan('plan-b');
     const r = run(['baton', '--message', 'x']);
     ok(r.status !== 0);
-    match(r.stderr, /Multiple plans are in-session/);
-    match(r.stderr, /plan-a\.md/);
-    match(r.stderr, /plan-b\.md/);
+    match(r.stderr, /No valid in-session plan/);
   });
 
   it('asks for a slug when no plan is in-session and none was passed', () => {
     writePlan('idle', { status: 'active' });
     const r = run(['baton', '--message', 'x']);
     ok(r.status !== 0);
-    match(r.stderr, /No in-session plan/);
+    match(r.stderr, /No valid in-session plan/);
     match(r.stderr, /dotmd baton <slug>/);
   });
 
@@ -331,21 +351,85 @@ describe('dotmd baton', () => {
     const plan = readFileSync(path.join(plansDir, 'auth-revamp.md'), 'utf8');
     ok(plan.includes('status: in-session'), 'plan untouched');
   });
+
+  it('plan and slug JSON distinguish dry-run previews from applied operations', () => {
+    writePlan('preview-plan');
+    const plan = run(['baton', 'docs/plans/preview-plan.md', '--json', '--dry-run', '--message', 'resume']);
+    strictEqual(plan.status, 0, plan.stderr);
+    const planValue = JSON.parse(plan.stdout);
+    strictEqual(planValue.dryRun, true);
+    strictEqual(planValue.disposition, 'would-change');
+    strictEqual(planValue.wouldChange, true);
+    strictEqual(planValue.mode, 'plan');
+    const slug = run(['baton', 'preview-slug', '--json', '--dry-run', '--message', 'resume']);
+    strictEqual(slug.status, 0, slug.stderr);
+    const slugValue = JSON.parse(slug.stdout);
+    strictEqual(slugValue.dryRun, true);
+    strictEqual(slugValue.disposition, 'would-change');
+    strictEqual(slugValue.wouldChange, true);
+    strictEqual(slugValue.mode, 'slug');
+  });
+
+  it('--json reports repository/session/deferred files and leaves the tracked index byte-identical', () => {
+    writeFileSync(configPath, `
+      export const root = 'docs';
+      export const journal = true;
+      export const index = { path: 'docs/docs.md', startMarker: '<!-- START -->', endMarker: '<!-- END -->' };
+    `);
+    writeFileSync(path.join(docsDir, 'docs.md'), '# Index\n\n<!-- START -->\n\n<!-- END -->\n');
+    writePlan('structured', { status: 'active' });
+    strictEqual(run(['use', 'docs/plans/structured.md'], { sid: 'json-session' }).status, 0);
+    const indexBefore = readFileSync(path.join(docsDir, 'docs.md'));
+    const result = run(['baton', '--json', '--message', 'continue structured'], { sid: 'json-session' });
+    strictEqual(result.status, 0, result.stderr);
+    const value = JSON.parse(result.stdout);
+    strictEqual(value.operation, 'baton');
+    strictEqual(value.dryRun, false);
+    strictEqual(value.disposition, 'applied');
+    strictEqual(value.wouldChange, false);
+    strictEqual(value.status.from, 'in-session');
+    strictEqual(value.status.to, 'active');
+    ok(value.repositoryFiles.includes('docs/plans/structured.md'));
+    ok(value.sessionFiles.includes('docs/prompts/resume-structured.md'));
+    ok(value.sessionFiles.some(item => item.startsWith('.dotmd/ownership/')));
+    strictEqual(value.generatedFiles.length, 0);
+    ok(value.deferredGeneratedFiles.includes('docs/docs.md'));
+    strictEqual(Buffer.compare(readFileSync(path.join(docsDir, 'docs.md')), indexBefore), 0);
+  });
+
+  it('slug mode defers the tracked index and reports only the actual prompt session file', () => {
+    writeFileSync(configPath, `
+      export const root = 'docs';
+      export const index = { path: 'docs/docs.md', startMarker: '<!-- START -->', endMarker: '<!-- END -->' };
+    `);
+    writeFileSync(path.join(docsDir, 'docs.md'), '# Index\n\n<!-- START -->\nkeep\n<!-- END -->\n');
+    const before = readFileSync(path.join(docsDir, 'docs.md'));
+    const result = run(['baton', 'standalone', '--json', '--message', 'continue standalone']);
+    strictEqual(result.status, 0, result.stderr);
+    const value = JSON.parse(result.stdout);
+    strictEqual(value.mode, 'slug');
+    strictEqual(value.repositoryFiles.length, 0);
+    strictEqual(value.sessionFiles.length, 1);
+    strictEqual(value.sessionFiles[0], 'docs/prompts/resume-standalone.md');
+    strictEqual(value.generatedFiles.length, 0);
+    ok(value.deferredGeneratedFiles.includes('docs/docs.md'));
+    strictEqual(Buffer.compare(readFileSync(path.join(docsDir, 'docs.md')), before), 0);
+  });
 });
 
 describe('dotmd hud --json owned', () => {
   beforeEach(() => setupProject());
 
-  it('exposes the journal-attributed in-session plan as .owned', () => {
-    writePlan('mine');
+  it('exposes the durably owned in-session plan as .owned', () => {
+    writePlan('mine', { status: 'active' });
     writePlan('theirs');
-    journalOwn('docs/plans/mine.md');
+    strictEqual(run(['use', 'docs/plans/mine.md']).status, 0);
     const r = run(['hud', '--json']);
     strictEqual(r.status, 0, r.stderr);
     const hud = JSON.parse(r.stdout);
     ok(hud.owned, `owned should be set:\n${r.stdout}`);
     strictEqual(hud.owned.path, 'docs/plans/mine.md');
-    strictEqual(hud.owned.via, 'journal');
+    strictEqual(hud.owned.via, 'ownership');
   });
 
   it('owned is null when nothing is in-session', () => {

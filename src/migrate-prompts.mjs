@@ -6,6 +6,7 @@ import { getGitFirstAdded } from './git.mjs';
 import { bold, green, dim } from './color.mjs';
 import { readFileSync as rfs } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { authorizeManagedSweep } from './managed-path.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(rfs(path.join(__dirname, '..', 'package.json'), 'utf8'));
@@ -124,6 +125,7 @@ export function runMigratePrompts(argv, config, opts = {}) {
   } else {
     files = findPromptCandidates(config);
   }
+  authorizeManagedSweep(files, config, { kind: 'Prompt migration source' });
 
   const results = [];
   let touched = 0;

@@ -22,7 +22,7 @@ function run(args, cwd, opts = {}) {
   const homeDir = opts.home ?? runCwd;
   return spawnSync('node', [BIN, ...args], {
     cwd: runCwd, encoding: 'utf8',
-    env: { ...process.env, NO_COLOR: '1', HOME: homeDir },
+    env: { ...process.env, NO_COLOR: '1', HOME: homeDir, USERPROFILE: homeDir },
   });
 }
 

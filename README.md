@@ -13,6 +13,8 @@ npx dotmd-cli init          # try it without installing — scaffold a repo firs
 # requires Node.js >= 20
 ```
 
+The CLI runtime supports Linux, macOS, and Windows. Maintainer release automation (`npm version` / `npm run release:resume`) is POSIX-only because it requires Bash and POSIX command-line tools; publishing still produces the same cross-platform Node package.
+
 ### Claude Code plugin (recommended)
 
 If you drive dotmd from Claude Code, install the **dotmd plugin**. It teaches every session and subagent the dotmd workflow and guards the wrong-moves agents keep making (committing session-local prompts, `cat`-ing prompts instead of consuming them, hand-editing `status:`):
@@ -114,7 +116,6 @@ Explicit frontmatter always wins. Body extraction is a cushion for partially-tag
 - **Scaffold** — create new docs from templates (plan, ADR, RFC, audit, design)
 - **AI summaries** — summarize docs via local MLX model or custom hook
 - **Export** — generate concatenated markdown, static HTML site, or JSON bundle
-- **Notion** — import from, export to, and bidirectionally sync with Notion databases
 - **Multi-root** — manage docs across multiple directories with a single config
 - **Context briefing** — compact summary designed for AI/LLM consumption
 - **Dry-run** — preview any mutation with `--dry-run` before committing
@@ -285,8 +286,7 @@ dotmd fix-refs               Auto-fix broken reference paths
 dotmd lint [--fix]           Check and auto-fix frontmatter issues
 dotmd rename <old> <new>     Rename doc and update references
 dotmd migrate <f> <old> <new>  Batch update a frontmatter field
-dotmd ship [patch|minor|major] Regen + commit + bump in one step
-dotmd notion <sub> [db-id]   Notion import/export/sync
+dotmd ship [patch|minor|major] Prepare allowed changes, then run npm version
 dotmd export [file]          Export docs as md, html, or json
 dotmd summary <file>         AI summary of a document
 dotmd glossary <term>        Look up domain terms + related docs
@@ -403,7 +403,7 @@ dotmd new prompt from-file @/tmp/draft.md
 
 Manage them with the `prompts` command family:
 
-Consume one with `dotmd use` — it atomically prints the body and archives the prompt so it can't be double-consumed:
+Consume one with `dotmd use`. It commits the archive/claim before writing the body to stdout, so output is at-most-once and the prompt cannot be double-consumed. If stdout fails (for example `EPIPE`), inspect the archived body with `dotmd prompts show <archived-path>`:
 
 ```bash
 dotmd use                         # consume the oldest pending prompt
@@ -438,13 +438,13 @@ Statuses: `pending` (drafted, awaiting a session), `held` (saved but parked unde
 dotmd baton @/tmp/draft.md        # plan mode: a plan is in-session
 ```
 
-In plan mode, baton does the whole closeout in one call:
+In plan mode, baton does the whole closeout in one atomic cooperating transaction:
 
 1. Saves a resume prompt named `resume-<plan-slug>` (collision-safe: `-2`, `-3`, …) under `docs/prompts/` with `status: pending`.
 2. Releases the plan: one status flip, `in-session` → `active` by default (`--status paused|awaiting|partial|blocked` to override, `--note "why"` to record the reason in `## Version History`).
 3. Prints the exact `git commit` command for the plan's frontmatter change — the prompt stays out of the pathspec, because saved prompts are session-local.
 
-Baton resolves *your* plan via the command journal (or takes it explicitly: `dotmd baton <plan-file> @draft`), falling back to the only in-session plan.
+Baton resolves *your* plan only from the local, gitignored ownership record (or takes it explicitly: `dotmd baton <plan-file> @draft`). Journal entries and global in-session counts never grant ownership; zero, ambiguous, corrupt, or stale records require an explicit path or recovery.
 
 No plan involved? Slug mode saves the prompt and touches nothing else:
 
@@ -659,30 +659,6 @@ dotmd export --status active             # filtered export
 dotmd export --type plan                 # export only plans
 ```
 
-### Notion Integration
-
-```bash
-dotmd notion import <database-id>        # pull Notion database → local .md files
-dotmd notion export <database-id>        # push local docs → Notion database
-dotmd notion sync <database-id>          # bidirectional sync (newer wins)
-dotmd notion import <db-id> --force      # overwrite existing files
-dotmd notion sync <db-id> --dry-run      # preview sync actions
-```
-
-Requires `NOTION_TOKEN` env var or `notion.token` in config. Maps Notion properties (select, multi_select, date, status, people, etc.) to YAML frontmatter fields. Configure property mapping in config:
-
-```js
-export const notion = {
-  token: process.env.NOTION_TOKEN,
-  database: 'your-database-id',
-  propertyMap: {
-    'Status': 'status',
-    'Last Updated': 'updated',
-    'Tags': 'surfaces',
-  },
-};
-```
-
 ### Multi-Root
 
 Manage docs across multiple directories:
@@ -717,9 +693,11 @@ dotmd bulk archive docs/old-*.md -n               # preview
 
 ### Open & Closeout
 
-Status is just frontmatter. There's no checkout, lock, or lease — opening a
-plan, transitioning it, and closing it are all plain status writes (archive
-also moves the file).
+Plan lifecycle is frontmatter plus local, gitignored ownership under `.dotmd/`.
+`dotmd use` and `dotmd set in-session` claim a plan for an authoritative host
+session; status/history and ownership changes use atomic cooperating path locks.
+Claude Code and OpenCode session IDs are detected automatically. Other hosts
+must set `DOTMD_SESSION_ID`; anonymous ownership mutations fail closed.
 
 ```bash
 dotmd use docs/plans/my-plan.md          # mark in-session + print the plan card
@@ -731,8 +709,13 @@ dotmd archive docs/plans/my-plan.md      # fully shipped: archive + move + updat
 dotmd archive docs/plans/my-plan.md --closeout-template   # also inject ## Closeout skeleton
 ```
 
-`in-session` is a status like any other — `dotmd set <status> <file>` writes it
-to the file's frontmatter and does nothing else.
+Leaving `in-session` atomically releases ownership. No-target `set`/`baton`
+works only with exactly one valid plan owned by the current session and never
+falls back to a global in-session plan. Pickup hooks are delivered at least
+once with a stable `operationId`; hooks must deduplicate external effects.
+Delivery uses a short persisted token lease: live or unverifiable process owners
+are never reclaimed by age, while an expired lease may retry only after its
+recorded process identity is demonstrably dead.
 
 Add `--note "why"` to any `set` or `archive` to append the reason to the doc's
 `## Version History` section in the same call (creates the section if missing) —
@@ -984,7 +967,7 @@ do not become stale mirrors of volatile `current_state` text. Set
 `snapshot: 'state'` if you want the older `Status Snapshot` table for live
 sections too. Archived highlights still include their historical snapshots.
 
-All exports are optional. Additional options: `context`, `display`, `presets`, `templates`, `excludeDirs`, `notion`. See [`dotmd.config.example.mjs`](dotmd.config.example.mjs) for the full reference.
+All exports are optional. Additional options: `context`, `display`, `presets`, `templates`, and `excludeDirs`. See [`dotmd.config.example.mjs`](dotmd.config.example.mjs) for the full reference.
 
 Config discovery walks up from cwd looking for `dotmd.config.mjs` or `.dotmd.config.mjs`.
 
@@ -1062,7 +1045,6 @@ export function summarizeDiff(diffOutput, filePath) {
 - **Configurable** — statuses, taxonomy, lifecycle, validation rules, display, templates
 - **Hook system** — extend with JS functions, no plugin framework to learn
 - **AI-powered** — local MLX summaries for docs, queries, diffs, and context briefings
-- **Notion sync** — import, export, and bidirectional sync with Notion databases
 - **LLM-friendly** — `dotmd context` generates compact briefings for AI assistants
 - **Shell completion** — bash and zsh via `dotmd completions`
 

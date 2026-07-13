@@ -1,11 +1,16 @@
 import { watch } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { dim } from './color.mjs';
+
+export function watchCliPath(moduleUrl = import.meta.url) {
+  return path.resolve(path.dirname(fileURLToPath(moduleUrl)), '..', 'bin', 'dotmd.mjs');
+}
 
 export function runWatch(argv, config) {
   const subCommand = argv.length > 0 ? argv : ['list'];
-  const cliPath = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'bin', 'dotmd.mjs');
+  const cliPath = watchCliPath();
 
   let lastRun = 0;
   const DEBOUNCE = 300;

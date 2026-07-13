@@ -86,7 +86,7 @@ export function buildStats(index, config) {
 
 export function renderStats(stats, config) {
   const defaultRenderer = (s) => _renderStats(s, config);
-  if (config.hooks.renderStats) {
+  if (!config._execution?.suppressSideEffects && config.hooks.renderStats) {
     try { return config.hooks.renderStats(stats, defaultRenderer); }
     catch (err) { warn(`Hook 'renderStats' threw: ${err.message}`); }
   }

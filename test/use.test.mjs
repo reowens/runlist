@@ -64,7 +64,7 @@ function writeDoc(name, { body = 'reference material body' } = {}) {
 function run(args, env = {}) {
   return spawnSync('node', [bin, ...args, '--config', configPath], {
     cwd: tmpDir, encoding: 'utf8',
-    env: { ...process.env, ...env, NO_COLOR: '1' },
+    env: { ...process.env, DOTMD_SESSION_ID: 'use-test-session', ...env, NO_COLOR: '1' },
   });
 }
 
@@ -105,6 +105,18 @@ describe('dotmd use — no argument', () => {
     ok(existsSync(path.join(docsDir, 'prompts', 'newer.md')), 'newer still pending');
   });
 
+  it('`dotmd next` consumes the oldest pending prompt', () => {
+    writePrompt('older', { created: '2025-01-01', body: 'NEXT alias oldest body' });
+    writePrompt('newer', { created: '2025-06-01', body: 'NEXT alias newer body' });
+
+    const res = run(['next']);
+    strictEqual(res.status, 0, `stderr: ${res.stderr}`);
+    ok(res.stdout.includes('NEXT alias oldest body'), `oldest consumed; got: ${res.stdout}`);
+    ok(!res.stdout.includes('NEXT alias newer body'), 'newer not consumed');
+    ok(existsSync(path.join(docsDir, 'prompts', 'archived', 'older.md')), 'oldest archived');
+    ok(existsSync(path.join(docsDir, 'prompts', 'newer.md')), 'newer still pending');
+  });
+
   it('errors when there are no pending prompts', () => {
     const res = run(['use']);
     ok(res.status !== 0, `expected non-zero exit; got ${res.status}`);
@@ -122,6 +134,25 @@ describe('dotmd use — plan', () => {
     ok(after.includes('status: in-session'), `status flipped; got frontmatter in:\n${after}`);
     ok(res.stdout.includes('payments-refactor'), `card prints the plan; got: ${res.stdout}`);
     ok(existsSync(file), 'plan stays in place (no archive/move)');
+  });
+
+  it('--dry-run leaves the plan, pickup hook, journal, and index untouched', () => {
+    const file = writePlan('dry-plan', { status: 'active' });
+    const before = readFileSync(file, 'utf8');
+    const sentinel = path.join(tmpDir, 'pickup-sentinel');
+    writeFileSync(configPath, [
+      `import { writeFileSync } from 'node:fs';`,
+      `export const root = 'docs';`,
+      `export const journal = true;`,
+      `export function onPickup() { writeFileSync(${JSON.stringify(sentinel)}, 'called'); }`,
+      '',
+    ].join('\n'));
+
+    const res = run(['use', 'docs/plans/dry-plan.md', '--dry-run']);
+    strictEqual(res.status, 0, `stderr: ${res.stderr}`);
+    strictEqual(readFileSync(file, 'utf8'), before, 'plan remains byte-identical');
+    ok(!existsSync(sentinel), 'onPickup hook was not invoked');
+    ok(!existsSync(path.join(tmpDir, '.dotmd', 'journal.jsonl')), 'dry-run did not create a journal');
   });
 });
 

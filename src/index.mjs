@@ -3,6 +3,7 @@ import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { extractFirstHeading, extractSummary, extractStatusSnapshot, extractNextStep, extractChecklistCounts, extractBodyLinks } from './extractors.mjs';
 import { asString, normalizeStringList, normalizeBlockers, mergeUniqueStrings, toRepoPath, warn, die, resolveDocPath, suggestCandidates } from './util.mjs';
+import { findLexicalDocsRoot } from './managed-path.mjs';
 import { validateDoc, validatePlanShape, validateDocShape, checkBidirectionalReferences, checkGitStaleness, checkRunlistBackPointers, checkCoordinationHubExecutionMode, checkRoadmapHubExecutionMode, computeDaysSinceUpdate, computeIsStale, computeChecklistCompletionRate, enrichRefErrorSuggestions } from './validate.mjs';
 import { checkIndex } from './index-file.mjs';
 import { checkClaudeCommands } from './claude-commands.mjs';
@@ -16,14 +17,15 @@ import { checkSkillDrift } from './skill-drift.mjs';
 // `dotmd check`). Saves the full-repo `git log` scan in `checkGitStaleness`
 // plus the bidirectional ref walk + claude-commands check.
 //
-// `errorsOnly: true` runs every error-producing pass (per-file `validateDoc`,
-// `checkIndex`, the `validate` hook) but skips the warning-only cross-doc
+// `errorsOnly: true` runs every built-in error-producing pass (per-file
+// `validateDoc`, `checkIndex`) but skips the warning-only cross-doc
 // passes (bidirectional refs, runlist back-pointers, git staleness, claude
 // commands). Use it from `dotmd hud` — the SessionStart hook only renders the
 // error COUNT, so the warning-only passes are pure overhead there. Preserves
-// the invariant that hud's "✗ N validation errors" line matches `dotmd check`.
+// the built-in invariant that HUD's error count matches `dotmd check`.
 export function buildIndex(config, opts = {}) {
   const { fast = false, errorsOnly = false, autoHealIndex = false } = opts;
+  const invokeHooks = opts.invokeHooks ?? !config._execution?.suppressSideEffects;
   const skipWarningOnlyChecks = fast || errorsOnly;
   const docs = collectDocFiles(config).map(f => parseDocFile(f, config, { fast }));
   if (!fast) {
@@ -42,7 +44,7 @@ export function buildIndex(config, opts = {}) {
     errors.push(...doc.errors);
   }
 
-  if (!fast && config.hooks.validate) {
+  if (!fast && invokeHooks && config.hooks.validate) {
     const ctx = { config, allDocs: docs, repoRoot: config.repoRoot };
     for (const doc of docs) {
       try {
@@ -63,7 +65,7 @@ export function buildIndex(config, opts = {}) {
     }
   }
 
-  const transformedDocs = config.hooks.transformDoc
+  const transformedDocs = invokeHooks && config.hooks.transformDoc
     ? docs.map(d => {
         try { return config.hooks.transformDoc(d) ?? d; }
         catch (err) {
@@ -97,15 +99,19 @@ export function buildIndex(config, opts = {}) {
   }
 
   if (!fast && config.indexPath) {
-    // `autoHealIndex` is opt-in from the caller (currently `dotmd check` and
-    // `dotmd hud`). When true, drift triggers an in-place rewrite and a
+    // `autoHealIndex` is opt-in from the caller (currently `dotmd check`).
+    // When true, drift triggers an in-place rewrite and a
     // warning instead of the old "Run `dotmd index`" error — closing the
     // class of nags produced by mutation paths that skip `regenIndex`
     // (`lint --fix`, direct file edits, etc). `transformedDocs` here is
     // always the canonical full set; CLI-level `--root`/`--type` filtering
     // runs after `buildIndex` returns, so a rewrite is safe. Off by default
     // so dry-run / print modes never mutate disk as a side effect.
-    const indexCheck = checkIndex(transformedDocs, config, { autoHeal: autoHealIndex });
+    const indexCheck = checkIndex(transformedDocs, config, {
+      autoHeal: autoHealIndex,
+      rebuildDocs: autoHealIndex ? () => buildIndex(config, { fast: true }).docs : null,
+      testHooks: opts.testHooks,
+    });
     warnings.push(...indexCheck.warnings);
     errors.push(...indexCheck.errors);
   }
@@ -135,7 +141,7 @@ export function buildIndex(config, opts = {}) {
       if (hub) hub.warnings.push(w);
     }
 
-    const gitWarnings = checkGitStaleness(transformedDocs, config);
+    const gitWarnings = checkGitStaleness(transformedDocs, config, opts.gitMetadataOptions);
     warnings.push(...gitWarnings);
 
     const claudeWarnings = checkClaudeCommands(config.repoRoot);
@@ -326,8 +332,7 @@ export function parseDocFile(filePath, config, opts = {}) {
   }
 
   // Tag doc with its root
-  const roots = config.docsRoots || [config.docsRoot];
-  const docRoot = roots.find(r => filePath.startsWith(r + '/')) ?? config.docsRoot;
+  const docRoot = findLexicalDocsRoot(filePath, config) ?? config.docsRoot;
   const rootLabel = path.relative(config.repoRoot, docRoot).split(path.sep).join('/');
 
   const docType = asString(parsedFrontmatter.type) ?? null;
@@ -365,7 +370,7 @@ export function parseDocFile(filePath, config, opts = {}) {
     hasNextStep: Boolean(nextStep),
     hasBlockers: blockers.length > 0,
     daysSinceUpdate: computeDaysSinceUpdate(asString(parsedFrontmatter.updated) ?? null),
-    isStale: computeIsStale(asString(parsedFrontmatter.status), asString(parsedFrontmatter.updated) ?? null, config),
+    isStale: computeIsStale(asString(parsedFrontmatter.status), asString(parsedFrontmatter.updated) ?? null, config, docType),
     warnings: [],
     errors: [],
   };

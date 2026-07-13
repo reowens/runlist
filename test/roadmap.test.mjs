@@ -29,13 +29,13 @@ function writeDoc(plansDir, filename, frontmatter, body = '') {
 
 function runNew(args) {
   return spawnSync('node', [BIN, 'new', ...args], {
-    cwd: tmpDir, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' },
+    cwd: tmpDir, encoding: 'utf8', env: { ...process.env, DOTMD_SESSION_ID: 'roadmap-test-session', NO_COLOR: '1' },
   });
 }
 
 function runCmd(args) {
   return spawnSync('node', [BIN, ...args], {
-    cwd: tmpDir, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' },
+    cwd: tmpDir, encoding: 'utf8', env: { ...process.env, DOTMD_SESSION_ID: 'roadmap-test-session', NO_COLOR: '1' },
   });
 }
 
@@ -250,6 +250,38 @@ describe('roadmap views + integration (CLI)', () => {
     strictEqual(r.status, 0, r.stderr);
     match(r.stdout, /loose-plan/);
     match(r.stdout, /in-session/);
+  });
+
+  it('dotmd roadmap <hub> next normalizes to the same mutating form', () => {
+    setupRoadmap();
+    const r = runCmd(['roadmap', 'master-roadmap', 'next']);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stdout, /loose-plan/);
+    match(r.stdout, /in-session/);
+  });
+
+  it('rejects unknown flags and extra roadmap positionals before dispatch', () => {
+    setupRoadmap();
+    const flag = runCmd(['roadmap', '--wat']);
+    strictEqual(flag.status, 1);
+    match(flag.stderr, /Unknown flag/);
+    const extra = runCmd(['roadmap', 'master-roadmap', 'extra']);
+    strictEqual(extra.status, 1);
+    match(extra.stderr, /Usage:/);
+  });
+
+  it('dotmd roadmap next skips a leaf busy in another session', () => {
+    const plans = setupRoadmap();
+    const master = path.join(plans, 'master-roadmap.md');
+    writeFileSync(master, readFileSync(master, 'utf8').replace('  - ./loose-plan.md', '  - ./loose-plan.md\n  - ./free-plan.md'));
+    writeDoc(plans, 'free-plan.md', 'type: plan\nstatus: active\ntitle: Free\nupdated: 2026-06-24\nnext_step: -');
+    const claim = spawnSync('node', [BIN, 'use', path.join(plans, 'loose-plan.md')], {
+      cwd: tmpDir, encoding: 'utf8', env: { ...process.env, DOTMD_SESSION_ID: 'other-session', NO_COLOR: '1' },
+    });
+    strictEqual(claim.status, 0, claim.stderr);
+    const result = runCmd(['roadmap', 'next']);
+    strictEqual(result.status, 0, result.stderr);
+    match(result.stdout, /free-plan/);
   });
 
   it('dotmd plans counts roadmaps separately and gives them a section', () => {

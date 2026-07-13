@@ -5,6 +5,7 @@ import { collectDocFiles } from './index.mjs';
 import { toRepoPath, die, warn, resolveDocPath } from './util.mjs';
 import { writeFrontmatter } from './lifecycle.mjs';
 import { green, dim, yellow } from './color.mjs';
+import { authorizeManagedSweep, findLexicalDocsRoot } from './managed-path.mjs';
 
 // Per-type default status for bulk-tagging pre-existing untagged markdown.
 // These intentionally lean conservative (draft / planned) rather than active —
@@ -25,6 +26,9 @@ const DEFAULT_STATUS_BY_TYPE = {
 // Centralizes the inline `rootLabel.includes('plan')` heuristic from lint.mjs
 // and extends it for prompts.
 export function inferTypeFromPath(filePath, docsRoot) {
+  const rootKind = path.basename(docsRoot);
+  if (rootKind === 'plans') return 'plan';
+  if (rootKind === 'prompts') return 'prompt';
   const rel = path.relative(docsRoot, filePath);
   const segments = rel.split(path.sep);
   if (segments.length >= 2) {
@@ -48,11 +52,6 @@ function parseArgs(argv) {
   return opts;
 }
 
-function findFileRoot(filePath, config) {
-  const roots = config.docsRoots || [config.docsRoot];
-  return roots.find(r => filePath.startsWith(r + '/')) ?? config.docsRoot;
-}
-
 export function runBulkTag(argv, config, opts = {}) {
   const { dryRun } = opts;
   const args = parseArgs(argv);
@@ -69,12 +68,13 @@ export function runBulkTag(argv, config, opts = {}) {
   } else {
     pool = allFiles;
   }
+  authorizeManagedSweep(pool, config, { kind: 'Bulk tag source' });
 
   // Skip already-archived files (mirrors bulk archive's policy at
   // lifecycle.mjs:569–573) — settled docs shouldn't be retroactively tagged.
   const archiveDir = config.archiveDir;
   const inArchive = (f) => {
-    const root = findFileRoot(f, config);
+    const root = findLexicalDocsRoot(f, config) ?? config.docsRoot;
     const rel = path.relative(root, f);
     return rel.startsWith(archiveDir + '/') || rel.startsWith(archiveDir + path.sep);
   };
@@ -92,7 +92,7 @@ export function runBulkTag(argv, config, opts = {}) {
     // skipped silently (bulk-tag's job is to fill gaps, not nag).
     if (hasType && hasStatus) continue;
 
-    const root = findFileRoot(filePath, config);
+    const root = findLexicalDocsRoot(filePath, config) ?? config.docsRoot;
     const inferredType = args.typeOverride ?? (hasType ? parsed.type : inferTypeFromPath(filePath, root));
     const defaultStatus = DEFAULT_STATUS_BY_TYPE[inferredType] ?? 'draft';
     const inferredStatus = args.statusOverride ?? (hasStatus ? parsed.status : defaultStatus);

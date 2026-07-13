@@ -130,6 +130,19 @@ describe('dotmd prompts next', () => {
     ok(r.stderr.includes('Consumed'), 'consume confirmation on stderr');
   });
 
+  it('consumes custom expanded prompt statuses in deterministic path order', () => {
+    writeFileSync(configPath, `
+      export const root = 'docs';
+      export const types = { prompt: { statuses: { urgent: { context: 'expanded' }, held: { context: 'listed' }, archived: { context: 'counted', terminal: true, archive: true } } } };
+    `);
+    writePrompt('z-urgent', { status: 'urgent', created: '2025-01-01', body: 'z body' });
+    writePrompt('a-urgent', { status: 'urgent', created: '2025-01-01', body: 'a body' });
+    const result = run(['use']);
+    strictEqual(result.status, 0, result.stderr);
+    ok(result.stdout.includes('a body'), result.stdout);
+    ok(existsSync(path.join(promptsDir, 'z-urgent.md')), 'path tie-break leaves z queued');
+  });
+
   it('archives the file (moves to prompts/archived/, flips status)', () => {
     const file = writePrompt('foo');
     const r = run(['prompts', 'next']);

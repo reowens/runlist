@@ -8,6 +8,7 @@ import { resolveConfig } from '../src/config.mjs';
 import { updateFrontmatter, writeFrontmatter } from '../src/lifecycle.mjs';
 
 let tmpDir;
+process.env.DOTMD_SESSION_ID ||= 'lifecycle-test-session';
 
 function setupProject(opts = {}) {
   tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-life-'));
@@ -969,13 +970,13 @@ describe('dotmd set — status write', () => {
     ok(!existsSync(filePath), 'original location should be empty');
   });
 
-  it('requires an explicit <path>', () => {
+  it('requires exactly one owned plan when <path> is omitted', () => {
     const docsDir = setupProject();
     writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# A\n');
 
     const result = runCli(['set', 'partial']);
     ok(result.status !== 0, 'should fail');
-    ok(/Usage: dotmd set/.test(result.stderr), `expected usage error, got: ${result.stderr}`);
+    ok(/No-target set requires exactly one valid in-session plan owned/.test(result.stderr), `expected ownership error, got: ${result.stderr}`);
   });
 
   it('`set in-session <file>` writes the status without any lease file', () => {

@@ -70,7 +70,7 @@ function readRelatedSummary(rawList, config, docDir) {
 
 // Build the structured card object. Pure: no IO beyond what's passed in.
 export function buildCard(filePath, raw, config) {
-  const { frontmatter: fmRaw, body } = extractFrontmatter(raw);
+  const { frontmatter: fmRaw, body, bodyLineOffset } = extractFrontmatter(raw);
   const fm = parseSimpleFrontmatter(fmRaw);
   const sections = walkSections(body);
 
@@ -117,13 +117,23 @@ export function buildCard(filePath, raw, config) {
 
   // Phases summary + active phase (pointer only, no body)
   const phaseSummary = summarizePhases(sections);
+  const toFileLine = line => line + bodyLineOffset;
+  const phaseSummaryForCard = {
+    ...phaseSummary,
+    phases: phaseSummary.phases.map(phase => ({
+      ...phase,
+      lineStart: toFileLine(phase.lineStart),
+      lineEnd: toFileLine(phase.lineEnd),
+      bodyLineStart: toFileLine(phase.bodyLineStart),
+    })),
+  };
   const activePhase = findActivePhase(sections);
   let activePhasePointer = null;
   if (activePhase) {
     activePhasePointer = {
       heading: activePhase.heading,
-      lineStart: activePhase.lineStart,
-      lineEnd: activePhase.lineEnd,
+      lineStart: toFileLine(activePhase.lineStart),
+      lineEnd: toFileLine(activePhase.lineEnd),
       marker: detectMarker(activePhase.heading),
     };
   }
@@ -136,8 +146,8 @@ export function buildCard(filePath, raw, config) {
     if (lastH2) {
       fallbackPointer = {
         heading: lastH2.heading,
-        lineStart: lastH2.lineStart,
-        lineEnd: lastH2.lineEnd,
+        lineStart: toFileLine(lastH2.lineStart),
+        lineEnd: toFileLine(lastH2.lineEnd),
       };
     }
   }
@@ -148,8 +158,8 @@ export function buildCard(filePath, raw, config) {
   if (oqSection && oqSection.body.trim()) {
     openQuestions = {
       heading: oqSection.heading,
-      lineStart: oqSection.lineStart,
-      lineEnd: oqSection.lineEnd,
+      lineStart: toFileLine(oqSection.lineStart),
+      lineEnd: toFileLine(oqSection.lineEnd),
       count: countBullets(oqSection.body),
     };
   }
@@ -165,11 +175,13 @@ export function buildCard(filePath, raw, config) {
   // Outline = all H2 headings with line ranges; phase summary inline if Phases present
   const outline = sections.filter(s => s.level === 2).map(s => {
     const isPhases = /^phases?$/i.test(s.heading.replace(/[^\w\s]+$/, '').trim());
-    let suffix = `lines ${s.lineStart}-${s.lineEnd}`;
+    const lineStart = toFileLine(s.lineStart);
+    const lineEnd = toFileLine(s.lineEnd);
+    let suffix = `lines ${lineStart}-${lineEnd}`;
     if (isPhases && phaseSummary.total > 0) {
       suffix = `(${phaseSummary.total}: ${statusSummary(phaseSummary.counts)})  ${suffix}`;
     }
-    return { heading: s.heading, lineStart: s.lineStart, lineEnd: s.lineEnd, suffix };
+    return { heading: s.heading, lineStart, lineEnd, suffix };
   });
 
   return {
@@ -181,13 +193,15 @@ export function buildCard(filePath, raw, config) {
     currentState,
     nextStep,
     related,
-    phases: phaseSummary,
+    phases: phaseSummaryForCard,
     activePhase: activePhasePointer,
     fallbackContent: fallbackPointer,
     openQuestions,
     lastVersion,
     outline,
     bodyBytes: body.length,
+    bodyLineOffset,
+    coordinateSpace: 'file',
   };
 }
 

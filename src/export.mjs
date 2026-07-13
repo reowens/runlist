@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter } from './frontmatter.mjs';
 import { buildIndex } from './index.mjs';
 import { buildGraph } from './graph.mjs';
-import { resolveDocPath, toRepoPath, capitalize, die } from './util.mjs';
+import { resolveDocPath, resolveRefPath, toRepoPath, capitalize, die } from './util.mjs';
+import { allocateOutputIdentities } from './output-identity.mjs';
 
 export function runExport(argv, config, opts = {}) {
   const positional = [];
@@ -99,10 +100,11 @@ export function runExport(argv, config, opts = {}) {
     }
   } else if (format === 'html') {
     const outDir = output ?? 'dotmd-export';
+    const identities = allocateOutputIdentities(index.docs);
+    exportHtml(docsWithBody, config, outDir, identities, { dryRun });
     if (dryRun) {
       process.stdout.write(`${prefix}Would export ${docs.length} docs as HTML to ${outDir}/\n`);
     } else {
-      exportHtml(docsWithBody, config, outDir);
       process.stdout.write(`Exported ${docs.length} docs to ${outDir}/\n`);
     }
   }
@@ -235,22 +237,30 @@ ul.toc li { padding: 0.3rem 0; }
 ul.toc .status-group { font-weight: 600; margin-top: 1rem; }
 `.trim();
 
-function exportHtml(docs, config, outDir) {
-  mkdirSync(outDir, { recursive: true });
-
-  // Build index page
-  const indexHtml = buildIndexPage(docs, config);
-  writeFileSync(path.join(outDir, 'index.html'), indexHtml, 'utf8');
-
-  // Build individual doc pages
+function exportHtml(docs, config, outDir, identities, { dryRun = false } = {}) {
+  const emittedPaths = new Set(docs.map(doc => doc.path));
+  const pages = [{ htmlPath: 'index.html', content: buildIndexPage(docs, config, identities) }];
   for (const doc of docs) {
-    const slug = path.basename(doc.path, '.md');
-    const html = buildDocPage(doc);
-    writeFileSync(path.join(outDir, slug + '.html'), html, 'utf8');
+    const identity = identities.get(doc.path);
+    if (!identity) throw new Error(`Missing output identity for ${doc.path}`);
+    pages.push({
+      htmlPath: identity.htmlPath,
+      content: buildDocPage(doc, identity, identities, emittedPaths, config),
+    });
+  }
+
+  const guard = createOutputGuard(outDir);
+  for (const page of pages) guard.validate(page.htmlPath);
+  if (dryRun) return;
+
+  for (const page of pages) {
+    guard.createParent(page.htmlPath);
+    guard.validate(page.htmlPath);
+    writeFileSync(path.join(guard.outputRoot, ...page.htmlPath.split('/')), page.content, 'utf8');
   }
 }
 
-function buildIndexPage(docs, config) {
+function buildIndexPage(docs, config, identities) {
   const today = new Date().toISOString().slice(0, 10);
   const byStatus = {};
   for (const d of docs) {
@@ -265,8 +275,8 @@ function buildIndexPage(docs, config) {
     if (!group?.length) continue;
     toc += `<li class="status-group">${capitalize(status)} (${group.length})</li>\n`;
     for (const doc of group) {
-      const slug = path.basename(doc.path, '.md');
-      toc += `<li><a href="${slug}.html">${escHtml(doc.title)}</a></li>\n`;
+      const identity = identities.get(doc.path);
+      toc += `<li><a href="${escHtml(identity.htmlUrl)}">${escHtml(doc.title)}</a></li>\n`;
     }
   }
 
@@ -285,12 +295,12 @@ ${toc}</ul>
 `;
 }
 
-function buildDocPage(doc) {
-  const slug = path.basename(doc.path, '.md');
-  const badgeClass = `badge-${doc.status ?? 'unknown'}`;
+function buildDocPage(doc, identity, identities, emittedPaths, config) {
+  const status = doc.status ?? 'unknown';
+  const badgeClass = `badge-${status.replace(/[^a-z0-9_-]/gi, '-')}`;
 
   let meta = `<table class="meta">`;
-  meta += `<tr><td>Status</td><td><span class="badge ${badgeClass}">${doc.status ?? 'unknown'}</span></td></tr>`;
+  meta += `<tr><td>Status</td><td><span class="badge ${badgeClass}">${escHtml(status)}</span></td></tr>`;
   if (doc.updated) meta += `<tr><td>Updated</td><td>${escHtml(doc.updated)}</td></tr>`;
   if (doc.modules?.length) meta += `<tr><td>Module</td><td>${escHtml(doc.modules.join(', '))}</td></tr>`;
   if (doc.surfaces?.length) meta += `<tr><td>Surface</td><td>${escHtml(doc.surfaces.join(', '))}</td></tr>`;
@@ -298,7 +308,8 @@ function buildDocPage(doc) {
   meta += `<tr><td>Path</td><td><code>${escHtml(doc.path)}</code></td></tr>`;
   meta += `</table>`;
 
-  const bodyHtml = mdToHtml(doc.body);
+  const bodyHtml = mdToHtml(doc.body, href => resolveHtmlLink(href, doc, identity, identities, emittedPaths, config));
+  const indexHref = relativeHtmlUrl(identity.htmlPath, 'index.html');
 
   return `<!DOCTYPE html>
 <html lang="en"><head>
@@ -307,7 +318,7 @@ function buildDocPage(doc) {
 <title>${escHtml(doc.title)}</title>
 <style>${CSS}</style>
 </head><body>
-<nav><a href="index.html">&larr; Index</a></nav>
+<nav><a href="${escHtml(indexHref)}">&larr; Index</a></nav>
 <article>
 <h1>${escHtml(doc.title)}</h1>
 ${meta}
@@ -317,7 +328,7 @@ ${bodyHtml}
 `;
 }
 
-function mdToHtml(body) {
+function mdToHtml(body, resolveLink = href => href) {
   if (!body?.trim()) return '';
   let html = escHtml(body);
 
@@ -340,7 +351,10 @@ function mdToHtml(body) {
   html = html.replace(/(?<!<code>)`([^`]+)`/g, '<code>$1</code>');
 
   // Links
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, escapedHref) => {
+    const href = resolveLink(unescapeHtml(escapedHref));
+    return href == null ? label : `<a href="${escHtml(href)}">${label}</a>`;
+  });
 
   // Blockquotes
   html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
@@ -363,5 +377,120 @@ function mdToHtml(body) {
 }
 
 function escHtml(text) {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function unescapeHtml(text) {
+  return text.replace(/&quot;/g, '"').replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&amp;/g, '&');
+}
+
+function encodeRelativeUrl(value) {
+  return value.split('/').map(segment => segment === '..' || segment === '.' ? segment : encodeURIComponent(segment)).join('/');
+}
+
+function relativeHtmlUrl(from, to) {
+  const relative = path.posix.relative(path.posix.dirname(from), to) || path.posix.basename(to);
+  return encodeRelativeUrl(relative);
+}
+
+function resolveHtmlLink(href, doc, identity, identities, emittedPaths, config) {
+  if (!href || href.startsWith('#') || href.startsWith('/') || href.startsWith('//') || /^[a-z][a-z0-9+.-]*:/i.test(href)) {
+    return href;
+  }
+
+  const hashAt = href.indexOf('#');
+  const targetPart = hashAt === -1 ? href : href.slice(0, hashAt);
+  const fragment = hashAt === -1 ? '' : href.slice(hashAt);
+  if (!targetPart.toLowerCase().endsWith('.md')) return href;
+
+  const docDir = path.dirname(path.join(config.repoRoot, doc.path));
+  const resolved = resolveRefPath(targetPart, docDir, config.repoRoot);
+  const targetPath = resolved ? toRepoPath(resolved, config.repoRoot) : null;
+  if (!targetPath || !emittedPaths.has(targetPath)) return null;
+  return relativeHtmlUrl(identity.htmlPath, identities.get(targetPath).htmlPath) + fragment;
+}
+
+function nearestExistingAncestor(value) {
+  let current = value;
+  while (true) {
+    try {
+      lstatSync(current);
+      return current;
+    } catch (err) {
+      if (err.code !== 'ENOENT') throw err;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) throw new Error(`Cannot resolve output ancestor: ${value}`);
+    current = parent;
+  }
+}
+
+function createOutputGuard(outDir) {
+  const outputRoot = path.resolve(outDir);
+  const initialAncestor = nearestExistingAncestor(outputRoot);
+  const initialAncestorPhysical = realpathSync(initialAncestor);
+  const outputRootPhysical = existsSync(outputRoot)
+    ? realpathSync(outputRoot)
+    : path.resolve(initialAncestorPhysical, path.relative(initialAncestor, outputRoot));
+
+  if (existsSync(outputRoot) && !statSync(outputRoot).isDirectory()) {
+    throw new Error(`HTML output root is not a directory: ${outputRoot}`);
+  }
+
+  function validate(htmlPath) {
+    const destination = path.resolve(outputRoot, ...htmlPath.split('/'));
+    if (destination === outputRoot || !destination.startsWith(outputRoot + path.sep)) {
+      throw new Error(`HTML output escapes destination: ${htmlPath}`);
+    }
+
+    const currentAncestor = nearestExistingAncestor(outputRoot);
+    const currentPhysical = realpathSync(currentAncestor);
+    const currentRootPhysical = existsSync(outputRoot)
+      ? realpathSync(outputRoot)
+      : path.resolve(currentPhysical, path.relative(currentAncestor, outputRoot));
+    if (currentRootPhysical !== outputRootPhysical) {
+      throw new Error(`HTML output ancestry changed during export: ${outputRoot}`);
+    }
+
+    let current = outputRoot;
+    const components = htmlPath.split('/');
+    for (let i = 0; i < components.length; i++) {
+      const component = components[i];
+      current = path.join(current, component);
+      let entry;
+      try { entry = lstatSync(current); } catch (err) {
+        if (err.code === 'ENOENT') break;
+        throw err;
+      }
+      if (entry.isSymbolicLink()) {
+        throw new Error(`HTML output path contains a descendant symlink: ${current}`);
+      }
+      const isDestination = i === components.length - 1;
+      if ((!isDestination && !entry.isDirectory()) || (isDestination && entry.isDirectory())) {
+        throw new Error(`HTML output path has an incompatible existing entry: ${current}`);
+      }
+    }
+  }
+
+  function createParent(htmlPath) {
+    if (!existsSync(outputRoot)) {
+      const ancestor = nearestExistingAncestor(outputRoot);
+      let current = ancestor;
+      for (const component of path.relative(ancestor, outputRoot).split(path.sep).filter(Boolean)) {
+        validate(htmlPath);
+        current = path.join(current, component);
+        if (!existsSync(current)) mkdirSync(current);
+      }
+    }
+    let current = outputRoot;
+    const components = htmlPath.split('/').slice(0, -1);
+    for (const component of components) {
+      validate(htmlPath);
+      current = path.join(current, component);
+      if (!existsSync(current)) mkdirSync(current);
+      if (!statSync(current).isDirectory()) throw new Error(`HTML output parent is not a directory: ${current}`);
+    }
+  }
+
+  return { outputRoot, validate, createParent };
 }

@@ -1,13 +1,13 @@
-import { readFileSync, fstatSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
-import { asString, toRepoPath, die, warn, currentSessionId } from './util.mjs';
+import { asString, toRepoPath, die, warn } from './util.mjs';
 import { buildIndex, resolveDocArg } from './index.mjs';
-import { readJournalEntries } from './journal.mjs';
-import { runNew, readBodyInput } from './new.mjs';
-import { runSet, updateFrontmatter } from './lifecycle.mjs';
-import { resolvePromptInput } from './prompts.mjs';
+import { preparePromptDocument, runNew, readBodyInput, readPipedBodyInput } from './new.mjs';
+import { ensurePlanCompletionBeforeRelease, planHasPendingCompletion, runSet } from './lifecycle.mjs';
 import { green, dim } from './color.mjs';
+import { authorizeManagedSource } from './managed-path.mjs';
+import { assertPlanMutationAuthorized, authoritativeSessionId, listOwnedPlans, readPlanOwnership } from './pickup.mjs';
 
 // `dotmd baton` is the one-command handoff: save the resume prompt AND release
 // the plan in a single atomic-ish verb. It exists because the three-step skill
@@ -16,63 +16,14 @@ import { green, dim } from './color.mjs';
 // tangled in what to commit. Baton does exactly one plan, one prompt, one
 // status flip, and then *tells* the agent the exact commit command.
 
-// Does a journal argv doc reference point at this index doc? References come
-// from `use <x>` / `set in-session <x>` invocations, so they may be a repo
-// path, a bare basename, or a slug without .md.
-function matchesDocRef(doc, ref) {
-  if (typeof ref !== 'string' || !ref) return false;
-  const cleaned = ref.replace(/^\.\//, '');
-  if (doc.path === cleaned) return true;
-  const base = path.basename(doc.path, '.md');
-  if (cleaned === base || cleaned === `${base}.md`) return true;
-  return doc.path.endsWith(`/${cleaned}`) || doc.path.endsWith(`/${cleaned}.md`);
-}
-
-// Resolve which in-session plan belongs to THIS session. There is no checkout
-// or lock — in-session is just frontmatter — so ownership is reconstructed
-// from the per-repo journal: the last `use <plan>` / `set in-session <plan>`
-// this sid ran whose target is still in-session. Falls back to "the only
-// in-session plan" when the journal is *silent* for this session (disabled, or
-// another tool flipped the status). Returns { plan, via, inSession }; plan is
-// null when there's no defensible answer (caller decides how to ask).
 export function findOwnedPlan(config, index = null) {
   const idx = index ?? buildIndex(config);
   const inSession = idx.docs.filter(d => d.type === 'plan' && d.status === 'in-session');
-  if (inSession.length === 0) return { plan: null, via: null, inSession };
-
-  const sid = currentSessionId();
-  let entries = [];
-  try { entries = readJournalEntries(config); } catch { entries = []; }
-  // Did THIS session issue any ownership command at all (`use` / `set in-session`
-  // / `status … in-session`)? If it did but none matched an in-session plan, this
-  // session's work lives elsewhere (e.g. it consumed a `use <prompt>`, or worked
-  // a plan that's since been released) — so the lone in-session plan is
-  // presumptively *another* session's, and auto-selecting it would flip a
-  // stranger's status. Track that to gate the single-in-session fast path below.
-  let sawOwnershipRef = false;
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const e = entries[i];
-    if (e?.sid !== sid || !Array.isArray(e.argv) || (e.exit ?? 0) !== 0) continue;
-    const a = e.argv;
-    let ref = null;
-    if (a[0] === 'use') ref = a.slice(1).find(x => typeof x === 'string' && !x.startsWith('-'));
-    else if (a[0] === 'set' && a[1] === 'in-session') ref = a.slice(2).find(x => typeof x === 'string' && !x.startsWith('-'));
-    else if (a[0] === 'status' && a.includes('in-session')) ref = a.slice(1).find(x => typeof x === 'string' && !x.startsWith('-') && x !== 'in-session');
-    if (!ref) continue;
-    sawOwnershipRef = true;
-    const doc = inSession.find(d => matchesDocRef(d, ref));
-    if (doc) return { plan: doc, via: 'journal', inSession };
-  }
-
-  // Single-in-session fast path — ONLY when the journal is silent about this
-  // session's ownership intent. If this sid *did* run an ownership command that
-  // pointed somewhere other than the lone in-session plan, refuse and let the
-  // caller demand an explicit slug/plan rather than hand off a plan this session
-  // never touched (the cross-session baton misfire).
-  if (inSession.length === 1 && !sawOwnershipRef) {
-    return { plan: inSession[0], via: 'single-in-session', inSession };
-  }
-  return { plan: null, via: null, inSession };
+  let records = [];
+  try { records = listOwnedPlans(config, authoritativeSessionId()); } catch { return { plan: null, via: null, inSession }; }
+  const owned = records.map(record => inSession.find(doc => doc.path === record.plan)).filter(Boolean);
+  const clean = (records.diagnostics?.length ?? 0) === 0;
+  return { plan: clean && owned.length === 1 ? owned[0] : null, via: clean && owned.length === 1 ? 'ownership' : null, inSession, owned, diagnostics: records.diagnostics ?? [] };
 }
 
 const BODY_USAGE = `dotmd baton needs the resume draft as its body. Write 10–20 lines first — the next concrete decision plus any gotchas, NOT a recap of the plan — then:
@@ -89,17 +40,21 @@ function looksLikePath(arg) {
 
 export async function runBaton(argv, config, opts = {}) {
   const { dryRun } = opts;
+  const json = argv.includes('--json');
 
   let status = 'active';
   let statusFlag = false;
   let note = null;
   let bodyFlag = null;
+  let force = false;
   const positionals = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--status' && argv[i + 1]) { status = argv[++i]; statusFlag = true; continue; }
     if (a === '--note' && argv[i + 1]) { note = argv[++i]; continue; }
     if ((a === '--body' || a === '--message') && argv[i + 1]) { bodyFlag = argv[++i]; continue; }
+    if (a === '--force') { force = true; continue; }
+    if (a === '--json') continue;
     if (!a.startsWith('-') || a === '-' || a.startsWith('@')) { positionals.push(a); continue; }
     die(`Unknown flag for \`dotmd baton\`: ${a}`);
   }
@@ -119,13 +74,7 @@ export async function runBaton(argv, config, opts = {}) {
   else if (bodyArg !== null) body = readBodyInput(bodyArg);
   else {
     // Auto-consume piped/redirected stdin, same probe as `dotmd new`.
-    try {
-      const stat = fstatSync(0);
-      if (stat.isFIFO() || stat.isFile() || stat.isSocket()) {
-        const piped = readFileSync(0, 'utf8');
-        if (piped.length > 0) body = piped;
-      }
-    } catch { /* stdin not introspectable */ }
+    body = readPipedBodyInput();
   }
   if (!body || !body.trim()) die(BODY_USAGE);
 
@@ -157,19 +106,19 @@ export async function runBaton(argv, config, opts = {}) {
     const owned = findOwnedPlan(config);
     if (owned.plan) {
       planPath = path.resolve(config.repoRoot, owned.plan.path);
-      if (owned.via === 'single-in-session') {
-        process.stderr.write(dim(`Handing off the only in-session plan: ${owned.plan.path}\n`));
-      }
-    } else if (owned.inSession.length > 1) {
-      die(`Multiple plans are in-session and the journal can't tell which is this session's — pass yours explicitly:\n${owned.inSession.map(d => '  dotmd baton ' + d.path + ' @/tmp/draft.md').join('\n')}\nNot about a plan? Name the handoff instead: dotmd baton <slug> @/tmp/draft.md`);
+    } else if (owned.owned?.length > 1) {
+      die(`Multiple plans are owned by this session; pass one explicitly:\n${owned.owned.map(d => '  dotmd baton ' + d.path + ' @/tmp/draft.md').join('\n')}`);
     } else {
-      die(`No in-session plan, so baton needs a name for the resume prompt:\n  dotmd baton <slug> @/tmp/draft.md      # saves resume-<slug>, touches nothing else\nHanding off a specific plan? dotmd baton <plan-file> @/tmp/draft.md`);
+      const diagnostics = owned.diagnostics?.length ? `\nIgnored ownership records:\n${owned.diagnostics.map(d => `  ${d}`).join('\n')}` : '';
+      die(`No valid in-session plan is owned by this session, so baton needs a name for the resume prompt:\n  dotmd baton <slug> @/tmp/draft.md      # saves resume-<slug>, touches nothing else\nHanding off a specific plan? dotmd baton <plan-file> @/tmp/draft.md${diagnostics}`);
     }
   }
 
   let repoPath = null;
   let oldStatus = null;
+  let ownershipPath = null;
   if (planPath) {
+    planPath = authorizeManagedSource(planPath, config, { kind: 'Baton plan source' }).path;
     repoPath = toRepoPath(planPath, config.repoRoot);
     const raw = readFileSync(planPath, 'utf8');
     const { frontmatter: fmRaw } = extractFrontmatter(raw);
@@ -187,64 +136,108 @@ export async function runBaton(argv, config, opts = {}) {
     if (validStatuses && validStatuses.size > 0 && !validStatuses.has(status)) {
       die(`Invalid status \`${status}\` for type \`${docType ?? 'plan'}\`\nValid: ${[...validStatuses].join(', ')}`);
     }
+    if (status === 'in-session') {
+      die('`dotmd baton --status in-session` contradicts baton release semantics. Choose active/paused/awaiting/partial/blocked.');
+    }
+    assertPlanMutationAuthorized(repoPath, config, { sessionId: authoritativeSessionId(), force });
+    ownershipPath = readPlanOwnership(repoPath, config)?.recordPath ?? null;
+    if (!dryRun) ensurePlanCompletionBeforeRelease(repoPath, config, { testHooks: opts.testHooks });
+    else if (planHasPendingCompletion(repoPath, config)) process.stderr.write(`${dim('[dry-run]')} Pending claim completion would block this release.\n`);
   } else {
     if (statusFlag) warn(`--status ignored — no plan involved in this handoff (saving the prompt only).`);
     if (note) warn(`--note ignored — no plan involved in this handoff (notes land in a plan's Version History).`);
   }
 
-  // 1. Save the resume prompt. Collision-safe: resume-<slug>, then -2, -3, …
-  // (a pending resume-<slug> from an earlier handoff must never block this one,
-  // and bodies are not mergeable).
+  // Plan mode publishes the already-stamped prompt, status/history update, and
+  // ownership release in one transaction. Slug mode has no plan transaction.
   const nameBase = planPath ? path.basename(planPath, '.md') : promptSlug;
   const slugBase = nameBase.startsWith('resume-') ? nameBase : `resume-${nameBase}`;
   let createdSlug = null;
-  for (let n = 1; n <= 9 && !createdSlug; n++) {
-    const slug = n === 1 ? slugBase : `${slugBase}-${n}`;
-    try {
-      await runNew(['prompt', slug, '--body', body], config, { dryRun });
-      createdSlug = slug;
-    } catch (err) {
-      if (!/File already exists/.test(String(err?.message))) throw err;
+  let archiveResult = null;
+  let statusChanged = false;
+  let promptRepoPath = null;
+  let newResult = null;
+  const muted = [];
+  const originalStdoutWrite = process.stdout.write;
+  if (json) process.stdout.write = chunk => { muted.push(String(chunk)); return true; };
+  try {
+  if (!planPath) {
+    for (let n = 1; n <= 9 && !createdSlug; n++) {
+      const slug = n === 1 ? slugBase : `${slugBase}-${n}`;
+      try {
+        const prepared = preparePromptDocument(slug, body, config, { dryRun });
+        newResult = await runNew(['prompt', slug, '--body', body], config, { dryRun, deferIndex: true });
+        createdSlug = slug;
+        promptRepoPath = prepared.repoPath;
+      }
+      catch (err) { if (!/File already exists/.test(String(err?.message))) throw err; }
     }
+  } else {
+    for (let n = 1; n <= 9 && !createdSlug; n++) {
+      const candidate = n === 1 ? slugBase : `${slugBase}-${n}`;
+      const prepared = preparePromptDocument(candidate, body, config, { plan: repoPath, dryRun });
+      if (existsSync(prepared.filePath)) continue;
+      const setArgs = [status, planPath];
+      if (force) setArgs.push('--force');
+      if (note) setArgs.push('--note', note);
+      try {
+        if (dryRun) process.stdout.write(`${dim('[dry-run]')} Would create: ${prepared.repoPath}\n`);
+        archiveResult = await runSet(setArgs, config, {
+          dryRun,
+          viaBaton: true,
+          testHooks: opts.testHooks,
+          creations: dryRun ? [] : [{ path: prepared.filePath, content: prepared.content }],
+          deferIndex: true,
+        });
+        createdSlug = prepared.slug;
+        promptRepoPath = prepared.repoPath;
+        statusChanged = oldStatus !== status;
+        if (!dryRun) {
+          try { config.hooks.onNew?.({ path: prepared.repoPath, status: 'pending', title: prepared.slug, type: 'prompt' }); }
+          catch (err) { warn(`Hook 'onNew' threw: ${err.message}`); }
+        }
+      } catch (err) {
+        if (!/Destination already exists|File already exists/.test(String(err?.message))) throw err;
+      }
+    }
+  }
+  } finally {
+    if (json) process.stdout.write = originalStdoutWrite;
   }
   if (!createdSlug) die(`Could not find a free prompt slug for ${slugBase} (tried ${slugBase}-2 … ${slugBase}-9).`);
 
-  // Link the prompt back to its plan so the next session's `dotmd use` re-claims
-  // it (consume = claim). The resume-<slug> filename is a lossy link under -N
-  // suffixing / plan renames; the explicit `plan:` field is the durable one.
-  // Best-effort: a resolve/write hiccup must never fail an otherwise-good handoff.
-  if (planPath && !dryRun) {
-    try {
-      const promptPath = resolvePromptInput(createdSlug, config, { dieOnMiss: false });
-      if (promptPath) updateFrontmatter(promptPath, { plan: repoPath });
-    } catch { /* stamping is best-effort */ }
-  }
+  const normalizeRepoPath = candidate => {
+    if (!candidate) return null;
+    return path.isAbsolute(candidate) ? toRepoPath(candidate, config.repoRoot) : candidate;
+  };
+  const touched = (archiveResult?.touched ?? (planPath && statusChanged ? [repoPath] : [])).map(normalizeRepoPath);
+  const ownershipRepoPath = normalizeRepoPath(ownershipPath);
+  const repositoryFiles = [...new Set(touched.filter(candidate => candidate && candidate !== ownershipRepoPath && candidate !== promptRepoPath && candidate !== normalizeRepoPath(config.indexPath)))];
+  const sessionFiles = [...new Set([...(newResult?.sessionFiles ?? []), promptRepoPath, ownershipRepoPath].filter(Boolean))];
+  const deferredGeneratedFiles = [...new Set(newResult?.deferredGeneratedFiles ?? (config.indexPath ? [normalizeRepoPath(config.indexPath)] : []))];
+  const operationResult = {
+    operation: 'baton',
+    dryRun: Boolean(dryRun),
+    disposition: dryRun ? 'would-change' : 'applied',
+    wouldChange: Boolean(dryRun),
+    mode: planPath ? 'plan' : 'slug',
+    status: planPath ? { from: oldStatus, to: status, changed: statusChanged } : null,
+    repositoryFiles,
+    sessionFiles,
+    generatedFiles: [],
+    deferredGeneratedFiles,
+    prompt: promptRepoPath,
+    plan: archiveResult?.newRepoPath ?? repoPath,
+  };
 
-  // 2. Release the plan — exactly one status flip. Skipped entirely in slug
-  // mode: with no plan involved there is nothing to release.
-  let archiveResult = null;
-  let statusChanged = false;
-  if (planPath) {
-    if (oldStatus === status) {
-      process.stderr.write(dim(`Plan already ${status}: ${repoPath} (no status change)\n`));
-    } else {
-      const setArgs = [status, planPath];
-      if (note) setArgs.push('--note', note);
-      // viaBaton: this release IS the handoff — don't let runSet nudge "leave a
-      // baton" on top of the baton we're in the middle of.
-      archiveResult = await runSet(setArgs, config, { dryRun, viaBaton: true });
-      statusChanged = true;
-    }
-  }
-
-  // 3. Tell the agent exactly what to commit — and what NOT to. The prompt is
-  // session-local (often gitignored); only the plan's frontmatter change is
-  // repo state.
   const prefix = dryRun ? dim('[dry-run] ') : '';
+  if (json) {
+    process.stdout.write(JSON.stringify(operationResult, null, 2) + '\n');
+    return operationResult;
+  }
   process.stderr.write(`\n${prefix}${green('✓ Baton passed')}: ${createdSlug} (the next session's hud surfaces it — nothing to paste into chat)\n`);
   if (statusChanged) {
-    const newRepoPath = archiveResult?.newRepoPath ?? null;
-    const pathspec = newRepoPath && newRepoPath !== repoPath ? `${repoPath} ${newRepoPath}` : repoPath;
+    const pathspec = operationResult.repositoryFiles.join(' ');
     let gitignored = false;
     try {
       const { isGitIgnored } = await import('./git.mjs');
@@ -253,8 +246,10 @@ export async function runBaton(argv, config, opts = {}) {
     if (gitignored) {
       process.stderr.write(dim(`${repoPath} is gitignored — no commit needed.\n`));
     } else {
-      process.stderr.write(`${prefix}Commit the plan's status change (keep the prompt OUT of the pathspec — it's session-local):\n`);
+      process.stderr.write(`${prefix}Commit the repository files (session files stay OUT of the pathspec):\n`);
       process.stderr.write(`${prefix}  git commit -m "baton: ${path.basename(planPath, '.md')} ${oldStatus} → ${status}" -- ${pathspec}\n`);
     }
   }
+  if (operationResult.deferredGeneratedFiles.length) process.stderr.write(dim(`Generated index deferred: ${operationResult.deferredGeneratedFiles.join(', ')}\n`));
+  return operationResult;
 }

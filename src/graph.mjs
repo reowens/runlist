@@ -13,6 +13,24 @@ const STATUS_COLORS = {
 };
 const DEFAULT_COLOR = '#f2f2f2';
 
+function tupleSetHas(root, values) {
+  let current = root;
+  for (let i = 0; i < values.length - 1; i++) {
+    current = current.get(values[i]);
+    if (!current) return false;
+  }
+  return current.has(values.at(-1));
+}
+
+function tupleSetAdd(root, values) {
+  let current = root;
+  for (let i = 0; i < values.length - 1; i++) {
+    if (!current.has(values[i])) current.set(values[i], new Map());
+    current = current.get(values[i]);
+  }
+  current.set(values.at(-1), true);
+}
+
 export function buildGraph(index, config, filters = {}) {
   const biFields = new Set(config.referenceFields.bidirectional || []);
   const uniFields = new Set(config.referenceFields.unidirectional || []);
@@ -52,7 +70,7 @@ export function buildGraph(index, config, filters = {}) {
 
   // Build edges
   const edges = [];
-  const edgeKeys = new Set();
+  const edgeKeys = new Map();
   const referencedPaths = new Set();
 
   for (const doc of docs) {
@@ -62,9 +80,9 @@ export function buildGraph(index, config, filters = {}) {
       for (const relPath of (doc.refFields[field] || [])) {
         const resolved = resolveRefPath(relPath, docDir, config.repoRoot) ?? path.resolve(docDir, relPath);
         const targetPath = toRepoPath(resolved, config.repoRoot);
-        const edgeKey = `${doc.path}|${targetPath}|${field}`;
-        if (edgeKeys.has(edgeKey)) continue;
-        edgeKeys.add(edgeKey);
+        const edgeKey = [doc.path, targetPath, field];
+        if (tupleSetHas(edgeKeys, edgeKey)) continue;
+        tupleSetAdd(edgeKeys, edgeKey);
 
         const broken = !allDocPaths.has(targetPath);
         const external = !broken && !docPathSet.has(targetPath);
@@ -117,7 +135,7 @@ export function buildGraph(index, config, filters = {}) {
 
 export function renderGraphText(graph, config) {
   const defaultRenderer = (g) => _renderGraphText(g, config);
-  if (config.hooks.renderGraph) {
+  if (!config._execution?.suppressSideEffects && config.hooks.renderGraph) {
     try { return config.hooks.renderGraph(graph, defaultRenderer); }
     catch (err) { warn(`Hook 'renderGraph' threw: ${err.message}`); }
   }
@@ -196,22 +214,22 @@ export function renderGraphDot(graph, config) {
   lines.push('');
 
   // Nodes
-  const nodeSet = new Set(nodes.map(n => n.slug));
+  const nodeSet = new Set(nodes.map(n => n.id));
   for (const node of nodes) {
     const color = STATUS_COLORS[node.status] ?? DEFAULT_COLOR;
-    lines.push(`  "${node.slug}" [label="${node.slug}\\n(${node.status ?? 'unknown'})", fillcolor="${color}"];`);
+    lines.push(`  ${dotString(node.id)} [label=${dotString(`${node.slug}\n(${node.status ?? 'unknown'})`)}, fillcolor=${dotString(color)}];`);
   }
 
   // Synthesize broken/external target nodes
   const syntheticNodes = new Set();
   for (const edge of edges) {
     const targetSlug = path.basename(edge.target, '.md');
-    if (!nodeSet.has(targetSlug) && !syntheticNodes.has(targetSlug)) {
-      syntheticNodes.add(targetSlug);
+    if (!nodeSet.has(edge.target) && !syntheticNodes.has(edge.target)) {
+      syntheticNodes.add(edge.target);
       if (edge.broken) {
-        lines.push(`  "${targetSlug}" [label="${targetSlug}\\n(unknown)", style="rounded,dashed,filled", fillcolor="#ffb3b3"];`);
+        lines.push(`  ${dotString(edge.target)} [label=${dotString(`${targetSlug}\n(unknown)`)}, style="rounded,dashed,filled", fillcolor="#ffb3b3"];`);
       } else if (edge.external) {
-        lines.push(`  "${targetSlug}" [label="${targetSlug}\\n(filtered)", style="rounded,dashed,filled", fillcolor="#e6e6e6"];`);
+        lines.push(`  ${dotString(edge.target)} [label=${dotString(`${targetSlug}\n(filtered)`)}, style="rounded,dashed,filled", fillcolor="#e6e6e6"];`);
       }
     }
   }
@@ -222,37 +240,47 @@ export function renderGraphDot(graph, config) {
   const biEdgeIndex = new Map();
   for (const edge of edges) {
     if (edge.type !== 'bidirectional') continue;
-    const key = `${edge.source}|${edge.target}|${edge.field}`;
-    biEdgeIndex.set(key, edge);
+    tupleSetAdd(biEdgeIndex, [edge.source, edge.target, edge.field]);
   }
 
-  const rendered = new Set();
+  const rendered = new Map();
   for (const edge of edges) {
-    const sourceSlug = path.basename(edge.source, '.md');
-    const targetSlug = path.basename(edge.target, '.md');
-    const edgeKey = [edge.source, edge.target, edge.field].sort().join('|');
+    const [first, second] = edge.source.localeCompare(edge.target) <= 0
+      ? [edge.source, edge.target]
+      : [edge.target, edge.source];
+    const edgeKey = [first, second, edge.field];
 
-    if (rendered.has(edgeKey)) continue;
-    rendered.add(edgeKey);
+    if (tupleSetHas(rendered, edgeKey)) continue;
+    tupleSetAdd(rendered, edgeKey);
 
     if (edge.broken) {
-      lines.push(`  "${sourceSlug}" -> "${targetSlug}" [style=dashed, color=red, label="${edge.field}"];`);
+      lines.push(`  ${dotString(edge.source)} -> ${dotString(edge.target)} [style=dashed, color=red, label=${dotString(edge.field)}];`);
     } else if (edge.type === 'bidirectional') {
       // Check if reverse edge exists
-      const reverseKey = `${edge.target}|${edge.source}|${edge.field}`;
-      if (biEdgeIndex.has(reverseKey)) {
-        lines.push(`  "${sourceSlug}" -> "${targetSlug}" [dir=both, label="${edge.field}", color="#666666"];`);
+      if (tupleSetHas(biEdgeIndex, [edge.target, edge.source, edge.field])) {
+        lines.push(`  ${dotString(edge.source)} -> ${dotString(edge.target)} [dir=both, label=${dotString(edge.field)}, color="#666666"];`);
       } else {
-        lines.push(`  "${sourceSlug}" -> "${targetSlug}" [label="${edge.field}", color="#666666"];`);
+        lines.push(`  ${dotString(edge.source)} -> ${dotString(edge.target)} [label=${dotString(edge.field)}, color="#666666"];`);
       }
     } else {
       const style = edge.external ? ', style=dashed' : '';
-      lines.push(`  "${sourceSlug}" -> "${targetSlug}" [label="${edge.field}", color="#999999"${style}];`);
+      lines.push(`  ${dotString(edge.source)} -> ${dotString(edge.target)} [label=${dotString(edge.field)}, color="#999999"${style}];`);
     }
   }
 
   lines.push('}');
   return lines.join('\n') + '\n';
+}
+
+function dotString(value) {
+  const escaped = String(value).replace(/[\\"\r\n\x00-\x1f\x7f]/g, character => {
+    if (character === '\\') return '\\\\';
+    if (character === '"') return '\\"';
+    if (character === '\r') return '\\r';
+    if (character === '\n') return '\\n';
+    return `\\x${character.charCodeAt(0).toString(16).padStart(2, '0')}`;
+  });
+  return `"${escaped}"`;
 }
 
 // ── JSON renderer ──────────────────────────────────────────────────────

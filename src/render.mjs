@@ -6,6 +6,7 @@ import { summarizeDocBody } from './ai.mjs';
 import { bold, red, yellow, green, dim } from './color.mjs';
 import { categorizeWarnings } from './check-collapse.mjs';
 import { buildCoordinationIndex, isRoadmapHub } from './runlist.mjs';
+import { resolveStatusMetadata, statusMetadataFor } from './status-metadata.mjs';
 
 // Render `currentState` with an `(auto)` prefix when the value was body-scraped
 // rather than read from frontmatter. Lets a reader see at a glance which docs
@@ -20,7 +21,7 @@ export function formatCurrentState(doc) {
 
 export function renderCompactList(index, config) {
   const defaultRenderer = (idx) => _renderCompactList(idx, config);
-  if (config.hooks.renderCompactList) {
+  if (!config._execution?.suppressSideEffects && config.hooks.renderCompactList) {
     try { return config.hooks.renderCompactList(index, defaultRenderer); }
     catch (err) { warn(`Hook 'renderCompactList' threw: ${err.message}`); }
   }
@@ -162,7 +163,7 @@ export function renderVerboseList(index, config) {
 
 export function renderContext(index, config, opts = {}) {
   const defaultRenderer = (idx) => _renderContext(idx, config, opts);
-  if (config.hooks.renderContext) {
+  if (!config._execution?.suppressSideEffects && config.hooks.renderContext) {
     try { return config.hooks.renderContext(index, defaultRenderer); }
     catch (err) { warn(`Hook 'renderContext' threw: ${err.message}`); }
   }
@@ -190,7 +191,7 @@ function _renderContextSection(docs, ctx, opts, config, lines) {
         ? truncate(doc.nextStep, ctx.truncateNextStep || 80)
         : '(no next step)';
       lines.push(`  ${slug}${ageTag}  next: ${next}`);
-      if (opts.summarize) {
+      if (opts.summarize && !config._execution?.suppressSideEffects) {
         try {
           const absPath = path.resolve(config.repoRoot, doc.path);
           const raw = readFileSync(absPath, 'utf8');
@@ -225,6 +226,9 @@ function _renderContextSection(docs, ctx, opts, config, lines) {
 function _renderContext(index, config, opts = {}) {
   const today = new Date().toISOString().slice(0, 10);
   const lines = [`BRIEFING (${today})`, ''];
+  if (opts.summarize && config._execution?.suppressSideEffects) {
+    lines.push(dim('[preview] AI summaries skipped; models and custom summarizeDoc hooks are not invoked.'), '');
+  }
 
   // Group docs by type
   const typeOrder = ['plan', 'doc', 'research'];
@@ -352,11 +356,16 @@ export function renderBriefing(index, config) {
     // headline plan count entirely (they get their own `N runlists · dotmd
     // runlists` pointer line below). The breakdown is leaf statuses only and sums
     // back to the leaf count, so "N live plans" means N things to actually work on.
-    const counts = Object.entries(bySt).map(([s, n]) => `${n} ${s}`).join(', ');
+    const planStatusOrder = (resolveStatusMetadata(config).byType.plan ?? []).map(item => item.name);
+    const orderedStatuses = [
+      ...planStatusOrder.filter(status => bySt[status]),
+      ...Object.keys(bySt).filter(status => !planStatusOrder.includes(status)).sort(),
+    ];
+    const counts = orderedStatuses.map(status => `${bySt[status]} ${status}`).join(', ');
     const closedCount = plans.length - live.length;
     const closedPart = closedCount ? ` (${closedCount} archived)` : '';
     lines.push(liveLeaves ? `${liveLeaves} live plans${closedPart}: ${counts}` : `0 live plans${closedPart}`);
-    const show = plans.filter(p => (p.status === 'in-session' || p.status === 'active') && !isHub(p));
+    const show = plans.filter(p => statusMetadataFor(config, 'plan', p.status)?.context === 'expanded' && !isHub(p));
     for (const p of show) {
       const next = p.nextStep ? `next: ${p.nextStep}` : '(no next step)';
       lines.push(`  > ${path.basename(p.path, '.md')} (${p.status}) ${next}`);
@@ -382,7 +391,7 @@ export function renderBriefing(index, config) {
   if (untyped.length) parts.push(`${untyped.length} untyped`);
   if (parts.length) lines.push(parts.join(' | '));
 
-  const stale = index.docs.filter(d => d.isStale && !config.lifecycle.skipStaleFor.has(d.status)).length;
+  const stale = index.docs.filter(d => d.isStale && !statusMetadataFor(config, d.type, d.status)?.skipStale).length;
   // Append a hint when errors are present — otherwise the user sees `Errors: 1`
   // with no clue what or where. `dotmd check` is the canonical detail view.
   const errorCount = index.errors.length;
@@ -396,7 +405,7 @@ export function renderBriefing(index, config) {
 
 export function renderCheck(index, config, opts = {}) {
   const defaultRenderer = (idx) => _renderCheck(idx, opts);
-  if (config.hooks.renderCheck) {
+  if (!config._execution?.suppressSideEffects && config.hooks.renderCheck) {
     try { return config.hooks.renderCheck(index, defaultRenderer); }
     catch (err) { warn(`Hook 'renderCheck' threw: ${err.message}`); }
   }
@@ -586,7 +595,7 @@ export function renderProgressBar(checklist) {
 
 export function formatSnapshot(doc, config) {
   const defaultFormatter = (d) => _formatSnapshot(d, config);
-  if (config.hooks.formatSnapshot) {
+  if (!config._execution?.suppressSideEffects && config.hooks.formatSnapshot) {
     try { return config.hooks.formatSnapshot(doc, defaultFormatter); }
     catch (err) { warn(`Hook 'formatSnapshot' threw: ${err.message}`); }
   }

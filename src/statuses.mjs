@@ -14,6 +14,7 @@ import { collectDocFiles } from './index.mjs';
 import { asString, toRepoPath, die } from './util.mjs';
 import { bold, dim, green, yellow } from './color.mjs';
 import { isInteractive, promptText } from './prompt.mjs';
+import { resolveStatusMetadata } from './status-metadata.mjs';
 import {
   parseStatusesBlock,
   renderEntryLine,
@@ -95,34 +96,18 @@ function runListStatuses(args, config) {
 }
 
 function describeTypeStatuses(typeName, config) {
-  const typeDef = config.raw?.types?.[typeName];
-  if (!typeDef) return {};
   const result = {};
-  // After resolveConfig, rich-form types have been normalized into an array.
-  // Reconstruct each status's effective flags from derived sets.
-  const statusList = Array.isArray(typeDef.statuses) ? typeDef.statuses : Object.keys(typeDef.statuses ?? {});
-  const ctx = typeDef.context ?? {};
-  const ctxByStatus = {};
-  for (const [bucket, names] of Object.entries(ctx)) {
-    for (const n of names) ctxByStatus[n] = bucket;
-  }
-  const stale = typeDef.staleDays ?? {};
-  const lc = config.lifecycle;
-  const moduleReq = config.moduleRequiredStatuses;
-
-  for (const name of statusList) {
-    const skipStale = lc.skipStaleFor.has(name);
-    const skipWarnings = lc.skipWarningsFor.has(name);
-    const quiet = skipStale && skipWarnings;
+  for (const metadata of resolveStatusMetadata(config).byType[typeName] ?? []) {
+    const { name } = metadata;
     result[name] = {
-      context: ctxByStatus[name] ?? null,
-      staleDays: stale[name] ?? null,
-      requiresModule: moduleReq.has(name),
-      terminal: lc.terminalStatuses.has(name),
-      archive: lc.archiveStatuses.has(name),
-      skipStale,
-      skipWarnings,
-      quiet,
+      context: metadata.context,
+      staleDays: metadata.staleDays,
+      requiresModule: metadata.requiresModule,
+      terminal: metadata.terminal,
+      archive: metadata.archive,
+      skipStale: metadata.skipStale,
+      skipWarnings: metadata.skipWarnings,
+      quiet: metadata.quiet,
     };
   }
   return result;

@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { KNOWN_COMMANDS } from '../src/commands.mjs';
+import { COMPLETION_COMMANDS, commandCompletionWords } from '../src/commands.mjs';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
 let tmpDir;
@@ -53,16 +53,27 @@ describe('dotmd completions', () => {
     ok(result.stderr.includes('Usage'), 'shows usage');
   });
 
-  // Drift guard: completions derive from KNOWN_COMMANDS, so every dispatcher
-  // verb (minus the internal self-test) must be offered in both shells. This is
-  // what keeps a newly-added command from silently missing from completions.
-  const EXPECTED = KNOWN_COMMANDS.filter(c => c !== 'self-check');
   for (const shell of ['bash', 'zsh']) {
-    it(`${shell} output lists every KNOWN_COMMANDS verb`, () => {
+    it(`${shell} output lists every public schema command and alias`, () => {
       tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-comp-'));
       const out = run(['completions', shell]).stdout;
-      const missing = EXPECTED.filter(c => !new RegExp(`(^|[\\s'"(])${c}([\\s'"),]|$)`, 'm').test(out));
+      const missing = COMPLETION_COMMANDS.filter(c => !new RegExp(`(^|[\\s'"(])${c}([\\s'"),]|$)`, 'm').test(out));
       strictEqual(missing.length, 0, `missing from ${shell} completions: ${missing.join(', ')}`);
+      for (const removed of ['pickup', 'unpickup', 'release', 'finish', 'handoff', 'self-check']) {
+        ok(!new RegExp(`(^|[\\s'"])${removed}([\\s'"]|$)`, 'm').test(out), `${removed} should stay hidden`);
+      }
+    });
+
+    it(`${shell} output derives options and subcommands from the schema`, () => {
+      tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-comp-'));
+      const out = run(['completions', shell]).stdout;
+      for (const command of ['roadmap', 'runlist', 'bulk-tag', 'new', 'statuses']) {
+        for (const word of commandCompletionWords(command)) {
+          ok(out.includes(word), `${shell} completion missing ${command} word ${word}`);
+        }
+      }
+      ok(out.includes('--print'), `${shell} completion should expose index --print`);
+      ok(!out.includes('--write'), `${shell} completion should not expose removed index --write`);
     });
   }
 });

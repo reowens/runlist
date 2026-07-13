@@ -41,10 +41,19 @@ fi
 # weaker than the rules they gate.
 if [ "$1" = "guard" ]; then
   payload=$(cat)
+  # Broad Git forms do not name a .md file in the payload; Node inspects the
+  # actual eligible/staged path set before deciding whether a live prompt is
+  # included. Always route those forms through the guard.
+  case "$payload" in
+    *git*add*|*git*stage*|*git*commit*)
+      printf '%s' "$payload" | dotmd "$@"
+      exit $?
+      ;;
+  esac
   case "$payload" in
     *.md*)
       case "$payload" in
-        *prompts/*|*status*)
+        *prompts/*|*prompts\\*|*status*)
           printf '%s' "$payload" | dotmd "$@"
           exit $?
           ;;

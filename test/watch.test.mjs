@@ -1,9 +1,11 @@
 import { describe, it, afterEach } from 'node:test';
-import { ok } from 'node:assert';
+import { ok, strictEqual } from 'node:assert';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
+import { watchCliPath } from '../src/watch.mjs';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
 let tmpDir;
@@ -13,6 +15,14 @@ afterEach(() => {
 });
 
 describe('watch command', () => {
+  it('resolves the CLI from decoded file URLs with spaces and reserved characters', () => {
+    const modulePath = path.join(os.tmpdir(), 'dotmd watch # percent%', 'src', 'watch.mjs');
+    strictEqual(
+      watchCliPath(pathToFileURL(modulePath)),
+      path.resolve(path.dirname(modulePath), '..', 'bin', 'dotmd.mjs'),
+    );
+  });
+
   it('runs the subcommand once immediately then watches', async () => {
     tmpDir = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'dotmd-watch-')));
 
@@ -46,12 +56,10 @@ describe('watch command', () => {
       child.stderr.on('data', (d) => { stderr += d.toString(); });
 
       // Give it enough time to run the initial command
-      setTimeout(() => {
-        child.kill('SIGTERM');
-        resolve({ stdout, stderr });
-      }, 2000);
+      setTimeout(() => child.kill('SIGTERM'), 2000);
 
       child.on('error', reject);
+      child.on('close', () => resolve({ stdout, stderr }));
     });
 
     // The initial run should have produced list output

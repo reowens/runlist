@@ -5,35 +5,38 @@ import { extractFrontmatter, parseSimpleFrontmatter, replaceFrontmatter, normali
 describe('extractFrontmatter', () => {
   it('extracts frontmatter and body', () => {
     const raw = '---\nstatus: active\n---\n# Hello\n';
-    const { frontmatter, body } = extractFrontmatter(raw);
+    const { frontmatter, body, bodyLineOffset } = extractFrontmatter(raw);
     strictEqual(frontmatter, 'status: active');
     strictEqual(body, '# Hello\n');
+    strictEqual(bodyLineOffset, 3);
   });
 
   it('returns empty frontmatter when no opening fence', () => {
     const raw = '# No frontmatter\nSome text.';
-    const { frontmatter, body } = extractFrontmatter(raw);
+    const { frontmatter, body, bodyLineOffset } = extractFrontmatter(raw);
     strictEqual(frontmatter, '');
     strictEqual(body, raw);
+    strictEqual(bodyLineOffset, 0);
   });
 
   it('returns empty frontmatter when no closing fence', () => {
     const raw = '---\nstatus: active\n# Missing closing fence';
-    const { frontmatter, body } = extractFrontmatter(raw);
+    const { frontmatter, body, bodyLineOffset } = extractFrontmatter(raw);
     strictEqual(frontmatter, '');
     strictEqual(body, raw);
+    strictEqual(bodyLineOffset, 0);
   });
 
   it('handles multiline frontmatter', () => {
     const raw = '---\nstatus: active\nupdated: 2025-01-01\nmodule: catalog\n---\nBody text.';
-    const { frontmatter, body } = extractFrontmatter(raw);
+    const { frontmatter, body, bodyLineOffset } = extractFrontmatter(raw);
     strictEqual(frontmatter, 'status: active\nupdated: 2025-01-01\nmodule: catalog');
     strictEqual(body, 'Body text.');
   });
 
   it('handles empty body after frontmatter', () => {
     const raw = '---\nstatus: active\n---\n';
-    const { frontmatter, body } = extractFrontmatter(raw);
+    const { frontmatter, body, bodyLineOffset } = extractFrontmatter(raw);
     strictEqual(frontmatter, 'status: active');
     strictEqual(body, '');
   });
@@ -56,9 +59,10 @@ describe('extractFrontmatter — CRLF (Windows) docs', () => {
   it('parses a CRLF-authored doc instead of seeing no frontmatter', () => {
     // The headline bug: a Windows-default CRLF doc was read as untyped/unmanaged.
     const raw = '---\r\ntype: plan\r\nstatus: active\r\n---\r\n# Hello\r\nbody\r\n';
-    const { frontmatter, body } = extractFrontmatter(raw);
+    const { frontmatter, body, bodyLineOffset } = extractFrontmatter(raw);
     strictEqual(frontmatter, 'type: plan\nstatus: active');
     strictEqual(body, '# Hello\nbody\n');
+    strictEqual(bodyLineOffset, 4);
   });
 
   it('round-trips a CRLF doc through the value parser', () => {

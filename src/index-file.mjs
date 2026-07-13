@@ -1,10 +1,11 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { capitalize, escapeTable } from './util.mjs';
 import { formatSnapshot } from './render.mjs';
+import { authorizeRepoGeneratedPath } from './managed-path.mjs';
+import { mutateFile } from './atomic-mutation.mjs';
 
-export function renderIndexFile(index, config) {
-  const current = readFileSync(config.indexPath, 'utf8');
+export function renderIndexFile(index, config, current = readFileSync(config.indexPath, 'utf8')) {
   const start = current.indexOf(config.indexStartMarker);
   const end = current.indexOf(config.indexEndMarker);
 
@@ -86,8 +87,12 @@ function renderIndexSnapshot(doc, config, snapshotMode) {
   return capitalize(doc.status ?? 'unknown');
 }
 
-export function writeIndex(content, config) {
-  writeFileSync(config.indexPath, content, 'utf8');
+export function writeRenderedIndex(indexOrFactory, config, options = {}) {
+  authorizeRepoGeneratedPath(config.indexPath, config, { kind: 'Generated index destination' });
+  mutateFile(config.indexPath, { repoRoot: config.repoRoot, ...options }, current => {
+    const index = typeof indexOrFactory === 'function' ? indexOrFactory() : indexOrFactory;
+    return renderIndexFile(index, config, current);
+  });
 }
 
 // `autoHeal: true` rewrites the index in place when drift is detected and
@@ -102,11 +107,27 @@ export function writeIndex(content, config) {
 // filtered/synthetic docs list omit it to keep the old error semantics —
 // auto-overwriting from a partial doc list would clobber valid content.
 export function checkIndex(docs, config, opts = {}) {
-  const { autoHeal = false } = opts;
+  const { autoHeal = false, rebuildDocs = null, testHooks = null } = opts;
   const warnings = [];
   const errors = [];
 
   if (!config.indexPath) return { warnings, errors };
+
+  if (autoHeal) {
+    try {
+      authorizeRepoGeneratedPath(config.indexPath, config, { kind: 'Generated index destination' });
+      const result = mutateFile(config.indexPath, { repoRoot: config.repoRoot, testHooks }, currentContent => {
+        const currentDocs = rebuildDocs ? rebuildDocs() : docs;
+        return renderIndexFile({ docs: currentDocs }, config, currentContent);
+      });
+      if (result.changed) {
+        warnings.push({ path: config.indexPath, level: 'warning', message: 'Auto-regenerated stale index block.' });
+      }
+    } catch (err) {
+      errors.push({ path: config.indexPath, level: 'error', message: `Could not auto-regenerate stale index block: ${err.message}` });
+    }
+    return { warnings, errors };
+  }
 
   const current = readFileSync(config.indexPath, 'utf8');
   const start = current.indexOf(config.indexStartMarker);
@@ -120,16 +141,7 @@ export function checkIndex(docs, config, opts = {}) {
   const index = { docs };
   const expected = renderIndexFile(index, config);
   if (expected !== current) {
-    if (autoHeal) {
-      try {
-        writeFileSync(config.indexPath, expected, 'utf8');
-        warnings.push({ path: config.indexPath, level: 'warning', message: 'Auto-regenerated stale index block.' });
-      } catch (err) {
-        errors.push({ path: config.indexPath, level: 'error', message: `Could not auto-regenerate stale index block: ${err.message}` });
-      }
-    } else {
-      errors.push({ path: config.indexPath, level: 'error', message: 'Generated index block is stale. Run `dotmd index`.' });
-    }
+    errors.push({ path: config.indexPath, level: 'error', message: 'Generated index block is stale. Run `dotmd index`.' });
   }
 
   return { warnings, errors };

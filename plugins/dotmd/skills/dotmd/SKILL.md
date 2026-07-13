@@ -6,7 +6,7 @@ allowed-tools: "Bash(dotmd:*), Read"
 
 # dotmd workflow
 
-This repo's plans, reference docs, and saved prompts are managed by the **dotmd** CLI (markdown + YAML frontmatter). Always drive them through `dotmd` — never hand-edit frontmatter, never read prompts with the file tools, never commit session-local prompts. The session-start hook prints the live verb sheet and this repo's valid status vocabulary; run `dotmd briefing` any time to refresh it.
+This repo's plans, reference docs, and saved prompts are managed by the **dotmd** CLI (markdown + YAML frontmatter). Always drive them through `dotmd` — never hand-edit frontmatter, never read prompts with the file tools, never commit session-local prompts. The session-start hook prints the live verb sheet and a bounded plan-status vocabulary; if it truncates, use the printed `dotmd statuses list --type plan` fallback. Run `dotmd briefing` any time to refresh live state.
 
 **Workflow contract** — the irreducible verbs at a glance; the sections below expand each one.
 
@@ -39,7 +39,7 @@ Add `--note "why"` to any `set`/`archive` to append the reason to `## Version Hi
 - Stuck on a human decision/input → `dotmd set awaiting <file>`.
 - Blocked on an external arrival you can't speed up → `dotmd set blocked <file>`.
 
-Valid statuses are type-aware and project-specific — the SessionStart primer lists this repo's set, or run `dotmd statuses list`.
+Valid statuses are type-aware and project-specific — the SessionStart primer lists a bounded plan set and points to `dotmd statuses list --type plan` when truncated.
 
 ## Creating documents
 
@@ -55,7 +55,8 @@ Valid statuses are type-aware and project-specific — the SessionStart primer l
 
 Saved prompts (`docs/prompts/*.md`) are **session-local handoff artifacts**, not source code:
 
-- **Consume, don't read.** If the user references a prompt — "resume via docs/prompts/foo.md", "use this prompt", "load that one" — run `dotmd use <file>` (no arg = oldest pending). It prints the body and archives the prompt atomically so it can't be double-consumed. **Do NOT `cat` it, Read it, or copy its body into chat.** If the prompt was made by `dotmd baton`, consuming it also **claims its plan** (`→ Claimed …`, flips it `in-session`) — so your later `dotmd baton` hands that plan off automatically; no need to `dotmd use <plan>` first.
+- **Consume, don't read.** If the user references a prompt — "resume via docs/prompts/foo.md", "use this prompt", "load that one" — run `dotmd use <file>` (no arg = oldest pending). It commits archive/claim before stdout, so body output is at-most-once and the prompt can't be double-consumed; an output failure is recoverable with `dotmd prompts show <archived-path>`. **Do NOT `cat` it, Read it, or copy its body into chat.** If the prompt was made by `dotmd baton`, consuming it also **claims its plan** (`→ Claimed …`, flips it `in-session`) — so your later `dotmd baton` hands that plan off automatically; no need to `dotmd use <plan>` first.
+- **Ownership is durable and session-local.** Claims live under gitignored `.dotmd/`; no-target `set`/`baton` never guesses from journal entries or global in-session counts. Pickup hooks are at-least-once with stable `operationId` values, and a live delivery lease blocks release/takeover.
 - **Peek without consuming.** Triaging or surveying pending prompts (not acting on one)? `dotmd prompts show <file>` prints the body read-only — no archive, safe to repeat. Never `dotmd use` a prompt you only meant to look at, and never `use` a prompt you just saved (that destroys the handoff).
 - **Don't commit them.** The prompts dir is often gitignored; committing a pending prompt is wrong and may fail. No `git add` / `git commit` of `docs/prompts/*.md`.
 - **"Save a resume prompt" = `dotmd baton`**, any time, plan or no plan — never paste a "here's how to resume" block into chat. With a plan in-session, `dotmd baton @/tmp/draft.md` saves the prompt AND releases the plan; with no plan, `dotmd baton <slug> @/tmp/draft.md` just saves `resume-<slug>` and touches nothing else (reference the relevant plans/docs in the draft body). The next session sees it at SessionStart.

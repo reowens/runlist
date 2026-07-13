@@ -37,10 +37,13 @@ export function runSummary(argv, config) {
   const opts = {};
   if (model) opts.model = model;
   if (maxTokens) opts.maxTokens = maxTokens;
+  const previewSkipped = Boolean(config._execution?.suppressSideEffects);
 
   let summary;
   try {
-    summary = config.hooks.summarizeDoc
+    summary = previewSkipped
+      ? null
+      : config.hooks.summarizeDoc
       ? config.hooks.summarizeDoc(body, meta)
       : summarizeDocBody(body, meta, opts);
   } catch (err) {
@@ -49,13 +52,21 @@ export function runSummary(argv, config) {
   }
 
   if (json) {
-    process.stdout.write(JSON.stringify({ path: repoPath, title, status, summary: summary ?? null }, null, 2) + '\n');
+    process.stdout.write(JSON.stringify({
+      path: repoPath,
+      title,
+      status,
+      summary: summary ?? null,
+      summaryStatus: previewSkipped ? 'skipped-preview' : summary ? 'generated' : 'unavailable',
+    }, null, 2) + '\n');
     return;
   }
 
   process.stdout.write(`${bold(title)} ${dim(`(${status})`)}\n`);
   process.stdout.write(`${dim(repoPath)}\n\n`);
-  if (summary) {
+  if (previewSkipped) {
+    process.stdout.write(dim('[preview] Summary generation skipped; models and custom summarizeDoc hooks are not invoked.') + '\n');
+  } else if (summary) {
     process.stdout.write(`${summary}\n`);
   } else {
     process.stdout.write(dim('Summary unavailable (model call failed or uv not installed).') + '\n');

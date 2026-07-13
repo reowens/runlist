@@ -1,7 +1,7 @@
 {
   "name": "dotmd-cli",
   "version": "0.69.0",
-  "description": "CLI for managing markdown documents with YAML frontmatter — index, query, validate, graph, export, Notion sync, AI summaries.",
+  "description": "CLI for managing markdown documents with YAML frontmatter — index, query, validate, graph, export, lifecycle, and AI summaries.",
   "type": "module",
   "license": "MIT",
   "bin": {
@@ -26,7 +26,6 @@
     "rfc",
     "document-management",
     "yaml",
-    "notion",
     "graph",
     "export",
     "ai-summary",
@@ -41,15 +40,12 @@
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "postinstall": "node scripts/postinstall.mjs",
-    "preversion": "npm test",
-    "version": "node bin/dotmd.mjs hud >/dev/null 2>&1; node scripts/sync-plugin-version.mjs; git add .claude/commands docs/docs.md plugins .claude-plugin 2>/dev/null; true",
-    "postversion": "bash scripts/postversion.sh"
+    "preversion": "node scripts/release-preflight.mjs && npm test",
+    "version": "node scripts/prepare-version-commit.mjs",
+    "postversion": "bash scripts/postversion.sh",
+    "release:resume": "node scripts/recover-local-release.mjs && bash scripts/postversion.sh"
   },
   "engines": {
     "node": ">=20"
-  },
-  "optionalDependencies": {
-    "@notionhq/client": "^5.13.0",
-    "notion-to-md": "^3.1.9"
   }
 }

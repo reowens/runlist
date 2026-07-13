@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync, fstatSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync, fstatSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { toRepoPath, die, warn, nowIso, emitFilesFooter } from './util.mjs';
@@ -6,6 +6,8 @@ import { green, dim, bold } from './color.mjs';
 import { isInteractive, promptText } from './prompt.mjs';
 import { regenIndex } from './lifecycle.mjs';
 import { extractFrontmatter, parseSimpleFrontmatter, normalizeEol } from './frontmatter.mjs';
+import { authorizeManagedDestination } from './managed-path.mjs';
+import { createFileExclusive, mutateFileSet, MutationConflictError } from './atomic-mutation.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
@@ -281,12 +283,66 @@ export function readBodyInput(source) {
   return source;
 }
 
+export function readPipedBodyInput() {
+  try {
+    const stat = fstatSync(0);
+    const isWindowsPipe = process.platform === 'win32' && !process.stdin.isTTY;
+    if (stat.isFIFO() || stat.isFile() || stat.isSocket() || isWindowsPipe) {
+      const piped = readFileSync(0, 'utf8');
+      return piped.length > 0 ? piped : null;
+    }
+  } catch { /* stdin not introspectable */ }
+  return null;
+}
+
 // Slug/title helpers shared by name resolution and runlist child generation.
 export function slugify(s) {
   return s.toLowerCase().replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').replace(/^-|-$/g, '');
 }
 export function titleize(s) {
   return s.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+export function preparePromptDocument(name, bodyInput, config, { plan = null, dryRun = false } = {}) {
+  const template = resolveTemplate('prompt', config);
+  const typeStatuses = config.typeStatuses?.get('prompt');
+  const status = template.defaultStatus && (!typeStatuses || typeStatuses.has(template.defaultStatus))
+    ? template.defaultStatus
+    : ([...(typeStatuses ?? [])][0] ?? 'pending');
+  if (!bodyInput?.trim()) die('`prompt` template requires a body.');
+  const slug = slugify(path.basename(name, '.md'));
+  const title = titleize(path.basename(name, '.md'));
+  let targetRoot = config.docsRoot;
+  let routed = false;
+  if (template.targetRoot) {
+    const match = (config.docsRoots || [config.docsRoot]).find(root => root.endsWith(template.targetRoot) || path.basename(root) === template.targetRoot);
+    if (match) { targetRoot = match; routed = true; }
+  }
+  const baseDir = template.dir && !routed ? path.join(targetRoot, template.dir) : targetRoot;
+  const filePath = path.join(baseDir, `${slug}.md`);
+  authorizeManagedDestination(filePath, config, { kind: 'Baton prompt destination' });
+  if (dryRun) return { slug, filePath, repoPath: toRepoPath(filePath, config.repoRoot), content: null };
+
+  const today = nowIso();
+  const split = splitBodyFrontmatter(bodyInput);
+  const body = split.frontmatter ? split.body : bodyInput;
+  const ctx = { status, title, today, bodyInput: body };
+  let content;
+  if (typeof template === 'function') {
+    content = template(name, ctx);
+    if (plan) {
+      const end = content.indexOf('\n---\n', 4);
+      if (!content.startsWith('---\n') || end === -1) throw new Error('Custom prompt template must return frontmatter for baton plan binding.');
+      const fm = mergeBodyFrontmatter(content.slice(4, end), { plan }, 'prompt');
+      content = `---\n${fm}${content.slice(end)}`;
+    }
+  } else {
+    let fm = template.frontmatter(status, today, ctx);
+    if (split.frontmatter) fm = mergeBodyFrontmatter(fm, split.frontmatter, 'prompt');
+    if (plan) fm = mergeBodyFrontmatter(fm, { plan }, 'prompt');
+    content = `---\n${fm}\n---\n${template.body(title, ctx)}`;
+  }
+  return { slug, filePath, repoPath: toRepoPath(filePath, config.repoRoot), content };
 }
 
 // Resolve one `--runlist` token to a scaffolded child plan: a bare slug becomes
@@ -642,16 +698,11 @@ export async function runNew(argv, config, opts = {}) {
     // delivers stdin as an AF_UNIX socket). Probe this even for templates that
     // don't accept bodies so the fail-fast guard below can reject accidental
     // heredoc/input instead of silently scaffolding without it.
-    try {
-      const stat = fstatSync(0);
-      if (stat.isFIFO() || stat.isFile() || stat.isSocket()) {
-        const piped = readFileSync(0, 'utf8');
-        if (piped.length > 0) {
-          bodyInput = piped;
-          bodyInputSource = 'piped stdin';
-        }
-      }
-    } catch { /* stdin not introspectable — skip auto-consume */ }
+    const piped = readPipedBodyInput();
+    if (piped !== null) {
+      bodyInput = piped;
+      bodyInputSource = 'piped stdin';
+    }
   }
 
   // If the body input has a leading `---…---` frontmatter block, lift its keys
@@ -757,6 +808,7 @@ export async function runNew(argv, config, opts = {}) {
   const baseDir = nameDir ? path.resolve(config.repoRoot, nameDir) : targetRoot;
   const filePath = path.join(baseDir, slug + '.md');
   const repoPath = toRepoPath(filePath, config.repoRoot);
+  const destinationAuthorization = authorizeManagedDestination(filePath, config, { kind: 'New document destination' });
 
   if (existsSync(filePath)) {
     die(`File already exists: ${repoPath}`);
@@ -766,40 +818,13 @@ export async function runNew(argv, config, opts = {}) {
 
   // Resolve runlist children from the hub slug (e.g. `extract` → hub-01-extract.md).
   const runlistChildren = runlistTokens.map((tok, i) => planChildFromToken(slug, tok, i + 1));
-  const childStatus = effective.has('planned') ? 'planned' : status;
-
-  // Generate content
-  let content;
-  const validSurfaces = config.raw?.taxonomy?.surfaces ?? (config.validSurfaces ? [...config.validSurfaces] : null);
-  const validModules = config.raw?.taxonomy?.modules ?? (config.validModules ? [...config.validModules] : null);
-  const tmplCtx = { status, title: docTitle, today, bodyInput, validSurfaces, validModules };
-  if (typeof template === 'function') {
-    content = template(name, tmplCtx);
-  } else {
-    let fm = template.frontmatter(status, today, tmplCtx);
-    if (bodyFrontmatter) fm = mergeBodyFrontmatter(fm, bodyFrontmatter, typeName);
-    // Inject the hub-shape frontmatter (runlist array / coordination marker)
-    // on top of the standard plan scaffold, then swap in a purpose-built body.
-    if (isRunlistHub) fm = mergeBodyFrontmatter(fm, { runlist: runlistChildren.map(c => c.file) }, typeName);
-    if (isCoordinationHub) fm = mergeBodyFrontmatter(fm, { execution_mode: 'coordination' }, typeName);
-    if (isRoadmap) fm = mergeBodyFrontmatter(fm, { execution_mode: 'roadmap' }, typeName);
-    let body;
-    // A full authored body (own `## Section` headings) wins over every variant
-    // skeleton too — otherwise the whole document gets nested in the builder's
-    // single slot and the skeleton is appended below it (duplicate Scope /
-    // Ranked queue / Version History). The default plan body applies the same
-    // shortcut inside template.body, so only the variant branches need it here.
-    const variantBody = isRunlistHub || isCoordinationHub || isRoadmap || isLite || isAudit;
-    const authored = variantBody ? fullBodyShortcut(docTitle, bodyInput) : null;
-    if (authored !== null) body = authored;
-    else if (isRunlistHub) body = runlistHubBody(docTitle, slug, runlistChildren, bodyInput, today);
-    else if (isCoordinationHub) body = coordinationHubBody(docTitle, bodyInput, today);
-    else if (isRoadmap) body = roadmapHubBody(docTitle, slug, bodyInput, today);
-    else if (isLite) body = litePlanBody(docTitle, bodyInput, today);
-    else if (isAudit) body = auditPlanBody(docTitle, bodyInput, today);
-    else body = template.body(docTitle, tmplCtx);
-    content = `---\n${fm}\n---\n${body}`;
+  for (const child of runlistChildren) {
+    authorizeManagedDestination(path.join(baseDir, child.file), config, {
+      root: destinationAuthorization.root,
+      kind: 'Runlist child destination',
+    });
   }
+  const childStatus = effective.has('planned') ? 'planned' : status;
 
   // When the project has >1 root and `--root` was omitted, surface the choice
   // so agents can see that an alternative root was available. Cheap visibility
@@ -820,34 +845,81 @@ export async function runNew(argv, config, opts = {}) {
     : isLite ? ' (lite plan)'
     : isAudit ? ' (audit plan)'
     : '';
+  const isCustomTemplate = Object.prototype.hasOwnProperty.call(config.raw?.templates ?? {}, typeName);
 
   if (dryRun) {
-    process.stdout.write(`${dim('[dry-run]')} Would create: ${repoPath}\n`);
+    if (isCustomTemplate) {
+      process.stdout.write(`${dim('[dry-run]')} Target: ${repoPath}\n`);
+      process.stdout.write(`${dim('[dry-run]')} Custom template rendering skipped; preview cannot confirm creation will succeed.\n`);
+    } else {
+      process.stdout.write(`${dim('[dry-run]')} Would create: ${repoPath}\n`);
+    }
     process.stdout.write(`${dim('[dry-run]')} Type: ${typeName}${hubKind}\n`);
     for (const c of runlistChildren) {
-      process.stdout.write(`${dim('[dry-run]')} Would create child: ${toRepoPath(path.join(baseDir, c.file), config.repoRoot)}\n`);
+      const childPath = path.join(baseDir, c.file);
+      const action = existsSync(childPath) ? 'Would leave existing child unchanged' : 'Would create child';
+      process.stdout.write(`${dim('[dry-run]')} ${action}: ${toRepoPath(childPath, config.repoRoot)}\n`);
     }
     if (rootHint) process.stdout.write(`${dim('[dry-run]')} ${rootHint}`);
     return;
   }
 
+  // Generate content only for a real create. Custom template functions are
+  // user code and may have side effects, so previews stop before invoking them.
+  let content;
+  const validSurfaces = config.raw?.taxonomy?.surfaces ?? (config.validSurfaces ? [...config.validSurfaces] : null);
+  const validModules = config.raw?.taxonomy?.modules ?? (config.validModules ? [...config.validModules] : null);
+  const tmplCtx = { status, title: docTitle, today, bodyInput, validSurfaces, validModules };
+  if (typeof template === 'function') {
+    content = template(name, tmplCtx);
+  } else {
+    let fm = template.frontmatter(status, today, tmplCtx);
+    if (bodyFrontmatter) fm = mergeBodyFrontmatter(fm, bodyFrontmatter, typeName);
+    if (isRunlistHub) fm = mergeBodyFrontmatter(fm, { runlist: runlistChildren.map(c => c.file) }, typeName);
+    if (isCoordinationHub) fm = mergeBodyFrontmatter(fm, { execution_mode: 'coordination' }, typeName);
+    if (isRoadmap) fm = mergeBodyFrontmatter(fm, { execution_mode: 'roadmap' }, typeName);
+    let body;
+    const variantBody = isRunlistHub || isCoordinationHub || isRoadmap || isLite || isAudit;
+    const authored = variantBody ? fullBodyShortcut(docTitle, bodyInput) : null;
+    if (authored !== null) body = authored;
+    else if (isRunlistHub) body = runlistHubBody(docTitle, slug, runlistChildren, bodyInput, today);
+    else if (isCoordinationHub) body = coordinationHubBody(docTitle, bodyInput, today);
+    else if (isRoadmap) body = roadmapHubBody(docTitle, slug, bodyInput, today);
+    else if (isLite) body = litePlanBody(docTitle, bodyInput, today);
+    else if (isAudit) body = auditPlanBody(docTitle, bodyInput, today);
+    else body = template.body(docTitle, tmplCtx);
+    content = `---\n${fm}\n---\n${body}`;
+  }
+
   // Ensure parent dir exists (templates with `dir:` may target a new subdirectory)
   mkdirSync(path.dirname(filePath), { recursive: true });
 
-  writeFileSync(filePath, content, 'utf8');
-  process.stdout.write(`${green('Created')}: ${repoPath} ${dim(`(${typeName}${hubKind})`)}\n`);
-  if (rootHint) process.stdout.write(dim(rootHint));
-
-  // Scaffold runlist child stubs. An existing child file is never clobbered.
   const childPaths = [];
+  const creations = [{ path: filePath, content }];
   for (const c of runlistChildren) {
     const childPath = path.join(baseDir, c.file);
     if (existsSync(childPath)) {
       warn(`Runlist child already exists, left as-is: ${toRepoPath(childPath, config.repoRoot)}`);
       continue;
     }
-    writeFileSync(childPath, runlistChildContent(c.title, slug, docTitle, childStatus, today), 'utf8');
+    creations.push({ path: childPath, content: runlistChildContent(c.title, slug, docTitle, childStatus, today) });
     childPaths.push(childPath);
+  }
+  try {
+    if (runlistChildren.length > 0) mutateFileSet({ creations }, { repoRoot: config.repoRoot, testHooks: opts.testHooks });
+    else createFileExclusive(filePath, content, { repoRoot: config.repoRoot, testHooks: opts.testHooks });
+  } catch (err) {
+    if (err instanceof MutationConflictError) die(`Could not create runlist atomically because a destination already exists: ${err.message}`);
+    throw err;
+  }
+  process.stdout.write(`${green('Created')}: ${repoPath} ${dim(`(${typeName}${hubKind})`)}\n`);
+  if (rootHint) process.stdout.write(dim(rootHint));
+
+  // Existing children discovered before the transaction are consistently left
+  // unchanged; absent children and the hub publish or roll back together.
+  for (const c of runlistChildren) {
+    const childPath = path.join(baseDir, c.file);
+    if (!childPaths.includes(childPath)) continue;
     process.stdout.write(`${green('Created')}: ${toRepoPath(childPath, config.repoRoot)} ${dim(`(plan · runlist child, ${childStatus})`)}\n`);
   }
 
@@ -873,15 +945,24 @@ export async function runNew(argv, config, opts = {}) {
     }
   } catch { /* git absent / not a repo — skip the note */ }
 
-  regenIndex(config);
+  const indexRegenerated = !opts.deferIndex ? regenIndex(config) : false;
 
   if (showFiles) {
     const touched = [filePath, ...childPaths];
-    if (config.indexPath) touched.push(config.indexPath);
+    if (config.indexPath && !opts.deferIndex) touched.push(config.indexPath);
     emitFilesFooter(touched, config);
   }
 
   try { config.hooks.onNew?.({ path: repoPath, status, title: docTitle, type: typeName }); } catch (err) { warn(`Hook 'onNew' threw: ${err.message}`); }
+  const sessionLocal = typeName === 'prompt';
+  return {
+    operation: 'new',
+    repositoryFiles: sessionLocal ? [] : [repoPath, ...childPaths.map(item => toRepoPath(item, config.repoRoot))],
+    sessionFiles: sessionLocal ? [repoPath] : [],
+    generatedFiles: config.indexPath && indexRegenerated ? [toRepoPath(config.indexPath, config.repoRoot)] : [],
+    deferredGeneratedFiles: config.indexPath && opts.deferIndex ? [toRepoPath(config.indexPath, config.repoRoot)] : [],
+    path: repoPath,
+  };
 }
 
 function resolveTemplate(name, config) {

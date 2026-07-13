@@ -4,6 +4,7 @@ import { extractFrontmatter, replaceFrontmatter } from './frontmatter.mjs';
 import { toRepoPath, escapeRegex, warn } from './util.mjs';
 import { buildIndex, collectDocFiles } from './index.mjs';
 import { green, dim, yellow } from './color.mjs';
+import { authorizeManagedSweep } from './managed-path.mjs';
 
 export function runFixRefs(argv, config, opts = {}) {
   const { dryRun } = opts;
@@ -21,6 +22,7 @@ export function fixBrokenRefs(config, opts = {}) {
   const { dryRun, quiet } = opts;
   const index = buildIndex(config);
   const allFiles = collectDocFiles(config);
+  authorizeManagedSweep(allFiles, config, { kind: 'Reference fix source' });
 
   // Build a map of basename → absolute path for all docs
   const basenameMap = new Map();

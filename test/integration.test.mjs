@@ -1,5 +1,5 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
-import { strictEqual, ok } from 'node:assert';
+import { deepStrictEqual, strictEqual, ok } from 'node:assert';
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -174,6 +174,38 @@ describe('CLI integration', () => {
     ok(result.stderr.includes('Unknown flag'), `expected unknown flag error, got:\n${result.stderr}`);
   });
 
+  it('rejects unknown flags, missing values, and extra positionals centrally', () => {
+    setupProject();
+    const unknown = run(['health', '--wat']);
+    strictEqual(unknown.status, 1);
+    ok(unknown.stderr.includes('Unknown flag'), unknown.stderr);
+
+    const missing = run(['summary', 'doc', '--model']);
+    strictEqual(missing.status, 1);
+    ok(missing.stderr.includes('Missing value'), missing.stderr);
+
+    const extra = run(['health', 'extra']);
+    strictEqual(extra.status, 1);
+    ok(extra.stderr.includes('Usage:'), extra.stderr);
+  });
+
+  it('unknown command help fails instead of falling back to top-level help', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-help-unknown-command-'));
+    const result = run(['wat-command', '--help']);
+    strictEqual(result.status, 1);
+    ok(result.stderr.includes('Unknown command'), result.stderr);
+  });
+
+  it('generates baseline help for schema commands without hand-authored prose', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-help-schema-'));
+    const roadmap = run(['roadmap', '--help']);
+    strictEqual(roadmap.status, 0, roadmap.stderr);
+    ok(roadmap.stdout.includes('dotmd roadmap next [hub]'), roadmap.stdout);
+    const use = run(['use', '--help']);
+    strictEqual(use.status, 0, use.stderr);
+    ok(use.stdout.includes('dotmd use [file]'), use.stdout);
+  });
+
   it('context outputs briefing', () => {
     const docsDir = setupProject();
     const today = new Date().toISOString().slice(0, 10);
@@ -205,6 +237,14 @@ describe('CLI integration', () => {
     ok(result.stdout.includes('0 live plans (1 archived)'), `got: ${result.stdout.split('\n')[0]}`);
   });
 
+  it('briefing focus follows configured expanded plan statuses', () => {
+    const docsDir = setupProject();
+    writeDoc(docsDir, 'partial.md', 'type: plan\nstatus: partial\nupdated: 2025-01-01\ntitle: Partial\nnext_step: Spawn successor', '# Partial\n');
+    const result = run(['briefing']);
+    strictEqual(result.status, 0, result.stderr);
+    ok(result.stdout.includes('> partial (partial) next: Spawn successor'), result.stdout);
+  });
+
   it('context --json --compact emits bounded agent context instead of docsByType', () => {
     const docsDir = setupProject();
     const today = new Date().toISOString().slice(0, 10);
@@ -213,8 +253,12 @@ describe('CLI integration', () => {
     const result = run(['context', '--json', '--compact']);
     strictEqual(result.status, 0, result.stderr);
     const parsed = JSON.parse(result.stdout);
-    ok(parsed.countsByStatus, 'has counts');
-    ok(parsed.plans.active.length === 1, 'has bounded active list');
+    strictEqual(parsed.schema.name, 'dotmd.agent-context');
+    strictEqual(parsed.schema.version, 1);
+    ok(parsed.counts.byStatus, 'has counts');
+    strictEqual(parsed.plans.focus.total, 1, 'has bounded focus list');
+    strictEqual(parsed.plans.focus.shown, 1);
+    strictEqual(parsed.plans.focus.truncated, false);
     ok(!('docsByType' in parsed), 'does not dump full docsByType');
   });
 
@@ -226,7 +270,11 @@ describe('CLI integration', () => {
     const result = run(['agent-context']);
     strictEqual(result.status, 0, result.stderr);
     const parsed = JSON.parse(result.stdout);
-    ok(parsed.plans.active[0].path.endsWith('ctx.md'), 'returns compact plan item');
+    ok(parsed.plans.focus.items[0].path.endsWith('ctx.md'), 'returns compact plan item');
+    const compact = JSON.parse(run(['context', '--json', '--compact']).stdout);
+    delete parsed.generatedAt;
+    delete compact.generatedAt;
+    deepStrictEqual(parsed, compact, 'both commands use the same V1 builder');
   });
 
   it('--verbose prints config details and doc count', () => {

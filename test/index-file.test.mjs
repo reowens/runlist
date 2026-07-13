@@ -1,11 +1,12 @@
 import { describe, it, afterEach } from 'node:test';
 import { strictEqual, ok, throws } from 'node:assert';
-import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, statSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { renderIndexFile, checkIndex, writeIndex } from '../src/index-file.mjs';
+import { renderIndexFile, checkIndex, writeRenderedIndex } from '../src/index-file.mjs';
 import { resolveConfig } from '../src/config.mjs';
+import { buildIndex } from '../src/index.mjs';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
 let tmpDir;
@@ -121,6 +122,43 @@ export const index = {
 });
 
 describe('checkIndex', () => {
+  it('auto-heal locks and rescans when the initial unlocked index is clean', async () => {
+    const docsDir = setup();
+    writeDoc(docsDir, 'clean-race.md', 'type: plan\nstatus: active\ntitle: Clean Race\nupdated: 2026-01-01');
+    const config = await resolveConfig(tmpDir, path.join(tmpDir, 'dotmd.config.mjs'));
+    const initialDocs = buildIndex(config, { fast: true }).docs;
+    writeRenderedIndex({ docs: initialDocs }, config);
+    const planPath = path.join(docsDir, 'clean-race.md');
+    const result = checkIndex(initialDocs, config, {
+      autoHeal: true,
+      rebuildDocs: () => buildIndex(config, { fast: true }).docs,
+      testHooks: { beforeMutationSnapshot: () => {
+        writeFileSync(planPath, readFileSync(planPath, 'utf8').replace('status: active', 'status: planned'));
+      } },
+    });
+    strictEqual(result.errors.length, 0);
+    strictEqual(result.warnings.length, 1);
+    const currentDocs = buildIndex(config, { fast: true }).docs;
+    strictEqual(readFileSync(config.indexPath, 'utf8'), renderIndexFile({ docs: currentDocs }, config));
+  });
+
+  it('auto-heal rescans docs inside the index lock', async () => {
+    const docsDir = setup();
+    writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active\ntitle: Plan\nupdated: 2026-01-01');
+    const config = await resolveConfig(tmpDir, path.join(tmpDir, 'dotmd.config.mjs'));
+    const staleDocs = buildIndex(config, { fast: true }).docs;
+    const planPath = path.join(docsDir, 'plan.md');
+    const result = checkIndex(staleDocs, config, {
+      autoHeal: true,
+      rebuildDocs: () => buildIndex(config, { fast: true }).docs,
+      testHooks: { beforeMutationSnapshot: () => {
+        writeFileSync(planPath, readFileSync(planPath, 'utf8').replace('status: active', 'status: planned'));
+      } },
+    });
+    strictEqual(result.errors.length, 0);
+    const currentDocs = buildIndex(config, { fast: true }).docs;
+    strictEqual(readFileSync(config.indexPath, 'utf8'), renderIndexFile({ docs: currentDocs }, config));
+  });
   it('returns empty when no indexPath configured', async () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-idxfile-'));
     mkdirSync(path.join(tmpDir, '.git'));
@@ -156,8 +194,7 @@ describe('checkIndex', () => {
     const { buildIndex } = await import('../src/index.mjs');
     const index = buildIndex(config);
     // Write the up-to-date index
-    const rendered = renderIndexFile(index, config);
-    writeIndex(rendered, config);
+    writeRenderedIndex(() => index, config);
     // Now check — should be clean
     const result = checkIndex(index.docs, config);
     strictEqual(result.errors.length, 0);
@@ -173,9 +210,13 @@ describe('checkIndex', () => {
     const expected = renderIndexFile(index, config);
     const onDisk = readFileSync(config.indexPath, 'utf8');
     strictEqual(onDisk, expected, 'buildIndex should leave the file in sync');
+    const beforeCleanCheck = statSync(config.indexPath, { bigint: true });
     const followUp = checkIndex(index.docs, config, { autoHeal: true });
+    const afterCleanCheck = statSync(config.indexPath, { bigint: true });
     strictEqual(followUp.errors.length, 0);
     strictEqual(followUp.warnings.length, 0);
+    strictEqual(afterCleanCheck.ino, beforeCleanCheck.ino, 'clean in-lock comparison must not replace the index');
+    strictEqual(afterCleanCheck.mtimeNs, beforeCleanCheck.mtimeNs, 'clean in-lock comparison must not write the index');
   });
 
   it('buildIndex without autoHealIndex leaves a drifted file untouched', async () => {
@@ -189,6 +230,46 @@ describe('checkIndex', () => {
     strictEqual(after, before, 'no opt-in → no mutation');
     ok(index.errors.some(e => /stale/.test(e.message)),
       'should still surface the stale error for callers that want it');
+  });
+
+  it('check --dry-run leaves a drifted index byte-identical', () => {
+    const docsDir = setup();
+    const sentinel = path.join(tmpDir, 'hook-sentinel');
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), [
+      `import { writeFileSync } from 'node:fs';`,
+      INDEX_CONFIG,
+      `export function validate() { writeFileSync(${JSON.stringify(sentinel)}, 'validate'); return {}; }`,
+      `export function transformDoc(doc) { writeFileSync(${JSON.stringify(sentinel)}, 'transform'); return doc; }`,
+      '',
+    ].join('\n'));
+    writeDoc(docsDir, 'a.md', 'status: active\nupdated: 2025-01-01', '# A\n');
+    const before = readFileSync(path.join(docsDir, 'docs.md'), 'utf8');
+    const result = run(['check', '--dry-run', '--json']);
+    ok(result.status !== null, `check should complete: ${result.stderr}`);
+    strictEqual(readFileSync(path.join(docsDir, 'docs.md'), 'utf8'), before);
+    ok(!existsSync(sentinel), 'dry-run did not invoke validation/transform hooks');
+    const output = JSON.parse(result.stdout);
+    strictEqual(output.passed, null, 'hook-incomplete validation must not report an authoritative pass');
+    strictEqual(output.validationPreview.status, 'built-in-only');
+    ok(output.validationPreview.skippedHooks.includes('validate'));
+    ok(output.validationPreview.skippedHooks.includes('transformDoc'));
+  });
+
+  it('default doctor preview does not invoke validation/transform hooks', () => {
+    const docsDir = setup();
+    const sentinel = path.join(tmpDir, 'doctor-hook-sentinel');
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), [
+      `import { writeFileSync } from 'node:fs';`,
+      INDEX_CONFIG,
+      `export function validate() { writeFileSync(${JSON.stringify(sentinel)}, 'validate'); return {}; }`,
+      `export function transformDoc(doc) { writeFileSync(${JSON.stringify(sentinel)}, 'transform'); return doc; }`,
+      '',
+    ].join('\n'));
+    writeDoc(docsDir, 'a.md', 'status: active\nupdated: 2025-01-01', '# A\n');
+
+    const result = run(['doctor']);
+    strictEqual(result.status, 0, result.stderr);
+    ok(!existsSync(sentinel), 'default doctor preview invoked a hook');
   });
 
   it('auto-heal rewrites a drifted file and emits a warning', async () => {
@@ -209,13 +290,18 @@ describe('checkIndex', () => {
   });
 });
 
-describe('writeIndex', () => {
-  it('writes content to indexPath', async () => {
-    setup();
-    const config = await resolveConfig(tmpDir);
-    writeIndex('new content', config);
-    const content = readFileSync(config.indexPath, 'utf8');
-    strictEqual(content, 'new content');
+describe('writeRenderedIndex', () => {
+  it('renders against prose edited immediately before the locked snapshot', async () => {
+    const docsDir = setup();
+    const config = await resolveConfig(tmpDir, path.join(tmpDir, 'dotmd.config.mjs'));
+    const index = { docs: [] };
+    writeRenderedIndex(index, config, { testHooks: { beforeMutationSnapshot: indexPath => {
+      const current = readFileSync(indexPath, 'utf8');
+      writeFileSync(indexPath, current.replace('# Docs', '# Docs\n\nConcurrent prose'));
+    } } });
+    const after = readFileSync(path.join(docsDir, 'docs.md'), 'utf8');
+    ok(after.includes('Concurrent prose'));
+    ok(!after.includes('old content'));
   });
 });
 

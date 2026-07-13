@@ -1,6 +1,7 @@
 // Pure markdown section walker. Regex-walks H1-H6 headings respecting fenced
 // code blocks (``` and ~~~). Returns flat list of sections with body content
-// and absolute line numbers (1-indexed, matches Read tool's `offset`).
+// and body-relative line numbers (1-indexed). Callers with stripped frontmatter
+// add extractFrontmatter().bodyLineOffset before exposing file coordinates.
 
 export function walkSections(body) {
   const lines = body.split('\n');

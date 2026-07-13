@@ -519,9 +519,10 @@ export function checkRoadmapHubExecutionMode(docs, config) {
   return warnings;
 }
 
-export function checkGitStaleness(docs, config) {
+export function checkGitStaleness(docs, config, options = {}) {
   const warnings = [];
-  const gitDates = getGitLastModifiedBatch(config.repoRoot);
+  const gitMetadata = getGitLastModifiedBatch(config.repoRoot, docs.map(doc => doc.path), options);
+  const gitDates = gitMetadata.dates;
   for (const doc of docs) {
     if (config.lifecycle.skipStaleFor.has(doc.status)) continue;
     if (!doc.updated) continue;
@@ -539,6 +540,13 @@ export function checkGitStaleness(docs, config) {
         message: `frontmatter \`updated: ${doc.updated}\` is behind git history (last committed ${gitDate.slice(0, 10)}).`,
       });
     }
+  }
+  if (!gitMetadata.complete) {
+    warnings.push({
+      path: toRepoPath(config.docsRoot, config.repoRoot) || '.',
+      level: 'warning',
+      message: `Git metadata is incomplete (${gitMetadata.reason}); staleness checks used known dates only.`,
+    });
   }
   return warnings;
 }
@@ -582,9 +590,7 @@ export function validatePlanShape(doc, body, frontmatter, config) {
 
   // 4. Heading drift: case + name variants
   const headingDrift = [
-    { wrong: /^##\s+Open questions\s*$/m, right: '## Open Questions' },
     { wrong: /^##\s+(Non-goals|Out of scope|Out of Scope|out of scope)\s*$/m, right: '## Non-Goals' },
-    { wrong: /^##\s+open questions\s*$/m, right: '## Open Questions' },
   ];
   for (const { wrong, right } of headingDrift) {
     const m = body.match(wrong);
@@ -654,8 +660,10 @@ export function computeDaysSinceUpdate(updated) {
   return Math.floor(diffMs / (1000 * 60 * 60 * 24));
 }
 
-export function computeIsStale(status, updated, config) {
-  const staleAfterDays = config.staleDaysByStatus[status] ?? null;
+export function computeIsStale(status, updated, config, type = null) {
+  const typeStaleDays = type ? config.raw?.types?.[type]?.staleDays : null;
+  const hasTypeDays = Object.prototype.hasOwnProperty.call(typeStaleDays ?? {}, status);
+  const staleAfterDays = hasTypeDays ? typeStaleDays[status] : (config.staleDaysByStatus[status] ?? null);
   if (staleAfterDays == null) return false;
 
   const daysSinceUpdate = computeDaysSinceUpdate(updated);

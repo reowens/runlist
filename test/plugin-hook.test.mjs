@@ -16,14 +16,15 @@ const wrapper = path.resolve(import.meta.dirname, '..', 'plugins', 'dotmd', 'bin
 // first on PATH (so a planted fake `dotmd` wins); the trailing system dirs only
 // provide `sh` itself — the globally-installed `dotmd` lives in npm's bin, not
 // /usr/bin or /bin, so it stays invisible unless `pathDir` supplies it.
-function runHook(args, pathDir) {
+function runHook(args, pathDir, input) {
   return spawnSync('sh', [wrapper, ...args], {
     encoding: 'utf8',
+    input,
     env: { PATH: `${pathDir}:/usr/bin:/bin` },
   });
 }
 
-describe('plugin hook wrapper (missing dotmd binary)', () => {
+describe('plugin hook wrapper (missing dotmd binary)', { skip: process.platform === 'win32' && 'POSIX sh plugin wrapper' }, () => {
   it('--hint surfaces a single install hint and exits 0', () => {
     // Empty temp dir on PATH → no `dotmd`. `command -v` / `echo` are shell
     // builtins, so the wrapper still runs.
@@ -61,7 +62,7 @@ describe('plugin hook wrapper (missing dotmd binary)', () => {
   });
 });
 
-describe('plugin hook wrapper (dotmd present)', () => {
+describe('plugin hook wrapper (dotmd present)', { skip: process.platform === 'win32' && 'POSIX sh plugin wrapper' }, () => {
   it('execs the real binary, forwarding all args', () => {
     const binDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-fakebin-'));
     try {
@@ -76,6 +77,25 @@ describe('plugin hook wrapper (dotmd present)', () => {
       match(r.stdout, /FAKE-DOTMD: hud/, `expected real binary to run with hud; got: ${r.stdout}`);
       ok(!r.stdout.includes('--hint'), '--hint is consumed by the wrapper, not forwarded');
       ok(!r.stdout.includes('npm i -g'), 'no install hint when the binary is present');
+    } finally {
+      rmSync(binDir, { recursive: true, force: true });
+    }
+  });
+
+  it('routes broad Git and Windows prompt guard payloads through Node', () => {
+    const binDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-fakebin-'));
+    try {
+      const fake = path.join(binDir, 'dotmd');
+      writeFileSync(fake, '#!/bin/sh\necho "FAKE-DOTMD: $@"\n');
+      chmodSync(fake, 0o755);
+      const broad = runHook(['guard'], binDir, JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'git add .' } }));
+      match(broad.stdout, /FAKE-DOTMD: guard/);
+      const gitOptions = runHook(['guard'], binDir, JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'git -C . add .' } }));
+      match(gitOptions.stdout, /FAKE-DOTMD: guard/);
+      const sudo = runHook(['guard'], binDir, JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'sudo git add .' } }));
+      match(sudo.stdout, /FAKE-DOTMD: guard/);
+      const windows = runHook(['guard'], binDir, JSON.stringify({ tool_name: 'Read', tool_input: { file_path: 'docs\\prompts\\x.md' } }));
+      match(windows.stdout, /FAKE-DOTMD: guard/);
     } finally {
       rmSync(binDir, { recursive: true, force: true });
     }
