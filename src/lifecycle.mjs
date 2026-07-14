@@ -3,7 +3,7 @@ import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter, normalizeEol } from './frontmatter.mjs';
 import { asString, toRepoPath, die, warn, resolveDocPath, escapeRegex, nowIso, suggestCandidates, emitFilesFooter, isArchivedPath, currentSessionId } from './util.mjs';
 import { readJournalEntries } from './journal.mjs';
-import { captureGitIndexGeneration, getGitLastModifiedBatch, isTracked } from './git.mjs';
+import { captureGitIndexGeneration, getGitLastModifiedBatch, getGitLastSubstantiveModifiedBatch, isTracked } from './git.mjs';
 import { buildIndex, collectDocFiles, resolveDocArg } from './index.mjs';
 import { writeRenderedIndex } from './index-file.mjs';
 import { green, dim } from './color.mjs';
@@ -1137,17 +1137,34 @@ export function runTouch(argv, config, opts = {}) {
     if (argv[i].startsWith('-')) continue;
     positional.push(argv[i]);
   }
+  const inputs = positional;
   const input = positional[0];
 
   // --git mode: bulk-sync frontmatter dates from git history
   if (useGit) {
-    const allFiles = input ? [resolveDocArg(input, config)] : collectDocFiles(config);
+    const allFiles = inputs.length > 0
+      ? [...new Set(inputs.map(item => resolveDocArg(item, config)))]
+      : collectDocFiles(config);
     authorizeManagedSweep(allFiles, config, { kind: 'Touch --git source' });
+
+    const records = [];
+    for (const filePath of allFiles) {
+      const raw = readFileSync(filePath, 'utf8');
+      const { frontmatter } = extractFrontmatter(raw);
+      if (!frontmatter) continue;
+      const parsed = parseSimpleFrontmatter(frontmatter);
+      if (config.lifecycle.skipStaleFor.has(asString(parsed.status))) continue;
+      records.push({
+        filePath,
+        repoPath: toRepoPath(filePath, config.repoRoot),
+        fmUpdated: asString(parsed.updated),
+      });
+    }
 
     const prefix = dryRun ? dim('[dry-run] ') : '';
     let synced = 0;
-    const repoPaths = allFiles.map(filePath => toRepoPath(filePath, config.repoRoot));
-    const rootPathspecs = input ? null : (config.docsRoots || [config.docsRoot])
+    const repoPaths = records.map(item => item.repoPath);
+    const rootPathspecs = inputs.length > 0 ? null : (config.docsRoots || [config.docsRoot])
       .map(root => toRepoPath(root, config.repoRoot) || '.');
     const gitMetadata = getGitLastModifiedBatch(config.repoRoot, repoPaths, {
       ...(rootPathspecs ? { pathspecs: rootPathspecs } : {}),
@@ -1156,26 +1173,33 @@ export function runTouch(argv, config, opts = {}) {
     if (!gitMetadata.complete) {
       die(`Cannot touch from incomplete Git metadata (${gitMetadata.reason}); no files were changed.`);
     }
-    const gitDates = gitMetadata.dates;
-
-    for (const filePath of allFiles) {
-      const repoPath = toRepoPath(filePath, config.repoRoot);
-      const raw = readFileSync(filePath, 'utf8');
-      const { frontmatter } = extractFrontmatter(raw);
-      if (!frontmatter) continue;
-
-      const parsed = parseSimpleFrontmatter(frontmatter);
-      const status = asString(parsed.status);
-      if (config.lifecycle.skipStaleFor.has(status)) continue;
-
-      const fmUpdated = asString(parsed.updated);
-      const gitDate = gitDates.get(repoPath) ?? null;
+    const candidates = [];
+    for (const { filePath, repoPath, fmUpdated } of records) {
+      const gitDate = gitMetadata.dates.get(repoPath) ?? null;
       if (!gitDate) continue;
-
       const gitDay = gitDate.slice(0, 10);
       if (fmUpdated === gitDay) continue;
-
       // Only sync if git is newer than frontmatter (compare date strings)
+      if (fmUpdated && fmUpdated >= gitDay) continue;
+      candidates.push({ filePath, repoPath, fmUpdated });
+    }
+
+    const candidatePaths = candidates.map(item => item.repoPath);
+    const substantiveMetadata = getGitLastSubstantiveModifiedBatch(config.repoRoot, candidatePaths, {
+      dates: new Map(candidatePaths.filter(p => gitMetadata.dates.has(p)).map(p => [p, gitMetadata.dates.get(p)])),
+      commits: new Map(candidatePaths.filter(p => gitMetadata.commits?.has(p)).map(p => [p, gitMetadata.commits.get(p)])),
+      history: new Map(candidatePaths.filter(p => gitMetadata.history?.has(p)).map(p => [p, gitMetadata.history.get(p)])),
+      complete: gitMetadata.complete,
+      reason: gitMetadata.reason,
+    }, opts.gitMetadataOptions);
+    if (!substantiveMetadata.complete) {
+      die(`Cannot touch from incomplete Git metadata (${substantiveMetadata.reason}); no files were changed.`);
+    }
+
+    for (const { filePath, repoPath, fmUpdated } of candidates) {
+      const gitDate = substantiveMetadata.dates.get(repoPath) ?? null;
+      if (!gitDate) continue;
+      const gitDay = gitDate.slice(0, 10);
       if (fmUpdated && fmUpdated >= gitDay) continue;
 
       if (!dryRun) {
@@ -1200,6 +1224,7 @@ export function runTouch(argv, config, opts = {}) {
     return;
   }
 
+  if (inputs.length > 1) die('Multiple files require `dotmd touch --git <file...>`.');
   if (!input) { die('Usage: dotmd touch <file>\n       dotmd touch --git          Bulk-sync dates from git history'); }
 
   let filePath = resolveDocArg(input, config);

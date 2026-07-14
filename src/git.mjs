@@ -25,7 +25,7 @@ export function isGitIgnored(absPath, repoRoot) {
 let gitChecked = false;
 function assertSafeGitPaths(paths) {
   for (const filePath of paths) {
-    if (!filePath || path.isAbsolute(filePath) || filePath.split(/[\\/]/).includes('..')) {
+    if (!filePath || /[\0\r\n]/.test(filePath) || path.isAbsolute(filePath) || filePath.split(/[\\/]/).includes('..')) {
       throw new Error(`Unsafe repository-relative Git path: ${filePath}`);
     }
   }
@@ -37,6 +37,10 @@ function ensureGit() {
     throw new Error('git is not installed or not found in PATH. dotmd requires git for this operation.');
   }
   gitChecked = true;
+}
+
+function literalGitPathspec(filePath) {
+  return filePath === '.' ? ':(top,literal)' : `:(top,literal)${filePath}`;
 }
 
 export function getGitLastModified(relPath, repoRoot) {
@@ -61,6 +65,7 @@ export function getGitFirstAdded(relPath, repoRoot) {
 const DEFAULT_GIT_METADATA_MAX_COMMITS = 10_000;
 const DEFAULT_GIT_METADATA_MAX_BUFFER = 10 * 1024 * 1024;
 const DEFAULT_GIT_METADATA_PATH_BATCH = 256;
+const GIT_METADATA_HISTORY_PER_PATH = 16;
 
 function boundedPositiveInteger(value, fallback, name) {
   if (value == null) return fallback;
@@ -73,21 +78,33 @@ function boundedPositiveInteger(value, fallback, name) {
 function unavailableGitHistory(result) {
   if (result.error?.code === 'ENOENT') return true;
   const detail = `${result.stderr ?? ''}\n${result.error?.message ?? ''}`;
-  return /not a git repository|does not have any commits yet|bad revision ['"]?HEAD|ambiguous argument ['"]?HEAD/i.test(detail);
+  return /not a git repository|does not have any commits yet|bad revision|unknown revision|ambiguous argument/i.test(detail);
 }
 
-function parseGitMetadataOutput(stdout, dates, expectedPaths) {
+function parseGitMetadataOutput(stdout, dates, commits, history, expectedPaths) {
   const fields = String(stdout ?? '').split('\0');
   let currentDate = null;
+  let currentCommit = null;
   for (let i = 0; i < fields.length; i++) {
     const field = fields[i];
-    if (field === 'dotmd:git-metadata:commit' && /^\d{4}-\d{2}-\d{2}T/.test(fields[i + 1] ?? '')) {
+    if (field === 'dotmd:git-metadata:commit'
+      && /^[0-9a-f]{40,64}$/i.test(fields[i + 1] ?? '')
+      && /^\d{4}-\d{2}-\d{2}T/.test(fields[i + 2] ?? '')) {
+      currentCommit = fields[++i];
       currentDate = fields[++i];
       continue;
     }
     const filePath = field.startsWith('\n') ? field.slice(1) : field;
-    if (filePath && currentDate && expectedPaths.has(filePath) && !dates.has(filePath)) {
-      dates.set(filePath, currentDate);
+    if (filePath && currentDate && expectedPaths.has(filePath)) {
+      if (!history.has(filePath)) history.set(filePath, []);
+      const entries = history.get(filePath);
+      if (entries.length < GIT_METADATA_HISTORY_PER_PATH && entries.at(-1)?.commit !== currentCommit) {
+        entries.push({ date: currentDate, commit: currentCommit });
+      }
+      if (!dates.has(filePath)) {
+        dates.set(filePath, currentDate);
+        commits.set(filePath, currentCommit);
+      }
     }
   }
 }
@@ -101,33 +118,36 @@ export function getGitLastModifiedBatch(repoRoot, relPaths, options = {}) {
   const maxPathsPerBatch = boundedPositiveInteger(options.maxPathsPerBatch, DEFAULT_GIT_METADATA_PATH_BATCH, 'maxPathsPerBatch');
   const paths = [...new Set(relPaths ?? [])];
   assertSafeGitPaths(paths);
-  if (paths.length === 0) return { dates: new Map(), complete: true, reason: null };
-  // Full-tree callers can supply a small set of configured root pathspecs.
-  // Git scans the bounded commit window once per root batch, while output is
-  // still filtered to the exact requested paths below. Narrow callers keep the
-  // exact-path default so they do not broaden history work unnecessarily.
+  if (paths.length === 0) return { dates: new Map(), commits: new Map(), history: new Map(), complete: true, reason: null };
+  // Full-tree callers can supply a small set of configured root pathspecs for
+  // diff extraction. Revision selection still uses the exact requested paths,
+  // so excluded or unrelated documents cannot consume the commit bound.
   const scanPaths = options.pathspecs?.length ? [...new Set(options.pathspecs)] : paths;
   assertSafeGitPaths(scanPaths);
   const expectedPaths = new Set(paths);
+  const revision = options.revision ?? 'HEAD';
 
   const dates = new Map();
+  const commitsByPath = new Map();
+  const history = new Map();
   let reason = null;
-  const revisions = spawnSync('git', ['rev-list', `--max-count=${maxCommits + 1}`, 'HEAD'], {
+  const revisions = spawnSync('git', ['rev-list', '--stdin', `--max-count=${maxCommits + 1}`, revision], {
     cwd: repoRoot,
     encoding: 'utf8',
+    input: `--\n${paths.map(literalGitPathspec).join('\n')}\n`,
     maxBuffer,
   });
   if (revisions.error?.code === 'ENOBUFS') {
     reason = 'output-limit';
   } else if (revisions.error || revisions.status !== 0) {
-    if (unavailableGitHistory(revisions)) return { dates, complete: true, reason: null };
-    return { dates, complete: false, reason: 'git-error' };
+    if (unavailableGitHistory(revisions)) return { dates, commits: commitsByPath, history, complete: true, reason: null };
+    return { dates, commits: commitsByPath, history, complete: false, reason: 'git-error' };
   }
-  const commits = String(revisions.stdout ?? '')
+  const revisionList = String(revisions.stdout ?? '')
     .split('\n')
     .filter(line => /^[0-9a-f]{40,64}$/i.test(line))
     .slice(0, maxCommits);
-  if (commits.length === 0) return { dates, complete: reason === null, reason };
+  if (revisionList.length === 0) return { dates, commits: commitsByPath, history, complete: reason === null, reason };
   if (!reason && String(revisions.stdout ?? '').trim().split('\n').length > maxCommits) {
     reason = 'commit-limit';
   }
@@ -135,9 +155,9 @@ export function getGitLastModifiedBatch(repoRoot, relPaths, options = {}) {
   for (let offset = 0; offset < scanPaths.length; offset += maxPathsPerBatch) {
     const batch = scanPaths.slice(offset, offset + maxPathsPerBatch);
     const result = spawnSync('git', [
-      'diff-tree', '--stdin', '--root', '-r', '-z', '--format=%x00dotmd:git-metadata:commit%x00%aI%x00', '--name-only', '--diff-filter=ACDMR', '--', ...batch,
-    ], { cwd: repoRoot, encoding: 'utf8', input: commits.join('\n') + '\n', maxBuffer });
-    parseGitMetadataOutput(result.stdout, dates, expectedPaths);
+      'diff-tree', '--stdin', '--root', '-r', '-z', '--format=%x00dotmd:git-metadata:commit%x00%H%x00%aI%x00', '--name-only', '--diff-filter=ACDMR', '--', ...batch.map(literalGitPathspec),
+    ], { cwd: repoRoot, encoding: 'utf8', input: revisionList.join('\n') + '\n', maxBuffer });
+    parseGitMetadataOutput(result.stdout, dates, commitsByPath, history, expectedPaths);
 
     if (result.error?.code === 'ENOBUFS') {
       reason = 'output-limit';
@@ -146,7 +166,171 @@ export function getGitLastModifiedBatch(repoRoot, relPaths, options = {}) {
     }
   }
 
-  return { dates, complete: reason === null, reason };
+  // Reaching the history window is harmless when every requested tracked path
+  // already received a latest date. Only unresolved tracked paths require
+  // older history; untracked files legitimately have no Git date.
+  if (reason === 'commit-limit') {
+    const missing = paths.filter(filePath => !dates.has(filePath));
+    let unresolvedTracked = false;
+    let trackingCheckFailed = false;
+    for (let offset = 0; offset < missing.length; offset += maxPathsPerBatch) {
+      const batch = missing.slice(offset, offset + maxPathsPerBatch);
+      const result = spawnSync('git', ['ls-files', '-z', '--', ...batch.map(literalGitPathspec)], {
+        cwd: repoRoot, encoding: 'utf8', maxBuffer,
+      });
+      if (result.error || result.status !== 0) {
+        trackingCheckFailed = true;
+        break;
+      }
+      if (String(result.stdout ?? '').split('\0').some(Boolean)) {
+        unresolvedTracked = true;
+        break;
+      }
+    }
+    if (!trackingCheckFailed && !unresolvedTracked) reason = null;
+  }
+
+  return { dates, commits: commitsByPath, history, complete: reason === null, reason };
+}
+
+function parseBatchObjects(stdout, count) {
+  const output = Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout ?? '');
+  const objects = [];
+  let offset = 0;
+  while (objects.length < count && offset < output.length) {
+    const newline = output.indexOf(0x0a, offset);
+    if (newline < 0) return null;
+    const header = output.subarray(offset, newline).toString('utf8');
+    offset = newline + 1;
+    if (header.endsWith(' missing')) {
+      objects.push(null);
+      continue;
+    }
+    const size = Number(header.match(/\s(\d+)$/)?.[1]);
+    if (!Number.isSafeInteger(size) || size < 0 || offset + size > output.length) return null;
+    objects.push(output.subarray(offset, offset + size).toString('utf8'));
+    offset += size;
+    if (output[offset] === 0x0a) offset++;
+  }
+  return objects.length === count ? objects : null;
+}
+
+function withoutUpdatedLine(raw) {
+  if (raw == null) return null;
+  const eol = raw.startsWith('---\r\n') ? '\r\n' : raw.startsWith('---\n') ? '\n' : null;
+  if (!eol) return null;
+  const marker = `${eol}---${eol}`;
+  const end = raw.indexOf(marker, 3 + eol.length);
+  if (end < 0) return null;
+  const frontmatter = raw.slice(3 + eol.length, end).split(eol);
+  const index = frontmatter.findIndex(line => line.startsWith('updated:'));
+  if (index < 0) return { line: null, content: raw };
+  const [line] = frontmatter.splice(index, 1);
+  return { line, content: `---${eol}${frontmatter.join(eol)}${marker}${raw.slice(end + marker.length)}` };
+}
+
+function updatedOnlyPathsByCommit(repoRoot, byCommit, maxBuffer, maxPathsPerBatch) {
+  const entries = [...byCommit].flatMap(([commit, commitPaths]) => commitPaths.map(filePath => ({ commit, filePath })));
+  const paths = new Set();
+  // Blob contents are much larger than path metadata, so keep each bounded
+  // cat-file response comfortably below the shared output cap.
+  const batchSize = Math.min(maxPathsPerBatch, 32);
+  for (let offset = 0; offset < entries.length; offset += batchSize) {
+    const batch = entries.slice(offset, offset + batchSize);
+    if (batch.some(item => item.filePath.includes('\n'))) return { paths: new Set(), complete: false };
+    const specs = batch.flatMap(item => [`${item.commit}:${item.filePath}`, `${item.commit}^:${item.filePath}`]);
+    const result = spawnSync('git', ['cat-file', '--batch'], {
+      cwd: repoRoot, input: specs.join('\n') + '\n', maxBuffer,
+    });
+    if (result.error || result.status !== 0) {
+      return { paths: new Set(), complete: false };
+    }
+    const objects = parseBatchObjects(result.stdout, specs.length);
+    if (!objects) return { paths: new Set(), complete: false };
+    for (let i = 0; i < batch.length; i++) {
+      const current = withoutUpdatedLine(objects[i * 2]);
+      const parent = withoutUpdatedLine(objects[i * 2 + 1]);
+      if (!current || !parent || current.line === parent.line) continue;
+      if (current.content === parent.content) paths.add(`${batch[i].commit}\0${batch[i].filePath}`);
+    }
+  }
+  return { paths, complete: true };
+}
+
+// Resolve the latest substantive date for paths whose latest commit may only
+// have synchronized the top-level `updated:` line. Callers provide their first
+// bounded history scan so normal paths pay no extra Git cost. Metadata-only
+// paths are grouped by commit, then resolved from the retained history window
+// (with a bounded parent fallback); consecutive sync-only commits are skipped.
+export function getGitLastSubstantiveModifiedBatch(repoRoot, relPaths, initialMetadata, options = {}) {
+  const maxBuffer = boundedPositiveInteger(options.maxBuffer, DEFAULT_GIT_METADATA_MAX_BUFFER, 'maxBuffer');
+  const maxPathsPerBatch = boundedPositiveInteger(options.maxPathsPerBatch, DEFAULT_GIT_METADATA_PATH_BATCH, 'maxPathsPerBatch');
+  const paths = [...new Set(relPaths ?? [])];
+  assertSafeGitPaths(paths);
+  if (paths.length === 0) return { dates: new Map(), commits: new Map(), history: new Map(), complete: true, reason: null };
+
+  const initial = initialMetadata ?? getGitLastModifiedBatch(repoRoot, paths, options);
+  const dates = new Map(initial.dates);
+  const commits = new Map(initial.commits ?? []);
+  const history = new Map(initial.history ?? []);
+  let complete = initial.complete;
+  let reason = initial.reason;
+  const byCommit = new Map();
+  for (const filePath of paths) {
+    const commit = commits.get(filePath);
+    if (!commit) continue;
+    if (!byCommit.has(commit)) byCommit.set(commit, []);
+    byCommit.get(commit).push(filePath);
+  }
+
+  const classification = updatedOnlyPathsByCommit(repoRoot, byCommit, maxBuffer, maxPathsPerBatch);
+  if (!classification.complete) {
+    complete = false;
+    reason = reason ?? 'git-error';
+  }
+
+  for (const [commit, commitPaths] of byCommit) {
+    const metadataOnly = commitPaths.filter(filePath => classification.paths.has(`${commit}\0${filePath}`));
+    if (metadataOnly.length === 0) continue;
+
+    const older = {
+      dates: new Map(), commits: new Map(), history: new Map(),
+      complete: initial.complete, reason: initial.reason,
+    };
+    const unresolved = [];
+    for (const filePath of metadataOnly) {
+      const entries = history.get(filePath) ?? [];
+      const currentIndex = entries.findIndex(entry => entry.commit === commit);
+      const remaining = currentIndex >= 0 ? entries.slice(currentIndex + 1) : [];
+      if (remaining.length === 0) {
+        unresolved.push(filePath);
+        continue;
+      }
+      older.dates.set(filePath, remaining[0].date);
+      older.commits.set(filePath, remaining[0].commit);
+      older.history.set(filePath, remaining);
+    }
+    if (unresolved.length > 0) {
+      older.complete = false;
+      older.reason = older.reason ?? 'commit-limit';
+    }
+    const substantive = getGitLastSubstantiveModifiedBatch(repoRoot, metadataOnly, older, options);
+    complete = complete && substantive.complete;
+    reason = reason ?? substantive.reason;
+    for (const filePath of metadataOnly) {
+      if (substantive.dates.has(filePath)) {
+        dates.set(filePath, substantive.dates.get(filePath));
+        commits.set(filePath, substantive.commits.get(filePath));
+        if (substantive.history.has(filePath)) history.set(filePath, substantive.history.get(filePath));
+      } else {
+        dates.delete(filePath);
+        commits.delete(filePath);
+        history.delete(filePath);
+      }
+    }
+  }
+
+  return { dates, commits, history, complete, reason };
 }
 
 function parseNullPaths(result) {

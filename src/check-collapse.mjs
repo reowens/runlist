@@ -18,13 +18,13 @@ const CATEGORIES = [
   },
   {
     key: 'singular-module',
-    match: /^`module:` \(singular\) is deprecated/,
+    match: /^`module:` \(singular\) is deprecated.*Run `dotmd lint --fix`/,
     label: 'docs use deprecated singular `module:`',
     fix: 'dotmd lint --fix',
   },
   {
     key: 'singular-surface',
-    match: /^`surface:` \(singular\) is deprecated/,
+    match: /^`surface:` \(singular\) is deprecated.*Run `dotmd lint --fix`/,
     label: 'docs use deprecated singular `surface:`',
     fix: 'dotmd lint --fix',
   },

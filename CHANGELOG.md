@@ -4,12 +4,24 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
 
 ## Unreleased
 
+## 0.70.1 — 2026-07-14
+
 ### Fixed
 
 - Basic read and lookup commands no longer perform the bounded 10,000-commit
   Git/frontmatter drift scan on every index build. `check` and `doctor` retain
   that validation, while explicit Git filters and `touch --git` continue to
   request metadata directly.
+- `doctor --apply` now includes long-frontmatter repair, and preview closeout
+  counts match the fixers while manual actions include the validation reason.
+- Singular metadata migrations, including populated block-form values, are
+  classified as fixable only when `lint --fix` can perform the migration.
+- `touch --git` accepts multiple explicit files and date synchronization now
+  converges across consecutive and multi-file metadata-only commits by ignoring
+  commits that changed only the top-level `updated:` line.
+- Bounded Git metadata scans count only relevant history, skip statuses excluded
+  from staleness checks, and retain enough per-file history to resolve metadata-
+  only commits without another full history walk.
 
 ## 0.70.0 — 2026-07-14
 

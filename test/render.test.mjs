@@ -5,6 +5,7 @@ import {
   renderProgressBar,
   formatSnapshot,
   renderCheck,
+  renderManualFixes,
   buildCoverage,
   renderContext,
 } from '../src/render.mjs';
@@ -297,6 +298,17 @@ describe('renderCheck', () => {
     const result = renderCheck(index, makeConfig());
     ok(result.includes('Manual fixes remaining'), result);
     ok(result.includes('dotmd bulk-tag docs/bad.md'), result);
+    ok(result.includes('Missing frontmatter `status`'), result);
+  });
+
+  it('includes the validation reason in generic manual guidance', () => {
+    const index = {
+      docs: [makeDoc()],
+      errors: [],
+      warnings: [{ path: 'docs/warn.md', message: 'heading case does not match the plan template' }],
+    };
+    const result = renderManualFixes(index);
+    ok(result.includes('edit docs/warn.md: heading case does not match the plan template'), result);
   });
 
   it('shows warnings when present (verbose)', () => {

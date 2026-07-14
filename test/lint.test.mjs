@@ -214,6 +214,93 @@ describe('dotmd lint', () => {
     ok(/-\s+bar/.test(content), `existing bar preserved: ${content}`);
   });
 
+  it('--fix migrates a populated block-form singular array (F18)', () => {
+    const docsDir = setupProject();
+    writeFileSync(path.join(docsDir, 'block.md'),
+      '---\ntype: plan\nstatus: active\nupdated: 2025-01-01\nsurface:\n  - web\n  - api\nsurfaces:\n  - ios\n---\n# Block\n');
+
+    const result = run(['lint', '--fix']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+
+    const content = readFileSync(path.join(docsDir, 'block.md'), 'utf8');
+    ok(!/^surface:/m.test(content), `singular surface block removed: ${content}`);
+    for (const value of ['web', 'api', 'ios']) {
+      ok(new RegExp(`^\\s*- ${value}$`, 'm').test(content), `${value} preserved: ${content}`);
+    }
+  });
+
+  it('--fix preserves a top-level comment inside a singular array', () => {
+    const docsDir = setupProject();
+    const filePath = path.join(docsDir, 'commented-array.md');
+    writeFileSync(filePath,
+      '---\ntype: plan\nstatus: active\nupdated: 2025-01-01\nsurface:\n# Keep this list note\n  - web\n  - api\n---\n# Commented Array\n');
+
+    const result = run(['lint', '--fix']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    const content = readFileSync(filePath, 'utf8');
+    ok(content.includes('# Keep this list note'), content);
+    ok(/^surfaces:\n  # Keep this list note\n  - web\n  - api$/m.test(content), content);
+  });
+
+  it('--fix preserves plural scalar values and unrelated block-scalar spacing', () => {
+    const docsDir = setupProject();
+    writeFileSync(path.join(docsDir, 'preserve.md'),
+      '---\ntype: plan\nstatus: active\nupdated: 2025-01-01\nsummary: |\n  First paragraph.\n\n  Second paragraph.\nsurface:\n  # Singular comment\n  - web\nsurfaces:\n  # Plural comment\n  - ios\n---\n# Preserve\n');
+
+    const result = run(['lint', '--fix']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+
+    const content = readFileSync(path.join(docsDir, 'preserve.md'), 'utf8');
+    ok(content.includes('summary: |\n  First paragraph.\n\n  Second paragraph.'), content);
+    ok(content.includes('# Singular comment'), content);
+    ok(content.includes('# Plural comment'), content);
+    ok(/  - web\n  - ios$/m.test(content), content);
+  });
+
+  it('--fix leaves non-string singular and plural values for manual migration', () => {
+    const docsDir = setupProject();
+    const filePath = path.join(docsDir, 'manual.md');
+    const original = '---\ntype: plan\nstatus: active\nupdated: 2025-01-01\nsurface:\n  - web\n  - true\nsurfaces:\n  - ios\n  - false\n---\n# Manual\n';
+    writeFileSync(filePath, original);
+    const emptyPath = path.join(docsDir, 'empty-with-non-string.md');
+    const emptyOriginal = '---\ntype: plan\nstatus: active\nupdated: 2025-01-01\nsurface: ""\nsurfaces:\n  - false\n---\n# Empty Manual\n';
+    writeFileSync(emptyPath, emptyOriginal);
+
+    const fix = run(['lint', '--fix']);
+    strictEqual(fix.status, 0, `stderr: ${fix.stderr}`);
+    ok(fix.stdout.includes('0 fixes applied across 0 file(s)'), fix.stdout);
+    strictEqual(readFileSync(filePath, 'utf8'), original);
+    strictEqual(readFileSync(emptyPath, 'utf8'), emptyOriginal);
+
+    const report = run(['lint']);
+    ok(report.stdout.includes('non-fixable issue'), report.stdout);
+    ok(report.stdout.includes('preserve all of its values'), report.stdout);
+  });
+
+  it('--fix leaves inline-comment singular values for manual migration', () => {
+    const docsDir = setupProject();
+    const filePath = path.join(docsDir, 'inline-comment.md');
+    const original = '---\ntype: plan\nstatus: active\nupdated: 2025-01-01\nsurface: "" # Keep this note\n---\n# Inline Comment\n';
+    writeFileSync(filePath, original);
+
+    const fix = run(['lint', '--fix']);
+    strictEqual(fix.status, 0, `stderr: ${fix.stderr}`);
+    ok(fix.stdout.includes('0 fixes applied across 0 file(s)'), fix.stdout);
+    strictEqual(readFileSync(filePath, 'utf8'), original);
+    const report = run(['lint']);
+    ok(report.stdout.includes('manually') && !report.stdout.includes('Run dotmd lint --fix'), report.stdout);
+  });
+
+  it('does not offer quiet archived singular keys as lint fixes', () => {
+    const docsDir = setupProject();
+    writeFileSync(path.join(docsDir, 'archived.md'),
+      '---\ntype: plan\nstatus: archived\nupdated: 2025-01-01\nsurface:\nsurfaces:\n  - web\n---\n# Archived\n');
+
+    const result = run(['lint', '--fix', '--dry-run']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('0 fixes applied across 0 file(s)'), result.stdout);
+  });
+
   it('--fix dedupes when singular module: equals an entry already in modules: (F18)', () => {
     const docsDir = setupProject();
     writeFileSync(path.join(docsDir, 'm.md'),
@@ -257,6 +344,19 @@ describe('dotmd lint', () => {
 
     const content = readFileSync(path.join(docsDir, 'e2.md'), 'utf8');
     ok(!/^surface:/m.test(content), `empty singular surface: removed: ${content}`);
+  });
+
+  it('--fix removes quoted empty singular values while preserving comments', () => {
+    const docsDir = setupProject();
+    const filePath = path.join(docsDir, 'empty-string.md');
+    writeFileSync(filePath,
+      '---\ntype: plan\nstatus: active\nupdated: 2025-01-01\nsurface: ""\n  # Keep this note\n---\n# Empty\n');
+
+    const result = run(['lint', '--fix']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    const content = readFileSync(filePath, 'utf8');
+    ok(!/^surface:/m.test(content), content);
+    ok(content.includes('# Keep this note'), content);
   });
 
   // issue #17 item 8: the singular-deprecation warnings must not appear in the

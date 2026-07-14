@@ -17,6 +17,55 @@ const KEY_RENAMES = {
   supportsPlans: 'supports_plans',
 };
 
+function frontmatterFieldBlock(frontmatter, field) {
+  const lines = frontmatter.split(/\r?\n/);
+  const fieldRe = new RegExp(`^${escapeRegex(field)}:`);
+  const start = lines.findIndex(line => fieldRe.test(line));
+  if (start < 0) return null;
+  let end = start + 1;
+  while (end < lines.length) {
+    if (/^[ \t]/.test(lines[end]) || lines[end].trim() === '') {
+      end++;
+      continue;
+    }
+    if (lines[end].trimStart().startsWith('#')) {
+      let next = end + 1;
+      while (next < lines.length && (lines[next].trim() === '' || lines[next].trimStart().startsWith('#'))) next++;
+      if (next < lines.length && /^[ \t]/.test(lines[next])) {
+        end++;
+        continue;
+      }
+    }
+    break;
+  }
+  return { lines, start, end };
+}
+
+function replaceFrontmatterFieldBlock(frontmatter, field, replacement = '') {
+  const block = frontmatterFieldBlock(frontmatter, field);
+  if (!block) return frontmatter;
+  const { lines, start, end } = block;
+  lines.splice(start, end - start, ...(replacement ? replacement.split('\n') : []));
+  return lines.join('\n');
+}
+
+function frontmatterFieldComments(frontmatter, field) {
+  const block = frontmatterFieldBlock(frontmatter, field);
+  if (!block) return [];
+  return block.lines
+    .slice(block.start + 1, block.end)
+    .map(line => line.trim())
+    .filter(line => line.startsWith('#'));
+}
+
+function isAutoFixableString(value) {
+  return typeof value === 'string' && !/(^|\s)#/.test(value);
+}
+
+function formatYamlScalar(value) {
+  return /^[A-Za-z0-9_./-]+$/.test(value) ? value : JSON.stringify(value);
+}
+
 export function runLint(argv, config, opts = {}) {
   const { dryRun } = opts;
   const fix = argv.includes('--fix');
@@ -30,6 +79,7 @@ export function runLint(argv, config, opts = {}) {
     const parsed = parseSimpleFrontmatter(frontmatter);
     const repoPath = toRepoPath(filePath, config.repoRoot);
     const fixes = [];
+    const skipWarnings = config.lifecycle.skipWarningsFor.has(asString(parsed.status));
 
     // Missing type (fixable — infer from root: plans → 'plan', else 'doc')
     if (!asString(parsed.type)) {
@@ -46,7 +96,7 @@ export function runLint(argv, config, opts = {}) {
     }
 
     // Missing updated
-    if (!asString(parsed.updated) && asString(parsed.status) && !config.lifecycle.skipWarningsFor.has(asString(parsed.status))) {
+    if (!asString(parsed.updated) && asString(parsed.status) && !skipWarnings) {
       const today = new Date().toISOString().slice(0, 10);
       fixes.push({ field: 'updated', oldValue: null, newValue: today, type: 'add' });
     }
@@ -72,26 +122,31 @@ export function runLint(argv, config, opts = {}) {
     // split on `,`, single values become a one-item list. Merging with any
     // existing plural array happens at apply-time so the message reflects
     // just what's being introduced from the singular form.
-    for (const { singular, plural } of [{ singular: 'module', plural: 'modules' }, { singular: 'surface', plural: 'surfaces' }]) {
-      const rawVal = parsed[singular];
-      const val = asString(rawVal);
-      if (val) {
-        // Inline value (`surface: foo`) → migrate into the plural array.
-        const values = val.includes(',')
-          ? val.split(',').map(s => s.trim()).filter(Boolean)
-          : [val];
-        fixes.push({ field: singular, oldValue: val, newValue: values, pluralKey: plural, type: 'singular-to-plural' });
-      } else if (singular in parsed && (!Array.isArray(rawVal) || rawVal.length === 0)) {
-        // Empty deprecated key (`surface:` with nothing after it, which the
-        // parser yields as `[]`) — usually sitting right above a populated
-        // `surfaces:`. There's no value to migrate; the deprecation warning
-        // just wants the dead line gone. `validate` treats the empty `[]` as
-        // present (so it warns), while the old `asString` gate here saw it as
-        // absent and skipped — the exact no-op reported in issue #17. Emit a
-        // drop fix so `lint --fix` does what the warning advertises. A
-        // populated block-form singular (rawVal.length > 0) is left untouched:
-        // too rare to risk mis-editing.
-        fixes.push({ field: singular, pluralKey: plural, type: 'drop-singular' });
+    if (!skipWarnings) {
+      for (const { singular, plural } of [{ singular: 'module', plural: 'modules' }, { singular: 'surface', plural: 'surfaces' }]) {
+        const rawVal = parsed[singular];
+        const rawPluralVal = parsed[plural];
+        const val = asString(rawVal);
+        const scalarValue = val && isAutoFixableString(val) ? val : null;
+        const blockValues = Array.isArray(rawVal) && rawVal.every(isAutoFixableString)
+          ? rawVal.map(item => item.trim()).filter(Boolean)
+          : [];
+        const pluralAutoFixable = rawPluralVal === undefined
+          || isAutoFixableString(rawPluralVal)
+          || (Array.isArray(rawPluralVal) && rawPluralVal.every(isAutoFixableString));
+        if (pluralAutoFixable && (scalarValue || blockValues.length > 0)) {
+          const values = blockValues.length > 0
+            ? blockValues
+            : scalarValue.includes(',')
+              ? scalarValue.split(',').map(s => s.trim()).filter(Boolean)
+              : [scalarValue];
+          fixes.push({ field: singular, oldValue: scalarValue || blockValues.join(', '), newValue: values, pluralKey: plural, type: 'singular-to-plural' });
+        } else if (pluralAutoFixable && singular in parsed && (
+          (typeof rawVal === 'string' && !rawVal.trim())
+          || (Array.isArray(rawVal) && rawVal.every(item => typeof item === 'string' && !item.trim()))
+        )) {
+          fixes.push({ field: singular, pluralKey: plural, type: 'drop-singular' });
+        }
       }
     }
 
@@ -113,27 +168,31 @@ export function runLint(argv, config, opts = {}) {
     }
   }
 
-  // Also get non-fixable issues from index, excluding issues we can already fix
-  const index = buildIndex(config);
-  const fixablePaths = new Set(fixable.map(f => f.repoPath));
-  // Singular-key deprecation warnings whose fix `lint --fix` will actually make.
-  // Without this, those warnings landed in BOTH the "fixable" preview and the
-  // "non-fixable" list, so the header claimed "N non-fixable" while every line
-  // told you to run `lint --fix` (issue #17, item 8).
-  const fixableSingularKeys = new Set();
-  for (const { repoPath, fixes } of fixable) {
-    for (const f of fixes) {
-      if (f.type === 'singular-to-plural' || f.type === 'drop-singular') {
-        fixableSingularKeys.add(`${repoPath}::${f.field}`);
+  let nonFixable = [];
+  if (!fix) {
+    // Report-only mode also gets non-fixable issues from the index. Fix mode
+    // does not render these and must not pay for a full validation/Git scan.
+    const index = buildIndex(config);
+    const fixablePaths = new Set(fixable.map(f => f.repoPath));
+    // Singular-key deprecation warnings whose fix `lint --fix` will actually make.
+    // Without this, those warnings landed in BOTH the "fixable" preview and the
+    // "non-fixable" list, so the header claimed "N non-fixable" while every line
+    // told you to run `lint --fix` (issue #17, item 8).
+    const fixableSingularKeys = new Set();
+    for (const { repoPath, fixes } of fixable) {
+      for (const f of fixes) {
+        if (f.type === 'singular-to-plural' || f.type === 'drop-singular') {
+          fixableSingularKeys.add(`${repoPath}::${f.field}`);
+        }
       }
     }
+    nonFixable = [...index.errors, ...index.warnings].filter(issue => {
+      if (issue.message.includes('Missing frontmatter `status`') && fixablePaths.has(issue.path)) return false;
+      const dep = issue.message.match(/^`(module|surface):` \(singular\) is deprecated/);
+      if (dep && fixableSingularKeys.has(`${issue.path}::${dep[1]}`)) return false;
+      return true;
+    });
   }
-  const nonFixable = [...index.errors, ...index.warnings].filter(issue => {
-    if (issue.message.includes('Missing frontmatter `status`') && fixablePaths.has(issue.path)) return false;
-    const dep = issue.message.match(/^`(module|surface):` \(singular\) is deprecated/);
-    if (dep && fixableSingularKeys.has(`${issue.path}::${dep[1]}`)) return false;
-    return true;
-  });
 
   if (!fix) {
     // Report mode
@@ -225,22 +284,25 @@ export function runLint(argv, config, opts = {}) {
       }
 
       // Apply singular-to-plural fixes (module/surface → modules/surfaces array).
-      // Removes the singular key line; merges its value(s) into the plural array,
+      // Removes the singular key block; merges its value(s) into the plural array,
       // or creates the plural block if absent. Duplicates are skipped.
       for (const sa of singularToPlural) {
         let raw = readFileSync(filePath, 'utf8');
         const { frontmatter: fm } = extractFrontmatter(raw);
-        let newFm = fm.replace(new RegExp(`^${escapeRegex(sa.field)}:.*$`, 'm'), '').replace(/\n{2,}/g, '\n');
-        const pluralLineRe = new RegExp(`^${escapeRegex(sa.pluralKey)}:[ \\t]*$`, 'm');
-        if (pluralLineRe.test(newFm)) {
-          for (const val of sa.newValue) {
-            const hasVal = new RegExp(`^[ \\t]*-[ \\t]+${escapeRegex(val)}[ \\t]*$`, 'm').test(newFm);
-            if (!hasVal) {
-              newFm = newFm.replace(pluralLineRe, `${sa.pluralKey}:\n  - ${val}`);
-            }
-          }
+        const parsedFm = parseSimpleFrontmatter(fm);
+        const pluralValue = parsedFm[sa.pluralKey];
+        const existing = Array.isArray(pluralValue)
+          ? pluralValue.filter(value => typeof value === 'string' && value.trim())
+          : asString(pluralValue) ? [asString(pluralValue)] : [];
+        const merged = [...new Set([...sa.newValue, ...existing])];
+        const comments = [...frontmatterFieldComments(fm, sa.field), ...frontmatterFieldComments(fm, sa.pluralKey)];
+        let newFm = replaceFrontmatterFieldBlock(fm, sa.field);
+        const pluralLines = [sa.pluralKey + ':', ...comments.map(comment => `  ${comment}`), ...merged.map(v => `  - ${formatYamlScalar(v)}`)];
+        const pluralBlock = pluralLines.join('\n');
+        if (Object.prototype.hasOwnProperty.call(parsedFm, sa.pluralKey)) {
+          newFm = replaceFrontmatterFieldBlock(newFm, sa.pluralKey, pluralBlock);
         } else {
-          newFm += `\n${sa.pluralKey}:\n${sa.newValue.map(v => `  - ${v}`).join('\n')}`;
+          newFm = `${newFm.trim()}\n${pluralBlock}`;
         }
         raw = replaceFrontmatter(raw, newFm.trim());
         writeFileSync(filePath, raw, 'utf8');
@@ -252,9 +314,8 @@ export function runLint(argv, config, opts = {}) {
       for (const ds of dropSingular) {
         let raw = readFileSync(filePath, 'utf8');
         const { frontmatter: fm } = extractFrontmatter(raw);
-        const newFm = fm
-          .replace(new RegExp(`^${escapeRegex(ds.field)}:[ \\t]*$`, 'm'), '')
-          .replace(/\n{2,}/g, '\n');
+        const comments = frontmatterFieldComments(fm, ds.field);
+        const newFm = replaceFrontmatterFieldBlock(fm, ds.field, comments.join('\n'));
         raw = replaceFrontmatter(raw, newFm.trim());
         writeFileSync(filePath, raw, 'utf8');
       }

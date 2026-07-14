@@ -59,6 +59,16 @@ describe('categorizeWarnings (unit)', () => {
     strictEqual(passthrough.length, 5);
   });
 
+  it('does not collapse singular warnings that require manual migration', () => {
+    const warnings = Array.from({ length: 3 }, (_, i) => ({
+      path: `docs/p${i}.md`,
+      message: '`surface:` (singular) is deprecated — use a `surfaces:` YAML list. Remove the deprecated `surface:` block manually and preserve all of its values.',
+    }));
+    const { passthrough, collapsed } = categorizeWarnings(warnings);
+    strictEqual(collapsed.length, 0);
+    strictEqual(passthrough.length, 3);
+  });
+
   it('collapses multiple categories independently', () => {
     const warnings = [
       ...Array.from({ length: 4 }, (_, i) => ({

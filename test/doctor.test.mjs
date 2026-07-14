@@ -188,6 +188,62 @@ describe('doctor command', () => {
     ok(!after.includes('nextStep:'), 'camelCase key should be gone');
   });
 
+  it('includes long-frontmatter repair in the default apply pass', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-doctor-'));
+    spawnSync('git', ['init'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
+    mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';`);
+    const docPath = path.join(tmpDir, 'docs', 'long.md');
+    const longState = 'A substantive sentence with enough detail. '.repeat(50);
+    writeFileSync(docPath, `---\ntype: plan\nstatus: active\nupdated: 2025-01-01\ncurrent_state: "${longState}"\n---\n# Long\n`);
+    spawnSync('git', ['add', '.'], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-m', 'init'], { cwd: tmpDir });
+
+    const result = run(['doctor', '--apply']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    const after = readFileSync(docPath, 'utf8');
+    ok(after.includes('## Current State'), after);
+  });
+
+  it('keeps preview and closeout file counts aligned for lint and long-frontmatter fixes', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-doctor-'));
+    spawnSync('git', ['init'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
+    mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';`);
+    const longState = 'A sentence that belongs partly in the body. '.repeat(50);
+    writeFileSync(path.join(tmpDir, 'docs', 'drift.md'), `---\ntype: plan\nstatus: active\nupdated: 2025-01-01\nmodule:\nmodules:\n  - platform\nsurface:\nsurfaces:\n  - web\ncurrent_state: "${longState}"\n---\n# Drift\n`);
+    spawnSync('git', ['add', '.'], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-m', 'init'], { cwd: tmpDir });
+
+    const result = run(['doctor']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('2 fixes applied across 1 file(s)'), result.stdout);
+    ok(result.stdout.includes('1 file(s) with over-cap fields'), result.stdout);
+    ok(result.stdout.includes('dotmd lint --fix (1 file:'), result.stdout);
+    ok(result.stdout.includes('dotmd doctor --frontmatter-fix (1 file:'), result.stdout);
+  });
+
+  it('keeps archived singular keys out of both lint preview and closeout counts', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-doctor-'));
+    spawnSync('git', ['init'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
+    mkdirSync(path.join(tmpDir, 'docs', 'archive'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';`);
+    writeFileSync(path.join(tmpDir, 'docs', 'archive', 'old.md'), '---\ntype: plan\nstatus: archived\nupdated: 2025-01-01\nsurface:\nsurfaces:\n  - web\n---\n# Old\n\n## Closeout\n\nShipped.\n');
+    spawnSync('git', ['add', '.'], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-m', 'init'], { cwd: tmpDir });
+
+    const result = run(['doctor']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('0 fixes applied across 0 file(s)'), result.stdout);
+    ok(!result.stdout.includes('dotmd lint --fix ('), result.stdout);
+  });
+
   it('F4: `--yes` is an alias for `--apply`', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-doctor-'));
     spawnSync('git', ['init'], { cwd: tmpDir });
@@ -227,7 +283,7 @@ describe('doctor command', () => {
     strictEqual(after, before, 'file must be untouched when --dry-run wins');
   });
 
-  it('numbered steps are contiguous (1,2,3,4,5,6 — no skipped 5)', () => {
+  it('numbered steps are contiguous (1 through 7)', () => {
     // Pre-fix: step 5's heading was conditional on having Claude command
     // changes to report. On a repo with no `.claude/` dir (or already-current
     // commands), `5.` was silently skipped — output went `1, 2, 3, 4, 6` and
@@ -245,16 +301,16 @@ describe('doctor command', () => {
 
     const result = run(['doctor']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-    // Verify all six step headings appear in order.
-    const steps = ['1.', '2.', '3.', '4.', '5.', '6.'];
+    // Verify all seven step headings appear in order.
+    const steps = ['1.', '2.', '3.', '4.', '5.', '6.', '7.'];
     let lastIdx = -1;
     for (const step of steps) {
       const idx = result.stdout.indexOf(step);
       ok(idx > lastIdx, `step ${step} should appear in order; got: ${result.stdout}`);
       lastIdx = idx;
     }
-    ok(result.stdout.includes('5. Claude Code commands'),
-      `step 5 heading should print even with no .claude/ dir; got: ${result.stdout}`);
+    ok(result.stdout.includes('6. Claude Code commands'),
+      `step 6 heading should print even with no .claude/ dir; got: ${result.stdout}`);
   });
 
   it('briefing Errors line hints at `dotmd check` when errors exist', () => {
@@ -469,6 +525,16 @@ describe('doctor --frontmatter-fix', () => {
     ok(result.stdout.includes('No over-cap'), `expected no-op message; got: ${result.stdout}`);
   });
 
+  it('skips over-cap fields on archived plans because validation does not warn for them', () => {
+    setupPlanProject();
+    const sentence = 'Archived detail that should remain historical. '.repeat(50);
+    writeFileSync(path.join(tmpDir, 'docs', 'plans', 'archived.md'), `---\ntype: plan\nstatus: archived\nupdated: 2026-05-26\ncurrent_state: "${sentence}"\n---\n# Archived\n`);
+
+    const result = run(['doctor', '--frontmatter-fix', '--dry-run']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('No over-cap fields found'), result.stdout);
+  });
+
   it('shrinks current_state and inserts a `## Current State` section', () => {
     setupPlanProject();
     writeLongPlan('long-cs', 1700);
@@ -491,6 +557,19 @@ describe('doctor --frontmatter-fix', () => {
     const csSectionIdx = bodyAfter.indexOf('## Current State');
     ok(csSectionIdx >= 0, 'section is in body');
     ok(csSectionIdx < bodyAfter.indexOf('## Problem'), 'section sits above first existing H2');
+  });
+
+  it('preserves top-level frontmatter comments after a long block scalar', () => {
+    setupPlanProject();
+    const longState = 'Long current state sentence. '.repeat(80);
+    const planPath = path.join(tmpDir, 'docs', 'plans', 'commented.md');
+    writeFileSync(planPath, `---\ntype: plan\nstatus: active\nupdated: 2026-05-26\ncurrent_state: >\n  ${longState}\n# Keep this metadata note\nnext_step: Review the result.\n---\n# Commented\n`);
+
+    const result = run(['doctor', '--frontmatter-fix']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    const after = readFileSync(planPath, 'utf8');
+    ok(after.includes('# Keep this metadata note'), after);
+    ok(after.includes('next_step: Review the result.'), after);
   });
 
   it('shrinks next_step independently of current_state', () => {

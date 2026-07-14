@@ -217,6 +217,49 @@ describe('touch --git', () => {
     ok(content.includes('updated: 2020-01-01'), 'file not modified');
   });
 
+  it('syncs every explicitly listed file', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-touchgit-'));
+    spawnSync('git', ['init'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
+    const docsDir = path.join(tmpDir, 'docs');
+    mkdirSync(docsDir, { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';`);
+    for (const name of ['a', 'b']) {
+      writeFileSync(path.join(docsDir, `${name}.md`), '---\nstatus: active\nupdated: 2020-01-01\n---\n# Doc\n');
+    }
+    spawnSync('git', ['add', '.'], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-m', 'init'], { cwd: tmpDir });
+
+    const result = run(['touch', '--git', 'docs/a.md', 'docs/b.md', '--dry-run']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('docs/a.md'), result.stdout);
+    ok(result.stdout.includes('docs/b.md'), result.stdout);
+    ok(result.stdout.includes('2 file(s) synced'), result.stdout);
+  });
+
+  it('does not spend the bulk history bound on archived docs', async () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-touchgit-'));
+    spawnSync('git', ['init'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
+    const docsDir = path.join(tmpDir, 'docs');
+    mkdirSync(docsDir, { recursive: true });
+    const configPath = path.join(tmpDir, 'dotmd.config.mjs');
+    writeFileSync(configPath, `export const root = 'docs';`);
+    const activePath = path.join(docsDir, 'active.md');
+    writeFileSync(activePath, '---\nstatus: active\nupdated: 2020-01-01\n---\n# Active\n');
+    spawnSync('git', ['add', '.'], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-m', 'active'], { cwd: tmpDir });
+    writeFileSync(path.join(docsDir, 'archived.md'), '---\nstatus: archived\nupdated: 2020-01-01\n---\n# Archived\n');
+    spawnSync('git', ['add', '.'], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-m', 'archived'], { cwd: tmpDir });
+
+    const config = await resolveConfig(tmpDir, configPath);
+    runTouch(['--git'], config, { gitMetadataOptions: { maxCommits: 1 } });
+    ok(!readFileSync(activePath, 'utf8').includes('updated: 2020-01-01'));
+  });
+
   it('reports when all dates are already in sync', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-touchgit-'));
     spawnSync('git', ['init'], { cwd: tmpDir });
@@ -251,7 +294,8 @@ describe('touch --git', () => {
     writeFileSync(docPath, original);
     spawnSync('git', ['add', '.'], { cwd: tmpDir });
     spawnSync('git', ['commit', '-m', 'first'], { cwd: tmpDir });
-    writeFileSync(docPath, original + '\nChanged\n');
+    const newerPath = path.join(docsDir, 'newer.md');
+    writeFileSync(newerPath, '---\nstatus: active\nupdated: 2020-01-01\n---\n# Newer\n');
     spawnSync('git', ['add', '.'], { cwd: tmpDir });
     spawnSync('git', ['commit', '-m', 'second'], { cwd: tmpDir });
 
@@ -260,7 +304,7 @@ describe('touch --git', () => {
       () => runTouch(['--git'], config, { gitMetadataOptions: { maxCommits: 1 } }),
       /incomplete Git metadata \(commit-limit\).*no files were changed/,
     );
-    strictEqual(readFileSync(docPath, 'utf8'), original + '\nChanged\n');
+    strictEqual(readFileSync(docPath, 'utf8'), original);
   });
 });
 

@@ -200,7 +200,7 @@ Analyze:
   glossary <term> [--list] [--json] Look up domain terms + related docs
 
 Validate & Fix:
-  doctor [--apply]                  Auto-fix everything: refs, lint, dates, index (preview by default)
+  doctor [--apply]                  Auto-fix everything: refs, lint, long fields, dates, index (preview by default)
   self-check                        Project/version skew diagnostic (alias: doctor --project)
   lint [--fix]                      Check and auto-fix frontmatter issues
   fix-refs [--dry-run]              Auto-fix broken reference paths + body links
@@ -218,7 +218,7 @@ Lifecycle:
   ship [patch|minor|major]          Regen + commit + bump in one step (default: patch)
   bulk-tag [files...]               Tag pre-existing untagged .md files
   touch <file>                      Bump updated date
-  touch --git                       Bulk-sync dates from git history
+  touch --git [<file>...]           Sync dates from substantive git history
   rename <old> <new>                Rename doc and update all references
   migrate <field> <old> <new> [f...]Batch update a frontmatter field value (optional file filter)
 
@@ -702,8 +702,9 @@ the command says so instead of printing an empty list.`,
 
   doctor: `dotmd doctor — auto-fix everything in one pass
 
-Runs in sequence: fix broken references, lint --fix, sync dates from
-git, regenerate index, then show remaining issues.
+Runs in sequence: fix broken references, lint --fix, move over-cap
+frontmatter prose into body sections, sync dates from git, regenerate
+the index, then show remaining issues.
 
 Modes:
   (default)              Auto-fix pass — previews by default since 0.37.0
@@ -765,11 +766,12 @@ docs. Fixes are applied by rewriting the frontmatter path.
 Use --dry-run (-n) to preview changes without writing anything.`,
 
   touch: `dotmd touch <file> — bump updated date
-       dotmd touch --git  — bulk-sync dates from git history
+       dotmd touch --git [<file>...]  — sync dates from git history
 
 Without --git, updates a single file's frontmatter updated date to today.
-With --git, scans all docs (or a specific file) and syncs their updated
-date to match the last git commit date, fixing date drift warnings.
+With --git, scans all docs (or the specified files) and syncs their updated
+date to match the last substantive git commit date, fixing date drift warnings.
+Commits that only changed the updated line are ignored so the fix converges.
 
 Use --dry-run (-n) to preview changes without writing anything.`,
 

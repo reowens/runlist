@@ -81,6 +81,50 @@ describe('getGitLastModifiedBatch', () => {
     strictEqual(result.dates.has('docs/sibling.md'), false);
   });
 
+  it('does not spend the commit limit on history outside the requested paths', () => {
+    setupRepo();
+    commitFile(path.join(tmpDir, 'managed.md'), '# Managed\n', '2024-01-10T12:00:00Z');
+    for (let i = 0; i < 3; i++) {
+      commitFile(path.join(tmpDir, `unrelated-${i}.txt`), `${i}\n`, `2025-01-0${i + 1}T12:00:00Z`);
+    }
+
+    const result = getGitLastModifiedBatch(tmpDir, ['managed.md'], { maxCommits: 1 });
+    strictEqual(result.complete, true);
+    ok(result.dates.get('managed.md').startsWith('2024-01-10'));
+  });
+
+  it('treats requested filenames as literal paths, not Git pathspecs', () => {
+    setupRepo();
+    mkdirSync(path.join(tmpDir, 'docs'));
+    commitFile(path.join(tmpDir, 'docs', 'glob*.md'), '# Literal\n', '2024-01-10T12:00:00Z');
+    commitFile(path.join(tmpDir, 'docs', 'glob-noise.md'), '# Noise\n', '2025-01-10T12:00:00Z');
+
+    const result = getGitLastModifiedBatch(tmpDir, ['docs/glob*.md'], { maxCommits: 1 });
+    strictEqual(result.complete, true);
+    ok(result.dates.get('docs/glob*.md').startsWith('2024-01-10'));
+  });
+
+  it('does not spend the commit limit on excluded docs inside a broad scan root', () => {
+    setupRepo();
+    const docsDir = path.join(tmpDir, 'docs');
+    mkdirSync(docsDir);
+    commitFile(path.join(docsDir, 'active.md'), '# Active\n', '2024-01-10T12:00:00Z');
+    commitFile(path.join(docsDir, 'archived.md'), '# Archived\n', '2025-01-10T12:00:00Z');
+
+    const warnings = checkGitStaleness([
+      { path: 'docs/active.md', status: 'active', updated: '2020-01-01' },
+      { path: 'docs/archived.md', status: 'archived', updated: '2020-01-01' },
+    ], {
+      repoRoot: tmpDir,
+      docsRoot: docsDir,
+      docsRoots: [docsDir],
+      lifecycle: { skipStaleFor: new Set(['archived']) },
+    }, { maxCommits: 1 });
+
+    strictEqual(warnings.filter(warning => warning.message.includes('behind git history')).length, 1);
+    strictEqual(warnings.filter(warning => warning.message.includes('Git metadata is incomplete')).length, 0);
+  });
+
   it('returns known dates and explicit metadata when the commit limit is reached', () => {
     setupRepo();
     commitFile(path.join(tmpDir, 'oldest.md'), '# Oldest\n', '2024-01-01T12:00:00Z');
@@ -93,6 +137,27 @@ describe('getGitLastModifiedBatch', () => {
     ok(result.dates.has('newest.md'));
     ok(result.dates.has('middle.md'));
     strictEqual(result.dates.has('oldest.md'), false);
+  });
+
+  it('keeps the incomplete-history warning when no known date is a drift candidate', () => {
+    setupRepo();
+    commitFile(path.join(tmpDir, 'oldest.md'), '# Oldest\n', '2024-01-01T12:00:00Z');
+    commitFile(path.join(tmpDir, 'middle.md'), '# Middle\n', '2024-02-01T12:00:00Z');
+    commitFile(path.join(tmpDir, 'newest.md'), '# Newest\n', '2024-03-01T12:00:00Z');
+
+    const warnings = checkGitStaleness([
+      { path: 'oldest.md', status: 'active', updated: '2025-01-01' },
+      { path: 'middle.md', status: 'active', updated: '2024-02-01' },
+      { path: 'newest.md', status: 'active', updated: '2024-03-01' },
+    ], {
+      repoRoot: tmpDir,
+      docsRoot: tmpDir,
+      docsRoots: [tmpDir],
+      lifecycle: { skipStaleFor: new Set() },
+    }, { maxCommits: 2 });
+
+    strictEqual(warnings.filter(warning => warning.message.includes('behind git history')).length, 0);
+    strictEqual(warnings.filter(warning => warning.message.includes('Git metadata is incomplete')).length, 1);
   });
 
   it('reports output truncation instead of silently returning an empty map', () => {
@@ -116,7 +181,7 @@ describe('getGitLastModifiedBatch', () => {
     strictEqual(result.dates.size, 0);
   });
 
-  it('keeps known staleness warnings and adds one warning for partial history', () => {
+  it('does not report partial history once the requested latest date is resolved', () => {
     setupRepo();
     const filePath = path.join(tmpDir, 'doc.md');
     commitFile(filePath, '# First\n', '2024-01-01T12:00:00Z');
@@ -131,10 +196,107 @@ describe('getGitLastModifiedBatch', () => {
     }, { maxCommits: 1 });
 
     strictEqual(warnings.filter(warning => warning.message.includes('behind git history')).length, 1);
+    strictEqual(warnings.filter(warning => warning.message.includes('Git metadata is incomplete')).length, 0);
+  });
+
+  it('ignores a later commit that only synchronized the updated line', () => {
+    setupRepo();
+    const filePath = path.join(tmpDir, 'doc.md');
+    commitFile(filePath, '---\nupdated: 2024-01-01\n---\n# Doc\n', '2024-01-01T12:00:00Z');
+    commitFile(filePath, '---\nupdated: 2024-01-01\n---\n# Doc\n\nSubstantive edit.\n', '2024-02-01T12:00:00Z');
+    commitFile(filePath, '---\nupdated: 2024-02-01\n---\n# Doc\n\nSubstantive edit.\n', '2024-03-01T12:00:00Z');
+
+    const warnings = checkGitStaleness([
+      { path: 'doc.md', status: 'active', updated: '2024-02-01' },
+    ], {
+      repoRoot: tmpDir,
+      docsRoot: tmpDir,
+      docsRoots: [tmpDir],
+      lifecycle: { skipStaleFor: new Set() },
+    });
+
+    strictEqual(warnings.filter(warning => warning.message.includes('behind git history')).length, 0);
+  });
+
+  it('reports incomplete substantive history instead of walking beyond the commit bound', () => {
+    setupRepo();
+    const filePath = path.join(tmpDir, 'doc.md');
+    commitFile(filePath, '---\nupdated: 2024-01-01\n---\n# Doc\n', '2024-01-01T12:00:00Z');
+    commitFile(filePath, '---\nupdated: "2024-01-01"\n---\n# Doc\n', '2024-02-01T12:00:00Z');
+
+    const warnings = checkGitStaleness([
+      { path: 'doc.md', status: 'active', updated: '2024-01-01' },
+    ], {
+      repoRoot: tmpDir,
+      docsRoot: tmpDir,
+      docsRoots: [tmpDir],
+      lifecycle: { skipStaleFor: new Set() },
+    }, { maxCommits: 1 });
+
+    strictEqual(warnings.filter(warning => warning.message.includes('behind git history')).length, 0);
     strictEqual(warnings.filter(warning => warning.message.includes('Git metadata is incomplete')).length, 1);
   });
 
-  it('uses known dates and emits one query warning for partial history', () => {
+  it('ignores consecutive metadata-only commits that update multiple files', () => {
+    setupRepo();
+    const files = ['a.md', 'b.md'].map(name => path.join(tmpDir, name));
+    for (const filePath of files) writeFileSync(filePath, '---\nupdated: 2024-01-01\n---\n# Doc\n');
+    spawnSync('git', ['add', '.'], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-m', 'initial'], {
+      cwd: tmpDir,
+      env: { ...process.env, GIT_AUTHOR_DATE: '2024-01-01T12:00:00Z', GIT_COMMITTER_DATE: '2024-01-01T12:00:00Z' },
+    });
+    for (const filePath of files) writeFileSync(filePath, '---\nupdated: 2024-01-01\n---\n# Doc\n\nSubstantive edit.\n');
+    spawnSync('git', ['add', '.'], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-m', 'substantive'], {
+      cwd: tmpDir,
+      env: { ...process.env, GIT_AUTHOR_DATE: '2024-02-01T12:00:00Z', GIT_COMMITTER_DATE: '2024-02-01T12:00:00Z' },
+    });
+    for (const filePath of files) writeFileSync(filePath, '---\nupdated: 2024-02-01\n---\n# Doc\n\nSubstantive edit.\n');
+    spawnSync('git', ['add', '.'], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-m', 'sync dates'], {
+      cwd: tmpDir,
+      env: { ...process.env, GIT_AUTHOR_DATE: '2024-03-01T12:00:00Z', GIT_COMMITTER_DATE: '2024-03-01T12:00:00Z' },
+    });
+    for (const filePath of files) writeFileSync(filePath, '---\nupdated: "2024-02-01"\n---\n# Doc\n\nSubstantive edit.\n');
+    spawnSync('git', ['add', '.'], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-m', 'normalize dates'], {
+      cwd: tmpDir,
+      env: { ...process.env, GIT_AUTHOR_DATE: '2024-04-01T12:00:00Z', GIT_COMMITTER_DATE: '2024-04-01T12:00:00Z' },
+    });
+
+    const warnings = checkGitStaleness(
+      ['a.md', 'b.md'].map(filePath => ({ path: filePath, status: 'active', updated: '2024-02-01' })),
+      {
+        repoRoot: tmpDir,
+        docsRoot: tmpDir,
+        docsRoots: [tmpDir],
+        lifecycle: { skipStaleFor: new Set() },
+      },
+    );
+
+    strictEqual(warnings.filter(warning => warning.message.includes('behind git history')).length, 0);
+  });
+
+  it('keeps date drift when the latest commit changed content as well as updated', () => {
+    setupRepo();
+    const filePath = path.join(tmpDir, 'doc.md');
+    commitFile(filePath, '---\nupdated: 2024-01-01\n---\n# Doc\n', '2024-01-01T12:00:00Z');
+    commitFile(filePath, '---\nupdated: 2024-02-01\n---\n# Renamed Doc\n', '2024-03-01T12:00:00Z');
+
+    const warnings = checkGitStaleness([
+      { path: 'doc.md', status: 'active', updated: '2024-02-01' },
+    ], {
+      repoRoot: tmpDir,
+      docsRoot: tmpDir,
+      docsRoots: [tmpDir],
+      lifecycle: { skipStaleFor: new Set() },
+    });
+
+    strictEqual(warnings.filter(warning => warning.message.includes('behind git history')).length, 1);
+  });
+
+  it('uses known dates without a partial-history warning once the latest date is resolved', () => {
     setupRepo();
     const filePath = path.join(tmpDir, 'doc.md');
     commitFile(filePath, '# First\n', '2024-01-01T12:00:00Z');
@@ -154,7 +316,7 @@ describe('getGitLastModifiedBatch', () => {
     } finally {
       process.stderr.write = originalWrite;
     }
-    strictEqual((stderr.match(/Git metadata is incomplete/g) ?? []).length, 1);
+    strictEqual((stderr.match(/Git metadata is incomplete/g) ?? []).length, 0);
   });
 });
 

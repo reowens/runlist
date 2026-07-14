@@ -630,4 +630,14 @@ describe('F18: singular module/surface deprecation warning', () => {
     strictEqual(matches.length, 1, `expected exactly one deprecation warning, got: ${result.stdout}`);
     ok(matches[0].includes('surfaces: ["web"]'), `expected migration target in message: ${matches[0]}`);
   });
+
+  it('gives manual guidance for a non-string singular value', () => {
+    const docsDir = setupProject();
+    writeFileSync(path.join(docsDir, 'a.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\nsurface: false\n---\n# A\n');
+    const result = run(['check', '--verbose']);
+    const matches = result.stdout.split('\n').filter(l => l.includes('`surface:` (singular) is deprecated'));
+    strictEqual(matches.length, 1, `expected exactly one deprecation warning, got: ${result.stdout}`);
+    ok(matches[0].includes('manually') && !matches[0].includes('lint --fix'), matches[0]);
+  });
 });

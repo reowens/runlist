@@ -422,7 +422,8 @@ export function classifyIssueAction(issue) {
   if (/Missing frontmatter `updated`/.test(message) || /frontmatter `updated: .*` is behind git history/.test(message)) {
     return { action: 'dotmd touch --git', fixable: true, label: 'dates' };
   }
-  if (/`(?:module|surface):` \(singular\) is deprecated/.test(message) || /camelCase|nextStep|currentState|auditLevel/.test(message)) {
+  if ((/`(?:module|surface):` \(singular\) is deprecated/.test(message) && /Run `dotmd lint --fix`/.test(message))
+    || /camelCase|nextStep|currentState|auditLevel/.test(message)) {
     return { action: 'dotmd lint --fix', fixable: true, label: 'frontmatter migrations' };
   }
   if (/Unknown surface/.test(message)) {
@@ -456,8 +457,9 @@ export function renderManualFixes(index) {
   for (const issue of issues) {
     const item = classifyIssueAction(issue);
     const key = `${item.fixable ? 'fixable' : 'manual'}:${item.action}`;
-    if (!groups.has(key)) groups.set(key, { ...item, paths: new Set() });
+    if (!groups.has(key)) groups.set(key, { ...item, paths: new Set(), reasons: new Set() });
     groups.get(key).paths.add(issue.path);
+    groups.get(key).reasons.add(issue.message);
   }
   if (groups.size === 0) return '';
 
@@ -478,7 +480,9 @@ export function renderManualFixes(index) {
     lines.push('Manual fixes remaining');
     for (const group of manual) {
       const count = group.paths.size;
-      lines.push(`- ${group.action} (${count} ${count === 1 ? 'file' : 'files'}: ${[...group.paths].slice(0, 3).join(', ')}${count > 3 ? ', ...' : ''})`);
+      const reasons = [...group.reasons];
+      const reason = reasons.slice(0, 2).join('; ') + (reasons.length > 2 ? '; ...' : '');
+      lines.push(`- ${group.action}: ${reason} (${count} ${count === 1 ? 'file' : 'files'}: ${[...group.paths].slice(0, 3).join(', ')}${count > 3 ? ', ...' : ''})`);
     }
     lines.push('');
   }

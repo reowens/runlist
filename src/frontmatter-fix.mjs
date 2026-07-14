@@ -30,6 +30,10 @@ export function runFrontmatterFix(config, opts = {}) {
     // skip the warning too, so skip them here as well — auto-injecting a
     // `## Current State` into a non-plan doc would be surprising.
     if (docType !== 'plan') continue;
+    const status = asString(parsed.status);
+    if (config.lifecycle.terminalStatuses.has(status)
+      || config.lifecycle.archiveStatuses.has(status)
+      || config.lifecycle.skipWarningsFor.has(status)) continue;
 
     const ops = [];
     for (const { name, cap, target, heading } of FIELDS) {
@@ -129,13 +133,9 @@ export function replaceFrontmatterField(fm, key, newValue) {
       const isBlock = /^[>|][-+]?\s*$/.test(rest);
       i++;
       if (isBlock || rest === '') {
-        // Consume continuation: blank or indented lines until the next
-        // top-level key. The parser uses the same dedent rule (block scalar
-        // ends when indent returns to 0 and the line is non-blank).
-        while (i < lines.length) {
-          if (/^[A-Za-z0-9_-]+:/.test(lines[i])) break;
-          i++;
-        }
+        // Consume only scalar continuation lines. Top-level comments and other
+        // YAML syntax belong to the frontmatter, not to this field.
+        while (i < lines.length && (lines[i].trim() === '' || /^[ \t]/.test(lines[i]))) i++;
       }
       const folded = foldBlockScalar(newValue);
       out.push(`${key}: >`);

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { asString, resolveRefPath, suggestCandidates } from './util.mjs';
-import { getGitLastModified, getGitLastModifiedBatch } from './git.mjs';
+import { getGitLastModified, getGitLastModifiedBatch, getGitLastSubstantiveModifiedBatch } from './git.mjs';
 import { toRepoPath } from './util.mjs';
 
 const NOW = new Date();
@@ -156,17 +156,27 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
   if (!config.lifecycle.skipWarningsFor.has(doc.status)) {
     for (const { singular, plural } of [{ singular: 'module', plural: 'modules' }, { singular: 'surface', plural: 'surfaces' }]) {
       const singularValue = frontmatter[singular];
-      if (!singularValue) continue;
-      const pluralValue = Array.isArray(frontmatter[plural]) ? frontmatter[plural] : [];
+      if (!Object.prototype.hasOwnProperty.call(frontmatter, singular)) continue;
+      const rawPluralValue = frontmatter[plural];
+      const pluralValue = Array.isArray(rawPluralValue)
+        ? rawPluralValue
+        : rawPluralValue === undefined ? [] : [rawPluralValue];
+      const singularValues = Array.isArray(singularValue) ? singularValue : [singularValue];
       const merged = [];
-      for (const v of [singularValue, ...pluralValue]) {
+      for (const v of [...singularValues, ...pluralValue]) {
         if (typeof v === 'string' && v && !merged.includes(v)) merged.push(v);
       }
-      const target = `${plural}: [${merged.map(v => `"${v}"`).join(', ')}]`;
+      const target = `${plural}: [${merged.map(v => JSON.stringify(v)).join(', ')}]`;
+      const autoFixableString = value => typeof value === 'string' && !/(^|\s)#/.test(value);
+      const autoFixable = singularValues.every(autoFixableString)
+        && pluralValue.every(autoFixableString);
+      const guidance = autoFixable
+        ? `use \`${target}\`. Run \`dotmd lint --fix\` to migrate.`
+        : `use a \`${plural}:\` YAML list. Remove the deprecated \`${singular}:\` block manually and preserve all of its values.`;
       doc.warnings.push({
         path: doc.path,
         level: 'warning',
-        message: `\`${singular}:\` (singular) is deprecated — use \`${target}\`. Run \`dotmd lint --fix\` to migrate.`,
+        message: `\`${singular}:\` (singular) is deprecated — ${guidance}`,
       });
     }
   }
@@ -521,21 +531,33 @@ export function checkRoadmapHubExecutionMode(docs, config) {
 
 export function checkGitStaleness(docs, config, options = {}) {
   const warnings = [];
+  const eligibleDocs = docs.filter(doc => !config.lifecycle.skipStaleFor.has(doc.status) && doc.updated);
   const pathspecs = (config.docsRoots || [config.docsRoot])
     .map(root => toRepoPath(root, config.repoRoot) || '.');
   const gitMetadata = getGitLastModifiedBatch(
     config.repoRoot,
-    docs.map(doc => doc.path),
+    eligibleDocs.map(doc => doc.path),
     { pathspecs, ...options },
   );
-  const gitDates = gitMetadata.dates;
-  for (const doc of docs) {
-    if (config.lifecycle.skipStaleFor.has(doc.status)) continue;
-    if (!doc.updated) continue;
+  const driftCandidates = eligibleDocs.filter(doc => {
+    const gitDate = gitMetadata.dates.get(doc.path) ?? null;
+    return Boolean(gitDate && gitDate.slice(0, 10) > doc.updated.slice(0, 10));
+  });
+  const candidatePaths = driftCandidates.map(doc => doc.path);
+  const candidateMetadata = {
+    dates: new Map(candidatePaths.filter(p => gitMetadata.dates.has(p)).map(p => [p, gitMetadata.dates.get(p)])),
+    commits: new Map(candidatePaths.filter(p => gitMetadata.commits?.has(p)).map(p => [p, gitMetadata.commits.get(p)])),
+    history: new Map(candidatePaths.filter(p => gitMetadata.history?.has(p)).map(p => [p, gitMetadata.history.get(p)])),
+    complete: gitMetadata.complete,
+    reason: gitMetadata.reason,
+  };
+  const substantiveMetadata = candidatePaths.length > 0
+    ? getGitLastSubstantiveModifiedBatch(config.repoRoot, candidatePaths, candidateMetadata, options)
+    : candidateMetadata;
 
-    const gitDate = gitDates.get(doc.path) ?? null;
+  for (const doc of driftCandidates) {
+    const gitDate = substantiveMetadata.dates.get(doc.path) ?? null;
     if (!gitDate) continue;
-
     const gitDay = gitDate.slice(0, 10);
     const fmDay = doc.updated.slice(0, 10);
 
@@ -547,11 +569,11 @@ export function checkGitStaleness(docs, config, options = {}) {
       });
     }
   }
-  if (!gitMetadata.complete) {
+  if (!substantiveMetadata.complete) {
     warnings.push({
       path: toRepoPath(config.docsRoot, config.repoRoot) || '.',
       level: 'warning',
-      message: `Git metadata is incomplete (${gitMetadata.reason}); staleness checks used known dates only.`,
+      message: `Git metadata is incomplete (${substantiveMetadata.reason}); staleness checks used known dates only.`,
     });
   }
   return warnings;
