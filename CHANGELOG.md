@@ -2,6 +2,15 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- Basic read and lookup commands no longer perform the bounded 10,000-commit
+  Git/frontmatter drift scan on every index build. `check` and `doctor` retain
+  that validation, while explicit Git filters and `touch --git` continue to
+  request metadata directly.
+
 ## 0.70.0 — 2026-07-14
 
 ### Added

@@ -26,6 +26,7 @@ import { checkSkillDrift } from './skill-drift.mjs';
 export function buildIndex(config, opts = {}) {
   const { fast = false, errorsOnly = false, autoHealIndex = false } = opts;
   const invokeHooks = opts.invokeHooks ?? !config._execution?.suppressSideEffects;
+  const gitStaleness = opts.gitStaleness ?? config._execution?.gitStaleness ?? true;
   const skipWarningOnlyChecks = fast || errorsOnly;
   const docs = collectDocFiles(config).map(f => parseDocFile(f, config, { fast }));
   if (!fast) {
@@ -141,8 +142,10 @@ export function buildIndex(config, opts = {}) {
       if (hub) hub.warnings.push(w);
     }
 
-    const gitWarnings = checkGitStaleness(transformedDocs, config, opts.gitMetadataOptions);
-    warnings.push(...gitWarnings);
+    if (gitStaleness) {
+      const gitWarnings = checkGitStaleness(transformedDocs, config, opts.gitMetadataOptions);
+      warnings.push(...gitWarnings);
+    }
 
     const claudeWarnings = checkClaudeCommands(config.repoRoot);
     warnings.push(...claudeWarnings);

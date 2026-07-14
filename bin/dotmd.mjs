@@ -1444,6 +1444,10 @@ async function main() {
   const effectiveDryRun = dryRun || (command === 'doctor' && !doctorSubMode && !doctorExplicitApply);
   const passiveMachineContext = command === 'agent-context'
     || (command === 'context' && args.includes('--json') && args.includes('--compact'));
+  // Git/frontmatter drift is validation work, not index construction. Keep the
+  // bounded history scan on commands that report or repair that drift; ordinary
+  // reads still run schema/reference validation without walking 10k commits.
+  const gitStaleness = command === 'check' || command === 'doctor';
   _suppressObservability = effectiveDryRun || command === 'hud' || passiveMachineContext;
 
   // Per-command help
@@ -1474,7 +1478,7 @@ async function main() {
   _resolvedConfig = config;
   const suppressSideEffects = effectiveDryRun || command === 'hud' || passiveMachineContext;
   Object.defineProperty(config, '_execution', {
-    value: { dryRun, passive: command === 'hud' || passiveMachineContext, suppressSideEffects },
+    value: { dryRun, passive: command === 'hud' || passiveMachineContext, suppressSideEffects, gitStaleness },
     enumerable: false,
   });
   // Unknown names may still be user-defined query presets. Every built-in

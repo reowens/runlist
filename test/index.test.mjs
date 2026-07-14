@@ -1,5 +1,5 @@
 import { describe, it, afterEach } from 'node:test';
-import { strictEqual, ok, deepStrictEqual } from 'node:assert';
+import { strictEqual, ok, deepStrictEqual, throws } from 'node:assert';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -405,6 +405,23 @@ describe('buildIndex', () => {
     ok(Array.isArray(index.warnings));
     ok(Array.isArray(index.errors));
     ok(index.generatedAt);
+  });
+
+  it('skips Git history metadata when the command execution policy disables it', async () => {
+    const docsDir = setup();
+    writeDoc(docsDir, 'a.md', 'status: active\nupdated: 2025-01-01', '# A');
+    const config = await resolveConfig(tmpDir);
+    Object.defineProperty(config, '_execution', {
+      value: { gitStaleness: false },
+      enumerable: false,
+    });
+
+    const index = buildIndex(config, { gitMetadataOptions: { maxCommits: 0 } });
+    strictEqual(index.docs.length, 1);
+    throws(
+      () => buildIndex(config, { gitStaleness: true, gitMetadataOptions: { maxCommits: 0 } }),
+      /maxCommits must be a positive integer/,
+    );
   });
 
   it('counts statuses correctly', async () => {
