@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { asString, die, resolveDocPath, toRepoPath } from './util.mjs';
 import { consumePrompt, pendingPromptsOldestFirst, resolvePromptInput } from './prompts.mjs';
@@ -26,7 +27,9 @@ export async function runUse(argv, config, opts = {}) {
   // Exact path first, then prompt slugs (they keep precedence on a slug
   // collision — consuming a prompt is the more common intent), then the
   // shared resolver for plan/doc slugs, which dies with did-you-mean on miss.
+  const cwdPath = path.resolve(process.cwd(), positional);
   const filePath = resolveDocPath(positional, config)
+    ?? (existsSync(cwdPath) ? cwdPath : null)
     ?? resolvePromptInput(positional, config, { dieOnMiss: false })
     ?? resolveDocArg(positional, config);
 

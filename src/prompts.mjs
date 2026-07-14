@@ -166,7 +166,7 @@ function renderPromptsVerbose(index, config, { hasStatusFlag, includeArchived })
 }
 
 export function pendingPromptsOldestFirst(config) {
-  const index = buildIndex(config);
+  const index = buildIndex(config, { fast: true, invokeHooks: false });
   const actionable = actionablePromptStatuses(config);
   const prompts = index.docs.filter(d =>
     d.type === 'prompt'
@@ -203,7 +203,7 @@ export function resolvePromptInput(input, config, options = {}) {
     if (withExt) return withExt;
   }
 
-  const index = buildIndex(config);
+  const index = buildIndex(config, { fast: true, invokeHooks: false });
   const prompts = index.docs.filter(d => d.type === 'prompt');
   if (prompts.length === 0) {
     if (dieOnMiss) die(`No prompts in the index.`);

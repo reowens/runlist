@@ -61,9 +61,9 @@ function writeDoc(name, { body = 'reference material body' } = {}) {
   return file;
 }
 
-function run(args, env = {}) {
+function run(args, env = {}, cwd = tmpDir) {
   return spawnSync('node', [bin, ...args, '--config', configPath], {
-    cwd: tmpDir, encoding: 'utf8',
+    cwd, encoding: 'utf8',
     env: { ...process.env, DOTMD_SESSION_ID: 'use-test-session', ...env, NO_COLOR: '1' },
   });
 }
@@ -153,6 +153,22 @@ describe('dotmd use — plan', () => {
     strictEqual(readFileSync(file, 'utf8'), before, 'plan remains byte-identical');
     ok(!existsSync(sentinel), 'onPickup hook was not invoked');
     ok(!existsSync(path.join(tmpDir, '.dotmd', 'journal.jsonl')), 'dry-run did not create a journal');
+  });
+
+  it('resolves a shell-expanded basename from cwd without running validation lookup', () => {
+    const file = writePlan('nested-plan', { status: 'active' });
+    const sentinel = path.join(tmpDir, 'validate-sentinel');
+    writeFileSync(configPath, [
+      `import { writeFileSync } from 'node:fs';`,
+      `export const root = 'docs';`,
+      `export function validate() { writeFileSync(${JSON.stringify(sentinel)}, 'called'); return {}; }`,
+      '',
+    ].join('\n'));
+
+    const res = run(['use', 'nested-plan.md'], {}, path.dirname(file));
+    strictEqual(res.status, 0, `stderr: ${res.stderr}`);
+    ok(readFileSync(file, 'utf8').includes('status: in-session'));
+    ok(!existsSync(sentinel), 'use should not run full validation while resolving an exact cwd path');
   });
 });
 
