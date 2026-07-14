@@ -8,6 +8,125 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
 
 - **Removed the unsupported Notion import/export/sync integration.** The shipped implementation targeted a retired SDK contract and had no API-level compatibility coverage, so the command, config surface, completion entries, package keyword, implementation, and optional dependencies have been removed rather than advertised as functional. Restoration requires data-source API mocks, stable `notion_id` identity, YAML-safe serialization, an explicit conflict policy, partial-failure reporting, and a live workspace smoke test.
 
+## 0.69.0 — 2026-07-09
+
+### Added
+
+- **Prompt consumption now claims its linked plan.** Baton stamps the resume
+  prompt with the plan reference, and `dotmd use` atomically consumes the prompt
+  and claims a startable target for the receiving session.
+
+### Fixed
+
+- Baton no longer adopts another session's sole in-session plan.
+- `lint --fix` removes empty deprecated singular keys cleanly.
+- Post-version automation refreshes and verifies the Claude Code plugin.
+
+## 0.68.0 — 2026-06-29
+
+### Added
+
+- **Baton-less session exit nudge.** Releasing an in-session plan without a
+  saved handoff now points agents to `dotmd baton`, closing the last unguarded
+  step in the resume loop.
+
+## 0.67.0 — 2026-06-29
+
+### Added
+
+- **Roadmaps above runlists.** `dotmd roadmap` and `dotmd roadmaps` recursively
+  roll up progress across child runlists, expose each child's next pickup, and
+  support cross-runlist `roadmap next` selection.
+- `dotmd new plan <name> --roadmap` scaffolds a roadmap hub.
+
+### Fixed
+
+- Roadmap hubs are classified separately from coordination runlists and held
+  out of actionable plan counts.
+
+## 0.66.0 — 2026-06-29
+
+### Added
+
+- **Canonical workflow drift guard.** `dotmd check` and `dotmd doctor --project`
+  compare the marked workflow contract in `CLAUDE.md` and the plugin skill so
+  the two agent-facing surfaces cannot silently diverge.
+
+## 0.65.1 — 2026-06-29
+
+### Fixed
+
+- Runlist next-pickup selection skips parked children as well as archived ones.
+  Parked work remains visible and does not count as complete.
+
+## 0.65.0 — 2026-06-29
+
+### Added
+
+- **Runlist mutation verbs.** `runlist add`, `remove`, and `reorder` keep the
+  hub array, child `parent_plan` references, and body order list synchronized.
+- Existing plans can be attached by path or slug, while bare slugs scaffold a
+  planned child stub.
+
+### Changed
+
+- Runlist hubs are held out of headline leaf-plan counts, with a discoverability
+  footer when status filters hide them.
+
+## 0.64.3 — 2026-06-29
+
+### Fixed
+
+- Frontmatter mutation preserves CRLF files, rejects Windows-sensitive guard
+  edge cases correctly, and has direct coverage across mutation paths.
+
+## 0.64.2 — 2026-06-28
+
+### Added
+
+- `dotmd update` is surfaced in onboarding and command help.
+- Brownfield config generation emits the detected modules taxonomy.
+
+## 0.64.1 — 2026-06-28
+
+### Added
+
+- `dotmd new plan --lite` and `--audit` provide minimal and findings-oriented
+  plan body variants without replacing the default full plan template.
+
+## 0.64.0 — 2026-06-28
+
+### Added
+
+- `dotmd new plan --runlist` scaffolds a sprint hub and ordered child plans.
+- `dotmd new plan --coordination` scaffolds a prose-first coordination hub.
+
+### Fixed
+
+- Dispatcher flag ownership, plugin release packaging, archive semantics,
+  moved-file reference repair, onboarding guidance, and completion/help drift
+  were hardened together.
+
+## 0.63.0 — 2026-06-28
+
+### Added
+
+- Coordination hubs can derive pickup order from linked ranked-queue body rows.
+
+### Fixed
+
+- Status and archive moves repair inbound repository-relative frontmatter
+  references consistently.
+
+## 0.62.0 — 2026-06-28
+
+### Added
+
+- **Runlist-aware dashboards.** `plans`, `briefing`, and `health` fold sprint
+  children, separate coordination hubs from leaf counts, and expose next pickup.
+- `dotmd runlists` adds a dedicated coordination dashboard with sorting and
+  shared hub labels.
+
 ## 0.61.0 — 2026-06-11
 
 ### Added
