@@ -102,6 +102,13 @@ export function getGitLastModifiedBatch(repoRoot, relPaths, options = {}) {
   const paths = [...new Set(relPaths ?? [])];
   assertSafeGitPaths(paths);
   if (paths.length === 0) return { dates: new Map(), complete: true, reason: null };
+  // Full-tree callers can supply a small set of configured root pathspecs.
+  // Git scans the bounded commit window once per root batch, while output is
+  // still filtered to the exact requested paths below. Narrow callers keep the
+  // exact-path default so they do not broaden history work unnecessarily.
+  const scanPaths = options.pathspecs?.length ? [...new Set(options.pathspecs)] : paths;
+  assertSafeGitPaths(scanPaths);
+  const expectedPaths = new Set(paths);
 
   const dates = new Map();
   let reason = null;
@@ -125,12 +132,12 @@ export function getGitLastModifiedBatch(repoRoot, relPaths, options = {}) {
     reason = 'commit-limit';
   }
 
-  for (let offset = 0; offset < paths.length; offset += maxPathsPerBatch) {
-    const batch = paths.slice(offset, offset + maxPathsPerBatch);
+  for (let offset = 0; offset < scanPaths.length; offset += maxPathsPerBatch) {
+    const batch = scanPaths.slice(offset, offset + maxPathsPerBatch);
     const result = spawnSync('git', [
       'diff-tree', '--stdin', '--root', '-r', '-z', '--format=%x00dotmd:git-metadata:commit%x00%aI%x00', '--name-only', '--diff-filter=ACDMR', '--', ...batch,
     ], { cwd: repoRoot, encoding: 'utf8', input: commits.join('\n') + '\n', maxBuffer });
-    parseGitMetadataOutput(result.stdout, dates, new Set(batch));
+    parseGitMetadataOutput(result.stdout, dates, expectedPaths);
 
     if (result.error?.code === 'ENOBUFS') {
       reason = 'output-limit';

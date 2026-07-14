@@ -521,7 +521,13 @@ export function checkRoadmapHubExecutionMode(docs, config) {
 
 export function checkGitStaleness(docs, config, options = {}) {
   const warnings = [];
-  const gitMetadata = getGitLastModifiedBatch(config.repoRoot, docs.map(doc => doc.path), options);
+  const pathspecs = (config.docsRoots || [config.docsRoot])
+    .map(root => toRepoPath(root, config.repoRoot) || '.');
+  const gitMetadata = getGitLastModifiedBatch(
+    config.repoRoot,
+    docs.map(doc => doc.path),
+    { pathspecs, ...options },
+  );
   const gitDates = gitMetadata.dates;
   for (const doc of docs) {
     if (config.lifecycle.skipStaleFor.has(doc.status)) continue;

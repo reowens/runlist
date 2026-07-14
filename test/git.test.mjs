@@ -68,6 +68,19 @@ describe('getGitLastModifiedBatch', () => {
     strictEqual(result.dates.has('unrelated.txt'), false);
   });
 
+  it('uses broader scan pathspecs while returning only exact requested paths', () => {
+    setupRepo();
+    mkdirSync(path.join(tmpDir, 'docs'));
+    commitFile(path.join(tmpDir, 'docs', 'requested.md'), '# Requested\n', '2024-01-10T12:00:00Z');
+    commitFile(path.join(tmpDir, 'docs', 'sibling.md'), '# Sibling\n', '2025-01-10T12:00:00Z');
+
+    const result = getGitLastModifiedBatch(tmpDir, ['docs/requested.md'], { pathspecs: ['docs'] });
+    strictEqual(result.complete, true);
+    strictEqual(result.dates.size, 1);
+    ok(result.dates.get('docs/requested.md').startsWith('2024-01-10'));
+    strictEqual(result.dates.has('docs/sibling.md'), false);
+  });
+
   it('returns known dates and explicit metadata when the commit limit is reached', () => {
     setupRepo();
     commitFile(path.join(tmpDir, 'oldest.md'), '# Oldest\n', '2024-01-01T12:00:00Z');

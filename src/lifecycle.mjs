@@ -1147,7 +1147,12 @@ export function runTouch(argv, config, opts = {}) {
     const prefix = dryRun ? dim('[dry-run] ') : '';
     let synced = 0;
     const repoPaths = allFiles.map(filePath => toRepoPath(filePath, config.repoRoot));
-    const gitMetadata = getGitLastModifiedBatch(config.repoRoot, repoPaths, opts.gitMetadataOptions);
+    const rootPathspecs = input ? null : (config.docsRoots || [config.docsRoot])
+      .map(root => toRepoPath(root, config.repoRoot) || '.');
+    const gitMetadata = getGitLastModifiedBatch(config.repoRoot, repoPaths, {
+      ...(rootPathspecs ? { pathspecs: rootPathspecs } : {}),
+      ...opts.gitMetadataOptions,
+    });
     if (!gitMetadata.complete) {
       die(`Cannot touch from incomplete Git metadata (${gitMetadata.reason}); no files were changed.`);
     }
