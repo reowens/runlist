@@ -170,6 +170,15 @@ describe('dotmd use — plan', () => {
     ok(readFileSync(file, 'utf8').includes('status: in-session'));
     ok(!existsSync(sentinel), 'use should not run full validation while resolving an exact cwd path');
   });
+
+  it('tolerates a duplicated `dotmd use` prefix before a shell-expanded file', () => {
+    const file = writePlan('pasted-plan', { status: 'active' });
+    const res = run(['use', 'dotmd', 'use', 'pasted-plan.md'], {}, path.dirname(file));
+
+    strictEqual(res.status, 0, `stderr: ${res.stderr}`);
+    ok(readFileSync(file, 'utf8').includes('status: in-session'));
+    ok(res.stdout.includes('pasted-plan'), res.stdout);
+  });
 });
 
 describe('dotmd use — doc', () => {

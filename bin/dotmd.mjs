@@ -1382,6 +1382,12 @@ async function main() {
   let { command, explicitConfig, rootArg, typeArg, dryRun, verbose } = parsed;
   let restArgs = parsed.rest;
 
+  // Tolerate accidentally pasting the command prefix twice, while leaving all
+  // remaining arguments to the normal `use` grammar and path validation.
+  if (command === 'use') {
+    while (restArgs[0] === 'dotmd' && restArgs[1] === 'use') restArgs = restArgs.slice(2);
+  }
+
   // Reconstruct the active global flags for proxy commands (e.g. `watch`) that
   // re-invoke the CLI in a child process and must propagate them through.
   const globalFlagArgs = () => {

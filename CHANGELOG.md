@@ -4,6 +4,13 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
 
 ## Unreleased
 
+## 0.70.2 — 2026-07-14
+
+### Fixed
+
+- `dotmd use` now tolerates an accidentally duplicated `dotmd use` command
+  prefix before the document path.
+
 ## 0.70.1 — 2026-07-14
 
 ### Fixed
