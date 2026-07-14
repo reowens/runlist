@@ -4,6 +4,13 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
 
 ## Unreleased
 
+## 0.70.3 — 2026-07-14
+
+### Fixed
+
+- Consuming a saved prompt no longer scans and locks the entire managed corpus
+  to rewrite inbound references to that session-local, gitignored prompt.
+
 ## 0.70.2 — 2026-07-14
 
 ### Fixed

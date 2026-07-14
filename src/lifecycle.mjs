@@ -80,10 +80,20 @@ function commitLifecycleMutation(filePath, targetPath, config, updates, historyF
     const tracked = isTracked(filePath, config.repoRoot);
     const gitIndex = tracked ? captureGitIndexGeneration(config.repoRoot) : null;
     const companionPaths = new Set((options.additionalUpdates ?? []).map(item => path.resolve(item.path)));
-    const allFiles = collectDocFiles(config).filter(candidate => candidate !== filePath && candidate !== targetPath && !companionPaths.has(path.resolve(candidate)));
+    const allFiles = options.skipInboundRefs
+      ? []
+      : collectDocFiles(config).filter(candidate => candidate !== filePath && candidate !== targetPath && !companionPaths.has(path.resolve(candidate)));
     authorizeManagedSweep(allFiles, config, { kind: 'Reference rewrite source' });
     const identities = createReferenceIdentitySet([filePath, ...allFiles]);
     const referenceFields = configuredReferenceFields(config);
+    const additionalUpdates = options.skipInboundRefs
+      ? (options.additionalUpdates ?? [])
+      : (options.additionalUpdates ?? []).map(item => ({
+          ...item,
+          content: item.content === undefined ? undefined : rewriteDocumentReferences(item.content, {
+            sourcePath: item.path, repoRoot: config.repoRoot, identities, oldPath: filePath, newPath: targetPath, referenceFields,
+          }),
+        }));
     const moveResult = moveFileAtomic(filePath, targetPath, sourceContent => {
       result = render(sourceContent);
       return result.content;
@@ -95,12 +105,7 @@ function commitLifecycleMutation(filePath, targetPath, config, updates, historyF
         render: raw => rewriteDocumentReferences(raw, {
           sourcePath: docFile, repoRoot: config.repoRoot, identities, oldPath: filePath, newPath: targetPath, referenceFields,
         }),
-      })), ...(options.additionalUpdates ?? []).map(item => ({
-        ...item,
-        content: item.content === undefined ? undefined : rewriteDocumentReferences(item.content, {
-          sourcePath: item.path, repoRoot: config.repoRoot, identities, oldPath: filePath, newPath: targetPath, referenceFields,
-        }),
-      }))],
+      })), ...additionalUpdates],
       creations: options.creations ?? [],
       gitMove: tracked,
       gitIndex,
@@ -806,10 +811,13 @@ export function runArchive(argv, config, opts = {}) {
     if (config.indexPath && !noIndex && !opts.deferIndex) out.write(`${prefix} Would regenerate index\n`);
     if (config.indexPath && noIndex) out.write(`${prefix} Would skip index regen (--no-index)\n`);
 
-    // Preview reference updates
-    const refCount = countRefsToUpdate(filePath, targetPath, config);
-    if (refCount > 0) {
-      out.write(`${prefix} Would update references in ${refCount} file(s)\n`);
+    // Preview reference updates unless the caller owns a non-referenceable,
+    // session-local document such as a saved prompt.
+    if (!opts.skipInboundRefs) {
+      const refCount = countRefsToUpdate(filePath, targetPath, config);
+      if (refCount > 0) {
+        out.write(`${prefix} Would update references in ${refCount} file(s)\n`);
+      }
     }
 
     // Preview onArchive hook fire
@@ -825,6 +833,7 @@ export function runArchive(argv, config, opts = {}) {
       testHooks: opts.testHooks,
       additionalUpdates: [...(opts.additionalUpdates ?? []), ...(releaseUpdate ? [releaseUpdate] : [])],
       creations: opts.creations,
+      skipInboundRefs: opts.skipInboundRefs,
       bodyTransform: closeoutTemplate ? currentBody => {
         committedCloseoutAction = planCloseoutInjection(currentBody);
         return committedCloseoutAction.action === 'inject' ? committedCloseoutAction.newBody : currentBody;

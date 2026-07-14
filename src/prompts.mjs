@@ -270,7 +270,7 @@ export async function consumePrompt(filePath, config, opts) {
     process.stderr.write(body);
     if (!body.endsWith('\n')) process.stderr.write('\n');
     process.stderr.write(`${dim('--->8---')}\n`);
-    runArchive([filePath], config, { dryRun: true, noIndex, out: process.stderr });
+    runArchive([filePath], config, { dryRun: true, noIndex, out: process.stderr, skipInboundRefs: true });
     return;
   }
 
@@ -284,6 +284,9 @@ export async function consumePrompt(filePath, config, opts) {
     out: process.stderr,
     testHooks: opts.testHooks,
     deferIndex: Boolean(linkedClaim),
+    // Saved prompts are gitignored session state, never durable reference
+    // targets. Avoid locking and replanning the entire corpus on consumption.
+    skipInboundRefs: true,
     additionalUpdates: linkedClaim?.prepared?.updates,
     creations: linkedClaim?.prepared?.creations,
   });

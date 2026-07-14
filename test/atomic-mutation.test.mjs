@@ -1519,7 +1519,8 @@ describe('atomic lifecycle moves', () => {
     const referrer = path.join(root, 'docs', 'referrer.md');
     writeFileSync(plan, '---\ntype: plan\nstatus: active\nupdated: 2026-01-01\n---\n# Plan\n');
     writeFileSync(prompt, '---\ntype: prompt\nstatus: pending\nplan: docs/plans/linked.md\nupdated: 2026-01-01\n---\nresume\n');
-    writeFileSync(referrer, '---\ntype: doc\nstatus: active\nupdated: 2026-01-01\nrelated_docs: [prompts/resume.md]\n---\n[prompt](prompts/resume.md)\n');
+    const referrerContent = '---\ntype: doc\nstatus: active\nupdated: 2026-01-01\nrelated_docs: [prompts/resume.md]\n---\n[prompt](prompts/resume.md)\n';
+    writeFileSync(referrer, referrerContent);
     const config = await resolveConfig(root, configPath);
     const prior = process.env.DOTMD_SESSION_ID;
     process.env.DOTMD_SESSION_ID = 'consume-result';
@@ -1529,7 +1530,8 @@ describe('atomic lifecycle moves', () => {
       strictEqual(result.claim.changed, true);
       strictEqual(result.claim.pendingCompletion, false);
       ok(result.repositoryFiles.includes('docs/plans/linked.md'));
-      ok(result.repositoryFiles.includes('docs/referrer.md'));
+      ok(!result.repositoryFiles.includes('docs/referrer.md'));
+      strictEqual(readFileSync(referrer, 'utf8'), referrerContent, 'session-local prompt consumption skips durable inbound-reference repair');
       ok(result.repositoryFiles.every(file => !file.startsWith('.dotmd/ownership/')));
       ok(result.sessionFiles.some(file => file.startsWith('.dotmd/ownership/')));
       ok(result.sessionFiles.includes('docs/prompts/resume.md'));
