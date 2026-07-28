@@ -20,7 +20,9 @@ function setupRepo() {
 
 function commitFile(filePath, content, dateStr) {
   writeFileSync(filePath, content);
-  spawnSync('git', ['add', filePath], { cwd: tmpDir });
+  // --literal-pathspecs so fixtures whose names contain wildmatch metacharacters
+  // (see the literal-pathspec test below) stage themselves and not their decoys.
+  spawnSync('git', ['--literal-pathspecs', 'add', filePath], { cwd: tmpDir });
   const envVars = dateStr
     ? { ...process.env, GIT_AUTHOR_DATE: dateStr, GIT_COMMITTER_DATE: dateStr }
     : process.env;
@@ -96,12 +98,16 @@ describe('getGitLastModifiedBatch', () => {
   it('treats requested filenames as literal paths, not Git pathspecs', () => {
     setupRepo();
     mkdirSync(path.join(tmpDir, 'docs'));
-    commitFile(path.join(tmpDir, 'docs', 'glob*.md'), '# Literal\n', '2024-01-10T12:00:00Z');
-    commitFile(path.join(tmpDir, 'docs', 'glob-noise.md'), '# Noise\n', '2025-01-10T12:00:00Z');
+    // `glob[a-z].md` is a wildmatch character class to Git, so an unescaped pathspec
+    // would also match the newer `globz.md` decoy and return its 2025 date under
+    // maxCommits: 1. Brackets rather than `*`/`?` because those are illegal on NTFS.
+    commitFile(path.join(tmpDir, 'docs', 'glob[a-z].md'), '# Literal\n', '2024-01-10T12:00:00Z');
+    commitFile(path.join(tmpDir, 'docs', 'globz.md'), '# Noise\n', '2025-01-10T12:00:00Z');
 
-    const result = getGitLastModifiedBatch(tmpDir, ['docs/glob*.md'], { maxCommits: 1 });
+    const result = getGitLastModifiedBatch(tmpDir, ['docs/glob[a-z].md'], { maxCommits: 1 });
     strictEqual(result.complete, true);
-    ok(result.dates.get('docs/glob*.md').startsWith('2024-01-10'));
+    ok(result.dates.get('docs/glob[a-z].md').startsWith('2024-01-10'));
+    strictEqual(result.dates.has('docs/globz.md'), false);
   });
 
   it('does not spend the commit limit on excluded docs inside a broad scan root', () => {
