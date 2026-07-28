@@ -23,6 +23,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { captureGitIndexGeneration, reclaimPreparedGitIndex, restoreGitIndexCas, sameGitIndexGeneration, stageMovePathsCas } from './git.mjs';
 import { authorizeManagedDestination, authorizeManagedSource, authorizeRepoGeneratedPath } from './managed-path.mjs';
+import { commitRename } from './durable-rename.mjs';
 
 const sleepBuffer = new Int32Array(new SharedArrayBuffer(4));
 let tempSequence = 0;
@@ -111,7 +112,7 @@ function transactionRoot(repoRoot, options = {}) {
 function durableJson(filePath, value, options = {}) {
   const content = JSON.stringify(value, null, 2) + '\n';
   const temp = writeCompleteTemp(filePath, content, 0o600);
-  renameSync(temp.path, filePath);
+  commitRename(temp.path, filePath, options.testHooks);
   fsyncDirectory(path.dirname(filePath), options, 'transaction-manifest');
 }
 
@@ -1036,7 +1037,7 @@ export function replaceSnapshot(snapshot, newContent, options = {}) {
     try {
       options.testHooks?.beforeReplacePublish?.({ snapshot, tempPath: prepared.path });
       assertSnapshotCurrent(snapshot);
-      renameSync(prepared.path, snapshot.path);
+      commitRename(prepared.path, snapshot.path, options.testHooks);
       committed = committedGeneration(prepared, snapshot.path);
       options.testHooks?.afterPublicationBeforePathOpen?.('replace', snapshot.path);
       try { fsyncDirectory(path.dirname(snapshot.path), options, 'replace-publish'); }
@@ -1097,7 +1098,7 @@ export function createFileExclusive(filePath, content, options) {
           options.testHooks?.afterReservationAcquired?.(filePath);
           options.testHooks?.afterCreateReservation?.(filePath);
           assertSnapshotCurrent(reservation);
-          renameSync(prepared.path, filePath);
+          commitRename(prepared.path, filePath, options.testHooks);
           tempPublished = true;
           committed = committedGeneration(prepared, filePath);
           options.testHooks?.afterPublicationBeforePathOpen?.('create-rename', filePath);
@@ -1210,7 +1211,7 @@ export function moveFileAtomic(sourcePath, targetPath, render, options) {
       // step that can permit an injected or external source edit.
       assertSnapshotCurrent(source);
       for (const item of preparedUpdates) assertSnapshotCurrent(item.snapshot);
-      renameSync(sourcePath, backup);
+      commitRename(sourcePath, backup, testHooks);
       moved = true;
       backupSnapshot = { ...source, path: backup, identityKind: 'inode-content' };
       fsyncDirectory(path.dirname(sourcePath));
@@ -1218,7 +1219,7 @@ export function moveFileAtomic(sourcePath, targetPath, render, options) {
 
       testHooks?.afterSourceMove?.({ backup, sourcePath, targetPath });
       assertSnapshotCurrent(reservation);
-      renameSync(stagedPath, targetPath);
+      commitRename(stagedPath, targetPath, testHooks);
       published = true;
       reserved = false;
       publishedSnapshot = committedGeneration(prepared, targetPath);

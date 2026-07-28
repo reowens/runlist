@@ -1383,6 +1383,127 @@ describe('atomic mutation substrate', () => {
   });
 });
 
+describe('windows rename retry', () => {
+  // Every test forces Windows rename semantics so the retry branch is reachable on
+  // the POSIX machines that actually run the suite — otherwise these would all
+  // silently assert plain passthrough and prove nothing.
+  it('retries a transient EPERM and still publishes', () => {
+    const root = setup();
+    const file = path.join(root, 'doc.md');
+    writeFileSync(file, 'original');
+    const attempts = [];
+    replaceSnapshot(snapshotFile(file), 'replacement', {
+      repoRoot: root,
+      testHooks: {
+        forceWindowsRenameSemantics: true,
+        forceRenameError: attempt => { attempts.push(attempt); return attempt < 2 ? 'EPERM' : null; },
+      },
+    });
+    strictEqual(readFileSync(file, 'utf8'), 'replacement');
+    strictEqual(attempts.length, 3);
+    strictEqual(readdirSync(root).some(name => name.includes('dotmd-tmp')), false);
+  });
+
+  it('retries EBUSY and EACCES as well as EPERM', () => {
+    for (const code of ['EBUSY', 'EACCES']) {
+      const root = setup();
+      const file = path.join(root, 'doc.md');
+      writeFileSync(file, 'original');
+      replaceSnapshot(snapshotFile(file), `replaced-${code}`, {
+        repoRoot: root,
+        testHooks: {
+          forceWindowsRenameSemantics: true,
+          forceRenameError: attempt => (attempt < 1 ? code : null),
+        },
+      });
+      strictEqual(readFileSync(file, 'utf8'), `replaced-${code}`);
+    }
+  });
+
+  it('propagates the original error once the retry budget is exhausted', () => {
+    const root = setup();
+    const file = path.join(root, 'doc.md');
+    writeFileSync(file, 'original');
+    let attempts = 0;
+    throws(() => replaceSnapshot(snapshotFile(file), 'replacement', {
+      repoRoot: root,
+      testHooks: {
+        forceWindowsRenameSemantics: true,
+        forceRenameError: () => { attempts += 1; return 'EPERM'; },
+      },
+    }), err => err.code === 'EPERM');
+    strictEqual(attempts, 10);
+    strictEqual(readFileSync(file, 'utf8'), 'original');
+    strictEqual(readdirSync(root).some(name => name.includes('dotmd-tmp')), false);
+  });
+
+  it('does not retry an error that Windows contention cannot cause', () => {
+    const root = setup();
+    const file = path.join(root, 'doc.md');
+    writeFileSync(file, 'original');
+    let attempts = 0;
+    throws(() => replaceSnapshot(snapshotFile(file), 'replacement', {
+      repoRoot: root,
+      testHooks: {
+        forceWindowsRenameSemantics: true,
+        forceRenameError: () => { attempts += 1; return 'ENOSPC'; },
+      },
+    }), err => err.code === 'ENOSPC');
+    strictEqual(attempts, 1);
+    strictEqual(readFileSync(file, 'utf8'), 'original');
+  });
+
+  it('passes retryable codes straight through on POSIX', () => {
+    const root = setup();
+    const file = path.join(root, 'doc.md');
+    writeFileSync(file, 'original');
+    let attempts = 0;
+    throws(() => replaceSnapshot(snapshotFile(file), 'replacement', {
+      repoRoot: root,
+      testHooks: {
+        forceWindowsRenameSemantics: false,
+        forceRenameError: () => { attempts += 1; return 'EPERM'; },
+      },
+    }), err => err.code === 'EPERM');
+    strictEqual(attempts, 1);
+  });
+
+  // The retry runs while withPathLocks holds the lock, so the whole budget has to
+  // fit well inside the 2000ms timeoutMs a peer waits before MutationLockError —
+  // otherwise this trades a rare transient EPERM for common peer lock timeouts.
+  it('keeps the exhausted retry budget well under the peer lock timeout', () => {
+    const root = setup();
+    const file = path.join(root, 'doc.md');
+    writeFileSync(file, 'original');
+    const started = process.hrtime.bigint();
+    throws(() => replaceSnapshot(snapshotFile(file), 'replacement', {
+      repoRoot: root,
+      testHooks: { forceWindowsRenameSemantics: true, forceRenameError: () => 'EPERM' },
+    }), err => err.code === 'EPERM');
+    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+    ok(elapsedMs < 1000, `retry budget was ${Math.round(elapsedMs)}ms, expected well under the 2000ms lock timeout`);
+  });
+
+  it('retries the move-transaction publish renames', () => {
+    const root = setup();
+    const source = path.join(root, 'source.md');
+    const target = path.join(root, 'target.md');
+    writeFileSync(source, 'source');
+    let renameCalls = 0;
+    moveFileAtomic(source, target, 'moved', {
+      repoRoot: root,
+      testHooks: {
+        forceWindowsRenameSemantics: true,
+        // Fail the first attempt of every retrying rename in the move path.
+        forceRenameError: attempt => { if (attempt === 0) renameCalls += 1; return attempt < 1 ? 'EPERM' : null; },
+      },
+    });
+    strictEqual(readFileSync(target, 'utf8'), 'moved');
+    strictEqual(existsSync(source), false);
+    ok(renameCalls >= 2, `expected the source-backup and target publishes to retry, saw ${renameCalls}`);
+  });
+});
+
 describe('concurrent lifecycle transitions', () => {
   it('serializes ordinary and git touch writers with a lifecycle transition', async () => {
     const root = setup();

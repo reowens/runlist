@@ -4,6 +4,20 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
 
 ## Unreleased
 
+### Fixed
+
+- Publishing a mutation on Windows now retries a rename that fails with
+  `EPERM`/`EBUSY`/`EACCES` because another process holds the file open — an
+  editor, an antivirus scanner, the search indexer, or a concurrent `git`. The
+  path lock only serializes other dotmd processes, so these holders could
+  previously abort a mutation that had acquired the lock correctly. The retry
+  covers the document publish, the transactional-move source backup and target
+  publish, exclusive creation, the transaction manifest, the staged `.git/index`
+  publish, and `dotmd.config.mjs` rewrites. POSIX behaviour is unchanged: a
+  rename there never fails this way, so the codes still surface immediately.
+- The Git literal-pathspec regression test no longer uses a fixture filename
+  that cannot exist on NTFS, which had failed every Windows CI run since 0.70.1.
+
 ## 0.70.3 — 2026-07-14
 
 ### Fixed

@@ -7,16 +7,17 @@
 //   2. fs.writeFileSync(<path>.tmp, new)
 //   3. import the tmp via file:// + cache-bust query — must parse
 //   4. resolveConfig(tmp) — must not surface new warnings
-//   5. fs.renameSync(tmp, real) only on full success
+//   5. commitRename(tmp, real) only on full success
 //   6. on any failure: unlink tmp, surface error, real file untouched
 //
 // Pulling in @babel/parser would force a heavy dep on a project with two
 // runtime deps and would round-trip-mangle function-heavy configs with arrow
 // functions and multi-line template literals. Line surgery preserves them.
 
-import { existsSync, readFileSync, writeFileSync, unlinkSync, renameSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { resolveConfig } from './config.mjs';
+import { commitRename } from './durable-rename.mjs';
 
 const STATUS_NAME_RE = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 const RESERVED_NAMES = new Set([
@@ -594,7 +595,9 @@ export async function writeConfigAtomic(configPath, newContent, cwd) {
       throw new ConfigEditError(`Generated config surfaces new warnings:\n  - ${novel.join('\n  - ')}`);
     }
 
-    renameSync(tmpPath, configPath);
+    // The live config is very likely open in the user's editor; on Windows that
+    // makes the rename fail transiently, so publish through the retrying helper.
+    commitRename(tmpPath, configPath);
   } catch (err) {
     try { unlinkSync(tmpPath); } catch { /* ignore */ }
     throw err;

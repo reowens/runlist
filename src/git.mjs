@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { chmodSync, closeSync, existsSync, fsyncSync, linkSync, lstatSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import { commitRename } from './durable-rename.mjs';
 
 // Best-effort `git check-ignore` for a path. Returns true only when git
 // definitively reports the path is ignored; any failure (not a repo, git
@@ -675,7 +676,9 @@ function publishIndexGeneration(repoRoot, expected, desired, prepared, testHooks
     if (!sameGitIndexGeneration(current, expected)) throw new Error('Git index changed before transaction publication; current staging was preserved.');
     testHooks.afterGitIndexCompare?.({ lockPath, current, desired });
     if (desired.exists) {
-      renameSync(lockPath, indexPath);
+      // .git/index is routinely held open by concurrent git processes and IDE git
+      // extensions, so on Windows this publish needs the retry.
+      commitRename(lockPath, indexPath, testHooks);
       lockOwned = false;
     } else {
       if (existsSync(indexPath)) unlinkSync(indexPath);
