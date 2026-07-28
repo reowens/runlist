@@ -28,6 +28,10 @@ import { commitRename } from './durable-rename.mjs';
 const sleepBuffer = new Int32Array(new SharedArrayBuffer(4));
 let tempSequence = 0;
 
+// How long a peer waits to acquire a path lock before MutationLockError. Any
+// retry budget spent while the lock is held has to fit well inside this.
+export const MUTATION_LOCK_TIMEOUT_MS = 2000;
+
 export function processStartIdentity(pid) {
   try {
     const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
@@ -842,7 +846,7 @@ function reclaimLock(lockPath, lockRoot) {
 }
 
 export function withPathLocks(filePaths, options, callback) {
-  const { repoRoot, timeoutMs = 2000, retryMs = 20 } = options;
+  const { repoRoot, timeoutMs = MUTATION_LOCK_TIMEOUT_MS, retryMs = 20 } = options;
   if (!repoRoot) throw new Error('withPathLocks requires repoRoot.');
   const canonicals = [...new Set(filePaths.map(canonicalPath))].sort();
   const lockRoot = safeGeneratedPath(path.join(path.resolve(repoRoot), '.dotmd', 'locks'), repoRoot, options, 'Lock root');

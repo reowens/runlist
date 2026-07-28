@@ -25,11 +25,13 @@ import {
   moveFileAtomic,
   mutateFileSet,
   MutationConflictError,
+  MUTATION_LOCK_TIMEOUT_MS,
   recoverAbandonedTransactions,
   replaceSnapshot,
   snapshotFile,
   withPathLocks,
 } from '../src/atomic-mutation.mjs';
+import { RENAME_RETRY_SLEEP_BUDGET_MS } from '../src/durable-rename.mjs';
 import { resolveConfig } from '../src/config.mjs';
 import { runArchive } from '../src/lifecycle.mjs';
 import { consumePrompt } from '../src/prompts.mjs';
@@ -1469,19 +1471,16 @@ describe('windows rename retry', () => {
   });
 
   // The retry runs while withPathLocks holds the lock, so the whole budget has to
-  // fit well inside the 2000ms timeoutMs a peer waits before MutationLockError —
-  // otherwise this trades a rare transient EPERM for common peer lock timeouts.
-  it('keeps the exhausted retry budget well under the peer lock timeout', () => {
-    const root = setup();
-    const file = path.join(root, 'doc.md');
-    writeFileSync(file, 'original');
-    const started = process.hrtime.bigint();
-    throws(() => replaceSnapshot(snapshotFile(file), 'replacement', {
-      repoRoot: root,
-      testHooks: { forceWindowsRenameSemantics: true, forceRenameError: () => 'EPERM' },
-    }), err => err.code === 'EPERM');
-    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
-    ok(elapsedMs < 1000, `retry budget was ${Math.round(elapsedMs)}ms, expected well under the 2000ms lock timeout`);
+  // fit well inside the timeout a peer waits before MutationLockError — otherwise
+  // this trades a rare transient EPERM for common peer lock timeouts. Asserted
+  // against the constants rather than by timing a run: the publish around the
+  // sleep is slow and variable on shared CI runners, so a wall-clock threshold
+  // here would itself be the flake this whole change exists to remove.
+  it('keeps the exhausted retry sleep budget well under the peer lock timeout', () => {
+    ok(
+      RENAME_RETRY_SLEEP_BUDGET_MS * 2 < MUTATION_LOCK_TIMEOUT_MS,
+      `retry sleep budget ${RENAME_RETRY_SLEEP_BUDGET_MS}ms leaves too little headroom under the ${MUTATION_LOCK_TIMEOUT_MS}ms lock timeout`,
+    );
   });
 
   it('retries the move-transaction publish renames', () => {

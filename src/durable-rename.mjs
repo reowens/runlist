@@ -12,6 +12,13 @@ const RENAME_RETRY_CODES = ['EPERM', 'EBUSY', 'EACCES'];
 const RENAME_RETRY_ATTEMPTS = 10;
 const RENAME_RETRY_BACKOFF_MS = 10;
 
+// Total the backoff can sleep across a fully exhausted retry — the sum of
+// RENAME_RETRY_BACKOFF_MS × (1 … attempts-1). Exported so the budget can be
+// checked against MUTATION_LOCK_TIMEOUT_MS deterministically, rather than by
+// timing a run on a shared CI runner.
+export const RENAME_RETRY_SLEEP_BUDGET_MS =
+  (RENAME_RETRY_BACKOFF_MS * (RENAME_RETRY_ATTEMPTS - 1) * RENAME_RETRY_ATTEMPTS) / 2;
+
 // Windows refuses to rename onto — or away from — a path another process holds
 // open, surfacing EPERM/EBUSY/EACCES. That holder is by construction a
 // non-cooperating one (editor, AV, Search Indexer, `git`): dotmd's path lock is
