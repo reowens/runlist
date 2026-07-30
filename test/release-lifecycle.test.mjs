@@ -205,3 +205,79 @@ test('release recovery refuses without a durable release intent', () => {
   clearReleaseIntent(root);
   assert.throws(() => recoverLocalRelease(root), /no incomplete release intent/);
 });
+
+// The changelog heading is asserted against package.json's version, so it can
+// only break after the bump — i.e. in publish CI, against a tag that is already
+// pushed. These cover the promotion happening inside the version commit instead.
+function bumpWorkingTree(version = '1.0.1') {
+  for (const file of ['package.json', 'package-lock.json']) {
+    writeFileSync(path.join(root, file), JSON.stringify({ version }, null, 2) + '\n');
+  }
+}
+
+function commitChangelog(body) {
+  writeFileSync(path.join(root, 'CHANGELOG.md'), body);
+  git(['add', 'CHANGELOG.md']);
+  git(['commit', '-m', 'changelog']);
+  git(['update-ref', 'refs/remotes/origin/main', 'HEAD']);
+}
+
+test('version preparation promotes the Unreleased heading and stages it', () => {
+  setupRepo();
+  commitChangelog('# Changelog\n\n## Unreleased\n\n### Fixed\n\n- a thing\n\n## 1.0.0 — 2026-01-01\n');
+  seedIntent();
+  bumpWorkingTree();
+
+  prepareVersionCommit(root, { today: '2026-07-29' });
+
+  const changelog = readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
+  assert.match(changelog, /^## 1\.0\.1 — 2026-07-29$/m);
+  assert.doesNotMatch(changelog, /^## Unreleased/m);
+  assert.equal(changelog.includes('- a thing'), true);
+  assert.equal(
+    git(['diff', '--cached', '--name-only']).stdout.split('\n').includes('CHANGELOG.md'),
+    true,
+  );
+});
+
+test('version preparation leaves an already-stamped changelog untouched', () => {
+  setupRepo();
+  const body = '# Changelog\n\n## 1.0.1 — 2026-07-01\n\n### Fixed\n\n- already written\n';
+  commitChangelog(body);
+  seedIntent();
+  bumpWorkingTree();
+
+  prepareVersionCommit(root, { today: '2026-07-29' });
+
+  assert.equal(readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8'), body);
+  assert.equal(
+    git(['diff', '--cached', '--name-only']).stdout.split('\n').includes('CHANGELOG.md'),
+    false,
+  );
+});
+
+test('version preparation refuses a changelog with nothing to promote and restores the bump', () => {
+  setupRepo();
+  const body = '# Changelog\n\n## 1.0.0 — 2026-01-01\n';
+  commitChangelog(body);
+  seedIntent();
+  bumpWorkingTree();
+
+  assert.throws(
+    () => prepareVersionCommit(root),
+    /neither a `## 1\.0\.1` heading nor an `## Unreleased` section/,
+  );
+  assert.equal(JSON.parse(readFileSync(path.join(root, 'package.json'))).version, '1.0.0');
+  assert.equal(readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8'), body);
+  assert.equal(git(['status', '--porcelain']).stdout, '');
+});
+
+test('version preparation still works in a repo with no changelog', () => {
+  setupRepo();
+  seedIntent();
+  bumpWorkingTree();
+
+  assert.doesNotThrow(() => prepareVersionCommit(root));
+  assert.equal(git(['diff', '--cached', '--name-only']).stdout.trim().split('\n').sort().join(','),
+    '.claude-plugin/marketplace.json,plugins/dotmd/.claude-plugin/plugin.json');
+});

@@ -240,12 +240,14 @@ npm version major    # breaking changes
 Everything is automated — do NOT manually `git push`, `git tag`, `npm publish`, or anything else. The single `npm version` command does all of this:
 
 1. Runs tests (blocks release if they fail)
-2. Bumps `package.json` + `package-lock.json`, commits, creates git tag
+2. Bumps `package.json` + `package-lock.json`, promotes the changelog's `## Unreleased` heading to `## <version> — <date>`, commits, creates git tag
 3. Pushes to `origin main --tags`
 4. Creates GitHub Release with auto-generated notes
 5. Waits for GitHub Actions `publish.yml` to `npm publish`
 6. Installs the new version locally via `npm install -g`, then synchronizes and verifies every PATH-visible `dotmd` copy (for example Homebrew + NVM prefixes)
 7. Refreshes the Claude Code plugin (`claude plugin update dotmd@dotmd`) — restart the session (or `/reload-plugins`) to apply
+
+Write changelog entries under `## Unreleased` as you go — the version commit promotes that heading to the released version, and `test/changelog.test.mjs` requires a heading matching `package.json`. If there is neither an `## Unreleased` section nor a heading for the target version, the version commit fails and rolls back *before* cutting the tag; the same mismatch discovered later fails `publish.yml` against a tag that is already pushed.
 
 Release preflight requires a clean `main` that descends from `origin/main`; `--force` cannot bypass it. On failure, run `npm run release:resume`: before publication it either recovers a missing tag for a completed version commit or restores an incomplete bump and prints the exact `npm version <version>` retry. Once the tag exists, never bump again; resume atomically retries only the intended branch+tag push, reuses/reruns the GitHub workflow, and finishes registry/global CLI/plugin verification.
 

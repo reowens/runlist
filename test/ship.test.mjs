@@ -235,8 +235,17 @@ describe('npm version lifecycle prepares release artifacts', () => {
       path.resolve(import.meta.dirname, '..', 'scripts', 'prepare-version-commit.mjs'),
       'utf8',
     );
-    ok(prepareScript.includes("['add', '--', ...MANIFEST_PATHS]"),
-      'version preparation should stage only the synchronized manifests');
+    // The point is that the version commit stages nothing beyond what it
+    // synchronized itself: the plugin manifests, plus CHANGELOG.md when it
+    // promoted the Unreleased heading. `test/release-lifecycle.test.mjs` covers
+    // the resulting index for both cases; this guards the derivation so no
+    // unrelated path can be appended to the add.
+    ok(prepareScript.includes("['add', '--', ...stagedPaths]"),
+      'version preparation should stage exactly the paths it derived');
+    ok(prepareScript.includes('const stagedPaths = changelogStamped ? [...MANIFEST_PATHS, CHANGELOG_PATH] : MANIFEST_PATHS;'),
+      'staged paths should come only from the synchronized manifests and the stamped changelog');
+    ok(prepareScript.includes('assertGitIndex(projectRoot, stagedPaths)'),
+      'version preparation should assert the index matches exactly what it staged');
   });
 
   it('does not mask plugin sync or staging failures', () => {
