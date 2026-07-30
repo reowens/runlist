@@ -259,6 +259,8 @@ Release preflight requires a clean `main` that descends from `origin/main`; `--f
 
 **Supporting modules:** `extractors.mjs`, `validate.mjs`, `prompt.mjs`, `git.mjs`, `color.mjs`, `util.mjs`, `ai.mjs`.
 
+**Mutation plumbing:** `atomic-mutation.mjs` (path locks, prepare-then-publish, transactional moves) and `durable-rename.mjs` (`commitRename`, the retrying rename every publish goes through). `durable-rename.mjs` is a deliberate leaf: `atomic-mutation.mjs` imports `git.mjs`, and `git.mjs` needs `commitRename` for its `.git/index` publish, so exporting it from `atomic-mutation.mjs` would close an import cycle. Don't move it there.
+
 ## Key Conventions
 
 - **Pure ESM.** All files use `.mjs` extension and `import`/`export`.
@@ -271,6 +273,8 @@ Release preflight requires a clean `main` that descends from `origin/main`; `--f
 - **Multi-root.** `config.root` accepts string or array. Each doc is tagged with its `root`.
 - **Interactive prompts.** `status`, `new`, `rename` prompt for missing args when stdin is a TTY.
 - **Tests** use `node:test` + `node:assert`. Test files mirror source: `src/foo.mjs` → `test/foo.test.mjs`.
+- **Publish renames go through `commitRename`.** Never call `renameSync` directly to publish a prepared temp over a live path — Windows refuses a rename onto or away from a path another process holds open (`EPERM`/`EBUSY`/`EACCES`), and the path lock is advisory so it only excludes other dotmd processes. The retry is win32-gated (POSIX never fails this way, so retrying there would mask a real fault) and bounded to 10 attempts / ~450ms of backoff, sized to stay under `withPathLocks`' 2s `timeoutMs`. Raising it past ~1s requires raising `timeoutMs` too. A rename onto a provably fresh name doesn't need it.
+- **Test fixture filenames must be legal on NTFS.** No `*`, `?`, `:`, `"`, `<`, `>`, `|` — a fixture that can't exist on Windows fails the whole Windows leg. `[a-z]` is still real wildmatch pathspec magic and *is* legal on NTFS, so prefer it when a test needs a magic pathspec.
 - **Help text** in `bin/dotmd.mjs` HELP object must stay in sync with command capabilities.
 - **Global arg stripping** happens in the CLI dispatcher — `--config <path>`, `--type <t>`, `--root <name>`, `--dry-run`, `-n`, `--verbose` are removed from `restArgs` before passing to commands.
 - Preset aliases in config expand to query filter args and are dispatched as if they were built-in commands.
