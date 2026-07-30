@@ -6,10 +6,21 @@ on:
   pull_request:
     branches: [main]
 
+# Check names here are what `main`'s branch protection matches on. Adding `os` to
+# the matrix renamed every leg from `test (20)` to `test (ubuntu-latest, 20)`, so
+# the required contexts recorded on the branch stopped ever reporting and every PR
+# sits at BLOCKED until an admin overrides. If you change the matrix keys, update
+# the required contexts in the same breath:
+#   gh api -X PATCH repos/reowens/dotmd/branches/main/protection/required_status_checks \
+#     -f 'contexts[]=test (ubuntu-latest, 20)' ...
 jobs:
   test:
     runs-on: ${{ matrix.os }}
     strategy:
+      # Every leg must report. With fail-fast on, the first failure cancels the
+      # others — and a macOS failure cancelling the Windows leg hides exactly the
+      # result you need when you are debugging a Windows-only failure.
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
