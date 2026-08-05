@@ -326,7 +326,7 @@ export function runHud(argv, config) {
   //     Global in-session counts never provide a fallback.
   // The misuse recap stays for the same reason: a repeat-offense rule means
   // the primer alone isn't landing, so name the habit to break.
-  process.stdout.write(dim('dotmd: plans|briefing  set <status> [<file>]  new <type> <slug>  use [<file>]  archive <file>  baton [<slug>] <@draft|-> (save a resume prompt; releases the in-session plan if any)  (use [no-arg] → oldest pending prompt)') + '\n');
+  process.stdout.write(dim('dotmd: plans|briefing  set <status> [<file>]  new <type> <slug>  use [<file>]  archive <file>  baton [<slug>] <@<file>|-> (save a resume prompt; releases the in-session plan if any)  (use [no-arg] → oldest pending prompt)') + '\n');
   process.stdout.write(dim(buildPlanStatusPrimer(config)) + '\n');
   if (hud.owned && hud.owned.via === 'ownership') {
     process.stdout.write(yellow(`[dotmd] in-session (yours): ${hud.owned.path} — continue it; hand off with \`dotmd baton @/tmp/draft.md\` before stopping.`) + '\n');

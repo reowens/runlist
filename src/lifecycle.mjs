@@ -1036,7 +1036,10 @@ export async function runSet(argv, config, opts = {}) {
       warn('partial usually references the successor plan tracking the tail — add a link to the body, or rerun with --note "tail tracked in <plan>".');
     }
     if (batonNudge) {
-      warn(`wrapping up? leave a baton so the next session picks up cleanly — \`dotmd baton ${path.basename(filePath, '.md')} @draft\` saves a resume prompt (no copy-paste into chat).`);
+      // `@<draft-file>` stays an obvious metavariable: the old `@draft` read as
+      // a runnable path and got copied verbatim into failing batons. If it is
+      // copied anyway, readBodyInput recognizes the <…> form and says so.
+      warn(`wrapping up? leave a baton so the next session picks up cleanly — write your resume notes to a file, then \`dotmd baton ${path.basename(filePath, '.md')} @<draft-file>\` saves a resume prompt (no copy-paste into chat).`);
     }
   }
   return result;

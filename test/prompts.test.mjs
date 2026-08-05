@@ -429,6 +429,53 @@ describe('dotmd prompts show', () => {
     ok(r.status !== 0);
     ok(r.stderr.includes('Not a prompt'));
   });
+
+  // Bulk triage: sweeping the queue was the one thing show could not do, so
+  // sessions fell back to Read and tripped the guard once per file.
+  it('--all peeks every pending prompt without consuming any', () => {
+    const a = writePrompt('alpha', { body: 'alpha body text' });
+    const b = writePrompt('beta', { body: 'beta body text' });
+    const r = run(['prompts', 'show', '--all']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(r.stdout.includes('alpha body text'), r.stdout);
+    ok(r.stdout.includes('beta body text'), r.stdout);
+    ok(existsSync(a) && existsSync(b), 'neither prompt consumed');
+    match(r.stdout, /alpha\.md \[pending\]/);
+    match(r.stdout, /beta\.md \[pending\]/);
+  });
+
+  it('accepts several prompts by name', () => {
+    writePrompt('alpha', { body: 'alpha body text' });
+    writePrompt('beta', { body: 'beta body text' });
+    writePrompt('gamma', { body: 'gamma body text' });
+    const r = run(['prompts', 'show', 'alpha', 'gamma']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(r.stdout.includes('alpha body text'));
+    ok(r.stdout.includes('gamma body text'));
+    ok(!r.stdout.includes('beta body text'), 'unnamed prompt not shown');
+  });
+
+  it('--limit caps the sweep and says so', () => {
+    writePrompt('alpha', { body: 'alpha body text' });
+    writePrompt('beta', { body: 'beta body text' });
+    const r = run(['prompts', 'show', '--all', '--limit', '1']);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stderr, /1 prompt of 2/);
+  });
+
+  it('single-prompt output keeps the bare body on stdout', () => {
+    writePrompt('solo', { body: 'solo body text' });
+    const r = run(['prompts', 'show', 'solo']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(!r.stdout.includes('────'), 'no separator for a single prompt');
+    match(r.stderr, /read-only peek/);
+  });
+
+  it('rejects --all together with names, and a bad --limit', () => {
+    writePrompt('alpha');
+    ok(run(['prompts', 'show', '--all', 'alpha']).status !== 0);
+    ok(run(['prompts', 'show', '--all', '--limit', '0']).status !== 0);
+  });
 });
 
 describe('F14: held prompt status', () => {

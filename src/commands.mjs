@@ -94,7 +94,7 @@ const definitions = [
     form('list', { subcommands: ['list', 'status'], options: [flag('--json'), value('--status'), flag('--include-archived'), value('--sort'), value('--limit'), flag('--all')] }),
     form('next', { subcommands: ['next'] }),
     form('use [file]', { subcommands: ['use', 'resume'], args: positionals(0, 1), options: [flag('--no-index'), flag('--show-files'), flag('--force')] }),
-    form('show [file]', { subcommands: ['show', 'peek'], args: positionals(0, 1), options: [flag('--json')] }),
+    form('show [file...]', { subcommands: ['show', 'peek'], args: positionals(0, Infinity), options: [flag('--json'), flag('--all'), value('--limit')] }),
     form('archive <file>', { subcommands: ['archive'], args: positionals(1, 1), options: [flag('--no-index'), flag('--show-files')] }),
     form('new <slug> [body...]', { subcommands: ['new'], args: positionals(1, Infinity), options: [value('--body', '--message'), value('--title'), value('--status')] }),
     form('hold <file>', { subcommands: ['hold', 'shelve'], args: positionals(1, 1) }),
@@ -102,7 +102,7 @@ const definitions = [
   ], { aliases: ['prompt'] }),
   command('use', mutates('managed source when starting/consuming; docs remain read-only'), 'workflow', [form('[file]', { args: positionals(0, 1), options: [flag('--json'), flag('--full'), flag('--no-index'), flag('--show-files'), flag('--force')] })]),
   command('next', mutates('managed prompt source and same-root archive destination'), 'workflow', [form('', { options: [flag('--json'), flag('--no-index'), flag('--show-files'), flag('--force')] })]),
-  command('baton', mutates('managed plan/prompt sources and managed prompt destination'), 'workflow', [form('[plan|slug] <@draft|->', { args: positionals(0, 2), options: [value('--status'), value('--note'), value('--body', '--message'), flag('--force'), flag('--json')] })]),
+  command('baton', mutates('managed plan/prompt sources and managed prompt destination'), 'workflow', [form('[plan|slug] <@<file>|->', { args: positionals(0, 2), options: [value('--status'), value('--note'), value('--body', '--message'), flag('--force'), flag('--json')] })]),
   command('runlist', mutates('managed hubs/children and managed scaffold destinations'), 'workflow', [
     form('<hub>', { args: positionals(1, 1), options: [flag('--json')] }),
     form('next <hub>', { subcommands: ['next'], args: positionals(1, 1), options: [flag('--json'), flag('--full'), flag('--no-index'), flag('--show-files')] }),
@@ -133,7 +133,7 @@ const definitions = [
   command('rename', mutates('managed source, same-root destination, and rewrite sweep'), 'mutate', [form('<old> [new]', { args: positionals(1, 2), options: [flag('--show-files')] })]),
   command('migrate', mutates('managed source sweep'), 'mutate', [form('<field> <old> <new> [files...]', { args: positionals(3, Infinity), options: [flag('--show-files')] })]),
   command('fix-refs', mutates('managed source sweep'), 'mutate', [form('', { options: [flag('--show-files')] })]),
-  command('doctor', mutates('managed sweeps, repo index, and maintenance config paths by mode'), 'mutate', [form('[path]', { args: positionals(0, 1), options: [flag('--apply', '--yes'), flag('--statuses'), optionalValue('--migrate-template'), flag('--migrate-prompts'), flag('--frontmatter-fix'), flag('--project'), flag('--json'), flag('--include-archived')] })]),
+  command('doctor', mutates('managed sweeps, repo index, and maintenance config paths by mode'), 'mutate', [form('[path]', { args: positionals(0, 1), options: [flag('--apply', '--yes'), flag('--statuses'), optionalValue('--migrate-template'), flag('--migrate-prompts'), flag('--frontmatter-fix'), flag('--project'), flag('--transactions'), flag('--json'), flag('--include-archived')] })]),
   command('statuses', mutates('project config path; document scan is read-only'), 'mutate', [
     form('list', { subcommands: ['list'], options: [value('--type'), flag('--json')] }),
     form('add <name>', { subcommands: ['add'], args: positionals(1, 1), options: STATUS_PROPERTY_OPTIONS }),

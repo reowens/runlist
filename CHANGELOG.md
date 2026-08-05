@@ -2,6 +2,43 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- A transaction that could not acquire its path locks during recovery is no
+  longer marked `failed-manual`. Recovery runs at the top of every move and
+  sweeps every manifest in the repo, so contention on an unrelated transaction —
+  typically a second session recovering the same one — was being recorded as
+  damage. Because a `failed-manual` manifest makes *every* later mutation refuse,
+  one transient 2s lock timeout could brick `set`, `archive`, `use`, `baton`, and
+  `rename` repo-wide, and the error named a file the failing command never
+  touched. Lock contention now defers the transaction, which stays recoverable.
+- `dotmd baton <slug> @draft` (and other unsubstituted placeholders such as
+  `@<draft-file>` or a copied `@/tmp/draft.md`) now says the argument is a
+  placeholder and shows the three real body-input forms, instead of failing with
+  a bare `Body file not found: draft`. The wrap-up nudge and the `baton`
+  signature no longer render the placeholder as a runnable path — that nudge was
+  the copy source for the failures. A real file by one of those names still wins.
+- `npm pack --json` is read in both the npm 10 (array) and npm 11 (object)
+  shapes, so the packaging test no longer fails — and no longer blocks releases —
+  on newer npm.
+
+### Added
+
+- `dotmd doctor --transactions` reports pending mutation transactions: status,
+  owner liveness, and each participant's current generation. `--apply` clears the
+  transactions whose canonical files already agree on one generation, touching no
+  document content; anything ambiguous is reported for manual review. Previously
+  a wedged transaction had no CLI surface at all — the only guidance was to
+  hand-restore generations and delete the manifest. The repair message now points
+  here.
+- `dotmd prompts show` accepts several prompts, plus `--all` (the whole pending
+  queue) and `--limit N`. Triaging a backlog previously had no bulk affordance,
+  so sessions fell back to `Read` file by file — 149 guard events, including
+  single sessions sweeping 25-28 prompts. The `read-prompt` guard now names
+  `--all`. Single-prompt output is unchanged.
+
 ## 0.70.4 — 2026-07-29
 
 ### Fixed

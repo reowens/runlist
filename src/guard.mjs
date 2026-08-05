@@ -305,7 +305,8 @@ function evalRead(filePath, config) {
     detail: filePath,
     reason:
       `${filePath} is a saved dotmd prompt. To start work from it, run \`dotmd use ${filePath}\` — it commits archive/claim before at-most-once body output so it can't be double-consumed. ` +
-      `Just peeking or triaging (not consuming)? \`dotmd prompts show ${filePath}\` reads it without archiving.`,
+      `Just peeking or triaging (not consuming)? \`dotmd prompts show ${filePath}\` reads it without archiving. ` +
+      `Surveying the whole queue? \`dotmd prompts show --all\` peeks every pending prompt in one call — don't Read them file by file.`,
   };
 }
 

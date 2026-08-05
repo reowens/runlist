@@ -83,7 +83,10 @@ describe('removed product surfaces', () => {
         encoding: 'utf8',
       });
       strictEqual(packed.status, 0, packed.stderr);
-      const packResult = JSON.parse(packed.stdout)[0];
+      // npm 10 emits an array; npm 11 emits an object keyed by package name.
+      const packedJson = JSON.parse(packed.stdout);
+      const packResult = Array.isArray(packedJson) ? packedJson[0] : Object.values(packedJson)[0];
+      ok(packResult, packed.stdout);
       const files = packResult.files.map(file => file.path);
       ok(!files.some(file => /notion/i.test(file)), files.join('\n'));
 

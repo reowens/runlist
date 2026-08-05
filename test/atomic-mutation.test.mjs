@@ -762,6 +762,115 @@ describe('atomic mutation substrate', () => {
     strictEqual(recoverAbandonedTransactions(root)[0].result, 'rolled-back');
   });
 
+  // Recovery sweeps every manifest in the repo and runs at the top of every
+  // move, so a manifest that cannot be locked belongs to work the caller is not
+  // doing. Treating that contention as damage marked the manifest failed-manual,
+  // and the failed-manual check then refused EVERY later mutation in the repo —
+  // reporting a file the failing command never touched. Contention must defer.
+  it('defers a transaction whose paths are locked instead of marking it failed-manual', async () => {
+    const root = setup();
+    const source = path.join(root, 'source.md');
+    const target = path.join(root, 'target.md');
+    const ready = path.join(root, 'abandon.ready');
+    writeFileSync(source, 'old');
+    const code = `
+      import { writeFileSync } from 'node:fs';
+      import { moveFileAtomic } from ${JSON.stringify(modulePath)};
+      moveFileAtomic(process.argv[1], process.argv[2], 'new', { repoRoot: process.argv[3], testHooks: {
+        afterMovePublish: () => { throw new Error('rollback'); },
+        beforeDirectoryFsync: phase => { if (phase === 'rollback-source-restore') {
+          writeFileSync(process.argv[4], phase);
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 60_000);
+        } },
+      } });
+    `;
+    const proc = child(code, [source, target, root, ready]);
+    const done = completed(proc);
+    await waitForFiles([ready]);
+    proc.kill('SIGKILL');
+    await done;
+
+    const txRoot = path.join(root, '.dotmd', 'transactions');
+    const manifestPath = path.join(txRoot, readdirSync(txRoot)[0], 'manifest.json');
+    const statusBefore = JSON.parse(readFileSync(manifestPath, 'utf8')).status;
+    ok(statusBefore !== 'failed-manual', `abandoned manifest starts recoverable, got ${statusBefore}`);
+
+    // Hold the participant locks so recovery cannot acquire them. This process
+    // is alive, so the lock is not reclaimable and acquisition times out.
+    const recovered = withPathLocks([source, target], { repoRoot: root }, () =>
+      recoverAbandonedTransactions(root, { timeoutMs: 50 }));
+
+    strictEqual(recovered.length, 1);
+    strictEqual(recovered[0].result, 'deferred-locked');
+    strictEqual(JSON.parse(readFileSync(manifestPath, 'utf8')).status, statusBefore,
+      'contention must not poison the manifest');
+
+    // Still recoverable once the lock is gone — the whole point of deferring.
+    strictEqual(recoverAbandonedTransactions(root)[0].result, 'rolled-back');
+  });
+
+  // The escape hatch. A failed-manual manifest blocks every mutation in the
+  // repo and previously had no CLI surface at all — the only guidance was to
+  // hand-restore generations and delete the manifest.
+  it('doctor --transactions reports a wedged transaction and clears the resolvable case', async () => {
+    // realpath so the manifest's directory binding matches what the CLI
+    // resolves from cwd (/var vs /private/var on macOS).
+    const root = realpathSync(setup());
+    mkdirSync(path.join(root, 'docs'));
+    writeFileSync(path.join(root, 'dotmd.config.mjs'), `export const root = 'docs';\n`);
+    const source = path.join(root, 'docs', 'source.md');
+    const target = path.join(root, 'docs', 'target.md');
+    const ready = path.join(root, 'abandon.ready');
+    writeFileSync(source, 'old');
+    const code = `
+      import { writeFileSync } from 'node:fs';
+      import { moveFileAtomic } from ${JSON.stringify(modulePath)};
+      moveFileAtomic(process.argv[1], process.argv[2], 'new', { repoRoot: process.argv[3], testHooks: {
+        afterMovePublish: () => { throw new Error('rollback'); },
+        beforeDirectoryFsync: phase => { if (phase === 'rollback-source-restore') {
+          writeFileSync(process.argv[4], phase);
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 60_000);
+        } },
+      } });
+    `;
+    const proc = child(code, [source, target, root, ready]);
+    const done = completed(proc);
+    await waitForFiles([ready]);
+    proc.kill('SIGKILL');
+    await done;
+
+    const txRoot = path.join(root, '.dotmd', 'transactions');
+    const manifestPath = path.join(txRoot, readdirSync(txRoot)[0], 'manifest.json');
+    // Force the terminal state the wedge produces.
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    manifest.phase = 'failed-manual';
+    manifest.result = 'failed-manual';
+    manifest.status = 'failed-manual';
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+
+    const report = spawnSync(process.execPath, [bin, 'doctor', '--transactions', '--json'], { cwd: root, encoding: 'utf8' });
+    strictEqual(report.status, 0, report.stderr);
+    const parsed = JSON.parse(report.stdout);
+    strictEqual(parsed.transactions.length, 1);
+    ok(parsed.transactions[0].readable, `manifest unreadable: ${parsed.transactions[0].reason}`);
+    strictEqual(parsed.transactions[0].status, 'failed-manual');
+    strictEqual(parsed.cleared.length, 0, 'reports without --apply');
+    ok(existsSync(manifestPath), 'nothing cleared without --apply');
+
+    // The source was restored by the killed process's rollback, so the files
+    // agree on one generation and the manifest is safe to clear.
+    strictEqual(readFileSync(source, 'utf8'), 'old');
+    strictEqual(parsed.transactions[0].resolvable, true);
+
+    const applied = spawnSync(process.execPath, [bin, 'doctor', '--transactions', '--apply', '--json'], { cwd: root, encoding: 'utf8' });
+    strictEqual(applied.status, 0, applied.stderr);
+    strictEqual(JSON.parse(applied.stdout).cleared.length, 1, `${applied.stdout}\n${applied.stderr}`);
+    strictEqual(readFileSync(source, 'utf8'), 'old', 'document content untouched');
+
+    // The repo mutates again — the wedge is gone.
+    strictEqual(recoverAbandonedTransactions(root).length, 0);
+  });
+
   it('retains manual intent and preserves concurrent same-path Git staging when CAS rollback fails', async () => {
     const root = setup();
     mkdirSync(path.join(root, 'docs'));

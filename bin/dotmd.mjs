@@ -109,7 +109,7 @@ Common commands:
   set <status> [file]   Transition status (start work, finish, archive — all via target status)
   new <type> <name>     Create plan/doc/prompt (pipe stdin or @path for body)
   use [<file-or-slug>]  Open a doc by type: prompt → consume, plan → start, doc → read
-  baton [<plan>|<slug>] <@draft|-> Save a resume prompt (+ release the plan, if one is in-session)
+  baton [<plan>|<slug>] <@<file>|-> Save a resume prompt (+ release the plan, if one is in-session)
                         (no file: consume oldest pending prompt)
   archive <file>        Close out a plan (status → archived, move, update refs)
 
@@ -180,7 +180,7 @@ View & Query:
   grep <term>                       Keyword search incl. document bodies (query --keyword --body --all)
   plans                             Live plans (excludes archived; --include-archived for all)
   use [<file-or-slug>]              Open a doc by type: prompt → consume, plan → start, doc → read
-  baton [<plan>|<slug>] <@draft|->  Save a resume prompt; releases the plan + prints the commit when one is in-session
+  baton [<plan>|<slug>] <@<file>|->  Save a resume prompt; releases the plan + prints the commit when one is in-session
   prompts [list|show|archive|new|hold] Prompt admin (list / peek / archive / save / hold). Use \`dotmd use\` to consume.
   stale                             Stale docs (preset)
   actionable                        Docs with next steps (preset)
@@ -201,6 +201,7 @@ Analyze:
 
 Validate & Fix:
   doctor [--apply]                  Auto-fix everything: refs, lint, long fields, dates, index (preview by default)
+  doctor --transactions             Report/clear wedged mutation transactions (run this if mutations refuse repo-wide)
   self-check                        Project/version skew diagnostic (alias: doctor --project)
   lint [--fix]                      Check and auto-fix frontmatter issues
   fix-refs [--dry-run]              Auto-fix broken reference paths + body links
@@ -711,6 +712,16 @@ Modes:
                          (F4). Use --apply (alias --yes) to actually write;
                          explicit --dry-run still wins over --apply if both
                          are passed (safety prevails).
+  --transactions         Report pending mutation transactions. A transaction
+                         abandoned mid-flight can reach \`failed-manual\`, and
+                         recovery sweeps the whole repo on every mutation —
+                         so ONE wedged transaction makes \`set\`, \`archive\`,
+                         \`use\`, \`baton\`, and \`rename\` refuse repo-wide,
+                         naming a file the failing command never touched.
+                         Run this first when that happens. Add --apply to
+                         clear the transactions whose files already agree on
+                         one generation (no document content is touched);
+                         the rest are reported for manual review.
   --statuses             Read-only diagnostic: detect overloaded status
                          buckets where one status holds plans pursuing
                          multiple distinct unstuck-actions. Suggests how
@@ -1038,6 +1049,9 @@ Examples:
   dotmd prompt list                    # singular alias for \`dotmd prompts list\`
 
   dotmd prompts show resume-foo        # peek without consuming (triage)
+  dotmd prompts show --all             # peek the WHOLE pending queue in one call
+  dotmd prompts show --all --limit 10  # ...capped
+  dotmd prompts show a b c             # peek several by name
   dotmd prompts next --dry-run         # preview without consuming
   dotmd prompts archive old-thing
   dotmd prompts new my-prompt "Body text here"`,
@@ -1068,7 +1082,7 @@ Slug mode (no plan involved — "save a resume prompt for this"):
   plans/docs inside the draft body.
 
 Usage:
-  dotmd baton [<plan-file> | <slug>] [@draft.md | - | --message "..."]
+  dotmd baton [<plan-file> | <slug>] [@<draft-file> | - | --message "..."]
 
 Options:
   --status <s>           Target status for the plan (default: active; plan mode only)

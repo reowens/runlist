@@ -194,7 +194,10 @@ function transactionRepairMessage(manifestPath, manifest, reason) {
     manifest.gitIndex?.prepared?.tempPath,
     ...(manifest.gitIndex?.retainedPaths ?? []),
   ].filter(Boolean);
-  return `${reason}\nTransaction recovery refused to guess. Manifest: ${manifestPath}\nInspect the canonical files and recovery artifacts, then restore one complete generation and remove the manifest:\n${artifacts.map(item => `  ${item}`).join('\n') || '  (no content artifacts)'}`;
+  return `${reason}\nTransaction recovery refused to guess. Manifest: ${manifestPath}\n` +
+    `Start with \`dotmd doctor --transactions\` — it reports this transaction's state and resolves it when the canonical files agree on one generation.\n` +
+    `If it reports the generations as ambiguous, inspect the canonical files and recovery artifacts, then restore one complete generation and remove the manifest:\n` +
+    `${artifacts.map(item => `  ${item}`).join('\n') || '  (no content artifacts)'}`;
 }
 
 function assertString(value, label, { nullable = false } = {}) {
@@ -445,8 +448,19 @@ export function recoverAbandonedTransactions(repoRoot, options = {}) {
       throw new MutationConflictError(transactionRepairMessage(manifestPath, manifest, 'Canonical generations are ambiguous.'));
     }
     const rollForward = states.every(state => state === 'new');
+    // Lock acquisition is the one step here that fails for a reason that is not
+    // evidence of damage: another process holds these paths, almost always
+    // because it is recovering this same abandoned transaction. Nothing inside
+    // the callback acquires a lock, so a MutationLockError always means the
+    // callback never ran and no generation was touched — the manifest is exactly
+    // as it was. Marking it failed-manual on that (see the catch below, which
+    // is otherwise correct to retain evidence) turned transient contention into
+    // a permanent repo-wide brick: every later mutation hit the failed-manual
+    // check above and refused, for a transaction unrelated to it.
+    let locked = false;
     try {
       withPathLocks(manifest.participants.map(item => item.path), { repoRoot, ...options }, () => {
+        locked = true;
         const lockedStates = manifest.participants.map(participantState);
         if (lockedStates.includes('unknown')) {
           throw new MutationConflictError(transactionRepairMessage(manifestPath, manifest, 'Canonical generations changed while recovery acquired locks.'));
@@ -538,6 +552,13 @@ export function recoverAbandonedTransactions(repoRoot, options = {}) {
         retainedGitPaths,
       });
     } catch (err) {
+      if (!locked && err instanceof MutationLockError) {
+        // Whoever holds the lock finishes (or re-abandons) this transaction;
+        // either way it stays recoverable. The caller's own withPathLocks still
+        // guards the paths it actually mutates, so proceeding is safe.
+        recovered.push({ id: manifest.id, result: 'deferred-locked' });
+        continue;
+      }
       try {
         manifest.phase = 'failed-manual';
         manifest.result = 'failed-manual';
@@ -548,6 +569,87 @@ export function recoverAbandonedTransactions(repoRoot, options = {}) {
     }
   }
   return recovered;
+}
+
+// Report on every transaction manifest without mutating anything, so a wedged
+// repo can be diagnosed. `recoverAbandonedTransactions` deliberately refuses to
+// guess and throws; that left no way to even SEE the state short of reading
+// JSON by hand, and a single failed-manual manifest blocks every mutation in
+// the repo. Never throws for a manifest it cannot parse — an unreadable one is
+// itself the finding.
+export function inspectTransactions(repoRoot, options = {}) {
+  const root = transactionRoot(repoRoot, options);
+  if (!existsSync(root)) return [];
+  const report = [];
+  for (const entry of readdirSync(root, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    if (!entry.isDirectory() || entry.isSymbolicLink()) {
+      report.push({ id: entry.name, readable: false, reason: 'Unsafe entry in transaction root', resolvable: false });
+      continue;
+    }
+    const directory = path.join(root, entry.name);
+    const manifestPath = path.join(directory, 'manifest.json');
+    let manifest;
+    try { manifest = JSON.parse(readFileSync(manifestPath, 'utf8')); }
+    catch (err) {
+      report.push({ id: entry.name, directory, manifestPath, readable: false, reason: err?.code === 'ENOENT' ? 'No manifest' : `Unreadable manifest: ${err.message}`, resolvable: false });
+      continue;
+    }
+    try { validateManifest(manifest, manifestPath, directory, repoRoot, options); }
+    catch (err) {
+      report.push({ id: entry.name, directory, manifestPath, readable: false, reason: err.message, resolvable: false });
+      continue;
+    }
+    const participants = manifest.participants.map(item => ({ path: item.path, state: participantState(item) }));
+    const states = new Set(participants.map(item => item.state));
+    const retainedGitPaths = (manifest.gitIndex?.retainedPaths ?? []).filter(item => existsSync(item));
+    const retainedDirectories = manifest.createdDirectories.filter(item => existsSync(item.path)).map(item => item.path);
+    // Safe to clear only when the filesystem already shows one uniform
+    // generation: that IS the atomicity the transaction existed to guarantee,
+    // so the manifest is bookkeeping for work that is fully done or fully
+    // undone. Anything mixed, unknown, or with retained artifacts stays put.
+    const uniform = states.size === 1 && (states.has('old') || states.has('new'));
+    report.push({
+      id: manifest.id,
+      directory,
+      manifestPath,
+      readable: true,
+      status: manifest.status,
+      phase: manifest.phase,
+      result: manifest.result,
+      operation: manifest.operation,
+      createdAt: manifest.createdAt,
+      ownerLiveness: processOwnerLiveness(manifest.owner),
+      participants,
+      generation: uniform ? [...states][0] : null,
+      retainedGitPaths,
+      retainedDirectories,
+      resolvable: uniform && retainedGitPaths.length === 0 && retainedDirectories.length === 0,
+      reason: uniform
+        ? (retainedGitPaths.length || retainedDirectories.length ? 'Retained artifacts need manual review' : null)
+        : 'Canonical files do not agree on one generation',
+    });
+  }
+  return report;
+}
+
+// Clear the manifests inspectTransactions marked resolvable. Touches no
+// canonical file — those already agree on one generation; this only removes the
+// bookkeeping that is wedging later mutations.
+export function resolveTransactions(repoRoot, options = {}) {
+  const cleared = [];
+  for (const item of inspectTransactions(repoRoot, options)) {
+    if (!item.resolvable) continue;
+    let manifest;
+    try { manifest = JSON.parse(readFileSync(item.manifestPath, 'utf8')); } catch { continue; }
+    withPathLocks(manifest.participants.map(entry => entry.path), { repoRoot, ...options }, () => {
+      // Re-check under the lock: nothing may have moved since inspection.
+      const states = new Set(manifest.participants.map(participantState));
+      if (states.size !== 1 || !(states.has('old') || states.has('new'))) return;
+      cleanupTransactionDirectory(item.directory, manifest, options);
+      cleared.push({ id: item.id, generation: [...states][0] });
+    });
+  }
+  return cleared;
 }
 
 function ensureDirectoryDurable(directory, options, phase) {

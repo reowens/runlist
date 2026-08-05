@@ -93,6 +93,36 @@ describe('dotmd baton', () => {
     ok(!r.stderr.includes('prompts/resume-auth-revamp.md --'), 'prompt not in pathspec');
   });
 
+  // The `@draft` metavariable ships in the hud primer, both help texts, and the
+  // wrap-up nudge. Copied verbatim it used to die with a bare "Body file not
+  // found: draft", which reads as a missing file rather than a placeholder.
+  it('names an unsubstituted body placeholder as a placeholder', () => {
+    writePlan('auth-revamp');
+    for (const placeholder of ['@draft', '@<draft-file>', '@/tmp/draft.md']) {
+      const r = run(['baton', 'docs/plans/auth-revamp.md', placeholder]);
+      ok(r.status !== 0, `${placeholder} should fail`);
+      match(r.stderr, /is a placeholder, not a real path/);
+      ok(!/^Body file not found/m.test(r.stderr), `${placeholder} used the generic message:\n${r.stderr}`);
+    }
+  });
+
+  it('still reports a genuinely missing body file plainly', () => {
+    writePlan('auth-revamp');
+    const r = run(['baton', 'docs/plans/auth-revamp.md', '@/tmp/definitely-not-here-9f3a.md']);
+    ok(r.status !== 0);
+    match(r.stderr, /Body file not found/);
+  });
+
+  it('a real file named draft wins over the placeholder check', () => {
+    writePlan('auth-revamp');
+    const draft = path.join(tmpDir, 'draft');
+    writeFileSync(draft, 'resume: real draft content\n');
+    const r = run(['baton', 'docs/plans/auth-revamp.md', `@${draft}`]);
+    strictEqual(r.status, 0, r.stderr);
+    const promptRaw = readFileSync(path.join(docsDir, 'prompts', 'resume-auth-revamp.md'), 'utf8');
+    ok(promptRaw.includes('resume: real draft content'));
+  });
+
   it('body via stdin pipe works', () => {
     writePlan('auth-revamp');
     const r = run(['baton', 'docs/plans/auth-revamp.md'], { input: 'resume: do the next thing\n' });

@@ -397,23 +397,80 @@ function prepareLinkedPromptClaim(planRef, config) {
 // Read-only peek: print the body WITHOUT consuming. The sanctioned triage path
 // — surveying pending prompts must not archive them (that's `use`'s job), and
 // it must not require raw cat/Read (which the guard warns about).
-function runPromptsShow(argv, config) {
-  const input = argv.find(a => !a.startsWith('-'));
-  if (!input) die('Usage: dotmd prompts show <file-or-slug>');
-  const filePath = resolvePromptInput(input, config);
-
+// Read one prompt for peeking. Returns null rather than dying so a bulk sweep
+// isn't aborted by a single bad doc.
+function readPromptForShow(filePath, config, { strict }) {
   const raw = readFileSync(filePath, 'utf8');
   const { frontmatter, body } = extractFrontmatter(raw);
   const parsed = parseSimpleFrontmatter(frontmatter);
   const repoPath = toRepoPath(filePath, config.repoRoot);
   if (asString(parsed.type) !== 'prompt') {
-    die(`Not a prompt (type: ${asString(parsed.type) ?? 'unknown'}): ${repoPath}`);
+    if (strict) die(`Not a prompt (type: ${asString(parsed.type) ?? 'unknown'}): ${repoPath}`);
+    return null;
+  }
+  return { repoPath, body, status: asString(parsed.status) ?? 'unknown' };
+}
+
+// Triage the queue without consuming it. Bulk mode exists because surveying a
+// backlog was the one thing `show` could not do: sessions sweeping 25-28 saved
+// prompts had to fall back to Read, which the guard then warned about once per
+// file. `--all` and multiple paths make the supported route the cheap one.
+function runPromptsShow(argv, config) {
+  const all = argv.includes('--all');
+  const limitIdx = argv.indexOf('--limit');
+  const limit = limitIdx >= 0 ? Number.parseInt(argv[limitIdx + 1], 10) : null;
+  if (limitIdx >= 0 && (!Number.isInteger(limit) || limit < 1)) {
+    die('--limit takes a positive integer.');
+  }
+  // Skip the value that belongs to --limit; it is not a prompt name. Guard the
+  // absent case explicitly — limitIdx is -1 there, and -1 + 1 would drop argv[0].
+  const limitValueIdx = limitIdx >= 0 ? limitIdx + 1 : -1;
+  const inputs = argv.filter((a, i) => !a.startsWith('-') && i !== limitValueIdx);
+
+  if (!inputs.length && !all) {
+    die('Usage: dotmd prompts show <file-or-slug>...\n       dotmd prompts show --all [--limit N]   # peek the whole pending queue');
+  }
+  if (inputs.length && all) die('Pass either prompt names or --all, not both.');
+
+  let targets;
+  if (all) {
+    const queue = pendingPromptsOldestFirst(config);
+    if (!queue.length) die('No pending prompts.');
+    targets = queue.filter(entry => entry.abs).map(entry => entry.abs);
+  } else {
+    targets = inputs.map(input => resolvePromptInput(input, config));
+  }
+  const total = targets.length;
+  if (limit !== null) targets = targets.slice(0, limit);
+
+  // Single-target output is unchanged: bare body on stdout, one dim header on
+  // stderr. Only a multi-target sweep adds separators, so scripts piping one
+  // prompt keep working.
+  const multi = targets.length > 1;
+  let shown = 0;
+  for (const filePath of targets) {
+    const prompt = readPromptForShow(filePath, config, { strict: !all && !multi });
+    if (!prompt) continue;
+    const { repoPath, body, status } = prompt;
+    if (multi) {
+      if (shown > 0) process.stdout.write('\n');
+      process.stdout.write(dim(`──── ${repoPath} [${status}] ────\n`));
+    } else {
+      process.stderr.write(dim(`${repoPath} [${status}] — read-only peek; \`dotmd use ${repoPath}\` to consume\n`));
+    }
+    process.stdout.write(body);
+    if (!body.endsWith('\n')) process.stdout.write('\n');
+    shown++;
   }
 
-  const status = asString(parsed.status) ?? 'unknown';
-  process.stderr.write(dim(`${repoPath} [${status}] — read-only peek; \`dotmd use ${repoPath}\` to consume\n`));
-  process.stdout.write(body);
-  if (!body.endsWith('\n')) process.stdout.write('\n');
+  // Footer whenever the sweep showed more than one OR hid some: a truncated
+  // --limit 1 collapses to single-prompt formatting, and silently dropping the
+  // rest would read as "that's the whole queue".
+  const truncated = total > targets.length;
+  if (multi || truncated) {
+    const suffix = truncated ? ` of ${total} (use --limit to change)` : '';
+    process.stderr.write(dim(`\n${shown} prompt${shown === 1 ? '' : 's'}${suffix} — read-only peek; \`dotmd use <file>\` to consume one\n`));
+  }
 }
 
 function runPromptsArchive(argv, config, opts = {}) {

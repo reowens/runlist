@@ -14,6 +14,7 @@ import { runMigratePrompts } from './migrate-prompts.mjs';
 import { runFrontmatterFix } from './frontmatter-fix.mjs';
 import { normalizeEol } from './frontmatter.mjs';
 import { toRepoPath } from './util.mjs';
+import { inspectTransactions, resolveTransactions } from './atomic-mutation.mjs';
 
 // Tunable thresholds for `dotmd doctor --statuses` conflation detection.
 // MIN_BUCKET_SIZE: only flag buckets with at least this many docs (small buckets aren't worth nagging).
@@ -44,6 +45,65 @@ const CUE_LABELS = {
   blocked: '"hardware", "vendor", "third-party", "rollout"',
 };
 
+// A wedged repo reports here. One failed-manual manifest makes every `set`,
+// `archive`, `use`, `baton`, and `rename` in the repo refuse — and the error
+// names a file the command never touched, because recovery sweeps the whole
+// transaction root. This is the only surface that can see and clear that state.
+function runDoctorTransactions(argv, config, opts = {}) {
+  const json = argv.includes('--json');
+  // The dispatcher strips --apply/--yes and folds them into opts.dryRun, which
+  // for doctor already means "preview unless the user asked to write".
+  const apply = !opts.dryRun;
+  const report = inspectTransactions(config.repoRoot);
+
+  const cleared = apply ? resolveTransactions(config.repoRoot) : [];
+  const clearedIds = new Set(cleared.map(item => item.id));
+
+  if (json) {
+    process.stdout.write(JSON.stringify({ transactions: report, cleared }, null, 2) + '\n');
+    return;
+  }
+
+  if (report.length === 0) {
+    process.stdout.write(green('✓') + ' No pending transactions — nothing is wedging mutations.\n');
+    return;
+  }
+
+  process.stdout.write(bold(`Transactions (${report.length})\n`));
+  for (const item of report) {
+    if (!item.readable) {
+      process.stdout.write(`  ${yellow('?')} ${item.id} — ${item.reason}\n`);
+      continue;
+    }
+    const blocking = item.status === 'failed-manual';
+    const mark = clearedIds.has(item.id) ? green('✓') : blocking ? yellow('!') : dim('·');
+    const note = clearedIds.has(item.id)
+      ? 'cleared'
+      : item.resolvable ? 'resolvable' : (item.reason ?? item.status);
+    process.stdout.write(`  ${mark} ${item.id} [${item.status}] ${item.operation} — owner ${item.ownerLiveness}, ${note}\n`);
+    for (const participant of item.participants) {
+      process.stdout.write(dim(`      ${participant.state.padEnd(9)} ${toRepoPath(participant.path, config.repoRoot)}\n`));
+    }
+    for (const retained of item.retainedGitPaths) {
+      process.stdout.write(dim(`      retained  ${retained}\n`));
+    }
+  }
+
+  const resolvable = report.filter(item => item.resolvable && !clearedIds.has(item.id));
+  if (cleared.length) {
+    process.stdout.write(green(`\n✓ Cleared ${cleared.length} transaction${cleared.length === 1 ? '' : 's'} whose files already agreed on one generation.\n`));
+  }
+  if (resolvable.length) {
+    process.stdout.write(`\n${resolvable.length} resolvable — the canonical files already agree on one generation.\n`);
+    process.stdout.write(dim('Run `dotmd doctor --transactions --apply` to clear them (no document content is touched).\n'));
+  }
+  const stuck = report.filter(item => !item.resolvable && !clearedIds.has(item.id) && (item.status === 'failed-manual' || !item.readable));
+  if (stuck.length) {
+    process.stdout.write(yellow(`\n${stuck.length} need manual review — generations disagree, so clearing them could lose work.\n`));
+    process.stdout.write(dim('Inspect the participant paths above against the artifacts in each transaction directory.\n'));
+  }
+}
+
 export function runDoctor(argv, config, opts = {}) {
   if (argv.includes('--project')) {
     runDoctorProject(config, { json: argv.includes('--json') });
@@ -63,6 +123,10 @@ export function runDoctor(argv, config, opts = {}) {
   }
   if (argv.includes('--frontmatter-fix')) {
     runFrontmatterFix(config, opts);
+    return;
+  }
+  if (argv.includes('--transactions')) {
+    runDoctorTransactions(argv, config, opts);
     return;
   }
 

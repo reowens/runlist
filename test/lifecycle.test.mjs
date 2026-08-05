@@ -1271,8 +1271,10 @@ describe('set — baton-on-exit nudge', () => {
     const r = runCli(['set', 'active', 'docs/alpha.md']);
     strictEqual(r.status, 0, r.stderr);
     match(r.stderr, NUDGE);
-    // Suggests the plan's own slug in slug mode (status already moved).
-    match(r.stderr, /dotmd baton alpha @draft/);
+    // Suggests the plan's own slug in slug mode (status already moved). The
+    // body arg stays an obvious metavariable: `@draft` read as a runnable path
+    // and got copied verbatim into failing batons.
+    match(r.stderr, /dotmd baton alpha @<draft-file>/);
   });
 
   it('nudges on every non-terminal stop status (partial/awaiting/blocked)', () => {

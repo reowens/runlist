@@ -271,13 +271,36 @@ function mergeBodyFrontmatter(scaffoldFm, overrides, cliType) {
   return fm;
 }
 
+// Metavariables that ship in help text, `dotmd baton`'s signature, and the
+// wrap-up nudge. Agents copy them verbatim, and the bare `Body file not found:
+// draft` that resulted read like a missing file rather than an unsubstituted
+// placeholder — so the retry was usually another guess at the path. Only
+// consulted after existsSync fails, so a real file by any of these names wins.
+const BODY_PLACEHOLDER_NAMES = new Set([
+  'draft', 'draft.md', '/tmp/draft.md', 'tmp/draft.md',
+  'path', 'file', 'body', 'FILE', 'PATH', 'BODY',
+]);
+
+function isBodyPlaceholder(file) {
+  if (/^<.+>$/.test(file)) return true; // <draft-file>, <path>, …
+  return BODY_PLACEHOLDER_NAMES.has(file);
+}
+
 export function readBodyInput(source) {
   if (source === '-') {
     try { return readFileSync(0, 'utf8'); } catch (err) { die(`Could not read body from stdin: ${err.message}`); }
   }
   if (typeof source === 'string' && source.startsWith('@')) {
     const file = source.slice(1);
-    if (!existsSync(file)) die(`Body file not found: ${file}`);
+    if (!existsSync(file)) {
+      if (isBodyPlaceholder(file)) {
+        die(`\`@${file}\` is a placeholder, not a real path — write the body to a file first, then pass it:\n` +
+          `  @/tmp/my-draft.md   read the body from that file\n` +
+          `  -                   read the body from stdin (\`cat notes.md | dotmd …\`)\n` +
+          `  --message "..."     short one-liners only`);
+      }
+      die(`Body file not found: ${file}`);
+    }
     return readFileSync(file, 'utf8');
   }
   return source;

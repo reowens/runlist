@@ -43,7 +43,7 @@ To finish work, archive directly: `dotmd archive <plan-file>`. The legacy `done`
 - **Start a plan:** `dotmd use <plan-file>` — marks it `in-session` and prints the plan card.
 - **Single status verb:** `dotmd set <status> [<file>]` writes the status, validates it against the doc's type, runs lifecycle hooks, fixes refs, and syncs the index. **Never hand-edit a `status:` line.** Add `--note "why"` to record the reason in `## Version History` in the same call.
 - **Close to match reality:** `archived` (shipped) · `partial` (tail deferred — link the successor) · `active` (more work later) · `awaiting` (needs a human decision) · `blocked` (external arrival you can't speed up). Parking a plan with a known next step? Leave a baton in the same breath — never narrate the next pickup into chat.
-- **Hand off / save a resume prompt:** `dotmd baton [<slug>] <@draft|->` — saves the resume prompt and releases the in-session plan. Never paste a "here's how to resume" block into chat.
+- **Hand off / save a resume prompt:** `dotmd baton [<slug>] <@<file>|->` — saves the resume prompt and releases the in-session plan. Never paste a "here's how to resume" block into chat.
 - **Saved prompts are session-local:** consume with `dotmd use` (no arg = oldest pending), peek with `dotmd prompts show`. Never read them with file tools, never commit `docs/prompts/*.md`.
 <!-- dotmd:canonical-workflow:end -->
 
@@ -69,7 +69,7 @@ dotmd baton @/tmp/draft.md        # saves resume-<plan-slug>, flips the plan
                                   # in-session → active, prints the exact git commit
 ```
 
-`--status paused|awaiting|partial|blocked` overrides the release status; `--note "why"` records the reason. Baton resolves *your* plan from its local, gitignored ownership record (or takes it explicitly: `dotmd baton <plan-file> @draft`); journal entries and global in-session counts never grant ownership. It is the whole closeout — prompt creation, status/history, and ownership release commit together, with no extra status changes or repo triage on the way out.
+`--status paused|awaiting|partial|blocked` overrides the release status; `--note "why"` records the reason. Baton resolves *your* plan from its local, gitignored ownership record (or takes it explicitly: `dotmd baton <plan-file> @<draft-file>`); journal entries and global in-session counts never grant ownership. It is the whole closeout — prompt creation, status/history, and ownership release commit together, with no extra status changes or repo triage on the way out.
 
 No plan involved? Same verb, slug mode — saves `resume-<slug>` and touches nothing else:
 
