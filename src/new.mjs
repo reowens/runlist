@@ -278,6 +278,7 @@ function mergeBodyFrontmatter(scaffoldFm, overrides, cliType) {
 // consulted after existsSync fails, so a real file by any of these names wins.
 const BODY_PLACEHOLDER_NAMES = new Set([
   'draft', 'draft.md', '/tmp/draft.md', 'tmp/draft.md',
+  '/tmp/baton.md', '/tmp/my-draft.md',
   'path', 'file', 'body', 'FILE', 'PATH', 'BODY',
 ]);
 

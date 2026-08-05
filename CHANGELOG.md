@@ -2,6 +2,20 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Changed
+
+- The plugin skill and `/prompts` command teach `dotmd prompts show --all`. The
+  skill previously described triage only as `dotmd prompts show <file>`, one file
+  at a time — which is what sent sessions to `Read` per file in the first place.
+- The skill documents `dotmd doctor --transactions` under a "when mutations
+  refuse repo-wide" heading, so a wedged repo has a route out from the agent side
+  rather than only from the error text.
+- `@/tmp/baton.md` and `@/tmp/my-draft.md` join the recognized body placeholders,
+  matching the example paths the `/baton` command and the placeholder error
+  themselves print. A real file at either path still wins.
+
 ## 0.71.0 — 2026-08-05
 
 ### Fixed

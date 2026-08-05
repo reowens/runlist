@@ -16,7 +16,7 @@ This repo's plans, reference docs, and saved prompts are managed by the **dotmd*
 - **Single status verb:** `dotmd set <status> [<file>]` writes the status, validates it against the doc's type, runs lifecycle hooks, fixes refs, and syncs the index. **Never hand-edit a `status:` line.** Add `--note "why"` to record the reason in `## Version History` in the same call.
 - **Close to match reality:** `archived` (shipped) · `partial` (tail deferred — link the successor) · `active` (more work later) · `awaiting` (needs a human decision) · `blocked` (external arrival you can't speed up). Parking a plan with a known next step? Leave a baton in the same breath — never narrate the next pickup into chat.
 - **Hand off / save a resume prompt:** `dotmd baton [<slug>] <@<file>|->` — saves the resume prompt and releases the in-session plan. Never paste a "here's how to resume" block into chat.
-- **Saved prompts are session-local:** consume with `dotmd use` (no arg = oldest pending), peek with `dotmd prompts show`. Never read them with file tools, never commit `docs/prompts/*.md`.
+- **Saved prompts are session-local:** consume with `dotmd use` (no arg = oldest pending), peek with `dotmd prompts show` (`--all` surveys the whole queue in one call). Never read them with file tools, never commit `docs/prompts/*.md`.
 <!-- dotmd:canonical-workflow:end -->
 
 ## Order of operations
@@ -58,13 +58,14 @@ Saved prompts (`docs/prompts/*.md`) are **session-local handoff artifacts**, not
 - **Consume, don't read.** If the user references a prompt — "resume via docs/prompts/foo.md", "use this prompt", "load that one" — run `dotmd use <file>` (no arg = oldest pending). It commits archive/claim before stdout, so body output is at-most-once and the prompt can't be double-consumed; an output failure is recoverable with `dotmd prompts show <archived-path>`. **Do NOT `cat` it, Read it, or copy its body into chat.** If the prompt was made by `dotmd baton`, consuming it also **claims its plan** (`→ Claimed …`, flips it `in-session`) — so your later `dotmd baton` hands that plan off automatically; no need to `dotmd use <plan>` first.
 - **Ownership is durable and session-local.** Claims live under gitignored `.dotmd/`; no-target `set`/`baton` never guesses from journal entries or global in-session counts. Pickup hooks are at-least-once with stable `operationId` values, and a live delivery lease blocks release/takeover.
 - **Peek without consuming.** Triaging or surveying pending prompts (not acting on one)? `dotmd prompts show <file>` prints the body read-only — no archive, safe to repeat. Never `dotmd use` a prompt you only meant to look at, and never `use` a prompt you just saved (that destroys the handoff).
+- **Survey the whole queue in ONE call.** `dotmd prompts show --all` peeks every pending prompt (`--limit N` to cap, or pass several names: `dotmd prompts show a b c`). Reaching for Read once per file is the single most common wrong-move in the guard log — the bulk verb exists so you never need to.
 - **Don't commit them.** The prompts dir is often gitignored; committing a pending prompt is wrong and may fail. No `git add` / `git commit` of `docs/prompts/*.md`.
 - **"Save a resume prompt" = `dotmd baton`**, any time, plan or no plan — never paste a "here's how to resume" block into chat. With a plan in-session, `dotmd baton @/tmp/draft.md` saves the prompt AND releases the plan; with no plan, `dotmd baton <slug> @/tmp/draft.md` just saves `resume-<slug>` and touches nothing else (reference the relevant plans/docs in the draft body). The next session sees it at SessionStart.
 
 ## Guardrails (the guard hook enforces these)
 
 - ❌ `git add/commit docs/prompts/*.md` → ✅ they're session-local; the next session runs `dotmd use`. (Merely *mentioning* a prompt path in a commit message or a sibling command is fine — the guard only blocks commits whose pathspec includes a prompt.)
-- ❌ `cat`/Read a `docs/prompts/*.md` → ✅ `dotmd use <file>` to consume, `dotmd prompts show <file>` to peek.
+- ❌ `cat`/Read a `docs/prompts/*.md` → ✅ `dotmd use <file>` to consume, `dotmd prompts show <file>` to peek, `dotmd prompts show --all` to survey the queue. Reading them one file at a time is still the wrong move — there is a bulk verb.
 - ❌ change a `status:` line by hand (Edit, Write, `sed -i`, `perl -pi`) → ✅ `dotmd set <status> <file>`. This one is **blocked**, not just warned (config `guard: { deny: false }` for warn-only).
 
 ## Querying
@@ -93,6 +94,17 @@ Saved prompts (`docs/prompts/*.md`) are **session-local handoff artifacts**, not
   ```
 - `dotmd roadmap` / `dotmd roadmaps` — the tier ABOVE runlists. A hub with `execution_mode: roadmap` (scaffold `dotmd new plan <hub> --roadmap`) composes *runlists* via `related_plans:` and rolls their `done/total` up into a recursive grand total. `dotmd roadmap <hub>` shows each child runlist's progress + next-pickup; `dotmd roadmap next` opens the first startable plan across all of them. `dotmd check` nudges a coordination hub whose children are themselves runlists toward `execution_mode: roadmap`.
 - At scale (>50 plans): `dotmd modules --sort cleanup` → `dotmd module <name>`
+
+## When mutations refuse repo-wide
+
+If `set` / `archive` / `use` / `baton` / `rename` all start failing — especially with a message naming a **transaction manifest** or a file the command never touched — an abandoned mutation transaction is wedging the repo. Recovery sweeps every manifest on each mutation, so one stuck transaction blocks all of them.
+
+```bash
+dotmd doctor --transactions           # report: status, owner liveness, each file's generation
+dotmd doctor --transactions --apply   # clear the ones whose files already agree on one generation
+```
+
+`--apply` touches no document content; anything ambiguous is reported for manual review rather than guessed at. Don't hand-delete manifests under `.dotmd/transactions/` or hand-restore files — that's what this verb is for.
 
 ## Audit (operator)
 

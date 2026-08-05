@@ -8,6 +8,7 @@ Run `Bash(dotmd prompts list)` to show the saved-prompt queue (pending / held / 
 Saved prompts (`docs/prompts/*.md`) are **session-local handoff artifacts**, not source code. Handle them only through dotmd:
 
 - **Consume** (read + archive atomically): `dotmd use <file>` — or `dotmd use` with no arg for the oldest pending. This is how you "load", "resume", or "open" a prompt. **Never `cat` it, Read it with the file tool, or copy its body into chat**, and **never `git add`/`commit` it** (the dir is often gitignored). The PreToolUse guard blocks these.
+- **Peek / triage** (no archive): `dotmd prompts show <file>` for one, `dotmd prompts show --all` (`--limit N`) to survey the whole pending queue in a single call. Use this whenever the user wants to know what's queued without acting on it — never Read the files one by one.
 - **Queue a new one** (e.g. a resume prompt for the next session): `dotmd new prompt <slug> @/tmp/draft.md` (or `-` for stdin, `--message "…"` for one-liners). The next session sees it at SessionStart.
 - **Admin**: `dotmd prompts hold <file>` / `unhold <file>` (the "saved but not next" bucket), `dotmd prompts archive <file>`.
 
