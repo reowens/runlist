@@ -2,6 +2,29 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- `dotmd archive` works again in a repo that gitignores its docs root while
+  force-tracking the docs inside it (`docs/` in `.gitignore` plus `git add -f`).
+  Staging the destination used a bare `git add`, which applies ignore rules to
+  the new path even though the content came from a tracked file; that failed the
+  transaction and rolled the whole move back, so the plan never moved and every
+  later archive hit the same wall. `git mv` permits exactly this relocation —
+  ignore patterns govern new *untracked* paths, not the relocation of content
+  git already tracks — so the destination is now force-staged when the source
+  was tracked. An untracked source stays subject to the ignore and is still
+  moved without being forced into the index.
+- The release's global-CLI sync no longer misidentifies a second Node prefix.
+  `npm version` exports its resolved config as `npm_config_*`, and a child npm
+  lets those inherited values override its own npmrc — so asking a sibling npm
+  for its global prefix returned the release shell's prefix. With Homebrew
+  alongside NVM, the second copy looked unmanaged, was skipped as
+  "tool-managed", and then failed the release as stale; `npm run release:resume`
+  inherited the same variables and could not recover it either. Sibling npm
+  spawns now run with those variables stripped.
+
 ## 0.71.1 — 2026-08-05
 
 ### Changed

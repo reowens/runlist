@@ -46,24 +46,34 @@ function siblingNpm(dotmdPath) {
   return existsSync(candidate) ? candidate : null;
 }
 
+// This script runs from `npm version`'s postversion lifecycle, and npm exports
+// its own resolved config into the environment as npm_config_* (plus
+// npm_lifecycle_*/npm_package_*). A child npm INHERITS those and lets them win
+// over its own npmrc — so asking a sibling npm "what is your global prefix?"
+// answered with the RELEASE SHELL's prefix instead. With two Node installs
+// (NVM + Homebrew), the second npm claimed the first's prefix, failed
+// isNpmManagedGlobalPath, was skipped as "tool-managed", and then failed the
+// release as stale. `npm run release:resume` inherits the same variables, so it
+// could not recover either. Strip them before spawning any sibling npm.
+export function cleanNpmEnv(binDir) {
+  const env = { ...process.env };
+  for (const key of Object.keys(env)) {
+    if (/^npm_(config|lifecycle|package)_/i.test(key) || key.toLowerCase() === 'npm_config_prefix') delete env[key];
+  }
+  env.PATH = [binDir, process.env.PATH ?? ''].filter(Boolean).join(delimiter);
+  return env;
+}
+
 function npmGlobalPrefix(npmPath) {
   if (!npmPath) return null;
-  const binDir = path.dirname(npmPath);
-  const env = {
-    ...process.env,
-    PATH: [binDir, process.env.PATH ?? ''].filter(Boolean).join(delimiter),
-  };
+  const env = cleanNpmEnv(path.dirname(npmPath));
   const result = spawnSync(npmPath, ['prefix', '-g'], { env, encoding: 'utf8' });
   return result.status === 0 && result.stdout.trim() ? path.resolve(result.stdout.trim()) : null;
 }
 
 function npmGlobalRoot(npmPath) {
   if (!npmPath) return null;
-  const binDir = path.dirname(npmPath);
-  const env = {
-    ...process.env,
-    PATH: [binDir, process.env.PATH ?? ''].filter(Boolean).join(delimiter),
-  };
+  const env = cleanNpmEnv(path.dirname(npmPath));
   const result = spawnSync(npmPath, ['root', '-g'], { env, encoding: 'utf8' });
   return result.status === 0 && result.stdout.trim() ? path.resolve(result.stdout.trim()) : null;
 }
@@ -118,11 +128,10 @@ export function inspectGlobalCliCopies() {
 }
 
 function installWithSiblingNpm(entry, targetVersion) {
-  const binDir = path.dirname(entry.npmPath);
-  const env = {
-    ...process.env,
-    PATH: [binDir, process.env.PATH ?? ''].filter(Boolean).join(delimiter),
-  };
+  // Same inheritance problem as the probes above: npm_config_prefix from the
+  // release lifecycle would redirect this install back to the release shell's
+  // prefix, silently "installing" into the copy that was already current.
+  const env = cleanNpmEnv(path.dirname(entry.npmPath));
   return spawnSync(entry.npmPath, ['install', '-g', '--prefix', entry.prefix, `${PACKAGE}@${targetVersion}`], {
     env,
     stdio: 'inherit',

@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildSyncPlan,
+  cleanNpmEnv,
   isNpmManagedGlobalPath,
   parseExecutablePaths,
   prefixForDotmd,
@@ -94,4 +95,33 @@ test('syncGlobalCliCopies never overwrites but fails on a stale non-global shim'
   }), /PATH still contains stale dotmd installations/);
   assert.deepEqual(installed, []);
   assert.match(output.join(''), /skipping non-global or tool-managed executable/);
+});
+
+// Regression: `npm version`'s postversion lifecycle exports its resolved config
+// as npm_config_*, and a child npm lets those inherited values win over its own
+// npmrc. Probing a sibling npm therefore reported the RELEASE SHELL's prefix,
+// so a second Node install (Homebrew alongside NVM) looked unmanaged, was
+// skipped, and then failed the release as stale. Twice in two releases.
+test('cleanNpmEnv strips inherited npm lifecycle config from a sibling npm spawn', () => {
+  const saved = { ...process.env };
+  try {
+    process.env.npm_config_prefix = '/release/shell/prefix';
+    process.env.npm_config_global = 'true';
+    process.env.npm_lifecycle_event = 'postversion';
+    process.env.npm_package_name = 'dotmd-cli';
+    process.env.NPM_CONFIG_REGISTRY = 'https://example.invalid';
+    process.env.KEEP_ME = 'yes';
+
+    const env = cleanNpmEnv('/opt/homebrew/bin');
+
+    for (const key of Object.keys(env)) {
+      assert.ok(!/^npm_(config|lifecycle|package)_/i.test(key), `leaked ${key}`);
+    }
+    assert.equal(env.npm_config_prefix, undefined);
+    assert.equal(env.KEEP_ME, 'yes', 'unrelated variables survive');
+    assert.ok(env.PATH.startsWith('/opt/homebrew/bin'), env.PATH);
+  } finally {
+    for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
+    Object.assign(process.env, saved);
+  }
 });

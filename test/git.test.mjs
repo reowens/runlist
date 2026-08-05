@@ -541,3 +541,60 @@ describe('inspectGitCommandPaths', () => {
     ok(include.includes('docs/prompts/live.md'), '--include also commits pre-existing staged changes');
   });
 });
+
+// Regression: a repo that gitignores its docs root while force-tracking the
+// docs inside it (`docs/` in .gitignore + `git add -f`) could not archive at
+// all. The move stages the destination with `git add`, which applies ignore
+// rules to the new path even though the content came from a tracked file, so
+// staging failed and the whole transaction rolled back — the plan never moved.
+// `git mv` permits exactly this relocation, and that is the behavior to match.
+describe('archive into a gitignored docs root', () => {
+  let repo;
+  afterEach(() => { if (repo) rmSync(repo, { recursive: true, force: true }); repo = null; });
+
+  const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+
+  function setup() {
+    repo = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'dotmd-ignored-docs-')));
+    spawnSync('git', ['init', '-q'], { cwd: repo });
+    spawnSync('git', ['config', 'user.email', 't@t.com'], { cwd: repo });
+    spawnSync('git', ['config', 'user.name', 'T'], { cwd: repo });
+    mkdirSync(path.join(repo, 'docs', 'plans'), { recursive: true });
+    writeFileSync(path.join(repo, '.gitignore'), 'docs/\n');
+    writeFileSync(path.join(repo, 'dotmd.config.mjs'), "export const root = 'docs';\n");
+    spawnSync('git', ['add', '.gitignore', 'dotmd.config.mjs'], { cwd: repo });
+    spawnSync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    return repo;
+  }
+
+  function writePlan(name) {
+    const file = path.join(repo, 'docs', 'plans', `${name}.md`);
+    writeFileSync(file, `---\ntype: plan\nstatus: active\ntitle: ${name}\n---\n# ${name}\n\nbody\n`);
+    return file;
+  }
+
+  const tracked = () => spawnSync('git', ['ls-files', 'docs/'], { cwd: repo, encoding: 'utf8' }).stdout.trim();
+
+  it('archives a force-tracked plan and keeps it tracked at the new path', () => {
+    setup();
+    const file = writePlan('foo');
+    spawnSync('git', ['add', '-f', file], { cwd: repo });
+    spawnSync('git', ['commit', '-qm', 'add plan'], { cwd: repo });
+
+    const r = spawnSync(process.execPath, [bin, 'archive', 'docs/plans/foo.md'], { cwd: repo, encoding: 'utf8' });
+    strictEqual(r.status, 0, `${r.stdout}\n${r.stderr}`);
+    ok(!existsSync(file), 'source moved');
+    ok(existsSync(path.join(repo, 'docs', 'archived', 'foo.md')), 'landed in archive');
+    strictEqual(tracked(), 'docs/archived/foo.md', 'tracking follows the move, like git mv');
+  });
+
+  it('archives an untracked plan without forcing it into the index', () => {
+    setup();
+    writePlan('bar');
+
+    const r = spawnSync(process.execPath, [bin, 'archive', 'docs/plans/bar.md'], { cwd: repo, encoding: 'utf8' });
+    strictEqual(r.status, 0, `${r.stdout}\n${r.stderr}`);
+    ok(existsSync(path.join(repo, 'docs', 'archived', 'bar.md')), 'moved');
+    strictEqual(tracked(), '', 'an untracked source stays subject to the ignore');
+  });
+});

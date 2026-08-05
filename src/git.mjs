@@ -596,7 +596,17 @@ function prepareMoveIndex(source, target, repoRoot, before, options = {}) {
   }
   testHooks.beforeGitIndexPrepare?.({ preparedPath, before, prepared: seed });
   const env = { ...process.env, GIT_INDEX_FILE: preparedPath };
-  const result = spawnSync('git', ['add', '-A', '--', paths[1]], {
+  // A tracked source relocating into an ignored destination is exactly what
+  // `git mv` permits: ignore patterns govern NEW untracked paths, not the
+  // relocation of content git already tracks. Bare `git add` doesn't make that
+  // distinction and refuses ("paths are ignored by one of your .gitignore
+  // files"), which failed the whole transaction and rolled the move back — so
+  // `dotmd archive` was unusable in any repo that gitignores its docs root
+  // while force-tracking the docs inside it. Force only when the source was
+  // tracked; an untracked source stays subject to the ignore.
+  const sourceTracked = isTracked(paths[0], repoRoot);
+  const addArgs = sourceTracked ? ['add', '-f', '-A', '--', paths[1]] : ['add', '-A', '--', paths[1]];
+  const result = spawnSync('git', addArgs, {
     cwd: repoRoot,
     encoding: 'utf8',
     env,
