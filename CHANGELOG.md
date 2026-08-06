@@ -2,6 +2,26 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Changed
+
+- The reference rewrite that runs on every move got ~6× faster, which takes a
+  status change in a 2,000-doc repo from 3.8s to 2.6s. Two changes, both
+  measured against a real corpus and both asserted to produce a byte-identical
+  rewrite set:
+  - Resolving one reference cost two `realpath` walks, and the
+    repository-relative spelling usually does not exist — so it climbed the tree
+    doing a `realpath` per ancestor. Over a corpus-wide sweep that was tens of
+    thousands of syscalls across a few hundred distinct paths. Resolution is now
+    memoized on the identity set, so the memo is scoped to one sweep and cannot
+    outlive a mutation.
+  - A document that never names the moved file cannot reference it, so the
+    fence-aware CommonMark walk is skipped for those — in practice ~99% of the
+    corpus. The check mirrors the resolver: case-folded, with the same backslash
+    escapes unwound, and aware of every name a symlinked document answers to. A
+    repo that symlinks docs at all falls back to the full walk.
+
 ## 0.71.3 — 2026-08-05
 
 ### Fixed
