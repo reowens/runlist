@@ -21,7 +21,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
-import { captureGitIndexGeneration, reclaimPreparedGitIndex, restoreGitIndexCas, sameGitIndexGeneration, stageMovePathsCas } from './git.mjs';
+import { captureGitIndexGeneration, gitIndexProvablyUnpublished, gitIndexPublicationRaced, reclaimPreparedGitIndex, restoreGitIndexCas, sameGitIndexGeneration, stageMovePathsCas } from './git.mjs';
 import { authorizeManagedDestination, authorizeManagedSource, authorizeRepoGeneratedPath } from './managed-path.mjs';
 import { commitRename } from './durable-rename.mjs';
 
@@ -31,6 +31,13 @@ let tempSequence = 0;
 // How long a peer waits to acquire a path lock before MutationLockError. Any
 // retry budget spent while the lock is held has to fit well inside this.
 export const MUTATION_LOCK_TIMEOUT_MS = 2000;
+
+// Bounded re-stage budget for a Git index publication that provably lost a
+// race. Sized like durable-rename's retry: total backoff (25 + 50ms) plus the
+// re-prepare has to stay well inside MUTATION_LOCK_TIMEOUT_MS, since peers are
+// waiting on the participant locks this loop holds.
+export const GIT_INDEX_STAGE_ATTEMPTS = 3;
+const GIT_INDEX_STAGE_BACKOFF_MS = 25;
 
 export function processStartIdentity(pid) {
   try {
@@ -815,6 +822,26 @@ function cleanupCreatedDirectories(transaction, options) {
   return complete;
 }
 
+// The Git index snapshot a move stages against is captured before the content
+// phase, which in a repo with thousands of docs takes seconds. Anything that
+// rewrites `.git/index` in that window — including a bare `git status`, which
+// rewrites it to refresh its stat cache — used to fail the publication CAS and
+// abort the whole move. Re-base on the generation that is current at staging
+// time instead: nothing of ours has reached the index yet, so our staging
+// belongs on top of whatever landed meanwhile, which is exactly what a plain
+// `git mv` would produce. The manifest records the new base durably BEFORE any
+// index work, so recovery of a crash mid-stage still restores what it must.
+function rebaseGitIndexSnapshot(transaction, repoRoot, options) {
+  const current = captureGitIndexGeneration(repoRoot);
+  if (current.indexPath !== transaction.manifest.gitIndex.before.indexPath) {
+    throw new MutationConflictError('The selected Git index changed while the move was in flight; staging was not attempted.');
+  }
+  if (sameGitIndexGeneration(current, transaction.manifest.gitIndex.before)) return;
+  transaction.manifest.gitIndex.before = current;
+  durableJson(transaction.manifestPath, transaction.manifest, options);
+  options.testHooks?.afterTransactionPhase?.('git-index-rebase', { manifestPath: transaction.manifestPath, manifest: transaction.manifest });
+}
+
 function setMoveManifestPhase(transaction, phase, options, detail = null) {
   transaction.manifest.phase = phase;
   if (detail !== null) transaction.manifest.detail = detail;
@@ -963,7 +990,6 @@ export function withPathLocks(filePaths, options, callback) {
         let madeLock = false;
         try {
           mkdirSync(lockPath);
-          fsyncDirectory(lockRoot, options, 'lock-directory-create');
           madeLock = true;
           const ownerTemp = path.join(lockPath, `.owner-${token}.tmp`);
           writeFileSync(ownerTemp, JSON.stringify({
@@ -973,7 +999,17 @@ export function withPathLocks(filePaths, options, callback) {
             path: canonical,
           }) + '\n', { flag: 'wx' });
           renameSync(ownerTemp, path.join(lockPath, 'owner.json'));
-          fsyncDirectory(lockPath, options, 'lock-owner-publish');
+          // Deliberately not flushed. Every reader of owner.json — the token
+          // check below, a peer's reclaim check — reads it back through the
+          // page cache, which needs no flush. Flushing the lock directory
+          // never made the record survive a crash either: a directory fsync
+          // orders the entry, not the file's bytes, so all it could do was
+          // make an entry outlive the contents it names. That shape is the
+          // worst one available: an ownerless lock is never auto-reclaimed
+          // (liveness is unverifiable without an owner), so it wedges the repo
+          // until someone deletes it by hand, whereas an unflushed lock simply
+          // does not survive the crash — which is the correct post-crash state
+          // for a lock nobody holds. It also cost a real disk flush per lock.
           if (lockOwner(lockPath)?.token !== token) {
             throw new MutationConflictError(`Mutation lock ownership changed while claiming ${canonical}.`);
           }
@@ -995,16 +1031,29 @@ export function withPathLocks(filePaths, options, callback) {
         }
       }
     }
+    // One flush for the whole set, not one per lock. Mutual exclusion comes
+    // from mkdir's atomicity, which is in-memory and needs no flush; this
+    // fsync only has to make every lock durable before the callback mutates
+    // anything, and one flush of the lock root does that for all of them. Per
+    // lock it cost a full directory flush each (~6ms on APFS), so a reference
+    // sweep that locks every doc in a large repo spent MINUTES here — long
+    // enough that a concurrent `git status` would routinely invalidate the
+    // transaction's Git index CAS mid-move.
+    if (acquired.length) fsyncDirectory(lockRoot, options, 'lock-directory-create');
     return callback();
   } finally {
+    let released = false;
     for (const { lockPath, token } of acquired.reverse()) {
       try {
         if (lockOwner(lockPath)?.token === token) {
           removeLockDirectory(lockPath, lockRoot);
-          fsyncDirectory(lockRoot, options, 'lock-directory-delete');
+          released = true;
         }
       } catch { /* preserve original error */ }
     }
+    // Same batching on release. A lock directory that outlives a crash is
+    // reclaimed by liveness check, so flushing each removal buys nothing.
+    if (released) try { fsyncDirectory(lockRoot, options, 'lock-directory-delete'); } catch { /* preserve original error */ }
   }
 }
 
@@ -1358,7 +1407,6 @@ export function moveFileAtomic(sourcePath, targetPath, render, options) {
       testHooks?.afterMovePublish?.({ backup, sourcePath, targetPath });
 
       if (options.gitMove && transaction.manifest.gitIndex.before) {
-        finalizeAttempted = true;
         const gitHooks = {
           ...options.testHooks,
           afterGitIndexArtifact: info => {
@@ -1401,13 +1449,40 @@ export function moveFileAtomic(sourcePath, targetPath, render, options) {
             options.testHooks?.afterGitIndexPublication?.(info);
           },
         };
-        transaction.manifest.gitIndex.ownedAfter = stageMovePathsCas(
-          transaction.manifest.gitMove.source,
-          transaction.manifest.gitMove.target,
-          repoRoot,
-          transaction.manifest.gitIndex.before,
-          { testHooks: gitHooks, artifactPath: transaction.gitPreparedArtifact },
-        );
+        for (let attempt = 0; ; attempt++) {
+          rebaseGitIndexSnapshot(transaction, repoRoot, options);
+          finalizeAttempted = true;
+          try {
+            transaction.manifest.gitIndex.ownedAfter = stageMovePathsCas(
+              transaction.manifest.gitMove.source,
+              transaction.manifest.gitMove.target,
+              repoRoot,
+              transaction.manifest.gitIndex.before,
+              { testHooks: gitHooks, artifactPath: transaction.gitPreparedArtifact },
+            );
+            break;
+          } catch (err) {
+            // A raced attempt published nothing, so re-staging on the
+            // generation that beat us is safe — and it is what the user asked
+            // for. Only contention is retried; a refused `git add` is a verdict
+            // and retrying it just multiplies the failure. The budget is small
+            // on purpose: these attempts run while every participant path is
+            // locked, and peers only wait MUTATION_LOCK_TIMEOUT_MS.
+            if (attempt >= GIT_INDEX_STAGE_ATTEMPTS - 1 || !gitIndexPublicationRaced(err)) throw err;
+            // Give up on the ORIGINAL error if the scratch state cannot be
+            // tidied: it is the one carrying proof that nothing was published,
+            // which is what lets the rollback finish instead of retaining the
+            // transaction for manual repair.
+            let reclaimed;
+            try { reclaimed = reclaimPreparedGitIndex(transaction.manifest.gitIndex, repoRoot, options); }
+            catch { throw err; }
+            if (reclaimed.retainedPaths.length) throw err;
+            transaction.manifest.gitIndex.prepared = null;
+            durableJson(transaction.manifestPath, transaction.manifest, options);
+            options.testHooks?.afterTransactionPhase?.('git-index-stage-retry', { manifestPath: transaction.manifestPath, manifest: transaction.manifest, attempt });
+            Atomics.wait(sleepBuffer, 0, 0, GIT_INDEX_STAGE_BACKOFF_MS * (attempt + 1));
+          }
+        }
         durableJson(transaction.manifestPath, transaction.manifest, options);
       } else if (finalize) {
         finalizeAttempted = true;
@@ -1495,6 +1570,15 @@ export function moveFileAtomic(sourcePath, targetPath, render, options) {
                 },
               },
             });
+          } else if (gitIndexProvablyUnpublished(err)) {
+            // Staging failed before `.git/index` was replaced, so there is
+            // nothing of ours to restore. The index may still differ from our
+            // snapshot — that is another process's staging, and preserving it
+            // IS the correct outcome. Treating that difference as a failed
+            // rollback (as this used to) retained the transaction as
+            // failed-manual, which then blocked EVERY later mutation in the
+            // repo until `dotmd doctor --transactions --apply` cleared it, for
+            // a move that had already rolled back completely.
           } else if (!sameGitIndexGeneration(captureGitIndexGeneration(repoRoot), transaction.manifest.gitIndex.before)) {
             throw new Error('Git finalize did not publish its prepared generation, but the real index changed; current staging was preserved.');
           }

@@ -2,6 +2,35 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- A move (`dotmd set`, `archive`, `rename`) no longer loses a race with ordinary
+  Git activity and wedges the repo behind it. Three defects compounded, all
+  reproduced against a 3,900-doc repo with a concurrent `git status` loop:
+  - **Locking flushed once per lock.** Acquiring a lock cost a full directory
+    flush (~6 ms on APFS), and a reference sweep locks every doc in the repo — 66
+    seconds of lock cycle for 3,871 docs, all of it sitting between the move's
+    Git index snapshot and its publication. Mutual exclusion comes from `mkdir`
+    being atomic, which needs no flush, so the set is flushed once. Same lock
+    cycle now takes 2.4 s, and the whole `set` went 39–53 s → 3.7 s.
+  - **The index CAS compared against a stale snapshot.** It was captured before
+    the content phase, so anything that rewrote `.git/index` meanwhile — a bare
+    `git status` rewrites it to refresh its stat cache — failed the move. Staging
+    now re-bases on the generation current at staging time (nothing of ours has
+    reached the index yet, so our staging belongs on top of the peer's, exactly
+    what `git mv` produces), and a publication that provably lost the race is
+    retried on a fresh generation. A refused `git add` is still not retried.
+  - **A clean rollback was recorded as a failed one.** When staging failed before
+    `.git/index` was replaced there was nothing of ours to restore, but the
+    index differing from our snapshot was read as a failed rollback — as was a
+    peer's `.git/index.lock` during scratch-state cleanup. Either retained the
+    transaction as `failed-manual`, and a retained transaction refuses **every**
+    later mutation in the repo until `dotmd doctor --transactions --apply` clears
+    it. Both are now recognized for what they are: the move fails, the rollback
+    completes, the peer's staging is preserved untouched, and re-running works.
+
 ## 0.71.2 — 2026-08-05
 
 ### Fixed

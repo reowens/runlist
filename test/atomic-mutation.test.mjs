@@ -22,6 +22,7 @@ import { pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 import {
   createFileExclusive,
+  GIT_INDEX_STAGE_ATTEMPTS,
   moveFileAtomic,
   mutateFileSet,
   MutationConflictError,
@@ -123,6 +124,37 @@ describe('atomic mutation substrate', () => {
     if (process.platform !== 'win32') strictEqual(statSync(file).mode & 0o777, 0o640);
 
     throws(() => withPathLocks([file], { repoRoot: root }, () => { throw new Error('boom'); }), /boom/);
+    strictEqual(lockEntries(root).length, 0);
+  });
+
+  it('flushes the lock root once per lock set, not once per lock', () => {
+    // A reference sweep locks every doc in the repo. At one directory flush per
+    // lock (~6ms on APFS) a few thousand docs put MINUTES between the move's
+    // Git index snapshot and its publication CAS, which is what made concurrent
+    // Git activity fail the whole move. Exclusion comes from mkdir's atomicity,
+    // so the flush only has to cover the set before the callback mutates.
+    const root = setup();
+    const files = Array.from({ length: 25 }, (_, i) => {
+      const file = path.join(root, `doc-${i}.md`);
+      writeFileSync(file, 'body\n');
+      return file;
+    });
+    const phases = [];
+    let locksHeldDuringFlush = 0;
+    withPathLocks(files, {
+      repoRoot: root,
+      testHooks: {
+        beforeDirectoryFsync: phase => {
+          phases.push(phase);
+          if (phase === 'lock-directory-create') locksHeldDuringFlush = lockEntries(root).length;
+        },
+      },
+    }, () => {
+      strictEqual(lockEntries(root).length, files.length);
+    });
+    strictEqual(phases.filter(phase => phase === 'lock-directory-create').length, 1);
+    strictEqual(phases.filter(phase => phase === 'lock-directory-delete').length, 1);
+    strictEqual(locksHeldDuringFlush, files.length, 'every lock is durable before the callback runs');
     strictEqual(lockEntries(root).length, 0);
   });
 
@@ -923,6 +955,8 @@ describe('atomic mutation substrate', () => {
         writeFileSync(external, hookName);
         strictEqual(spawnSync('git', ['add', 'external.txt'], { cwd: root }).status, 0);
       };
+      // The hook re-stages on every attempt, so it wins the CAS race each time
+      // and the bounded re-stage budget is exhausted.
       throws(() => moveFileAtomic(source, target, 'transaction', {
         repoRoot: root, config, operation: 'rename', gitIndex: before, gitMove: true,
         testHooks: { [hookName]: stageExternal },
@@ -931,9 +965,11 @@ describe('atomic mutation substrate', () => {
       strictEqual(existsSync(target), false);
       const staged = spawnSync('git', ['diff', '--cached', '--name-only'], { cwd: root, encoding: 'utf8' }).stdout.trim().split('\n');
       ok(staged.includes('external.txt'));
-      const txRoot = path.join(root, '.dotmd', 'transactions');
-      const manifest = JSON.parse(readFileSync(path.join(txRoot, readdirSync(txRoot)[0], 'manifest.json'), 'utf8'));
-      strictEqual(manifest.status, 'failed-manual');
+      // Publication provably never happened, so the content rollback is
+      // complete and nothing is left for manual repair. Retaining the
+      // transaction here (as this once did) bricked every later mutation in
+      // the repo until `doctor --transactions --apply` ran.
+      strictEqual(readdirSync(path.join(root, '.dotmd', 'transactions')).length, 0);
       rmSync(root, { recursive: true, force: true });
       tmpDir = null;
     }
@@ -961,6 +997,131 @@ describe('atomic mutation substrate', () => {
     const staged = spawnSync('git', ['diff', '--cached', '--name-only'], { cwd: root, encoding: 'utf8' }).stdout.trim().split('\n');
     ok(!staged.includes('external.txt'));
     ok(staged.includes('target.md'));
+  });
+
+  it('re-bases the index CAS on staging that landed during the content phase', () => {
+    // The failure this covers: `set` on a large repo spent a minute rewriting
+    // references, a peer (even a bare `git status`, which rewrites the index to
+    // refresh its stat cache) touched .git/index in that window, and the move
+    // died against a snapshot taken before the content phase even started.
+    const root = setup();
+    const source = path.join(root, 'source.md');
+    const target = path.join(root, 'target.md');
+    const external = path.join(root, 'external.txt');
+    writeFileSync(source, 'source');
+    writeFileSync(external, 'initial');
+    spawnSync('git', ['init', '-q'], { cwd: root });
+    spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: root });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: root });
+    spawnSync('git', ['add', '.'], { cwd: root });
+    spawnSync('git', ['commit', '-qm', 'initial'], { cwd: root });
+    const before = captureGitIndexGeneration(root);
+    let rebased = 0;
+    moveFileAtomic(source, target, 'moved', {
+      repoRoot: root, operation: 'rename', gitMove: true, gitIndex: before,
+      testHooks: {
+        afterMovePublish: () => {
+          writeFileSync(external, 'staged by a peer');
+          strictEqual(spawnSync('git', ['add', 'external.txt'], { cwd: root }).status, 0);
+        },
+        afterTransactionPhase: phase => { if (phase === 'git-index-rebase') rebased++; },
+      },
+    });
+    strictEqual(rebased, 1);
+    const staged = spawnSync('git', ['diff', '--cached', '--name-only'], { cwd: root, encoding: 'utf8' }).stdout.trim().split('\n');
+    // Staged on top of the peer's work, exactly as `git mv` would have.
+    ok(staged.includes('external.txt'), 'the peer staging survives');
+    ok(staged.includes('target.md'));
+    ok(!existsSync(source));
+    strictEqual(readdirSync(path.join(root, '.dotmd', 'transactions')).length, 0);
+  });
+
+  it('retries a lost index publication once the racer stops winning', () => {
+    const root = setup();
+    const source = path.join(root, 'source.md');
+    const target = path.join(root, 'target.md');
+    const external = path.join(root, 'external.txt');
+    writeFileSync(source, 'source');
+    writeFileSync(external, 'initial');
+    spawnSync('git', ['init', '-q'], { cwd: root });
+    spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: root });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: root });
+    spawnSync('git', ['add', '.'], { cwd: root });
+    spawnSync('git', ['commit', '-qm', 'initial'], { cwd: root });
+    let races = 0;
+    let retries = 0;
+    moveFileAtomic(source, target, 'moved', {
+      repoRoot: root, operation: 'rename', gitMove: true, gitIndex: captureGitIndexGeneration(root),
+      testHooks: {
+        // Beat the CAS on the first attempt only.
+        afterGitIndexPrepared: () => {
+          if (races++) return;
+          writeFileSync(external, 'staged mid-flight');
+          strictEqual(spawnSync('git', ['add', 'external.txt'], { cwd: root }).status, 0);
+        },
+        afterTransactionPhase: phase => { if (phase === 'git-index-stage-retry') retries++; },
+      },
+    });
+    strictEqual(retries, 1);
+    const staged = spawnSync('git', ['diff', '--cached', '--name-only'], { cwd: root, encoding: 'utf8' }).stdout.trim().split('\n');
+    ok(staged.includes('external.txt'));
+    ok(staged.includes('target.md'));
+    strictEqual(readdirSync(path.join(root, '.dotmd', 'transactions')).length, 0);
+  });
+
+  it('rolls back cleanly when a live peer holds the real Git index lock', () => {
+    // `git status` takes .git/index.lock to rewrite its stat cache. Publication
+    // loses that link, and the scratch-state tidy-up must not mistake the peer's
+    // lock for damage — that combination retained the transaction and blocked
+    // every later mutation in the repo.
+    const root = setup();
+    const source = path.join(root, 'source.md');
+    const target = path.join(root, 'target.md');
+    writeFileSync(source, 'source');
+    spawnSync('git', ['init', '-q'], { cwd: root });
+    spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: root });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: root });
+    spawnSync('git', ['add', '.'], { cwd: root });
+    spawnSync('git', ['commit', '-qm', 'initial'], { cwd: root });
+    const foreignLock = path.join(root, '.git', 'index.lock');
+    let retries = 0;
+    throws(() => moveFileAtomic(source, target, 'moved', {
+      repoRoot: root, operation: 'rename', gitMove: true, gitIndex: captureGitIndexGeneration(root),
+      testHooks: {
+        beforeGitIndexPrepare: () => { if (!existsSync(foreignLock)) writeFileSync(foreignLock, 'peer git'); },
+        afterTransactionPhase: phase => { if (phase === 'git-index-stage-retry') retries++; },
+      },
+    }), /Git index is locked by another process/);
+    strictEqual(retries, GIT_INDEX_STAGE_ATTEMPTS - 1);
+    strictEqual(readFileSync(foreignLock, 'utf8'), 'peer git', 'the peer keeps its lock');
+    strictEqual(readFileSync(source, 'utf8'), 'source');
+    strictEqual(existsSync(target), false);
+    strictEqual(readdirSync(path.join(root, '.dotmd', 'transactions')).length, 0);
+  });
+
+  it('does not retry a Git staging failure that is a verdict rather than a race', () => {
+    const root = setup();
+    const source = path.join(root, 'source.md');
+    const target = path.join(root, 'target.md');
+    writeFileSync(source, 'source');
+    spawnSync('git', ['init', '-q'], { cwd: root });
+    spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: root });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: root });
+    spawnSync('git', ['add', '.'], { cwd: root });
+    spawnSync('git', ['commit', '-qm', 'initial'], { cwd: root });
+    // A clean filter that always fails makes `git add` refuse the destination.
+    writeFileSync(path.join(root, '.gitattributes'), 'target.md filter=boom\n');
+    spawnSync('git', ['config', 'filter.boom.clean', 'false'], { cwd: root });
+    spawnSync('git', ['config', 'filter.boom.required', 'true'], { cwd: root });
+    let prepares = 0;
+    throws(() => moveFileAtomic(source, target, 'moved', {
+      repoRoot: root, operation: 'rename', gitMove: true, gitIndex: captureGitIndexGeneration(root),
+      testHooks: { beforeGitIndexPrepare: () => { prepares++; } },
+    }), /Could not stage moved document/);
+    strictEqual(prepares, 1, 'a refused `git add` is not contention; retrying only multiplies it');
+    strictEqual(readFileSync(source, 'utf8'), 'source');
+    strictEqual(existsSync(target), false);
+    strictEqual(readdirSync(path.join(root, '.dotmd', 'transactions')).length, 0);
   });
 
   it('checkpoints and cleans exact working state when ordinary Git preparation fails', () => {
@@ -1300,16 +1461,19 @@ describe('atomic mutation substrate', () => {
     spawnSync('git', ['add', 'source.md'], { cwd: root });
     const indexPath = path.join(root, '.git', 'index');
     const before = captureGitIndexGeneration(root);
-    const changedMode = before.mode === 0o600 ? 0o640 : 0o600;
+    const modes = before.mode === 0o600 ? [0o640, 0o600] : [0o600, 0o640];
+    // Mode is part of the generation identity: a concurrent chmod that leaves
+    // every byte alone still has to lose the CAS. Alternating the mode makes
+    // the racer win every attempt, so the bounded re-stage budget runs out.
+    let chmods = 0;
     throws(() => moveFileAtomic(source, target, 'new', {
       repoRoot: root, operation: 'rename', gitMove: true, gitIndex: before,
-      testHooks: { afterGitIndexLock: () => chmodSync(indexPath, changedMode) },
+      testHooks: { afterGitIndexLock: () => chmodSync(indexPath, modes[chmods++ % modes.length]) },
     }), /Git index changed before transaction publication/);
-    strictEqual(statSync(indexPath).mode & 0o7777, changedMode);
+    ok(chmods > 1, 'the losing attempt was retried on a fresh generation');
+    strictEqual(statSync(indexPath).mode & 0o7777, modes[(chmods - 1) % modes.length]);
     strictEqual(readFileSync(source, 'utf8'), 'old');
-    const txRoot = path.join(root, '.dotmd', 'transactions');
-    const manifest = JSON.parse(readFileSync(path.join(txRoot, readdirSync(txRoot)[0], 'manifest.json'), 'utf8'));
-    strictEqual(manifest.status, 'failed-manual');
+    strictEqual(readdirSync(path.join(root, '.dotmd', 'transactions')).length, 0);
   });
 
   it('fails closed when recovery selects a different inherited Git index', async () => {

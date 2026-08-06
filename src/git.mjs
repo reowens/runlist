@@ -654,7 +654,40 @@ function prepareMoveIndex(source, target, repoRoot, before, options = {}) {
   return prepared;
 }
 
+// A failure that provably happened before `.git/index` was replaced. Rollback
+// has to tell this apart from "we may already have published": in the latter
+// case it must restore the index and, failing that, retain the transaction for
+// manual repair; in this one there is nothing of ours in the index to undo, so
+// insisting on a restore turns someone else's concurrent `git add` into a
+// wedged repo. `race` additionally means the failure was contention, not a
+// verdict — the same call can succeed on a fresh generation.
+function markUnpublishedIndexError(err, { race = false } = {}) {
+  if (err && typeof err === 'object') {
+    err.gitIndexPublished = false;
+    if (race) err.gitIndexRace = true;
+  }
+  return err;
+}
+
+export function gitIndexProvablyUnpublished(err) {
+  return err?.gitIndexPublished === false;
+}
+
+export function gitIndexPublicationRaced(err) {
+  return err?.gitIndexPublished === false && err?.gitIndexRace === true;
+}
+
 function publishIndexGeneration(repoRoot, expected, desired, prepared, testHooks = {}) {
+  let published = false;
+  try {
+    return publishIndexGenerationLocked(repoRoot, expected, desired, prepared, testHooks, state => { published = state; });
+  } catch (err) {
+    if (!published) markUnpublishedIndexError(err, { race: Boolean(err?.gitIndexRace) });
+    throw err;
+  }
+}
+
+function publishIndexGenerationLocked(repoRoot, expected, desired, prepared, testHooks, notePublished) {
   const { indexPath, indexDir, lockPath } = gitIndexLocations(repoRoot);
   if (expected.indexPath !== indexPath || desired.indexPath !== indexPath) throw new Error('Selected Git index changed since the transaction snapshot; recovery refused to target a different index.');
   if (!prepared || prepared.state !== 'prepared' || path.dirname(prepared.tempPath) !== indexDir || !path.basename(prepared.tempPath).startsWith('.dotmd-index-') || !preparedMatches(prepared)) throw new Error('Prepared Git index ownership could not be verified.');
@@ -676,14 +709,14 @@ function publishIndexGeneration(repoRoot, expected, desired, prepared, testHooks
         }
       } catch { /* retain original durability error */ }
     }
-    if (err?.code === 'EEXIST') throw new Error('Git index is locked by another process; transaction index publication was not attempted.');
+    if (err?.code === 'EEXIST') throw markUnpublishedIndexError(new Error('Git index is locked by another process; transaction index publication was not attempted.'), { race: true });
     throw err;
   }
   let published = false;
   try {
     testHooks.afterGitIndexLock?.({ lockPath, expected, desired });
     const current = captureIndexPath(indexPath);
-    if (!sameGitIndexGeneration(current, expected)) throw new Error('Git index changed before transaction publication; current staging was preserved.');
+    if (!sameGitIndexGeneration(current, expected)) throw markUnpublishedIndexError(new Error('Git index changed before transaction publication; current staging was preserved.'), { race: true });
     testHooks.afterGitIndexCompare?.({ lockPath, current, desired });
     if (desired.exists) {
       // .git/index is routinely held open by concurrent git processes and IDE git
@@ -698,6 +731,7 @@ function publishIndexGeneration(repoRoot, expected, desired, prepared, testHooks
       lockOwned = false;
     }
     published = true;
+    notePublished(true);
     fsyncIndexDirectory(indexDir, testHooks, 'publication');
     testHooks.afterGitIndexPublication?.({ indexPath, desired });
     return desired;
@@ -717,7 +751,12 @@ function publishIndexGeneration(repoRoot, expected, desired, prepared, testHooks
 }
 
 export function stageMovePathsCas(source, target, repoRoot, before, options = {}) {
-  const prepared = prepareMoveIndex(source, target, repoRoot, before, options);
+  let prepared;
+  // Preparation writes only to transaction-owned scratch indexes, so anything
+  // that fails here — a refused `git add`, a failing clean filter — leaves the
+  // real index untouched by definition.
+  try { prepared = prepareMoveIndex(source, target, repoRoot, before, options); }
+  catch (err) { throw markUnpublishedIndexError(err); }
   try { return publishIndexGeneration(repoRoot, before, prepared.generation, prepared, options.testHooks); }
   finally {
     if (prepared.work && prepared.work.path !== prepared.path) unlinkPrepared(prepared.work, options.testHooks, 'working-index-delete');
@@ -746,6 +785,17 @@ export function restoreGitIndexCas(before, ownedAfter, repoRoot, options = {}) {
   }
 }
 
+// `.git/index.lock` is only ever ours as a hard link to the prepared index, so
+// the recorded publication inode identifies it even after the artifact itself
+// is unlinked.
+function lockIsOurs(lockPath, prepared) {
+  const publication = prepared.work ?? prepared;
+  try {
+    const lock = lstatSync(lockPath);
+    return lock.isFile() && !lock.isSymbolicLink() && lock.dev === publication.dev && lock.ino === publication.ino;
+  } catch { return false; }
+}
+
 export function reclaimPreparedGitIndex(manifestGitIndex, repoRoot, options = {}) {
   const prepared = manifestGitIndex?.prepared;
   if (!prepared) return { cleaned: false, retainedPaths: [] };
@@ -754,7 +804,14 @@ export function reclaimPreparedGitIndex(manifestGitIndex, repoRoot, options = {}
   if (manifestGitIndex.before?.indexPath !== indexPath || prepared.generation?.indexPath !== indexPath) throw new Error('Recovery environment selects a different Git index than the abandoned transaction.');
   if (path.dirname(prepared.tempPath) !== indexDir || !path.basename(prepared.tempPath).startsWith('.dotmd-index-')) throw new Error('Abandoned prepared Git index path is unsafe.');
   if (!existsSync(prepared.path)) {
-    if (existsSync(lockPath)) throw new Error('Git index lock exists without its recorded prepared inode; it was preserved.');
+    // The lock is only ever ours as a hard link to the publication inode, so a
+    // lock that does not carry that inode cannot be ours — it belongs to a live
+    // `git` (a plain `git status` takes index.lock to rewrite its stat cache).
+    // Leaving it is right; treating it as damage was not. That throw travelled
+    // up as a failed rollback and retained the transaction, so a few hundred
+    // milliseconds of ordinary Git activity bricked every later mutation in the
+    // repo until `doctor --transactions --apply` ran.
+    if (existsSync(lockPath) && lockIsOurs(lockPath, prepared)) throw new Error('A transaction-owned Git index lock outlived its prepared artifact; it was preserved.');
     if (existsSync(prepared.tempPath)) retainedPaths.push(prepared.tempPath);
     return { cleaned: false, retainedPaths };
   }
