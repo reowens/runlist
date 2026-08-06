@@ -1,9 +1,28 @@
 import { afterEach, describe, it } from 'node:test';
 import { ok, strictEqual } from 'node:assert';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createReferenceIdentitySet, rewriteDocumentReferences } from '../src/reference-planner.mjs';
+
+// Whether two spellings name one file is the same question the resolver asks,
+// and it is a property of the filesystem under the test's temp dir — not of the
+// platform, so it is probed rather than assumed.
+function sameFile(left, right) {
+  try {
+    const a = statSync(left);
+    const b = statSync(right);
+    return a.dev === b.dev && a.ino === b.ino;
+  } catch { return false; }
+}
+
+function sameFileProbe() {
+  const probe = mkdtempSync(path.join(os.tmpdir(), 'dotmd-case-probe-'));
+  try {
+    writeFileSync(path.join(probe, 'probe.md'), 'x');
+    return sameFile(path.join(probe, 'probe.md'), path.join(probe, 'PROBE.MD'));
+  } finally { rmSync(probe, { recursive: true, force: true }); }
+}
 
 // The rewriter skips the fence-aware walk for documents that cannot name the
 // moved file. These cover the ways a document CAN name it without spelling the
@@ -42,25 +61,40 @@ describe('reference rewrite candidate prefilter', () => {
     ok(moved.includes('archived/my\\ plan.md'), `expected the escaped destination to move, got: ${moved}`);
   });
 
-  it('decides a differently-cased spelling the same way an unfiltered walk does', () => {
+  it('rewrites a link whose case differs, where the filesystem folds case', () => {
     const root = setup();
     const target = path.join(root, 'docs', 'casing.md');
     const referrer = path.join(root, 'docs', 'a.md');
     writeFileSync(target, doc('# Target'));
     const content = doc('See [it](CASING.MD).');
     writeFileSync(referrer, content);
-    // The prefilter folds case so a case-insensitive filesystem cannot hide a
-    // candidate from it, but whether the token actually resolves stays the
-    // resolver's call — folding may only over-include. Assert the shortcut
-    // never changes the verdict, whichever way the platform decides it.
-    const identities = createReferenceIdentitySet([target, referrer]);
-    const unfiltered = createReferenceIdentitySet([target, referrer]);
-    unfiltered.symlinked = true;
-    const args = { sourcePath: referrer, repoRoot: root, oldPath: target, newPath: path.join(root, 'docs', 'archived', 'casing.md'), referenceFields: ['related_docs'] };
-    strictEqual(
-      rewriteDocumentReferences(content, { ...args, identities }),
-      rewriteDocumentReferences(content, { ...args, identities: unfiltered }),
-    );
+    const newPath = path.join(root, 'docs', 'archived', 'casing.md');
+    const moved = rewrite(root, referrer, content, target, newPath, [target, referrer]);
+    if (sameFile(target, path.join(root, 'docs', 'CASING.MD'))) {
+      // `realpath` hands back the caller's spelling, so an exact compare used to
+      // miss this — while `dotmd check` (which resolves with existsSync) called
+      // the link perfectly valid. The move stranded it and check then called it
+      // broken.
+      ok(moved.includes('archived/casing.md'), `expected the differently-cased destination to move, got: ${moved}`);
+    } else {
+      strictEqual(moved, content, 'a case-sensitive filesystem has no such file, so nothing resolves');
+    }
+  });
+
+  it('keeps two documents that differ only by case apart', { skip: sameFileProbe() && 'this filesystem folds case, so the two cannot coexist' }, () => {
+    const root = setup();
+    const lower = path.join(root, 'docs', 'dup.md');
+    const upper = path.join(root, 'docs', 'DUP.md');
+    const referrer = path.join(root, 'docs', 'a.md');
+    writeFileSync(lower, doc('# lower'));
+    writeFileSync(upper, doc('# upper'));
+    // Each link names a real, distinct file: neither may be dragged along when
+    // the other moves, and the shared case fold must not be guessed at.
+    const content = doc('[a](dup.md) and [b](DUP.md)');
+    writeFileSync(referrer, content);
+    const moved = rewrite(root, referrer, content, lower, path.join(root, 'docs', 'archived', 'dup.md'), [lower, upper, referrer]);
+    ok(moved.includes('archived/dup.md'), 'the moved document is rewritten');
+    ok(moved.includes('(DUP.md)'), `the other document is left alone, got: ${moved}`);
   });
 
   it('rewrites a link that reaches the document through a symlinked name', { skip: process.platform === 'win32' && 'symlink creation needs elevation on Windows' }, () => {

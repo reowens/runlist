@@ -1,4 +1,4 @@
-import { realpathSync } from 'node:fs';
+import { realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter } from './frontmatter.mjs';
 
@@ -47,37 +47,51 @@ export function configuredReferenceFields(config) {
   ])];
 }
 
-// Resolving a reference costs two `canonicalExisting` calls (document-relative
-// and repository-relative), and the repository-relative spelling usually does
-// NOT exist — which sends it up the tree doing a realpath per ancestor. Across
-// a corpus-wide sweep that is tens of thousands of syscalls over a few hundred
-// distinct paths, and it dominated the reference rewrite: a status change in a
-// 2,000-doc repo spent ~0.85s resolving the same directory prefixes over and
-// over. The memo lives on the identity set, so it is scoped to one sweep and
-// cannot outlive a mutation — `dotmd bulk` builds a fresh set per move. Within
-// a sweep it is also strictly more consistent than re-resolving per token,
-// which could see the filesystem change midway.
+// Marks a case fold shared by two corpus documents. On a case-sensitive
+// filesystem those are genuinely two files, and nothing may collapse them.
+const AMBIGUOUS_FOLD = Symbol('ambiguous case fold');
+
+// The set carries four indexes beside the identities themselves:
+//   canonical — memoized path resolution. Resolving one reference costs two
+//     `canonicalExisting` calls, and the repository-relative spelling usually
+//     does NOT exist, which sends it up the tree doing a realpath per ancestor.
+//     Over a corpus-wide sweep that is tens of thousands of syscalls across a
+//     few hundred distinct paths, and it dominated the reference rewrite. The
+//     memo lives here so it is scoped to one sweep and cannot outlive a
+//     mutation — `dotmd bulk` builds a fresh set per move. Within a sweep it is
+//     also more consistent than re-resolving per token, which could observe the
+//     filesystem changing midway.
+//   paths     — identity to the spelling the corpus used.
+//   names     — identity to every basename it answers to (symlink aliases).
+//   folded    — case fold to identity, for filesystems that fold case.
 export function createReferenceIdentitySet(filePaths) {
   const identities = new Set();
   identities.paths = new Map();
   identities.canonical = new Map();
   identities.names = new Map();
+  identities.folded = new Map();
   identities.symlinked = false;
-  for (const filePath of filePaths) {
-    const resolved = path.resolve(filePath);
-    const identity = canonicalExisting(filePath, identities.canonical);
-    // A corpus path whose realpath differs is a symlink, so one document can be
-    // reachable under more than one name. `names` records every one of them —
-    // and `symlinked` warns the candidate prefilter that names are not a
-    // reliable signal in this repo at all.
-    if (identity !== resolved) identities.symlinked = true;
-    identities.add(identity);
-    identities.paths.set(identity, resolved);
-    let names = identities.names.get(identity);
-    if (!names) identities.names.set(identity, names = new Set());
-    names.add(path.basename(resolved).toLowerCase());
-  }
+  for (const filePath of filePaths) registerIdentity(identities, filePath);
   return identities;
+}
+
+function registerIdentity(identities, filePath) {
+  const resolved = path.resolve(filePath);
+  const identity = canonicalExisting(filePath, identities.canonical);
+  // A corpus path whose realpath differs is a symlink, so one document can be
+  // reachable under more than one name. `names` records every one of them —
+  // and `symlinked` warns the candidate prefilter that names are not a
+  // reliable signal in this repo at all.
+  if (identity !== resolved) identities.symlinked = true;
+  identities.add(identity);
+  identities.paths.set(identity, resolved);
+  let names = identities.names.get(identity);
+  if (!names) identities.names.set(identity, names = new Set());
+  names.add(path.basename(resolved).toLowerCase());
+  const key = identity.toLowerCase();
+  const seen = identities.folded.get(key);
+  identities.folded.set(key, seen === undefined || seen === identity ? identity : AMBIGUOUS_FOLD);
+  return identity;
 }
 
 // Can this document possibly hold a reference to `oldIdentity`? Every token the
@@ -112,14 +126,39 @@ export function resolveReferenceIdentity(token, documentPath, repoRoot, identiti
   if (!token || /^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(token)) return null;
   const clean = token.replace(/[?#].*$/, '').replace(/\\([\s()[\]<>])/g, '$1');
   const memo = identities?.canonical ?? null;
-  const local = canonicalExisting(path.resolve(path.dirname(documentPath), clean), memo);
-  const repository = canonicalExisting(path.resolve(repoRoot, clean.replace(/^\/+/, '')), memo);
-  const localExists = identities.has(local);
-  const repositoryExists = identities.has(repository);
-  if (localExists && repositoryExists && local !== repository) {
+  const local = matchIdentity(canonicalExisting(path.resolve(path.dirname(documentPath), clean), memo), identities);
+  const repository = matchIdentity(canonicalExisting(path.resolve(repoRoot, clean.replace(/^\/+/, '')), memo), identities);
+  if (local && repository && local !== repository) {
     throw new AmbiguousReferenceError(token, documentPath, local, repository);
   }
-  return localExists ? local : (repositoryExists ? repository : null);
+  return local ?? repository ?? null;
+}
+
+// `realpath` resolves symlinks but NOT case: on a case-insensitive filesystem
+// `realpath("CASING.MD")` hands back the caller's spelling, so an exact compare
+// misses a link that names a real document. Validation disagreed — it resolves
+// with `existsSync`, which does not care about case — so `dotmd check` called
+// such a link fine, a move silently left it pointing at the old path, and only
+// THEN did check call it broken.
+//
+// The tie-break is the inode, not a guess about the filesystem: same device and
+// inode means the two spellings are one file, which is only ever true where the
+// filesystem itself folds case. On a case-sensitive filesystem `Foo.md` and
+// `foo.md` are separate inodes and stay separate here, and two corpus documents
+// that differ only by case poison their shared fold so neither is guessed at.
+function matchIdentity(candidate, identities) {
+  if (identities.has(candidate)) return candidate;
+  const folded = identities.folded?.get(candidate.toLowerCase());
+  if (folded === undefined || folded === AMBIGUOUS_FOLD) return null;
+  return sameFileOnDisk(candidate, folded) ? folded : null;
+}
+
+function sameFileOnDisk(left, right) {
+  try {
+    const a = statSync(left);
+    const b = statSync(right);
+    return a.dev === b.dev && a.ino === b.ino && a.ino !== 0;
+  } catch { return false; }
 }
 
 function rewriteToken(token, sourcePath, outputPath, repoRoot, identities, oldIdentity, newPath, rebaseAll, format = 'plain') {
@@ -335,8 +374,9 @@ export function rewriteDocumentReferences(content, {
 
 export function planReferenceMove({ documents, oldPath, newPath, repoRoot, referenceFields = [] }) {
   const identities = createReferenceIdentitySet(documents.map(document => document.path));
-  const oldIdentity = canonicalExisting(oldPath, identities.canonical);
-  identities.add(oldIdentity);
+  // Register rather than bare-add: the case fold and name index have to know
+  // about the moved document too, or a differently-cased link to it misses.
+  const oldIdentity = registerIdentity(identities, oldPath);
   const source = documents.find(document => path.resolve(document.path) === path.resolve(oldPath));
   if (!source) throw new Error(`Reference move plan is missing source content: ${oldPath}`);
   const movedContent = rewriteDocumentReferences(source.content, {

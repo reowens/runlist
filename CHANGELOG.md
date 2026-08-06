@@ -4,6 +4,21 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
 
 ## Unreleased
 
+### Fixed
+
+- Moving a document now updates links that spell its name in a different case
+  (`[x](CASING.MD)` for `casing.md`), where the filesystem folds case — macOS
+  and Windows. `realpath` resolves symlinks but not case, so the rewriter's
+  exact compare never matched those links, while validation (which resolves
+  with `existsSync`) considered them perfectly valid: `dotmd check` called such
+  a link fine, the move silently left it pointing at the old path, and only then
+  did check call it broken. The tie-break is the inode rather than a guess about
+  the filesystem — same device and inode means the two spellings are one file,
+  which is only true where the filesystem itself folds case. A case-sensitive
+  filesystem is unaffected: `Foo.md` and `foo.md` are separate inodes and stay
+  separate, and two documents that differ only by case are never guessed
+  between. Verified by running the suite on a case-sensitive APFS volume.
+
 ### Changed
 
 - The reference rewrite that runs on every move got ~6× faster, which takes a
