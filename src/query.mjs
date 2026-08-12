@@ -396,12 +396,31 @@ function scanBodyForKeyword(doc, needle, config) {
   const lines = body.split('\n');
   const matches = [];
   for (let i = 0; i < lines.length && matches.length < MAX_BODY_MATCHES; i++) {
-    const text = lines[i].trim();
-    const at = text.toLowerCase().indexOf(needle);
+    const raw = lines[i].trim();
+    const at = raw.toLowerCase().indexOf(needle);
     if (at === -1) continue;
-    matches.push({ line: bodyLineOffset + i + 1, text: excerptAround(text, at, needle.length) });
+    const { text, at: shown } = displayableExcerptLine(raw, at, needle);
+    matches.push({ line: bodyLineOffset + i + 1, text: excerptAround(text, shown, needle.length) });
   }
   return matches;
+}
+
+// HTML comments are invisible when the markdown renders, so they are noise in an
+// excerpt — and dotmd's own conventions put them inline (a managed status token in
+// a hub table row reads as `| [x](x.md) | <!--s-->active<!--/s--> — next |`), which
+// is paid on every agent read of every search result.
+//
+// Matching still happens against the raw line, so a needle that only occurs INSIDE
+// a comment is never lost: if stripping would hide the match, the raw line is shown
+// instead. Whitespace is squeezed only on lines a strip actually touched.
+const HTML_COMMENT_RE = /<!--[\s\S]*?-->/g;
+
+export function displayableExcerptLine(raw, at, needle) {
+  if (!raw.includes('<!--')) return { text: raw, at };
+  const stripped = raw.replace(HTML_COMMENT_RE, '').replace(/[ \t]{2,}/g, ' ').trim();
+  const shown = stripped.toLowerCase().indexOf(needle);
+  if (shown === -1) return { text: raw, at };
+  return { text: stripped, at: shown };
 }
 
 // Window a long line around the match so the needle is always visible.

@@ -13,6 +13,14 @@ export const archiveDir = 'archived';
 // Directories to skip when scanning
 export const excludeDirs = ['evidence'];
 
+// Floor under the scan surface. `dotmd check` fails when it scans fewer docs than
+// this, so a broken root or an over-eager exclude can't read as a clean estate —
+// zero errors and zero docs look identical otherwise. Off when unset. Set it well
+// below your real count (round down hard); raise it as the corpus grows.
+// Override for one run with `dotmd check --min-docs <n>`; skipped for path-scoped
+// checks, which are deliberate subsets.
+// export const minDocs = 500;
+
 // Document types — each type has its own status vocabulary and context layout.
 // Defaults: plan, doc, prompt. Override to customize statuses per type, or add new types.
 //

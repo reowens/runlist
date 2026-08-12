@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { parseQueryArgs, filterDocs } from '../src/query.mjs';
+import { parseQueryArgs, filterDocs, displayableExcerptLine } from '../src/query.mjs';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
 let tmpDir;
@@ -441,5 +441,32 @@ describe('grep alias', () => {
     const r = spawnDotmd(['grep']);
     strictEqual(r.status, 1);
     ok(r.stderr.includes('Usage: dotmd grep <term>'), `expected usage, got: ${r.stderr}`);
+  });
+});
+
+describe('excerpt HTML-comment stripping', () => {
+  it('hides comments that surround the match', () => {
+    const { text, at } = displayableExcerptLine(
+      '| [child](child.md) | <!--s-->active<!--/s--> — next up |', 30, 'next up');
+    strictEqual(text, '| [child](child.md) | active — next up |');
+    strictEqual(text.slice(at, at + 7), 'next up');
+  });
+
+  it('keeps the raw line when the match is INSIDE a comment', () => {
+    const raw = '| [child](child.md) | <!--s-->active<!--/s--> — done |';
+    const { text } = displayableExcerptLine(raw, raw.indexOf('s-->act'), 's-->act');
+    strictEqual(text, raw, 'stripping would have hidden the match');
+  });
+
+  it('leaves a comment-free line byte-identical', () => {
+    const raw = '| [child](child.md) | active — next up |';
+    const { text, at } = displayableExcerptLine(raw, 22, 'active');
+    strictEqual(text, raw);
+    strictEqual(at, 22);
+  });
+
+  it('squeezes the whitespace a removed comment leaves behind', () => {
+    const { text } = displayableExcerptLine('status:  <!-- note -->  shipped', 24, 'shipped');
+    strictEqual(text, 'status: shipped');
   });
 });

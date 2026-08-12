@@ -2,6 +2,27 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- `minDocs` config key (and `dotmd check --min-docs <n>`) puts a floor under the
+  scan surface. Every other check asks "is this doc wrong?"; none could ask "did
+  we look at anything?" — so a broken root or an over-eager exclude reported zero
+  errors, output byte-identical to a clean estate. Off unless configured, and
+  skipped for path-scoped checks, which are deliberate subsets. Deliberately an
+  error rather than a warning: a warning exits 0, which is the outcome the floor
+  exists to prevent.
+
+### Changed
+
+- `dotmd grep` / `query --body` excerpts hide HTML comments, which render as
+  nothing but were shown raw. Matching still runs against the raw line, so a term
+  that only occurs inside a comment is never lost — the raw line is shown when
+  stripping would hide the match.
+- Repo-level check errors (those with no owning document) no longer render as
+  `undefined: <message>`.
+
 ## 0.71.4 — 2026-08-05
 
 ### Fixed

@@ -526,6 +526,10 @@ Options:
   --errors-only          Show only errors, suppress warnings entirely
   --fix                  Auto-fix broken refs, lint issues, and regenerate index
   --json                 Output errors and warnings as JSON (always full detail)
+  --min-docs <n>         Fail if fewer than <n> docs were scanned — a floor that
+                         tells "nothing is wrong" apart from "nothing was looked
+                         at". Overrides \`minDocs\` in config for this run;
+                         skipped when checking specific paths.
   --dry-run, -n          Preview fixes without writing (with --fix)`,
 
   archive: `dotmd archive <file-or-slug> — archive a document
@@ -1760,7 +1764,19 @@ async function main() {
     const errorsOnly = args.includes('--errors-only');
     const noCollapse = args.includes('--no-collapse');
     const verbose = args.includes('--verbose');
-    const checkTargets = restArgs.filter(arg => !arg.startsWith('-'));
+    // `--min-docs N` overrides the configured floor for this run (CI passes it
+    // without editing config). Its value is not a path target.
+    const minDocsFlagIdx = restArgs.indexOf('--min-docs');
+    const minDocsRaw = minDocsFlagIdx === -1 ? null : restArgs[minDocsFlagIdx + 1];
+    if (minDocsFlagIdx !== -1 && !/^\d+$/.test(minDocsRaw ?? '')) {
+      die('`--min-docs` needs a positive integer, e.g. `dotmd check --min-docs 500`.');
+    }
+    const minDocsOverride = minDocsRaw == null ? null : Number(minDocsRaw);
+    const minDocsValueIdx = minDocsFlagIdx === -1 ? -1 : minDocsFlagIdx + 1;
+    const checkTargets = restArgs.filter((arg, i) => !arg.startsWith('-') && i !== minDocsValueIdx);
+    const { applyScanFloor } = await import('../src/validate.mjs');
+    const scanFloorConfig = minDocsOverride == null ? config : { ...config, minDocs: minDocsOverride };
+    const applyFloor = (idx) => applyScanFloor(idx, scanFloorConfig, { scoped: checkTargets.length > 0 });
     const skippedCheckHooks = config._execution?.suppressSideEffects
       ? ['validate', 'transformDoc', 'formatSnapshot', 'renderCheck']
           .filter(name => typeof config.hooks?.[name] === 'function')
@@ -1810,6 +1826,7 @@ async function main() {
       const freshIndex = buildIndex(config);
       applyIndexFilters(freshIndex);
       applyPathScopeToIndex(freshIndex, config, checkTargets);
+      applyFloor(freshIndex);
       if (args.includes('--json')) {
         process.stdout.write(JSON.stringify(checkJson(freshIndex), null, 2) + '\n');
       } else {
@@ -1821,6 +1838,7 @@ async function main() {
     }
 
     applyPathScopeToIndex(index, config, checkTargets);
+    applyFloor(index);
 
     if (args.includes('--json')) {
       process.stdout.write(JSON.stringify(checkJson(index), null, 2) + '\n');

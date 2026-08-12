@@ -20,6 +20,8 @@ const DEFAULTS = {
   root: '.',
   archiveDir: 'archived',
   excludeDirs: [],
+  // Floor under the scan surface; null = off. See `applyScanFloor` in validate.mjs.
+  minDocs: null,
 
   types: {
     plan: {
@@ -517,6 +519,18 @@ export async function resolveConfig(cwd, explicitConfigPath) {
     }
   }
 
+  // A floor under the scan surface. Unset (the default) is off, so no existing
+  // repo changes behavior. See `applyScanFloor` in src/validate.mjs for why a
+  // silent zero-doc pass is the failure mode worth spending a config key on.
+  let minDocs = null;
+  if (config.minDocs !== undefined && config.minDocs !== null) {
+    if (!Number.isInteger(config.minDocs) || config.minDocs < 1) {
+      earlyWarnings.push(`Config: minDocs must be a positive integer; ignoring \`${config.minDocs}\`.`);
+    } else {
+      minDocs = config.minDocs;
+    }
+  }
+
   const configWarnings = [...earlyWarnings, ...validateConfig(userConfig, config, validStatuses, indexPath)];
 
   return {
@@ -531,6 +545,7 @@ export async function resolveConfig(cwd, explicitConfigPath) {
     archiveDir: config.archiveDir,
     excludeDirs: new Set(config.excludeDirs),
     docsRootPrefix,
+    minDocs,
 
     statusOrder,
     validStatuses,

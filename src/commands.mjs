@@ -142,7 +142,7 @@ const definitions = [
     form('migrate <type>', { subcommands: ['migrate'], args: positionals(1, 1), options: [flag('--yes', '-y'), flag('--json'), flag('--ignore-lifecycle-override')] }),
     form('', { options: [value('--type'), flag('--json')] }),
   ]),
-  command('check', mutates('managed fix sweeps and repo-generated index; otherwise validation'), 'mutate', [form('[paths...]', { args: positionals(0, Infinity), options: [flag('--fix'), flag('--errors-only'), flag('--no-collapse'), flag('--json'), flag('--verbose')] })]),
+  command('check', mutates('managed fix sweeps and repo-generated index; otherwise validation'), 'mutate', [form('[paths...]', { args: positionals(0, Infinity), options: [flag('--fix'), flag('--errors-only'), flag('--no-collapse'), flag('--json'), flag('--verbose'), value('--min-docs')] })]),
   command('index', mutates('repo-generated index destination; --print is read-only'), 'mutate', [form('', { options: [flag('--print')] })]),
 
   command('self-check', none, 'internal', [form('', { options: [flag('--json')] })], { visibility: 'internal' }),

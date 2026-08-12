@@ -641,3 +641,105 @@ describe('F18: singular module/surface deprecation warning', () => {
     ok(matches[0].includes('manually') && !matches[0].includes('lint --fix'), matches[0]);
   });
 });
+
+describe('scan floor (minDocs)', () => {
+  function seed(docsDir, n) {
+    for (let i = 0; i < n; i++) {
+      writeFileSync(path.join(docsDir, `d${i}.md`),
+        `---\nstatus: active\nupdated: 2025-01-01\n---\n# D${i}\n`);
+    }
+  }
+
+  it('is off by default — a tiny corpus is not an error', () => {
+    const docsDir = setupProject();
+    seed(docsDir, 2);
+    const r = run(['check']);
+    strictEqual(r.status, 0, `stdout: ${r.stdout}`);
+    ok(!r.stdout.includes('scan surface'), r.stdout);
+  });
+
+  it('fails when the corpus is under the configured floor', () => {
+    const docsDir = setupProject();
+    seed(docsDir, 2);
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'),
+      `export const root = 'docs';\nexport const minDocs = 50;\n`);
+    const r = run(['check']);
+    strictEqual(r.status, 1, `stdout: ${r.stdout}`);
+    ok(r.stdout.includes('only 2 docs in the scan surface (expected at least 50)'), r.stdout);
+  });
+
+  it('passes when the floor is met', () => {
+    const docsDir = setupProject();
+    seed(docsDir, 4);
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'),
+      `export const root = 'docs';\nexport const minDocs = 4;\n`);
+    const r = run(['check']);
+    strictEqual(r.status, 0, `stdout: ${r.stdout}`);
+  });
+
+  it('--min-docs overrides config for one run', () => {
+    const docsDir = setupProject();
+    seed(docsDir, 2);
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'),
+      `export const root = 'docs';\nexport const minDocs = 50;\n`);
+    strictEqual(run(['check', '--min-docs', '1']).status, 0);
+    ok(run(['check', '--min-docs', '99']).stdout.includes('expected at least 99'));
+  });
+
+  // A single-file check is a deliberate subset, not a claim about corpus size.
+  it('never fires on a path-scoped check', () => {
+    const docsDir = setupProject();
+    seed(docsDir, 2);
+    const r = run(['check', '--min-docs', '999', path.join(docsDir, 'd0.md')]);
+    strictEqual(r.status, 0, `stdout: ${r.stdout}`);
+    ok(!r.stdout.includes('scan surface'), r.stdout);
+  });
+
+  // The `--min-docs` VALUE is not a path, but a real path must survive in either
+  // order — an earlier cut dropped the first positional whenever the flag was
+  // absent, silently widening every scoped check to the whole repo.
+  it('keeps the path target whichever side of the flag it sits on', () => {
+    const docsDir = setupProject();
+    seed(docsDir, 3);
+    for (const args of [
+      ['check', path.join(docsDir, 'd0.md'), '--min-docs', '999'],
+      ['check', '--min-docs', '999', path.join(docsDir, 'd0.md')],
+      ['check', path.join(docsDir, 'd0.md')],
+    ]) {
+      const r = run(args);
+      ok(r.stdout.includes('docs scanned: 1'), `${args.join(' ')} → ${r.stdout}`);
+    }
+  });
+
+  it('reports the floor breach in --json with a machine-readable kind', () => {
+    const docsDir = setupProject();
+    seed(docsDir, 2);
+    const r = run(['check', '--min-docs', '50', '--json']);
+    strictEqual(r.status, 1);
+    const out = JSON.parse(r.stdout);
+    const floor = out.errors.find(e => e.meta?.kind === 'scan-floor');
+    ok(floor, `expected a scan-floor error: ${r.stdout}`);
+    strictEqual(floor.meta.found, 2);
+    strictEqual(floor.meta.floor, 50);
+    strictEqual(out.passed, false);
+  });
+
+  it('rejects a non-numeric --min-docs instead of silently ignoring it', () => {
+    setupProject();
+    const r = run(['check', '--min-docs', 'lots']);
+    strictEqual(r.status, 1);
+    ok(r.stderr.includes('--min-docs'), r.stderr);
+  });
+
+  it('warns and stays off for an invalid configured value', () => {
+    const docsDir = setupProject();
+    seed(docsDir, 2);
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'),
+      `export const root = 'docs';\nexport const minDocs = -3;\n`);
+    const r = run(['check', '--verbose']);
+    strictEqual(r.status, 0, `stdout: ${r.stdout}`);
+    const all = r.stdout + r.stderr;
+    ok(all.includes('minDocs must be a positive integer'), all);
+    ok(!all.includes("unknown key 'minDocs'"), 'minDocs must be a recognized config key');
+  });
+});

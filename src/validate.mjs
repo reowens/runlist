@@ -703,3 +703,34 @@ export function computeChecklistCompletionRate(checklist) {
   if (!checklist.total) return null;
   return Number((checklist.completed / checklist.total).toFixed(4));
 }
+
+// A floor under the scan surface.
+//
+// Every other check in this file asks "is this doc wrong?" — none of them can ask
+// "did we look at anything?". If the scan surface breaks (a root that stopped
+// resolving, a config edit that narrowed the tree, a rename that moved docs/ out
+// from under us), `dotmd check` reports zero errors, and that output is
+// byte-identical to a clean estate. A guard's whole failure mode is going quiet,
+// and this is the one that would go quiet silently.
+//
+// Off unless `minDocs` is configured — a floor is a claim about YOUR corpus size
+// and dotmd cannot guess it. Deliberately an error, not a warning: a warning exits
+// 0, which is the exact outcome this exists to prevent.
+export function applyScanFloor(index, config, { scoped = false } = {}) {
+  const floor = config?.minDocs;
+  if (!floor) return index;
+  // A path-scoped check (`dotmd check docs/plans/x.md`) is a deliberate subset, so
+  // the floor would fire on every single-file check. Not a corpus claim at all.
+  if (scoped) return index;
+  if (index.docs.length >= floor) return index;
+
+  index.errors.push({
+    path: null,
+    level: 'error',
+    message: `only ${index.docs.length} docs in the scan surface (expected at least ${floor}) — `
+      + 'the file list broke, so a pass here would mean nothing. Check `root`/`excludeDirs` in '
+      + 'your config, or lower `minDocs` if the corpus genuinely shrank.',
+    meta: { kind: 'scan-floor', found: index.docs.length, floor },
+  });
+  return index;
+}

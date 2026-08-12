@@ -501,7 +501,8 @@ function _renderCheck(index, opts = {}) {
   if (index.errors.length > 0) {
     lines.push(red('Errors'));
     for (const issue of index.errors) {
-      lines.push(`- ${issue.path}: ${issue.message}`);
+      // Repo-level findings (e.g. the scan floor) carry no path.
+      lines.push(issue.path ? `- ${issue.path}: ${issue.message}` : `- ${issue.message}`);
     }
     lines.push('');
     const actions = renderManualFixes({ errors: index.errors, warnings: [] }).trimEnd();
