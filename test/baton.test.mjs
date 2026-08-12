@@ -265,6 +265,27 @@ describe('dotmd baton', () => {
     ok(readFileSync(path.join(plansDir, 'other.md'), 'utf8').includes('status: in-session'), 'unowned plan was untouched');
   });
 
+  it('claims a linked plan written doc-relative, not just repo-root-relative', () => {
+    // `plan:` is a ref in the prompt's own frontmatter, so `../plans/x.md` from
+    // `docs/prompts/` is as valid as `docs/plans/x.md`. Nothing validates the
+    // field (it is not a `referenceFields` entry), so a resolver that read only
+    // the repo-root form failed the claim against a plan that was plainly there.
+    writePlan('doc-relative', { status: 'active' });
+    writeFileSync(path.join(docsDir, 'prompts', 'resume-doc-relative.md'),
+      '---\ntype: prompt\nstatus: pending\nplan: ../plans/doc-relative.md\n---\n# Resume\n\nbody\n');
+
+    const r = run(['use', 'resume-doc-relative.md'], { sid: 'session-rel' });
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stderr, /Claimed.*doc-relative\.md/);
+    ok(readFileSync(path.join(plansDir, 'doc-relative.md'), 'utf8').includes('status: in-session'),
+      'doc-relative link claimed the plan in-session');
+
+    // The claim is durable, so this session's no-arg baton hands the plan back.
+    const baton = run(['baton', '--message', 'next'], { sid: 'session-rel' });
+    strictEqual(baton.status, 0, baton.stderr);
+    match(baton.stderr, /Baton passed.*doc-relative/);
+  });
+
   it('stale linked plan leaves the prompt pending and unchanged', () => {
     writeFileSync(path.join(docsDir, 'prompts', 'resume-ghost.md'),
       '---\ntype: prompt\nstatus: pending\nplan: docs/plans/ghost.md\n---\n# resume\n\nbody\n');

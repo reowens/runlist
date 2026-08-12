@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
-import { asString, toRepoPath, die, resolveDocPath, isArchivedPath } from './util.mjs';
+import { asString, toRepoPath, die, resolveDocPath, resolveRefPath, isArchivedPath } from './util.mjs';
 import { buildIndex, resolveDocArg } from './index.mjs';
 import { runQuery } from './query.mjs';
 import { completePlanClaim, regenIndex, renderLifecycleMutation, runArchive, runStatus } from './lifecycle.mjs';
@@ -258,7 +258,7 @@ export async function consumePrompt(filePath, config, opts) {
 
   const planRef = asString(parsed.plan);
   let linkedClaim = null;
-  if (planRef) linkedClaim = prepareLinkedPromptClaim(planRef, config);
+  if (planRef) linkedClaim = prepareLinkedPromptClaim(planRef, config, path.dirname(filePath));
 
   if (dryRun) {
     const prefix = dim('[dry-run]');
@@ -353,8 +353,16 @@ export async function writeConsumedBody(body, archivedPath, write = null, linked
   }
 }
 
-function prepareLinkedPromptClaim(planRef, config) {
-  let planPath = resolveDocPath(planRef, config) ?? resolveDocArg(planRef, config, { dieOnMiss: false });
+// `planRef` is a reference written in the prompt's own frontmatter, so it obeys
+// the same convention every other ref field does: doc-relative first (baton's
+// `../plans/x.md` from `docs/prompts/`), repo-root-relative second. Resolving it
+// with `resolveDocPath` alone read only the repo-root form, so a doc-relative
+// link — the form nothing validates, since `plan` is not a `referenceFields`
+// entry — died as "missing" while pointing at a file that was plainly there.
+function prepareLinkedPromptClaim(planRef, config, promptDir) {
+  let planPath = resolveRefPath(planRef, promptDir, config.repoRoot)
+    ?? resolveDocPath(planRef, config)
+    ?? resolveDocArg(planRef, config, { dieOnMiss: false });
   if (!planPath || !existsSync(planPath)) die(`Linked plan is missing; prompt was not consumed: ${planRef}`);
   planPath = authorizeManagedSource(planPath, config, { kind: 'Prompt linked plan source' }).path;
   const raw = readFileSync(planPath, 'utf8');

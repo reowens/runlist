@@ -22,6 +22,13 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
 
 ### Fixed
 
+- `dotmd use` claims a resume prompt's linked plan when the `plan:` link is
+  written doc-relative (`../plans/x.md` from `docs/prompts/`), not only when it
+  is repo-root-relative. `plan` is not a `referenceFields` entry, so nothing
+  validates or rewrites it — `dotmd check` reported a clean estate while
+  consumption died with "Linked plan is missing" against a plan that was plainly
+  there, stranding the handoff. The link now resolves through `resolveRefPath`,
+  the same resolver validation uses, which accepts both forms.
 - `dotmd init` renders the document index against what it just scaffolded
   instead of shipping a "no docs yet" placeholder that the sample plan
   immediately contradicted. A fresh init is now warning-free on first `check`.
