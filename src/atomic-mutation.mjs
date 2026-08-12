@@ -1279,9 +1279,9 @@ export function createFileExclusive(filePath, content, options) {
 }
 
 export function moveFileAtomic(sourcePath, targetPath, render, options) {
-  const { repoRoot, finalize, rollbackFinalize, testHooks, updates = [], creations = [], deletions = [] } = options;
+  const { repoRoot, finalize, rollbackFinalize, testHooks, updates = [], creations = [], deletions = [], guards = [] } = options;
   recoverAbandonedTransactions(repoRoot, options);
-  return withPathLocks([sourcePath, targetPath, ...updates.map(item => item.path), ...creations.map(item => item.path), ...deletions.map(item => item.path)], options, () => {
+  return withPathLocks([sourcePath, targetPath, ...updates.map(item => item.path), ...creations.map(item => item.path), ...deletions.map(item => item.path), ...guards.map(item => item.path)], options, () => {
     testHooks?.afterTransactionPhase?.('lock', { sourcePath, targetPath });
     testHooks?.beforeMoveSnapshot?.({ sourcePath, targetPath });
     const source = snapshotFile(sourcePath);
@@ -1304,6 +1304,15 @@ export function moveFileAtomic(sourcePath, targetPath, render, options) {
       }
       return { ...item, snapshot };
     });
+    // Read-only participants (see `mutateFileSet`). Checked before the
+    // transaction manifest exists, so a guard conflict can never leave a
+    // transaction to recover from.
+    for (const guard of guards) {
+      const snapshot = snapshotFile(guard.path);
+      if (guard.expectedContent !== undefined && snapshot.content !== guard.expectedContent) {
+        throw new MutationConflictError(`File changed while the move mutation set was being prepared: ${snapshot.path}`);
+      }
+    }
     for (const item of creations) {
       if (existsSync(item.path)) throw new MutationConflictError(`Destination already exists: ${path.resolve(item.path)}`);
     }
@@ -1627,9 +1636,30 @@ export function moveFileAtomic(sourcePath, targetPath, render, options) {
   });
 }
 
-export function mutateFileSet({ updates = [], creations = [] }, options) {
-  const paths = [...updates.map(item => item.path), ...creations.map(item => item.path)];
+// `guards` are read-only participants: files the mutation's VALIDITY depends on
+// but that it never writes. They take part in locking and in the same
+// compare-and-swap as `updates`, so a mutation decided from a file it doesn't
+// modify cannot land after that file changed underneath it.
+//
+// Without this, a decision read and the write it justifies are two separate
+// steps with nothing holding the gap. A claim that adopts an already-in-session
+// plan writes only the ownership record — so a concurrent `set` releasing that
+// plan could win the status write while the claim still took ownership, leaving
+// a record that owns a plan the file says is `active`. A no-op update on the
+// plan file would close the gap too, but it would rewrite bytes and report the
+// plan as changed to anything counting touched files. A guard says what is meant.
+export function mutateFileSet({ updates = [], creations = [], guards = [] }, options) {
+  const paths = [...updates.map(item => item.path), ...creations.map(item => item.path), ...guards.map(item => item.path)];
   return withPathLocks(paths, options, () => {
+    // Guards are pure preconditions, so they are checked before anything at all
+    // is created — a guard conflict must leave the tree byte-identical, not even
+    // an empty directory behind.
+    for (const guard of guards) {
+      const snapshot = snapshotFile(guard.path);
+      if (guard.expectedContent !== undefined && snapshot.content !== guard.expectedContent) {
+        throw new MutationConflictError(`File changed while the mutation set was being prepared: ${snapshot.path}`);
+      }
+    }
     const createdDirectories = [];
     for (const item of creations) {
       const directory = path.dirname(item.path);
@@ -1654,7 +1684,7 @@ export function mutateFileSet({ updates = [], creations = [] }, options) {
     for (const item of creations) {
       if (existsSync(item.path)) throw new MutationConflictError(`Destination already exists: ${path.resolve(item.path)}`);
     }
-    options.testHooks?.afterSetPreflight?.({ updates: preparedUpdates, creations });
+    options.testHooks?.afterSetPreflight?.({ updates: preparedUpdates, creations, guards });
 
     const committedUpdates = [];
     const committedCreations = [];

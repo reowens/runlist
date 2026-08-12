@@ -4,10 +4,11 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { spawn, spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
-import { beginClaimHookDelivery, canonicalPlanIdentity, canonicalizePathEntrySpelling, classifyPlanPickup, readPlanOwnership } from '../src/pickup.mjs';
+import { beginClaimHookDelivery, canonicalPlanIdentity, canonicalizePathEntrySpelling, classifyPlanPickup, preparePlanClaim, readPlanOwnership } from '../src/pickup.mjs';
 import { resolveConfig } from '../src/config.mjs';
 import { buildIndex } from '../src/index.mjs';
 import { completePlanClaim, pickupCandidates, runArchive, runSet, startPlan } from '../src/lifecycle.mjs';
+import { mutateFileSet } from '../src/atomic-mutation.mjs';
 import { consumePrompt } from '../src/prompts.mjs';
 import { runBaton } from '../src/baton.mjs';
 
@@ -163,6 +164,43 @@ describe('durable lifecycle ownership', () => {
       const retry = run(['use', file], record.sessionId);
       strictEqual(retry.status, 0, `${results.map(result => result.stderr).join('\n')}\nretry: ${retry.stderr}`);
     }
+  });
+
+  // The deterministic half of the race above. That test drives two real
+  // processes and can only observe whichever interleaving the scheduler happens
+  // to produce; it flaked on CI for months precisely because the losing
+  // interleaving was REAL — an adopt-shaped claim (plan already in-session, so
+  // nothing to render) wrote only the ownership record, and neither locked nor
+  // compare-and-swapped the plan file its decision came from. A concurrent
+  // `set active` landing in that window produced a record owning a plan the file
+  // called `active`. This drives the seam directly, so the invariant is pinned
+  // by construction instead of by timing.
+  it('refuses an adopt claim when the plan changed after the claim was prepared', async () => {
+    setup();
+    const file = plan('adopt-window', 'in-session');
+    const config = await resolveConfig(tmp);
+    const raw = readFileSync(file, 'utf8');
+    const prepared = preparePlanClaim({
+      filePath: file, sourceContent: raw, renderedContent: null,
+      ownership: readPlanOwnership('docs/plans/adopt-window.md', config),
+      sessionId: 'B', now: new Date().toISOString(), config,
+    });
+    ok(prepared.guards.some(guard => path.resolve(guard.path) === path.resolve(file)),
+      'an adopt claim carries the plan file as a read-only guard');
+
+    // The other session's release lands in the window between B's read and B's write.
+    writeFileSync(file, raw.replace('status: in-session', 'status: active'));
+
+    throws(
+      () => mutateFileSet(
+        { updates: prepared.updates, creations: prepared.creations, guards: prepared.guards },
+        { repoRoot: config.repoRoot },
+      ),
+      /changed while the mutation set was being prepared/,
+    );
+    ok(!existsSync(path.join(tmp, '.dotmd', 'ownership')),
+      'a refused claim leaves no record — and no empty directory — behind');
+    match(readFileSync(file, 'utf8'), /^status: active$/m);
   });
 
   it('fails safe on ownership corruption and permits explicit forced recovery', () => {

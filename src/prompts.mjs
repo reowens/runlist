@@ -289,6 +289,10 @@ export async function consumePrompt(filePath, config, opts) {
     skipInboundRefs: true,
     additionalUpdates: linkedClaim?.prepared?.updates,
     creations: linkedClaim?.prepared?.creations,
+    // An adopt-shaped claim writes no plan content, so the plan file rides
+    // along as a read-only guard — the claim is only valid while the plan still
+    // says what the disposition was read from.
+    guards: linkedClaim?.prepared?.guards,
   });
   const consumedBody = archiveResult?.consumedBody ?? body;
 

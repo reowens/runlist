@@ -2,6 +2,31 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- **A forced takeover could end up owning a plan the file no longer calls
+  in-session.** An `adopt`-shaped claim (`dotmd use --force` on a plan that is
+  already `in-session`, or adopting an unowned legacy one) renders no new plan
+  content, so its mutation set held only the ownership record — it neither
+  locked nor compare-and-swapped the plan file its decision came from. A
+  concurrent `dotmd set active` landing in that window won the status write while
+  the claim still took ownership, leaving a record owning a plan whose
+  frontmatter said `active`. The claim now carries the plan file as a read-only
+  **guard**, so it is refused if the plan changed after the claim was prepared.
+  This was the cause of the `pickup-ownership` race test failing intermittently
+  on CI (3 of the last 8 runs on `main`, across four different Node legs): the
+  test was right and the product was racy, not the other way round.
+- `mutateFileSet` and `moveFileAtomic` accept `guards` — read-only participants
+  that take part in locking and in the same compare-and-swap as `updates` but are
+  never written. They express "this mutation is only valid while that file still
+  says what I read", which a no-op update would fake at the cost of rewriting
+  bytes and reporting the file as changed. A guard conflict is detected before
+  anything is created, so it leaves the tree byte-identical — not even an empty
+  directory behind — and, in the move path, before the transaction manifest
+  exists, so it can never leave a transaction to recover from.
+
 ## 0.74.0 — 2026-08-12
 
 ### Added

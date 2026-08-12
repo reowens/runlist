@@ -258,19 +258,28 @@ export function preparePlanClaim({ filePath, sourceContent, renderedContent, own
   const content = recordContent({ identity, sessionId, state: 'owned', now,
     claimedAt: ownership && !ownership.corrupt ? ownership.claimedAt : null, operation });
   const updates = [];
+  const guards = [];
   if (renderedContent !== null && renderedContent !== sourceContent) {
     updates.push({ path: filePath, expectedContent: sourceContent, content: renderedContent });
+  } else {
+    // An `adopt` claim writes only the ownership record — the plan is already
+    // `in-session`, so there is nothing to render. The DECISION still rests on
+    // the plan's status, which was read before this mutation was prepared, so
+    // the plan file joins as a read-only guard. Without it, a concurrent
+    // `set active` could win the status write while this claim takes ownership,
+    // leaving a record that owns a plan the file calls `active`.
+    guards.push({ path: filePath, expectedContent: sourceContent });
   }
   const creations = [];
   if (ownership) updates.push({ path: recordPath, expectedContent: ownership.raw, content });
   else creations.push({ path: recordPath, content });
-  return { identity, recordPath, updates, creations, operationId };
+  return { identity, recordPath, updates, creations, guards, operationId };
 }
 
 export function commitPlanClaim(args) {
   const prepared = preparePlanClaim(args);
   mkdirSync(path.dirname(prepared.recordPath), { recursive: true });
-  mutateFileSet({ updates: prepared.updates, creations: prepared.creations }, {
+  mutateFileSet({ updates: prepared.updates, creations: prepared.creations, guards: prepared.guards }, {
     repoRoot: args.config.repoRoot,
     testHooks: args.testHooks,
   });

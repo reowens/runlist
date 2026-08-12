@@ -107,6 +107,7 @@ function commitLifecycleMutation(filePath, targetPath, config, updates, historyF
         }),
       })), ...additionalUpdates],
       creations: options.creations ?? [],
+      guards: options.guards ?? [],
       gitMove: tracked,
       gitIndex,
       operation: 'lifecycle-move',
@@ -115,12 +116,13 @@ function commitLifecycleMutation(filePath, targetPath, config, updates, historyF
     });
     return { ...result, sourceContent: moveResult.source.content, updatedPaths: moveResult.updatedPaths };
   }
-  if ((options.additionalUpdates?.length ?? 0) > 0 || (options.creations?.length ?? 0) > 0) {
+  if ((options.additionalUpdates?.length ?? 0) > 0 || (options.creations?.length ?? 0) > 0 || (options.guards?.length ?? 0) > 0) {
     const sourceContent = readFileSync(filePath, 'utf8');
     const result = render(sourceContent);
     mutateFileSet({
       updates: [{ path: filePath, expectedContent: sourceContent, content: result.content }, ...(options.additionalUpdates ?? [])],
       creations: options.creations ?? [],
+      guards: options.guards ?? [],
     }, { repoRoot: config.repoRoot, testHooks: options.testHooks });
     return { ...result, sourceContent, updatedPaths: [] };
   }
@@ -767,6 +769,7 @@ export function runArchive(argv, config, opts = {}) {
         createSection: Boolean(note),
         additionalUpdates: [...(opts.additionalUpdates ?? []), ...(releaseUpdate ? [releaseUpdate] : [])],
         creations: opts.creations,
+        guards: opts.guards,
         testHooks: opts.testHooks,
       });
     if (!noIndex && !opts.deferIndex) regenIndex(config);
@@ -833,6 +836,7 @@ export function runArchive(argv, config, opts = {}) {
       testHooks: opts.testHooks,
       additionalUpdates: [...(opts.additionalUpdates ?? []), ...(releaseUpdate ? [releaseUpdate] : [])],
       creations: opts.creations,
+      guards: opts.guards,
       skipInboundRefs: opts.skipInboundRefs,
       bodyTransform: closeoutTemplate ? currentBody => {
         committedCloseoutAction = planCloseoutInjection(currentBody);
