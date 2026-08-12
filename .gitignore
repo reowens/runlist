@@ -31,3 +31,7 @@ Thumbs.db
 pnpm-lock.yaml
 yarn.lock
 .dotmd/
+
+# Live saved-prompt queue — session-local, never committed. The single `*` stops
+# at the directory on purpose: docs/prompts/archived/ is the committed record.
+/docs/prompts/*.md

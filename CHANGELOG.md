@@ -2,6 +2,30 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- `dotmd init` now leaves a committable file in each type subdirectory: a sample
+  `docs/plans/example-plan.md` (status `planned`, and it says how to delete
+  itself) and `docs/prompts/.gitkeep`. Git cannot track an empty directory, so
+  both scaffolded dirs previously existed only on the machine that ran init and
+  vanished for the next clone. Only ever written into a genuinely empty dir —
+  re-running init over a real estate never seeds a sample, and deleting the
+  sample sticks.
+- `dotmd init` adds `<docs>/prompts/*.md` to `.gitignore` alongside `.dotmd/`.
+  The live saved-prompt queue is session-local by design and the workflow docs
+  said never to commit it, but nothing enforced that — a plain `git add -A` from
+  any session swept the queue into the repo. The single `*` stops at the
+  directory on purpose: `prompts/archived/` is the committed historical record
+  and stays tracked.
+
+### Fixed
+
+- `dotmd init` renders the document index against what it just scaffolded
+  instead of shipping a "no docs yet" placeholder that the sample plan
+  immediately contradicted. A fresh init is now warning-free on first `check`.
+
 ## 0.72.0 — 2026-08-12
 
 ### Added

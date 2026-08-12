@@ -67,6 +67,55 @@ export const referenceFields = {
 };
 `;
 
+// A git repository cannot hold an empty directory, so scaffolding `docs/plans/`
+// and `docs/prompts/` and stopping there means both vanish for the next clone —
+// `dotmd init` produced three committable files and two directories that existed
+// only on the machine that ran it.
+//
+// plans/ gets a real sample rather than a keepfile: it is the one place a new user
+// benefits from seeing the frontmatter shape before running `dotmd new`. It is
+// written `status: planned` so it sits quietly in the pipeline instead of posing
+// as live work, and it says how to delete itself.
+//
+// prompts/ gets a keepfile instead, and cannot get a sample: the live queue is
+// gitignored by the rule this same command writes, and a committed prompt at
+// `status: pending` would be silently consumed by the next no-arg `dotmd use`.
+const SAMPLE_PLAN_NAME = 'example-plan.md';
+const samplePlan = (today) => `---
+type: plan
+status: planned
+created: ${today}
+updated: ${today}
+title: Example Plan
+summary: A scaffolded sample showing what a dotmd plan looks like — safe to delete.
+current_state: "Scaffolded by \`dotmd init\` as a shape reference. Nothing here is real work."
+next_step: "Delete this file, or edit it into your first real plan."
+---
+
+# Example Plan
+
+> A scaffolded sample showing what a dotmd plan looks like — safe to delete.
+
+## Problem
+
+\`dotmd init\` leaves this file behind so \`docs/plans/\` survives a clone (git cannot
+track an empty directory) and so the frontmatter above has something to point at.
+
+The fields that matter: \`status\` drives every listing, \`current_state\` and
+\`next_step\` are what \`dotmd briefing\` reads out, and \`updated\` drives staleness.
+Never hand-edit \`status:\` — \`dotmd set <status> <file>\` writes it, validates it
+against the type, and runs the lifecycle hooks.
+
+## Phases
+
+- [ ] Delete this file: \`dotmd archive docs/plans/${SAMPLE_PLAN_NAME}\`
+- [ ] Write a real one: \`dotmd new plan <name>\`
+
+## Version History
+
+- Scaffolded by \`dotmd init\`.
+`;
+
 const STARTER_INDEX = `# Docs
 
 <!-- GENERATED:dotmd:start -->
@@ -290,6 +339,21 @@ export async function runInit(cwd, config, opts = {}) {
       if (!dryRun) mkdirSync(subPath, { recursive: true });
       process.stdout.write(`  ${dryTag}${green('create')}  docs/${sub}/\n`);
     }
+
+    // Give the directory something git can carry — but only when it is genuinely
+    // empty. Re-running init over a populated tree must never drop a sample plan
+    // into someone's real estate.
+    const keeper = sub === 'plans'
+      ? { file: SAMPLE_PLAN_NAME, body: samplePlan(new Date().toISOString().slice(0, 10)) }
+      : { file: '.gitkeep', body: '' };
+    const keeperPath = path.join(subPath, keeper.file);
+    const dirIsEmpty = !existsSync(subPath) || readdirSync(subPath).length === 0;
+    if (existsSync(keeperPath)) {
+      process.stdout.write(`  ${dryTag}${dim('exists')}  docs/${sub}/${keeper.file}\n`);
+    } else if (dirIsEmpty || dryRun) {
+      if (!dryRun) writeFileSync(keeperPath, keeper.body, 'utf8');
+      process.stdout.write(`  ${dryTag}${green('create')}  docs/${sub}/${keeper.file}\n`);
+    }
   }
 
   if (existsSync(indexPath)) {
@@ -313,21 +377,38 @@ export async function runInit(cwd, config, opts = {}) {
     process.stdout.write(`                 export const root = [${subs.map(s => `'${s}'`).join(', ')}];\n`);
   }
 
-  // .gitignore: ensure .dotmd/ is ignored (session ownership records live there)
+  // .gitignore: two rules.
+  //
+  //   .dotmd/                 — session ownership records
+  //   <docs>/prompts/*.md     — the LIVE saved-prompt queue
+  //
+  // The second one is load-bearing. Saved prompts are session-local by design and
+  // the workflow docs say never to commit them, but nothing enforced that: a plain
+  // `git add -A` from any session swept the queue into the repo. Scoped with a
+  // single `*` so it stops at the directory — `prompts/archived/` is the committed
+  // historical record and must stay tracked. Anchored with a leading `/` so a
+  // `prompts/` directory elsewhere in the tree is unaffected.
   const gitignorePath = path.join(cwd, '.gitignore');
-  const ignoreLine = '.dotmd/';
+  const docsRel = path.relative(cwd, docsDir).split(path.sep).join('/');
+  const promptsIgnore = `/${docsRel ? `${docsRel}/` : ''}prompts/*.md`;
+  const ignoreRules = [
+    { line: '.dotmd/', accepts: (l) => l === '.dotmd/' || l === '.dotmd' },
+    { line: promptsIgnore, accepts: (l) => l === promptsIgnore || l === promptsIgnore.slice(1) },
+  ];
   if (existsSync(gitignorePath)) {
     const current = readFileSync(gitignorePath, 'utf8');
-    const has = current.split('\n').some(l => l.trim() === ignoreLine || l.trim() === '.dotmd');
-    if (!has) {
+    const present = new Set(current.split('\n').map(l => l.trim()));
+    const missing = ignoreRules.filter(r => ![...present].some(l => r.accepts(l)));
+    if (missing.length) {
       const sep = current.endsWith('\n') ? '' : '\n';
-      if (!dryRun) writeFileSync(gitignorePath, `${current}${sep}${ignoreLine}\n`, 'utf8');
-      process.stdout.write(`  ${dryTag}${green('update')}  .gitignore (+${ignoreLine})\n`);
+      const added = missing.map(r => `${r.line}\n`).join('');
+      if (!dryRun) writeFileSync(gitignorePath, `${current}${sep}${added}`, 'utf8');
+      process.stdout.write(`  ${dryTag}${green('update')}  .gitignore (+${missing.map(r => r.line).join(', ')})\n`);
     } else {
       process.stdout.write(`  ${dryTag}${dim('exists')}  .gitignore\n`);
     }
   } else {
-    if (!dryRun) writeFileSync(gitignorePath, `${ignoreLine}\n`, 'utf8');
+    if (!dryRun) writeFileSync(gitignorePath, ignoreRules.map(r => `${r.line}\n`).join(''), 'utf8');
     process.stdout.write(`  ${dryTag}${green('create')}  .gitignore\n`);
   }
 
@@ -394,6 +475,30 @@ export async function runInit(cwd, config, opts = {}) {
       process.stdout.write(`              "hooks": { "SessionStart": [\n`);
       process.stdout.write(`                { "hooks": [{ "type": "command", "command": "dotmd hud" }] }\n`);
       process.stdout.write(`              ] }\n`);
+    }
+  }
+
+  // Render the index against what we just scaffolded.
+  //
+  // `docs.md` ships a "no docs yet" placeholder, which stopped being true the
+  // moment this command also started writing a sample plan — so a fresh init
+  // committed an index that contradicted the tree beside it, and the user's first
+  // `dotmd check` opened with a stale-index warning. The config passed into
+  // runInit predates the file we just wrote, so re-resolve before rendering.
+  //
+  // Best-effort: a repo that scaffolds correctly but cannot render its index is
+  // still a successful init, and the next command regenerates it anyway.
+  if (!dryRun) {
+    try {
+      const { resolveConfig } = await import('./config.mjs');
+      const freshConfig = await resolveConfig(cwd);
+      if (freshConfig.indexPath) {
+        const { buildIndex } = await import('./index.mjs');
+        const { writeRenderedIndex } = await import('./index-file.mjs');
+        writeRenderedIndex(() => buildIndex(freshConfig, { fast: true }), freshConfig);
+      }
+    } catch {
+      // Leave the placeholder; `dotmd check` self-heals it on first run.
     }
   }
 

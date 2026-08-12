@@ -611,3 +611,101 @@ describe('init Claude integration', () => {
       `should stay silent about SessionStart when .claude/ is absent; got: ${result.stdout}`);
   });
 });
+
+describe('init scaffold survives a clone', () => {
+  // A git repo cannot hold an empty directory. Before this, `dotmd init` created
+  // docs/plans/ and docs/prompts/ and left nothing in either, so both existed only
+  // on the machine that ran init and vanished for the next clone.
+  function freshInit() {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    const result = run(['init']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    return result;
+  }
+
+  it('leaves a committable file in both type subdirs', () => {
+    freshInit();
+    ok(existsSync(path.join(tmpDir, 'docs', 'plans', 'example-plan.md')));
+    ok(existsSync(path.join(tmpDir, 'docs', 'prompts', '.gitkeep')));
+  });
+
+  it('the sample plan passes check with no warnings', () => {
+    freshInit();
+    const check = run(['check']);
+    strictEqual(check.status, 0, `stderr: ${check.stderr}`);
+    ok(check.stdout.includes('warnings: 0'), `fresh init must be clean: ${check.stdout}`);
+  });
+
+  it('renders the index against the sample instead of shipping "no docs yet"', () => {
+    freshInit();
+    const index = readFileSync(path.join(tmpDir, 'docs', 'docs.md'), 'utf8');
+    ok(!index.includes('No docs yet'), `stale placeholder survived: ${index}`);
+    ok(index.includes('example-plan'), `index should list the sample: ${index}`);
+  });
+
+  it('never drops a sample into a populated plans dir', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, 'docs', 'plans'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'docs', 'plans', 'real.md'),
+      '---\ntype: plan\nstatus: active\ntitle: Real\nupdated: 2026-01-01\n---\n\n# Real\n\n> Real work.\n');
+    run(['init']);
+    ok(!existsSync(path.join(tmpDir, 'docs', 'plans', 'example-plan.md')),
+      'init must not seed a sample into an estate that already has plans');
+  });
+
+  it('does not re-create a sample the user deleted', () => {
+    freshInit();
+    rmSync(path.join(tmpDir, 'docs', 'plans', 'example-plan.md'));
+    writeFileSync(path.join(tmpDir, 'docs', 'plans', 'mine.md'),
+      '---\ntype: plan\nstatus: active\ntitle: Mine\nupdated: 2026-01-01\n---\n\n# Mine\n\n> Mine.\n');
+    run(['init']);
+    ok(!existsSync(path.join(tmpDir, 'docs', 'plans', 'example-plan.md')),
+      'deleting the sample must stick');
+  });
+});
+
+describe('init gitignores the live prompt queue', () => {
+  it('writes both rules on a fresh init', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    run(['init']);
+    const gi = readFileSync(path.join(tmpDir, '.gitignore'), 'utf8').split('\n').map(l => l.trim());
+    ok(gi.includes('.dotmd/'), gi.join('|'));
+    ok(gi.includes('/docs/prompts/*.md'), gi.join('|'));
+  });
+
+  // The rule must stop at the directory: archived prompts are the committed record.
+  it('ignores the live queue but not archived prompts', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    run(['init']);
+    spawnSync('git', ['init', '-q'], { cwd: tmpDir });
+    mkdirSync(path.join(tmpDir, 'docs', 'prompts', 'archived'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'docs', 'prompts', 'live.md'), 'x');
+    writeFileSync(path.join(tmpDir, 'docs', 'prompts', 'archived', 'old.md'), 'x');
+    const ignored = (p) => spawnSync('git', ['check-ignore', p], { cwd: tmpDir }).status === 0;
+    ok(ignored('docs/prompts/live.md'), 'live queue must be ignored');
+    ok(!ignored('docs/prompts/archived/old.md'), 'archived prompts must stay tracked');
+  });
+
+  it('appends only the missing rule to an existing .gitignore', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    writeFileSync(path.join(tmpDir, '.gitignore'), 'node_modules/\n.dotmd/\n');
+    run(['init']);
+    const gi = readFileSync(path.join(tmpDir, '.gitignore'), 'utf8');
+    strictEqual(gi.split('\n').filter(l => l.trim() === '.dotmd/').length, 1, `no duplicate: ${gi}`);
+    ok(gi.includes('/docs/prompts/*.md'), gi);
+  });
+
+  it('is idempotent across repeated inits', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    run(['init']);
+    run(['init']);
+    const gi = readFileSync(path.join(tmpDir, '.gitignore'), 'utf8');
+    strictEqual(gi.split('\n').filter(l => l.trim() === '/docs/prompts/*.md').length, 1, gi);
+  });
+});
