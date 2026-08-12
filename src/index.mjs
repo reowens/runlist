@@ -9,6 +9,7 @@ import { checkIndex } from './index-file.mjs';
 import { checkClaudeCommands } from './claude-commands.mjs';
 import { checkGlossaryConfig } from './glossary-check.mjs';
 import { checkSkillDrift } from './skill-drift.mjs';
+import { checkHubStatusDrift } from './sync-status.mjs';
 
 // `fast: true` skips every pass that produces warnings/errors — the rendered
 // index file consumes only status/title/snapshot/etc., not the validation
@@ -115,6 +116,20 @@ export function buildIndex(config, opts = {}) {
     });
     warnings.push(...indexCheck.warnings);
     errors.push(...indexCheck.errors);
+  }
+
+  // Hub status drift produces ERRORS (a drifted marked span), so it runs in
+  // errorsOnly mode too — that's what keeps `dotmd hud`'s error count equal to
+  // `dotmd check`'s. Its warnings still obey the warning-only gate.
+  if (!fast) {
+    const hubStatus = checkHubStatusDrift(transformedDocs, config);
+    errors.push(...hubStatus.errors);
+    if (!skipWarningOnlyChecks) warnings.push(...hubStatus.warnings);
+    for (const entry of [...hubStatus.errors, ...(skipWarningOnlyChecks ? [] : hubStatus.warnings)]) {
+      const hub = transformedDocs.find(d => d.path === entry.path);
+      if (!hub) continue;
+      (entry.level === 'error' ? hub.errors : hub.warnings).push(entry);
+    }
   }
 
   if (!skipWarningOnlyChecks) {

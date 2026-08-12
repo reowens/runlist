@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fixBrokenRefs } from './fix-refs.mjs';
 import { runLint } from './lint.mjs';
+import { syncHubStatuses } from './sync-status.mjs';
 import { runTouch } from './lifecycle.mjs';
 import { buildIndex, collectDocFiles } from './index.mjs';
 import { writeRenderedIndex } from './index-file.mjs';
@@ -157,13 +158,22 @@ export function runDoctor(argv, config, opts = {}) {
   process.stdout.write('\n' + bold('3. Fixing long frontmatter...') + '\n');
   runFrontmatterFix(config, { dryRun });
 
-  // Step 4: Sync dates from git
-  process.stdout.write('\n' + bold('4. Syncing dates from git...') + '\n');
+  // Step 4: Rewrite hub rows whose printed status drifted from the plan they
+  // link to. Tokens only — adding markers is a content edit to prose the user
+  // wrote, so it stays opt-in behind `dotmd sync-status --adopt`.
+  process.stdout.write('\n' + bold('4. Syncing hub status rows...') + '\n');
+  const hubSync = syncHubStatuses(config, { docs: buildIndex(config).docs, dryRun });
+  if (hubSync.fixed === 0 && hubSync.adopted === 0 && hubSync.unreadable === 0) {
+    process.stdout.write('Hub status rows are in sync.\n');
+  }
+
+  // Step 5: Sync dates from git
+  process.stdout.write('\n' + bold('5. Syncing dates from git...') + '\n');
   runTouch(['--git'], config, { dryRun });
 
-  // Step 5: Regenerate index. Heading always prints so numbering remains
+  // Step 6: Regenerate index. Heading always prints so numbering remains
   // contiguous even when `index.path` isn't configured.
-  process.stdout.write('\n' + bold('5. Regenerating index...') + '\n');
+  process.stdout.write('\n' + bold('6. Regenerating index...') + '\n');
   if (!config.indexPath) {
     process.stdout.write('No index path configured (skip).\n');
   } else if (dryRun) {
@@ -173,11 +183,11 @@ export function runDoctor(argv, config, opts = {}) {
     process.stdout.write('Index updated.\n');
   }
 
-  // Step 6: Clean up retired Claude Code command scaffolding. The per-repo
+  // Step 7: Clean up retired Claude Code command scaffolding. The per-repo
   // `.claude/commands/{plans,docs}.md` files are superseded by the dotmd plugin
   // skill; doctor sweeps any leftover banner-stamped (dotmd-generated) files.
   // Always print the heading so the numbering remains contiguous.
-  process.stdout.write('\n' + bold('6. Claude Code commands:') + '\n');
+  process.stdout.write('\n' + bold('7. Claude Code commands:') + '\n');
   if (dryRun) {
     const wouldRemove = removeGeneratedSlashCommands(config.repoRoot, { dryRun: true });
     if (wouldRemove.length === 0) {
@@ -198,8 +208,8 @@ export function runDoctor(argv, config, opts = {}) {
     }
   }
 
-  // Step 7: Show remaining check
-  const issueLabel = dryRun ? '7. Remaining issues in current tree (preview fixes above were not applied):' : '7. Remaining issues:';
+  // Step 8: Show remaining check
+  const issueLabel = dryRun ? '8. Remaining issues in current tree (preview fixes above were not applied):' : '8. Remaining issues:';
   process.stdout.write('\n' + bold(issueLabel) + '\n');
   const freshIndex = buildIndex(config);
   process.stdout.write(renderCheck(freshIndex, config));

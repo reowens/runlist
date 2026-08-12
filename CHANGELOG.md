@@ -2,6 +2,45 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- **Hub status drift is now a check.** A runlist / coordination / roadmap hub
+  rows its children in a table and prints each child's status by hand, and
+  nothing kept that word honest: the child goes `archived`, the hub still says
+  `active`, and every later reader plans against a status that stopped being
+  true. `dotmd check` now reads the status beside each row's link and compares it
+  with the plan's real status. Everything it needs was already owned by dotmd —
+  the vocabulary comes from `types.<type>.statuses` resolved against the
+  *child's* own type, the link goes through `resolveRefPath`, the status comes
+  from the index, and a child under the archive dir counts as archived whatever
+  its frontmatter says.
+- `dotmd sync-status [<hub>...] [--adopt] [--dry-run] [--json]` rewrites the rows
+  that drifted. Case is preserved (`Active` stays capitalized) and nothing else
+  in the cell is touched — the prose beside the status is why the row exists.
+  `dotmd check --fix` and `dotmd doctor` rewrite status tokens too; only
+  `--adopt` **adds** `<!--s-->…<!--/s-->` markers, because wrapping a word is a
+  content edit to prose the user wrote.
+- Detection is positional and needs no adoption pass: strip HTML comments, take
+  the cell's leading token, match the vocabulary. Measured against 472 already-
+  marked rows in a real estate, that agrees with the marked span 96% of the time
+  and picks a wrong token zero times — every miss leaves a leading word outside
+  the vocabulary, so it declines rather than rewriting confidently. A
+  `<!--s-->active<!--/s-->` marker pins the remaining 4% (a status sitting behind
+  a bolded headline).
+- Drift **warns** when the token was inferred and **errors** when it sits in a
+  marker, instead of adding a config knob: `dotmd check` exits 0 on warnings and
+  1 on errors, so a positional match nudges while a marked span — the author
+  declaring dotmd owns that word — fails the check. No repo that never asked for
+  this starts failing builds over an inference.
+- A row with no readable status is split three ways, not lumped together: a
+  table with **no status column** is a pointer row and stays silent; a row under
+  a `Status`/`State` column whose cell holds no readable status **warns** (that
+  row opts out of the invariant invisibly, and it is where real drift hides); a
+  readable token is compared. Collapsing those floods correct hubs with false
+  positives.
+
 ## 0.72.1 — 2026-08-12
 
 ### Added

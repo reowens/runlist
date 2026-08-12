@@ -283,7 +283,7 @@ describe('doctor command', () => {
     strictEqual(after, before, 'file must be untouched when --dry-run wins');
   });
 
-  it('numbered steps are contiguous (1 through 7)', () => {
+  it('numbered steps are contiguous (1 through 8)', () => {
     // Pre-fix: step 5's heading was conditional on having Claude command
     // changes to report. On a repo with no `.claude/` dir (or already-current
     // commands), `5.` was silently skipped — output went `1, 2, 3, 4, 6` and
@@ -301,16 +301,16 @@ describe('doctor command', () => {
 
     const result = run(['doctor']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-    // Verify all seven step headings appear in order.
-    const steps = ['1.', '2.', '3.', '4.', '5.', '6.', '7.'];
+    // Verify all eight step headings appear in order.
+    const steps = ['1.', '2.', '3.', '4.', '5.', '6.', '7.', '8.'];
     let lastIdx = -1;
     for (const step of steps) {
       const idx = result.stdout.indexOf(step);
       ok(idx > lastIdx, `step ${step} should appear in order; got: ${result.stdout}`);
       lastIdx = idx;
     }
-    ok(result.stdout.includes('6. Claude Code commands'),
-      `step 6 heading should print even with no .claude/ dir; got: ${result.stdout}`);
+    ok(result.stdout.includes('7. Claude Code commands'),
+      `step 7 heading should print even with no .claude/ dir; got: ${result.stdout}`);
   });
 
   it('briefing Errors line hints at `dotmd check` when errors exist', () => {

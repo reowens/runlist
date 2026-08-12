@@ -416,6 +416,16 @@ export function classifyIssueAction(issue) {
   const message = issue?.message ?? '';
   const file = issue?.path ?? '<file>';
 
+  // Hub status rows carry a `meta.kind`, so classify them by that rather than by
+  // re-matching their prose. Drift is mechanically fixable; an unreadable cell
+  // is not — nothing can guess which word in it was meant to be the status.
+  if (issue?.meta?.kind === 'hub-status-drift') {
+    return { action: 'dotmd sync-status', fixable: true, label: 'hub status drift' };
+  }
+  if (issue?.meta?.kind === 'hub-status-unreadable') {
+    return { action: `edit ${file}: lead the status cell with the status word, or wrap it in <!--s-->…<!--/s-->`, fixable: false, label: 'hub status rows' };
+  }
+
   if (/Missing frontmatter `status`/.test(message)) {
     return { action: `dotmd bulk-tag ${file}`, fixable: false, label: 'missing status' };
   }

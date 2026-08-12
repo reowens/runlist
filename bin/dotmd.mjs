@@ -205,6 +205,7 @@ Validate & Fix:
   self-check                        Project/version skew diagnostic (alias: doctor --project)
   lint [--fix]                      Check and auto-fix frontmatter issues
   fix-refs [--dry-run]              Auto-fix broken reference paths + body links
+  sync-status [<hub>...] [--adopt]  Rewrite hub table rows whose printed status drifted from the plan
 
 Lifecycle:
   use <file>                        Open a plan (mark in-session + print it) or consume a prompt
@@ -771,6 +772,29 @@ Modes:
 --apply (or --yes) opts into writes for the default auto-fix pass.
 Sub-modes (--statuses, --migrate-*, --frontmatter-fix, --project) keep their
 existing contracts: they write by default and honor --dry-run.`,
+
+  'sync-status': `dotmd sync-status — rewrite hub rows whose printed status drifted
+
+A runlist / coordination / roadmap hub rows its children in a table and prints
+each child's status by hand. This sweeps every hub, compares each row's status
+word against the plan it links to, and rewrites the ones that drifted. Case is
+preserved (\`Active\` stays capitalized), and nothing else in the cell is touched.
+
+  dotmd sync-status                  every hub in the repo (the normal case)
+  dotmd sync-status <hub>...         narrow to named hubs
+  dotmd sync-status --adopt          also wrap managed status words in <!--s-->…<!--/s-->
+  dotmd sync-status --dry-run --json
+
+The status word is found positionally — comments stripped, cell's leading token,
+matched against the vocabulary the CHILD's type declares — so no marker is
+needed. A marker pins the span for the rows position can't read (a status sitting
+behind a bolded headline). \`dotmd check\` warns on positional drift and ERRORS on
+marked drift: the marker is the author saying dotmd owns that word.
+
+Rows under a status column with no readable status word are reported by
+\`dotmd check\` and left alone here; rows in a table with no status column at all
+are not findings. Not to be confused with \`dotmd set <status>\`, which changes a
+document's OWN status — this only rewrites what a hub prints about others.`,
 
   'fix-refs': `dotmd fix-refs — auto-fix broken reference paths
 
@@ -1701,6 +1725,7 @@ async function main() {
   if (command === 'rename') { const { runRename } = await import('../src/rename.mjs'); await runRename(restArgs, config, { dryRun }); return; }
   if (command === 'migrate') { const { runMigrate } = await import('../src/migrate.mjs'); runMigrate(restArgs, config, { dryRun }); return; }
   if (command === 'fix-refs') { const { runFixRefs } = await import('../src/fix-refs.mjs'); runFixRefs(restArgs, config, { dryRun }); return; }
+  if (command === 'sync-status') { const { runSyncStatus } = await import('../src/sync-status.mjs'); await runSyncStatus(restArgs, config, { dryRun }); return; }
   if (command === 'self-check') {
     const { runDoctor } = await import('../src/doctor.mjs');
     runDoctor(['--project', ...restArgs], config, { dryRun });
@@ -1811,8 +1836,12 @@ async function main() {
       // Auto-fix: broken refs, then lint, then rebuild index
       const { fixBrokenRefs } = await import('../src/fix-refs.mjs');
       const { runLint } = await import('../src/lint.mjs');
+      const { syncHubStatuses } = await import('../src/sync-status.mjs');
       fixBrokenRefs(config, { dryRun, quiet: false });
       runLint(['--fix'], config, { dryRun });
+      // Rewrites drifted status TOKENS only. Adding markers is a content edit to
+      // prose the user wrote, so it stays opt-in behind `sync-status --adopt`.
+      syncHubStatuses(config, { docs: buildIndex(config).docs, dryRun, quiet: false });
       if (config.indexPath) {
         if (!dryRun) {
           const { writeRenderedIndex } = await import('../src/index-file.mjs');

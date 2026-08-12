@@ -14,6 +14,7 @@ import {
   toSlug,
   warn,
 } from './util.mjs';
+import { firstRowLink, isCoordinationHub, isRoadmapHub } from './hub.mjs';
 import { resolveDocArg } from './index.mjs';
 import { runlistChildContent, slugify, titleize } from './new.mjs';
 import { bold, cyan, dim, green, red, yellow } from './color.mjs';
@@ -96,38 +97,11 @@ export function buildRunlistIndex(index, config) {
   return { hubs, childToHub };
 }
 
-// A *coordination hub* is a prose-first plan that sits above a cluster of other
-// plans — a "runlist" in the platform sense (master-runlist, ai-runlist, …)
-// rather than a strictly-ordered frontmatter `runlist:` sprint. The signal is
-// already in frontmatter (`execution_mode: coordination`), with the
-// `*-runlist` / `runlist` naming convention as a fallback for the few hubs that
-// predate the field. These plans aren't units of executable work — they're
-// navigation maps — so the triage view tags them and lifts them out of the
-// leaf-plan flow rather than treating them as one more active plan.
-export function isCoordinationHub(doc) {
-  if (!doc) return false;
-  if (doc.type && doc.type !== 'plan') return false;
-  // Broad "held-out navigational hub" predicate: both coordination hubs and the
-  // tier-3 roadmap (`execution_mode: roadmap`) are lifted out of the active count
-  // and into a hub section. `isRoadmapHub` is the finer split the tier-3 views
-  // use to promote a roadmap above the Runlists section; here a roadmap counts as
-  // a coordination hub so all the existing held-out plumbing covers it for free.
-  if (doc.executionMode === 'coordination' || doc.executionMode === 'roadmap') return true;
-  const base = (doc.path.split('/').pop() || '').replace(/\.md$/, '');
-  return base === 'runlist' || base.endsWith('-runlist');
-}
-
-// A *roadmap* is the tier-3 hub: a coordination hub whose children are themselves
-// hubs (runlists / coordination hubs), with progress rolled up across them. The
-// signal is explicit — `execution_mode: roadmap` — with NO slug-convention
-// fallback (unlike coordination hubs' `*-runlist`): there's no naming convention
-// for roadmaps, and `dotmd check` nudges the structural case (a coordination hub
-// that points at other hubs) toward the explicit field rather than auto-promoting.
-export function isRoadmapHub(doc) {
-  if (!doc) return false;
-  if (doc.type && doc.type !== 'plan') return false;
-  return doc.executionMode === 'roadmap';
-}
+// The hub predicates live in `hub.mjs` — a leaf module, so the check pipeline
+// (which runs from `index.mjs`, and can't import this file without a cycle) can
+// share ONE definition of "hub" with the views here. Re-exported so every
+// existing importer keeps reaching them at `runlist.mjs`.
+export { isCoordinationHub, isRoadmapHub };
 
 // Map each coordination hub to a `childCount` derived from its `related_plans:`
 // cluster (resolved against the index; peers/self excluded). It's an
@@ -378,8 +352,11 @@ function detectBodyRunlistRefs(body) {
     for (const rawLine of section.split('\n')) {
       const line = rawLine.trim();
       if (!line.startsWith('|')) continue;
-      const link = linkRe.exec(line);
-      if (link) refs.push(link[1]);
+      // `firstRowLink` is the shared row→target anchor: the hub-status guard
+      // reads the same link out of the same row, so next-pickup and drift
+      // detection can never disagree about which plan a row names.
+      const link = firstRowLink(line);
+      if (link) refs.push(link);
     }
   }
 
