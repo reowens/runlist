@@ -144,6 +144,10 @@ dotmd sync-status --adopt             # also wrap managed status words in <!--s-
 
 Case is preserved (`Active` stays capitalized) and nothing else in the cell is touched — the prose beside the status is why the row exists. `check --fix` and `doctor` rewrite status **tokens** too; only `--adopt` **adds** markers, since wrapping a word is a content edit to prose the user wrote. **Never hand-edit a status word in a hub table** — run `sync-status`, or change the child's status with `dotmd set`.
 
+**Membership drift, both directions.** A hub's children and the plans that claim it via `parent_plan:` are two halves of one relationship, and either half can go stale alone. `dotmd check` warns on the **hub** when a plan claims `parent_plan: <hub>` and the hub references it nowhere (a membership only one side records is invisible to every hub view — fold, rollup, next-pickup all read the hub's half), and on the **child** when a hub's body order (`## Ranked queue` / `## Order of operations`, the list `dotmd runlist next` walks) ranks a plan carrying no `parent_plan:` at all. The membership row is never generated — same constraint as the status guard.
+
+Two silences are deliberate: an ordinary body table is not a membership claim (rowing a plan says "related", not "this hub owns you"), and a ranked plan whose `parent_plan:` names a *different* hub is fine — aggregator hubs legitimately rank plans owned by other programs.
+
 #### Roadmaps (tier-3: composing runlists)
 
 A roadmap is the tier *above* runlists: `execution_mode: roadmap` on a hub whose `related_plans:` point at other hubs (runlists / coordination hubs). It exists for the one thing a coordination hub can't do — **roll progress up across runlists**. Where a runlist shows its own `done/total`, a roadmap *sums* its children into a grand total (`master 280/520`), recursively (a child runlist contributes its own rollup; a leaf-plan child counts as one unit). Scaffold with `dotmd new plan <hub> --roadmap`.

@@ -10,6 +10,7 @@ import { checkClaudeCommands } from './claude-commands.mjs';
 import { checkGlossaryConfig } from './glossary-check.mjs';
 import { checkSkillDrift } from './skill-drift.mjs';
 import { checkHubStatusDrift } from './sync-status.mjs';
+import { checkHubMembershipDrift } from './hub-membership.mjs';
 
 // `fast: true` skips every pass that produces warnings/errors — the rendered
 // index file consumes only status/title/snapshot/etc., not the validation
@@ -141,6 +142,13 @@ export function buildIndex(config, opts = {}) {
     for (const w of runlistWarnings) {
       const child = transformedDocs.find(d => d.path === w.path);
       if (child) child.warnings.push(w);
+    }
+
+    const membershipWarnings = checkHubMembershipDrift(transformedDocs, config);
+    warnings.push(...membershipWarnings);
+    for (const w of membershipWarnings) {
+      const owner = transformedDocs.find(d => d.path === w.path);
+      if (owner) owner.warnings.push(w);
     }
 
     const coordHubWarnings = checkCoordinationHubExecutionMode(transformedDocs, config);

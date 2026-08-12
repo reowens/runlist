@@ -2,6 +2,33 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- **Membership drift is now checked in both directions.** A hub's list of
+  children and the plans that claim it via `parent_plan:` are two halves of one
+  relationship, and either half can go stale alone. dotmd already warned when a
+  `runlist:` child lacked the back-ref; these are the two arrows it didn't cover.
+  - A plan sets `parent_plan: <hub>` and the hub references it **nowhere** — no
+    reference field, no body link → warning on the **hub**. A membership only
+    one side records is invisible to every hub view (fold, rollup, next-pickup),
+    since all of them read the hub's half.
+  - A hub's **body order** (`## Ranked queue` / `## Order of operations` — the
+    list `dotmd runlist next` walks) ranks a plan that carries no `parent_plan:`
+    at all → warning on the **child**, the file that needs the edit. This is the
+    existing `runlist:` back-pointer finding extended to the body-order hubs it
+    couldn't see; children already covered there are skipped, so one missing
+    back-ref is never reported twice.
+- Membership is deliberately **not** inferred from an ordinary body table. Rowing
+  a plan somewhere in a hub's body says "related", not "this hub owns you" — the
+  same pointer-row principle the status guard uses.
+- A ranked plan whose `parent_plan:` names a **different** hub is deliberately
+  silent. Measured against a real estate: an aggregator hub ranking plans owned
+  by other programs is legitimate and common, and demanding exclusivity would
+  fire on every such row with no fix that doesn't break the other hub's claim.
+  Only the unambiguous half — a ranked plan claiming no parent at all — warns.
+
 ## 0.73.0 — 2026-08-12
 
 ### Added

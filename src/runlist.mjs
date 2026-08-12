@@ -14,7 +14,7 @@ import {
   toSlug,
   warn,
 } from './util.mjs';
-import { firstRowLink, isCoordinationHub, isRoadmapHub } from './hub.mjs';
+import { detectBodyRunlistRefs, isCoordinationHub, isRoadmapHub } from './hub.mjs';
 import { resolveDocArg } from './index.mjs';
 import { runlistChildContent, slugify, titleize } from './new.mjs';
 import { bold, cyan, dim, green, red, yellow } from './color.mjs';
@@ -312,56 +312,6 @@ function resolveRunlistRefs(refs, hubAbsPath, config) {
   return out;
 }
 
-// Extract ordered plan refs from a hub's body prose. Two shapes:
-//   - link-list sections (`## Order of operations`, `## Runlist`, …) — every
-//     `.md` link or checklist item, in document order.
-//   - ranked-queue tables (`## Ranked queue`, …) — the first `.md` link in each
-//     table row (the ranked plan); header/separator rows contribute none.
-// Coordination hubs encode their next-pickup order in the table shape; sprint-
-// ish hubs use the link list. Deduped, first occurrence wins, order preserved.
-function detectBodyRunlistRefs(body) {
-  if (!body) return [];
-  const refs = [];
-  const linkRe = /\[[^\]]+\]\(([^)]+\.md(?:#[^)]+)?)\)/;
-  const sliceSection = (start) => {
-    const rest = body.slice(start);
-    const next = rest.search(/^##\s+/m);
-    return next >= 0 ? rest.slice(0, next) : rest;
-  };
-
-  const linkSectionRe = /^##\s+(?:Order of operations|Runlist|Execution order|Implementation order|Plan order)\b.*$/gim;
-  let match;
-  while ((match = linkSectionRe.exec(body)) !== null) {
-    const section = sliceSection(match.index + match[0].length);
-    const allLinks = new RegExp(linkRe.source, 'g');
-    let link;
-    while ((link = allLinks.exec(section)) !== null) refs.push(link[1]);
-
-    const checklistRe = /^\s*[-*]\s+\[[ xX]\]\s+([^\s)]+\.md(?:#[^\s)]+)?)/gm;
-    let item;
-    while ((item = checklistRe.exec(section)) !== null) refs.push(item[1]);
-  }
-
-  // Ranked-queue tables: the first `.md` link per row is the ranked plan. A
-  // header (`| Rank | Plan | … |`) and separator (`|---|`) carry no link and are
-  // skipped naturally. Heading may carry trailing text (`## Ranked queue (next
-  // pickup)`), so match the leading words, not an exact line.
-  const queueSectionRe = /^##\s+(?:Ranked queue|Queue|Pickup order|Heads)\b.*$/gim;
-  while ((match = queueSectionRe.exec(body)) !== null) {
-    const section = sliceSection(match.index + match[0].length);
-    for (const rawLine of section.split('\n')) {
-      const line = rawLine.trim();
-      if (!line.startsWith('|')) continue;
-      // `firstRowLink` is the shared row→target anchor: the hub-status guard
-      // reads the same link out of the same row, so next-pickup and drift
-      // detection can never disagree about which plan a row names.
-      const link = firstRowLink(line);
-      if (link) refs.push(link);
-    }
-  }
-
-  return [...new Set(refs)];
-}
 
 // Label for a hub's next-pickup child: its slug with the hub's leading module
 // segment stripped when shared (so `founder-runlist` → `founder-brand-conflicts`

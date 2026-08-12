@@ -215,3 +215,56 @@ export function applyStatusCase(sample, replacement) {
   if (/^[A-Z]/.test(sample)) return replacement.charAt(0).toUpperCase() + replacement.slice(1);
   return replacement;
 }
+
+// Extract ordered plan refs from a hub's body prose. Two shapes:
+//   - link-list sections (`## Order of operations`, `## Runlist`, …) — every
+//     `.md` link or checklist item, in document order.
+//   - ranked-queue tables (`## Ranked queue`, …) — the first `.md` link in each
+//     table row (the ranked plan); header/separator rows contribute none.
+// Coordination hubs encode their next-pickup order in the table shape; sprint-
+// ish hubs use the link list. Deduped, first occurrence wins, order preserved.
+//
+// This is a hub's BODY MEMBERSHIP claim, not merely a set of links: it is the
+// order `dotmd runlist <hub>` / `runlist next <hub>` walk, so a plan listed here
+// is one this hub would hand a session. The membership guard leans on exactly
+// that — a plan in some other table is a pointer, a plan in this order is a claim.
+export function detectBodyRunlistRefs(body) {
+  if (!body) return [];
+  const refs = [];
+  const linkRe = /\[[^\]]+\]\(([^)]+\.md(?:#[^)]+)?)\)/;
+  const sliceSection = (start) => {
+    const rest = body.slice(start);
+    const next = rest.search(/^##\s+/m);
+    return next >= 0 ? rest.slice(0, next) : rest;
+  };
+
+  const linkSectionRe = /^##\s+(?:Order of operations|Runlist|Execution order|Implementation order|Plan order)\b.*$/gim;
+  let match;
+  while ((match = linkSectionRe.exec(body)) !== null) {
+    const section = sliceSection(match.index + match[0].length);
+    const allLinks = new RegExp(linkRe.source, 'g');
+    let link;
+    while ((link = allLinks.exec(section)) !== null) refs.push(link[1]);
+
+    const checklistRe = /^\s*[-*]\s+\[[ xX]\]\s+([^\s)]+\.md(?:#[^\s)]+)?)/gm;
+    let item;
+    while ((item = checklistRe.exec(section)) !== null) refs.push(item[1]);
+  }
+
+  // Ranked-queue tables: the first `.md` link per row is the ranked plan. A
+  // header (`| Rank | Plan | … |`) and separator (`|---|`) carry no link and are
+  // skipped naturally. Heading may carry trailing text (`## Ranked queue (next
+  // pickup)`), so match the leading words, not an exact line.
+  const queueSectionRe = /^##\s+(?:Ranked queue|Queue|Pickup order|Heads)\b.*$/gim;
+  while ((match = queueSectionRe.exec(body)) !== null) {
+    const section = sliceSection(match.index + match[0].length);
+    for (const rawLine of section.split('\n')) {
+      const line = rawLine.trim();
+      if (!line.startsWith('|')) continue;
+      const link = firstRowLink(line);
+      if (link) refs.push(link);
+    }
+  }
+
+  return [...new Set(refs)];
+}
