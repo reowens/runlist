@@ -202,6 +202,7 @@ Analyze:
 Validate & Fix:
   doctor [--apply]                  Auto-fix everything: refs, lint, long fields, dates, index (preview by default)
   doctor --transactions             Report/clear wedged mutation transactions (run this if mutations refuse repo-wide)
+  doctor --claims                   Report/release plan claims held by sessions that are gone ("busy in another session")
   self-check                        Project/version skew diagnostic (alias: doctor --project)
   lint [--fix]                      Check and auto-fix frontmatter issues
   fix-refs [--dry-run]              Auto-fix broken reference paths + body links
@@ -727,6 +728,21 @@ Modes:
                          clear the transactions whose files already agree on
                          one generation (no document content is touched);
                          the rest are reported for manual review.
+  --claims               Report which plans are claimed by which session, how
+                         old each claim is, and whether the owning session's
+                         process is still alive. A claim is what makes \`set\`,
+                         \`archive\`, \`baton\`, and \`rename\` refuse a single
+                         plan ("Plan is busy in another session"); nothing
+                         expires one, so a session that died holds its plan
+                         until someone takes it back. Add --apply to release
+                         the claims whose owning process is provably gone
+                         (their plans return to \`active\`).
+  --claims --apply --older-than <24h|3d>
+                         Also release claims dotmd cannot judge — ones written
+                         before it recorded the owning process, or held on
+                         another machine — that are older than the duration.
+                         That threshold is your judgement, not dotmd's: it
+                         cannot tell a dead session from a slow one.
   --statuses             Read-only diagnostic: detect overloaded status
                          buckets where one status holds plans pursuing
                          multiple distinct unstuck-actions. Suggests how
@@ -1741,7 +1757,9 @@ async function main() {
     const doctorDryRun = doctorSubMode ? dryRun : (dryRun || !doctorExplicitApply);
     const filtered = restArgs.filter(a => a !== '--apply' && a !== '--yes');
     const { runDoctor } = await import('../src/doctor.mjs');
-    runDoctor(filtered, config, { dryRun: doctorDryRun });
+    // Awaited because --claims releases through `runSet`, which is async; the
+    // other modes return undefined and are unaffected.
+    await runDoctor(filtered, config, { dryRun: doctorDryRun });
     return;
   }
   if (command === 'statuses') { const { runStatuses } = await import('../src/statuses.mjs'); await runStatuses(restArgs, config, { dryRun, type: typeArg }); return; }

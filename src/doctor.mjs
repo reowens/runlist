@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fixBrokenRefs } from './fix-refs.mjs';
 import { runLint } from './lint.mjs';
 import { syncHubStatuses } from './sync-status.mjs';
-import { runTouch } from './lifecycle.mjs';
+import { runSet, runTouch } from './lifecycle.mjs';
 import { buildIndex, collectDocFiles } from './index.mjs';
 import { writeRenderedIndex } from './index-file.mjs';
 import { renderCheck, renderManualFixes } from './render.mjs';
@@ -14,8 +14,9 @@ import { runMigrateTemplate } from './migrate-template.mjs';
 import { runMigratePrompts } from './migrate-prompts.mjs';
 import { runFrontmatterFix } from './frontmatter-fix.mjs';
 import { normalizeEol } from './frontmatter.mjs';
-import { toRepoPath } from './util.mjs';
+import { die, relTime, toRepoPath } from './util.mjs';
 import { inspectTransactions, resolveTransactions } from './atomic-mutation.mjs';
+import { surveyOwnershipClaims } from './pickup.mjs';
 
 // Tunable thresholds for `dotmd doctor --statuses` conflation detection.
 // MIN_BUCKET_SIZE: only flag buckets with at least this many docs (small buckets aren't worth nagging).
@@ -105,6 +106,88 @@ function runDoctorTransactions(argv, config, opts = {}) {
   }
 }
 
+function parseOlderThan(argv) {
+  const idx = argv.indexOf('--older-than');
+  if (idx === -1) return null;
+  const raw = argv[idx + 1];
+  const match = /^(\d+)([hd])$/.exec(raw ?? '');
+  if (!match) die('--older-than takes a duration like 24h or 3d');
+  return Number(match[1]) * (match[2] === 'h' ? 3600_000 : 86_400_000) ;
+}
+
+// The counterpart to --transactions: a claim nobody will ever release wedges
+// `set`, `archive`, `baton` and `rename` on that plan forever, and until now
+// nothing in the tool could even show you the claims, let alone end one.
+//
+// Two tiers, because two very different things are being asked. A claim whose
+// session process is provably gone is released by --apply on its own: that is
+// dotmd observing a fact, the same bar a forced hook-delivery takeover uses.
+// A claim dotmd *cannot* judge — written before it recorded the owning process,
+// taken from a plain terminal, or held on another machine — is never released
+// by a plain --apply, because "I can't see the owner" is not evidence the owner
+// left. Releasing those needs --older-than, which is the user supplying the
+// judgement dotmd doesn't have, as a policy rather than a guess.
+async function runDoctorClaims(argv, config, opts = {}) {
+  const json = argv.includes('--json');
+  const apply = !opts.dryRun;
+  const olderThanMs = parseOlderThan(argv);
+  const claims = surveyOwnershipClaims(config);
+
+  const dead = claims.filter(claim => !claim.corrupt && claim.liveness === 'dead');
+  const aged = olderThanMs === null ? [] : claims.filter(claim =>
+    !claim.corrupt && claim.liveness !== 'dead' && claim.ageMs !== null && claim.ageMs >= olderThanMs);
+  const targets = [...dead, ...aged];
+
+  const released = [];
+  if (apply) {
+    for (const claim of targets) {
+      try {
+        await runSet(['active', claim.plan], config, { force: true, note: 'Claim released by `dotmd doctor --claims` — the owning session was gone.' });
+        released.push(claim.plan);
+      } catch (err) {
+        claim.error = err.message.split('\n')[0];
+      }
+    }
+  }
+
+  if (json) {
+    process.stdout.write(JSON.stringify({ claims, released }, null, 2) + '\n');
+    return;
+  }
+  if (claims.length === 0) {
+    process.stdout.write(green('✓') + ' No plans are claimed — nothing can be wedged by ownership.\n');
+    return;
+  }
+
+  const releasedSet = new Set(released);
+  process.stdout.write(bold(`Plan claims (${claims.length})\n`));
+  for (const claim of claims) {
+    if (claim.corrupt) {
+      process.stdout.write(`  ${yellow('?')} ${path.basename(claim.recordPath)} — ${claim.reason}\n`);
+      continue;
+    }
+    const mark = releasedSet.has(claim.plan) ? green('✓') : claim.liveness === 'dead' ? yellow('!') : dim('·');
+    const age = claim.since ? relTime(claim.since) : 'age unknown';
+    const note = releasedSet.has(claim.plan) ? 'released' : claim.error ?? `owner ${claim.liveness}`;
+    process.stdout.write(`  ${mark} ${claim.plan} — ${age}, session ${claim.sessionId}, ${note}\n`);
+  }
+
+  if (released.length) {
+    process.stdout.write(green(`\n✓ Released ${released.length} claim${released.length === 1 ? '' : 's'}; those plans are active again.\n`));
+  }
+  const pendingDead = dead.filter(claim => !releasedSet.has(claim.plan));
+  if (pendingDead.length) {
+    process.stdout.write(yellow(`\n${pendingDead.length} held by a session whose process is gone.\n`));
+    process.stdout.write(dim('Run `dotmd doctor --claims --apply` to release them.\n'));
+  }
+  const unjudgeable = claims.filter(claim =>
+    !claim.corrupt && claim.liveness !== 'dead' && !releasedSet.has(claim.plan));
+  if (unjudgeable.length && olderThanMs === null) {
+    process.stdout.write(dim(`\n${unjudgeable.length} cannot be judged from here — no owning process was recorded, or it is on another machine.\n`));
+    process.stdout.write(dim('If you know those sessions are over: `dotmd doctor --claims --apply --older-than 24h`.\n'));
+  }
+}
+
 export function runDoctor(argv, config, opts = {}) {
   if (argv.includes('--project')) {
     runDoctorProject(config, { json: argv.includes('--json') });
@@ -129,6 +212,9 @@ export function runDoctor(argv, config, opts = {}) {
   if (argv.includes('--transactions')) {
     runDoctorTransactions(argv, config, opts);
     return;
+  }
+  if (argv.includes('--claims')) {
+    return runDoctorClaims(argv, config, opts);
   }
 
   const { dryRun, testHooks } = opts;

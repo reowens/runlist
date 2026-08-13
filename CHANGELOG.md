@@ -4,6 +4,32 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
 
 ## Unreleased
 
+### Added
+
+- **A plan claim can now tell you whether its owner still exists.** Claims record
+  the process that owns the *session* (`CLAUDE_PID`, or `DOTMD_SESSION_PID` to set
+  it explicitly) rather than the `dotmd` process, which exits within the second
+  and so could never say anything about whether the session outlived it. That
+  makes the liveness check dotmd already uses for transaction owners apply to
+  claims: `set`, `archive`, `baton`, and `rename` now reclaim a plan whose owning
+  process is **provably** gone, instead of refusing forever. Provably is the same
+  bar a forced hook-delivery takeover uses — a probe that came back `ESRCH` on
+  this host, or a pid whose process start-identity no longer matches. A reused
+  pid reads live, another machine's claim reads unverifiable, and a record
+  written before this release has no owner to probe; all three keep refusing and
+  leave the takeover to an explicit `--force`.
+- **`dotmd doctor --claims`** — the counterpart to `--transactions`, for the
+  wedge that hits one plan rather than the whole repo. Reports every claim with
+  its age, session, and owner liveness. `--apply` releases the ones whose process
+  is provably gone (their plans return to `active`). Claims dotmd cannot judge
+  are never released by `--apply` alone — "I can't see the owner" is not evidence
+  the owner left — and need `--older-than 24h`, which is you supplying the
+  judgement dotmd doesn't have, as a policy rather than a guess.
+
+  Existing records pre-date the owner field, so they all read `unverifiable`:
+  clearing a repo wedged before this release is a one-time
+  `dotmd doctor --claims --apply --older-than 24h`.
+
 ### Fixed
 
 - **"Plan is busy in another session" was a dead end.** The refusal printed an

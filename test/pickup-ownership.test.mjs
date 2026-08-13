@@ -380,6 +380,65 @@ describe('durable lifecycle ownership', () => {
     strictEqual(JSON.parse(readFileSync(ownershipFile(), 'utf8')).state, 'released');
   });
 
+  // A victim process that really exists and can really be killed — the whole
+  // point of recording the session's process is that liveness stops being a
+  // guess, so a fixture that fakes a pid would test nothing.
+  function spawnVictim() {
+    return spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)']);
+  }
+  function reap(victim) {
+    return new Promise(resolve => { victim.on('exit', resolve); victim.kill('SIGKILL'); });
+  }
+
+  it('reclaims a plan whose owning session process is gone', async () => {
+    setup();
+    const file = plan('dead-owner');
+    const victim = spawnVictim();
+    strictEqual(run(['use', file], 'A', { DOTMD_SESSION_PID: String(victim.pid) }).status, 0);
+    strictEqual(JSON.parse(readFileSync(ownershipFile(), 'utf8')).sessionOwner.pid, victim.pid);
+    await reap(victim);
+    const taken = run(['set', 'active', file], 'B');
+    strictEqual(taken.status, 0, taken.stderr);
+    match(readFileSync(file, 'utf8'), /^status: active$/m);
+    strictEqual(JSON.parse(readFileSync(ownershipFile(), 'utf8')).state, 'released');
+  });
+
+  it('use adopts a plan left in-session by a dead process', async () => {
+    setup();
+    const file = plan('dead-owner-pickup');
+    const victim = spawnVictim();
+    strictEqual(run(['use', file], 'A', { DOTMD_SESSION_PID: String(victim.pid) }).status, 0);
+    await reap(victim);
+    const taken = run(['use', file], 'B');
+    strictEqual(taken.status, 0, taken.stderr);
+    const record = JSON.parse(readFileSync(ownershipFile(), 'utf8'));
+    strictEqual(record.state, 'owned');
+    strictEqual(record.sessionId, 'B');
+  });
+
+  it('still refuses while the owning session process is alive', () => {
+    setup();
+    const file = plan('live-owner');
+    strictEqual(run(['use', file], 'A', { DOTMD_SESSION_PID: String(process.pid) }).status, 0);
+    const denied = run(['set', 'active', file], 'B');
+    ok(denied.status !== 0);
+    match(denied.stderr, /busy in another session/);
+    match(readFileSync(file, 'utf8'), /^status: in-session$/m);
+  });
+
+  it('never auto-reclaims a record written before sessionOwner existed', () => {
+    setup();
+    const file = plan('legacy-record');
+    strictEqual(run(['use', file], 'A', { DOTMD_SESSION_PID: String(process.pid) }).status, 0);
+    const record = JSON.parse(readFileSync(ownershipFile(), 'utf8'));
+    delete record.sessionOwner;
+    writeFileSync(ownershipFile(), JSON.stringify(record, null, 2));
+    const denied = run(['set', 'active', file], 'B');
+    ok(denied.status !== 0);
+    match(denied.stderr, /busy in another session/);
+    strictEqual(run(['set', 'active', file, '--force'], 'B').status, 0);
+  });
+
   it('a busy refusal carries the claim age and the takeover verb', () => {
     setup();
     const file = plan('busy-message');

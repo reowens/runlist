@@ -24,6 +24,7 @@ import {
   commitPlanClaim,
   finishClaimHookDelivery,
   listOwnedPlans,
+  ownershipLiveness,
   pickupFactsForDoc,
   prepareOwnershipRelease,
   readPlanOwnership,
@@ -607,6 +608,7 @@ export async function startPlan(argv, config, opts = {}) {
   let disposition = classifyPlanPickup({
     type: docType,
     status: oldStatus,
+    ownerLiveness: ownershipLiveness(ownership),
     validStatuses: config.typeStatuses?.get('plan') ?? config.validStatuses,
     startableStatuses: config.lifecycle.startableStatuses,
     terminalStatuses: config.lifecycle.terminalStatuses,

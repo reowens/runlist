@@ -11,6 +11,7 @@ import { authorizeManagedSource } from './managed-path.mjs';
 import {
   authoritativeSessionId,
   classifyPlanPickup,
+  ownershipLiveness,
   preparePlanClaim,
   readPlanOwnership,
 } from './pickup.mjs';
@@ -380,6 +381,7 @@ function prepareLinkedPromptClaim(planRef, config, promptDir) {
   const disposition = classifyPlanPickup({
     type: asString(parsed.type),
     status: oldStatus,
+    ownerLiveness: ownershipLiveness(ownership),
     validStatuses: config.typeStatuses?.get('plan') ?? config.validStatuses,
     startableStatuses: config.lifecycle.startableStatuses,
     terminalStatuses: config.lifecycle.terminalStatuses,

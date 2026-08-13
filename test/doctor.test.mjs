@@ -1,9 +1,9 @@
 import { describe, it, afterEach } from 'node:test';
 import { strictEqual, ok, deepStrictEqual } from 'node:assert';
-import { existsSync, mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, writeFileSync, readFileSync, readdirSync, mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { resolveConfig } from '../src/config.mjs';
 import { runDoctor } from '../src/doctor.mjs';
 
@@ -596,6 +596,71 @@ describe('doctor --frontmatter-fix', () => {
     ok(result.stdout.includes('preview'), 'banner shows preview mode');
     const after = readFileSync(planPath, 'utf8');
     strictEqual(after, before, 'file is byte-identical in dry-run');
+  });
+
+  it('reports a dead session\'s claim and releases it only with --apply', async () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-doctor-claims-'));
+    spawnSync('git', ['init', '-q'], { cwd: tmpDir });
+    mkdirSync(path.join(tmpDir, 'docs', 'plans'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), "export const root = 'docs';\n");
+    const planPath = path.join(tmpDir, 'docs', 'plans', 'wedged.md');
+    writeFileSync(planPath, '---\ntype: plan\nstatus: active\ntitle: wedged\nupdated: 2025-01-01T00:00:00Z\ncurrent_state: testing\n---\n# wedged\n\n## Version History\n\n- **2025-01-01T00:00:00Z** Created.\n');
+
+    const victim = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)']);
+    const claim = spawnSync('node', [path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs'),
+      'use', 'docs/plans/wedged.md', '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir, encoding: 'utf8',
+      env: { ...process.env, NO_COLOR: '1', CLAUDE_CODE_SESSION_ID: 'gone', DOTMD_SESSION_PID: String(victim.pid) },
+    });
+    strictEqual(claim.status, 0, claim.stderr);
+
+    // Alive: reported, never released, even though --apply was passed.
+    const alive = run(['doctor', '--claims', '--apply']);
+    ok(alive.stdout.includes('owner live'), alive.stdout);
+    ok(readFileSync(planPath, 'utf8').includes('status: in-session'));
+
+    await new Promise(resolve => { victim.on('exit', resolve); victim.kill('SIGKILL'); });
+
+    // Dead: reported as such, but a preview run still writes nothing.
+    const preview = run(['doctor', '--claims']);
+    ok(preview.stdout.includes('owner dead'), preview.stdout);
+    ok(preview.stdout.includes('--claims --apply'), preview.stdout);
+    ok(readFileSync(planPath, 'utf8').includes('status: in-session'), 'preview must not release');
+
+    const applied = run(['doctor', '--claims', '--apply']);
+    ok(applied.stdout.includes('Released 1 claim'), applied.stdout);
+    ok(readFileSync(planPath, 'utf8').includes('status: active'));
+    ok(run(['doctor', '--claims']).stdout.includes('No plans are claimed'));
+  });
+
+  it('never releases an unjudgeable claim without an explicit --older-than', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-doctor-claims-legacy-'));
+    spawnSync('git', ['init', '-q'], { cwd: tmpDir });
+    mkdirSync(path.join(tmpDir, 'docs', 'plans'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), "export const root = 'docs';\n");
+    const planPath = path.join(tmpDir, 'docs', 'plans', 'legacy.md');
+    writeFileSync(planPath, '---\ntype: plan\nstatus: active\ntitle: legacy\nupdated: 2025-01-01T00:00:00Z\ncurrent_state: testing\n---\n# legacy\n\n## Version History\n\n- **2025-01-01T00:00:00Z** Created.\n');
+    spawnSync('node', [path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs'),
+      'use', 'docs/plans/legacy.md', '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', CLAUDE_CODE_SESSION_ID: 'gone', DOTMD_SESSION_PID: '' },
+    });
+
+    // Strip the owner the way every record written before this feature looks.
+    const recordDir = path.join(tmpDir, '.dotmd', 'ownership');
+    const recordPath = path.join(recordDir, readdirSync(recordDir)[0]);
+    const record = JSON.parse(readFileSync(recordPath, 'utf8'));
+    delete record.sessionOwner;
+    record.updatedAt = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+    writeFileSync(recordPath, JSON.stringify(record, null, 2));
+
+    const applied = run(['doctor', '--claims', '--apply']);
+    ok(applied.stdout.includes('owner unverifiable'), applied.stdout);
+    ok(!applied.stdout.includes('Released'), 'unverifiable claims are not dotmd\'s to release');
+    ok(readFileSync(planPath, 'utf8').includes('status: in-session'));
+
+    const policy = run(['doctor', '--claims', '--apply', '--older-than', '24h']);
+    ok(policy.stdout.includes('Released 1 claim'), policy.stdout);
+    ok(readFileSync(planPath, 'utf8').includes('status: active'));
   });
 
   it('clears the validatePlanShape warning after the fix', () => {

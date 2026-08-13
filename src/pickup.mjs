@@ -2,7 +2,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { authorizeManagedSource, authorizeRepoGeneratedPath } from './managed-path.mjs';
-import { currentProcessOwner, mutateFileSet, processOwnerLiveness, replaceSnapshot, snapshotFile, withPathLocks } from './atomic-mutation.mjs';
+import os from 'node:os';
+import { currentProcessOwner, mutateFileSet, processOwnerLiveness, processStartIdentity, replaceSnapshot, snapshotFile, withPathLocks } from './atomic-mutation.mjs';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { asString, relTime } from './util.mjs';
 
@@ -27,6 +28,34 @@ export function authoritativeSessionId(env = process.env) {
 
 export function availableSessionId(env = process.env) {
   try { return authoritativeSessionId(env); } catch { return null; }
+}
+
+// The process that OWNS the session, not the one taking the claim. `dotmd` exits
+// within the second, so its own pid is always dead a moment later and can say
+// nothing about whether the session still exists; the agent harness that spawned
+// it is what outlives the command. Recording that process is what lets a claim
+// answer "is its owner still there?" with the liveness check dotmd already has,
+// instead of an age threshold that cannot tell a three-day-dead session from a
+// long-running one. Absent (a plain terminal, an unknown harness) is not an
+// error — it yields null, which reads as 'unverifiable' and never auto-reclaims.
+export function sessionProcessOwner(env = process.env) {
+  const raw = (env.DOTMD_SESSION_PID ?? env.CLAUDE_PID)?.trim();
+  const pid = Number(raw);
+  if (!raw || !Number.isInteger(pid) || pid <= 0) return null;
+  return {
+    pid,
+    hostname: os.hostname(),
+    processStartIdentity: processStartIdentity(pid),
+  };
+}
+
+// Only a claim that names a process we can probe, on this host, can be judged.
+// Everything else — a record written before sessionOwner existed, a claim from a
+// plain terminal, another machine's claim on a shared filesystem — is
+// 'unverifiable' and is treated as live, so a takeover stays an explicit --force.
+export function ownershipLiveness(ownership) {
+  if (!ownership || ownership.corrupt || !ownership.sessionOwner) return 'unverifiable';
+  return processOwnerLiveness(ownership.sessionOwner);
 }
 
 function sameIdentity(left, right, fs = { statSync }) {
@@ -61,6 +90,10 @@ export function classifyPlanPickup(facts) {
   const {
     type, status, validStatuses, startableStatuses, terminalStatuses,
     archiveStatuses, physicallyArchived, ownership, sessionId, malformed,
+    // Defaulted rather than required: a caller with no view of the owning
+    // process (and every existing test) gets the conservative answer, which is
+    // that the owner might still be there.
+    ownerLiveness = 'unverifiable',
   } = facts;
   if (malformed) return { kind: 'malformed', pickupable: false };
   if (type !== 'plan') return { kind: 'wrong-type', pickupable: false };
@@ -68,11 +101,15 @@ export function classifyPlanPickup(facts) {
   if (physicallyArchived) return { kind: 'physical-archive', pickupable: false };
   if (archiveStatuses?.has(status) || terminalStatuses?.has(status)) return { kind: 'terminal', pickupable: false };
   if (ownership?.corrupt) return { kind: 'ownership-corrupt', pickupable: false };
-  if (ownership?.state === 'owned' && ownership.sessionId !== sessionId) {
+  if (ownership?.state === 'owned' && ownership.sessionId !== sessionId && ownerLiveness !== 'dead') {
     return { kind: 'busy', pickupable: false, owner: ownership.sessionId };
   }
   if (status === 'in-session') {
-    if (ownership?.state === 'owned') return { kind: 'resume', pickupable: true };
+    // `resume` means picking my own claim back up. A record left by a session
+    // whose process is gone reached here because it is no longer busy, and
+    // taking that over is an adopt — the same disposition as a plan sitting
+    // `in-session` with no record at all.
+    if (ownership?.state === 'owned' && ownership.sessionId === sessionId) return { kind: 'resume', pickupable: true };
     return { kind: 'adopt', pickupable: true };
   }
   if (startableStatuses?.has(status)) return { kind: 'start', pickupable: true };
@@ -150,6 +187,19 @@ function parseOwnership(raw, recordPath) {
   }
 }
 
+// The bar for reclaiming another session's plan without being asked to, and it is
+// deliberately the same bar `assertHookDeliveryReclaimable` already sets for a
+// forced hook-delivery takeover: *demonstrably* dead. `processOwnerLiveness`
+// answers 'dead' only for a probe that came back ESRCH on this host, or a pid
+// whose process start-identity no longer matches the one recorded — so a reused
+// pid reads live, another machine's claim reads unverifiable, and a record
+// written before `sessionOwner` existed reads unverifiable. Every one of those
+// keeps the refusal and leaves the takeover to an explicit --force. Only a
+// process we watched go away is treated as gone.
+function abandonedByDeadSession(ownership) {
+  return ownershipLiveness(ownership) === 'dead';
+}
+
 const BUSY_TAKEOVER_RECOVERY = 're-run this command with --force to take the plan over.';
 
 // A busy refusal almost always fires on the command that would have *cleared*
@@ -197,7 +247,7 @@ export function prepareOwnershipMigration(oldRepoPath, newPath, config, { sessio
   const ownership = readPlanOwnership(oldRepoPath, config);
   if (!ownership) return null;
   if (ownership.corrupt) throw new Error(`Ownership record is corrupt for ${oldRepoPath}: ${ownership.reason}; repair or release it before rename.`);
-  if (ownership.state === 'owned' && ownership.sessionId !== sessionId) {
+  if (ownership.state === 'owned' && ownership.sessionId !== sessionId && !abandonedByDeadSession(ownership)) {
     // `rename` has no --force of its own: a rename carries the claim across to
     // the new path rather than ending it, so the takeover has to happen first.
     throw planBusyError(oldRepoPath, ownership,
@@ -208,6 +258,9 @@ export function prepareOwnershipMigration(oldRepoPath, newPath, config, { sessio
   const content = recordContent({
     identity,
     sessionId: ownership.sessionId,
+    // A rename moves the claim, it does not re-take it: the same session still
+    // owns the plan, so its owning process carries across untouched.
+    sessionOwner: ownership.sessionOwner,
     state: ownership.state,
     now,
     claimedAt: ownership.claimedAt,
@@ -252,7 +305,12 @@ export function listOwnedPlans(config, sessionId = authoritativeSessionId()) {
   return Object.assign(found, { diagnostics });
 }
 
-function recordContent({ identity, sessionId, state, now, claimedAt, operation }) {
+// `sessionOwner` is deliberately additive rather than a schema bump: parseOwnership
+// accepts exactly OWNERSHIP_SCHEMA, so raising it would turn every record already
+// on disk corrupt — which is a worse wedge than the one this fixes. An old record
+// simply has no sessionOwner and stays 'unverifiable' for its whole life; an older
+// dotmd reading a new record ignores a field it does not validate.
+function recordContent({ identity, sessionId, state, now, claimedAt, operation, sessionOwner }) {
   return JSON.stringify({
     schema: OWNERSHIP_SCHEMA,
     state,
@@ -260,6 +318,7 @@ function recordContent({ identity, sessionId, state, now, claimedAt, operation }
     canonicalPath: identity.canonicalPath,
     identityKey: identity.key,
     sessionId,
+    sessionOwner: sessionOwner ?? null,
     claimedAt: claimedAt ?? now,
     updatedAt: now,
     operation: operation ?? null,
@@ -280,7 +339,8 @@ export function preparePlanClaim({ filePath, sourceContent, renderedContent, own
     hook: 'pending',
   };
   const content = recordContent({ identity, sessionId, state: 'owned', now,
-    claimedAt: ownership && !ownership.corrupt ? ownership.claimedAt : null, operation });
+    sessionOwner: sessionProcessOwner(), operation,
+    claimedAt: ownership && !ownership.corrupt ? ownership.claimedAt : null });
   const updates = [];
   const guards = [];
   if (renderedContent !== null && renderedContent !== sourceContent) {
@@ -315,7 +375,8 @@ export function prepareOwnershipRelease(repoPath, config, { sessionId = authorit
   const ownership = readPlanOwnership(repoPath, config);
   if (!ownership) return null;
   if (ownership.corrupt && !force) throw new Error(`Ownership record is corrupt for ${repoPath}: ${ownership.reason}; use an explicit path with --force to recover.`);
-  if (!ownership.corrupt && ownership.state === 'owned' && ownership.sessionId !== sessionId && !force) {
+  if (!ownership.corrupt && ownership.state === 'owned' && ownership.sessionId !== sessionId
+    && !force && !abandonedByDeadSession(ownership)) {
     throw planBusyError(repoPath, ownership);
   }
   if (!ownership.corrupt && ownership.state === 'released') return null;
@@ -332,10 +393,47 @@ export function assertPlanMutationAuthorized(repoPath, config, { sessionId = aut
   if (ownership?.corrupt && !force) {
     throw new Error(`Ownership record is corrupt for ${repoPath}: ${ownership.reason}; use an explicit path with --force to recover.`);
   }
-  if (ownership?.state === 'owned' && ownership.sessionId !== sessionId && !force) {
+  if (ownership?.state === 'owned' && ownership.sessionId !== sessionId
+    && !force && !abandonedByDeadSession(ownership)) {
     throw planBusyError(repoPath, ownership);
   }
   return ownership;
+}
+
+// Every owned claim in the repo, whoever holds it — the survey `listOwnedPlans`
+// deliberately cannot do, since that one answers "what does THIS session own?".
+// Unlike that function this keeps records whose plan has drifted or vanished:
+// a claim pinning a plan nobody can read is exactly the kind that wedges a repo
+// and so is exactly the kind worth showing.
+export function surveyOwnershipClaims(config, now = Date.now()) {
+  const root = ownershipRoot(config);
+  if (!existsSync(root)) return [];
+  const claims = [];
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
+    const recordPath = path.join(root, entry.name);
+    let record;
+    try { record = parseOwnership(readFileSync(recordPath, 'utf8'), recordPath); }
+    catch { record = { corrupt: true, recordPath, reason: 'unreadable ownership record' }; }
+    if (record.corrupt) {
+      claims.push({ recordPath, plan: null, corrupt: true, reason: record.reason, liveness: 'unverifiable', ageMs: null });
+      continue;
+    }
+    if (record.state !== 'owned') continue;
+    const since = record.updatedAt ?? record.claimedAt ?? null;
+    const parsed = since ? Date.parse(since) : NaN;
+    claims.push({
+      recordPath,
+      plan: record.plan,
+      sessionId: record.sessionId,
+      corrupt: false,
+      since,
+      ageMs: Number.isFinite(parsed) ? Math.max(0, now - parsed) : null,
+      liveness: ownershipLiveness(record),
+    });
+  }
+  claims.sort((a, b) => (b.ageMs ?? 0) - (a.ageMs ?? 0));
+  return claims;
 }
 
 export function updateOwnershipOperation(repoPath, config, expected, mutate) {
@@ -479,6 +577,7 @@ export function pickupFactsForDoc(doc, config, { sessionId = availableSessionId(
     type: doc?.type ?? null,
     status: doc?.status ?? null,
     validStatuses: config.typeStatuses?.get('plan') ?? config.validStatuses,
+    ownerLiveness: ownershipLiveness(ownership),
     startableStatuses: config.lifecycle.startableStatuses,
     terminalStatuses: config.lifecycle.terminalStatuses,
     archiveStatuses: config.lifecycle.archiveStatuses,
