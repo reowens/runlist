@@ -287,8 +287,15 @@ function isBodyPlaceholder(file) {
   return BODY_PLACEHOLDER_NAMES.has(file);
 }
 
+// `@-` is the natural composition of the two spellings dotmd documents (`@path`
+// and `-`), and agents write it — three times in the platform transcripts, each
+// with a valid heredoc already on stdin that was then thrown away for a file
+// literally named `-`. Nothing else can sensibly be meant by it, so it means
+// stdin, unconditionally. That follows the universal CLI convention rather than
+// the placeholder rule below (where a real file wins): under this convention a
+// file actually named `-` is spelled `./-`, which still takes the file branch.
 export function readBodyInput(source) {
-  if (source === '-') {
+  if (source === '-' || source === '@-') {
     try { return readFileSync(0, 'utf8'); } catch (err) { die(`Could not read body from stdin: ${err.message}`); }
   }
   if (typeof source === 'string' && source.startsWith('@')) {
@@ -711,7 +718,9 @@ export async function runNew(argv, config, opts = {}) {
   if (bodyFlag !== null) { bodyInput = readBodyInput(bodyFlag); bodyInputSource = bodyFlagName; }
   else if (bodyArg !== null) {
     bodyInput = readBodyInput(bodyArg);
-    bodyInputSource = bodyArg === '-' ? 'stdin (`-`)' : (bodyArg.startsWith('@') ? `file (\`${bodyArg}\`)` : 'inline body argument');
+    bodyInputSource = (bodyArg === '-' || bodyArg === '@-')
+      ? `stdin (\`${bodyArg}\`)`
+      : (bodyArg.startsWith('@') ? `file (\`${bodyArg}\`)` : 'inline body argument');
   } else {
     // Auto-consume piped or redirected stdin so agents don't need the `-`
     // placeholder for the most common pattern (`cat draft.md | dotmd new …`,

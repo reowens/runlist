@@ -436,6 +436,47 @@ export function surveyOwnershipClaims(config, now = Date.now()) {
   return claims;
 }
 
+// A claim whose plan file no longer exists — deleted, or renamed by something
+// other than `dotmd rename`, which would have carried the record across. The
+// survey deliberately keeps these (a claim pinning a plan nobody can read is
+// exactly the kind worth showing), but the release path could not act on one:
+// it routes through `runSet`, which needs a file to write a status into, so the
+// record survived every `--apply` and sat in the report forever. Worse, the key
+// is a hash of the path, so a plan later created at that same path would read
+// as owned by a session years gone — born wedged.
+//
+// So this releases from the record itself. No `canonicalPlanIdentity` (it
+// realpaths, which is the thing that cannot work here); the record already
+// carries the identity it was written with. Existence is re-checked under the
+// lock, because "the plan is gone" is the entire justification for bypassing
+// the status write, and a `dotmd new` racing us would invalidate it.
+export function releaseVanishedPlanClaim(claim, config, { now = new Date().toISOString() } = {}) {
+  const recordPath = claim.recordPath;
+  return withPathLocks([recordPath], { repoRoot: config.repoRoot }, () => {
+    const snapshot = snapshotFile(recordPath);
+    const ownership = parseOwnership(snapshot.content, recordPath);
+    if (ownership.corrupt || ownership.state !== 'owned') {
+      throw new Error(`Claim changed under us for ${claim.plan}; re-run to see the current state.`);
+    }
+    if (existsSync(path.resolve(config.repoRoot, ownership.plan))) {
+      throw new Error(`${ownership.plan} exists after all — release it with \`dotmd set active\` instead.`);
+    }
+    replaceSnapshot(snapshot, JSON.stringify({
+      schema: OWNERSHIP_SCHEMA,
+      state: 'released',
+      plan: ownership.plan,
+      canonicalPath: ownership.canonicalPath,
+      identityKey: ownership.identityKey,
+      sessionId: ownership.sessionId,
+      sessionOwner: ownership.sessionOwner ?? null,
+      claimedAt: ownership.claimedAt ?? now,
+      updatedAt: now,
+      operation: null,
+    }, null, 2) + '\n', { repoRoot: config.repoRoot, locked: true });
+    return ownership.plan;
+  });
+}
+
 export function updateOwnershipOperation(repoPath, config, expected, mutate) {
   const ownership = readPlanOwnership(repoPath, config);
   if (!ownership || ownership.corrupt || ownership.state !== 'owned' || !ownership.operation) {

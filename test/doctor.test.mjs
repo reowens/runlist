@@ -663,6 +663,68 @@ describe('doctor --frontmatter-fix', () => {
     ok(readFileSync(planPath, 'utf8').includes('status: active'));
   });
 
+  // Found in the field: two of fourteen platform claims pinned plans that had
+  // been deleted, so every --apply hit "File not found" from runSet and the
+  // records survived. They also poison the path: the key is a hash of it, so a
+  // plan later created there reads as owned by a session long gone.
+  it('releases a claim whose plan file has vanished', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-doctor-claims-orphan-'));
+    spawnSync('git', ['init', '-q'], { cwd: tmpDir });
+    mkdirSync(path.join(tmpDir, 'docs', 'plans'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), "export const root = 'docs';\n");
+    const planPath = path.join(tmpDir, 'docs', 'plans', 'deleted.md');
+    writeFileSync(planPath, '---\ntype: plan\nstatus: active\ntitle: deleted\nupdated: 2025-01-01T00:00:00Z\ncurrent_state: testing\n---\n# deleted\n\n## Version History\n\n- **2025-01-01T00:00:00Z** Created.\n');
+    spawnSync('node', [path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs'),
+      'use', 'docs/plans/deleted.md', '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', CLAUDE_CODE_SESSION_ID: 'gone', DOTMD_SESSION_PID: '' },
+    });
+
+    const recordDir = path.join(tmpDir, '.dotmd', 'ownership');
+    const recordPath = path.join(recordDir, readdirSync(recordDir)[0]);
+    const record = JSON.parse(readFileSync(recordPath, 'utf8'));
+    record.updatedAt = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+    writeFileSync(recordPath, JSON.stringify(record, null, 2) + '\n');
+    rmSync(planPath); // deleted outside dotmd — `rename` would have carried the record
+
+    const applied = run(['doctor', '--claims', '--apply', '--older-than', '24h']);
+    ok(applied.stdout.includes('Released 1 claim'), applied.stdout);
+    ok(applied.stdout.includes('no longer exists'), `release must not claim the plan is active: ${applied.stdout}`);
+    strictEqual(JSON.parse(readFileSync(recordPath, 'utf8')).state, 'released');
+    ok(run(['doctor', '--claims']).stdout.includes('No plans are claimed'), 'the orphan must not survive the sweep');
+
+    // The poisoned path is usable again: a plan recreated there is not born wedged.
+    writeFileSync(planPath, '---\ntype: plan\nstatus: active\ntitle: deleted\nupdated: 2025-01-01T00:00:00Z\ncurrent_state: testing\n---\n# deleted\n\n## Version History\n\n- **2025-01-01T00:00:00Z** Created.\n');
+    const reuse = spawnSync('node', [path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs'),
+      'use', 'docs/plans/deleted.md', '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', CLAUDE_CODE_SESSION_ID: 'fresh', DOTMD_SESSION_PID: '' },
+    });
+    strictEqual(reuse.status, 0, reuse.stderr);
+  });
+
+  it('refuses to shortcut the release when the plan is still there', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-doctor-claims-present-'));
+    spawnSync('git', ['init', '-q'], { cwd: tmpDir });
+    mkdirSync(path.join(tmpDir, 'docs', 'plans'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), "export const root = 'docs';\n");
+    const planPath = path.join(tmpDir, 'docs', 'plans', 'present.md');
+    writeFileSync(planPath, '---\ntype: plan\nstatus: active\ntitle: present\nupdated: 2025-01-01T00:00:00Z\ncurrent_state: testing\n---\n# present\n\n## Version History\n\n- **2025-01-01T00:00:00Z** Created.\n');
+    spawnSync('node', [path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs'),
+      'use', 'docs/plans/present.md', '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', CLAUDE_CODE_SESSION_ID: 'gone', DOTMD_SESSION_PID: '' },
+    });
+    const recordDir = path.join(tmpDir, '.dotmd', 'ownership');
+    const recordPath = path.join(recordDir, readdirSync(recordDir)[0]);
+    const record = JSON.parse(readFileSync(recordPath, 'utf8'));
+    record.updatedAt = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+    writeFileSync(recordPath, JSON.stringify(record, null, 2) + '\n');
+
+    // A live plan takes the status-writing path, so the file must actually move.
+    const applied = run(['doctor', '--claims', '--apply', '--older-than', '24h']);
+    ok(applied.stdout.includes('is active again'), applied.stdout);
+    ok(!applied.stdout.includes('no longer exists'), applied.stdout);
+    ok(readFileSync(planPath, 'utf8').includes('status: active'));
+  });
+
   it('clears the validatePlanShape warning after the fix', () => {
     setupPlanProject();
     writeLongPlan('verify', 1700, 900);

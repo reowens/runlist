@@ -141,6 +141,17 @@ describe('dotmd baton', () => {
     ok(promptRaw.includes('resume: from a draft file'));
   });
 
+  // The real-world shape of finding 2: `dotmd baton <slug> @- <<'EOF'` appeared
+  // three times in the platform transcripts, each time with the heredoc already
+  // attached and each time discarded for a file named `-`.
+  it('body via @- reads stdin instead of hunting for a file named -', () => {
+    writePlan('auth-revamp');
+    const r = run(['baton', 'docs/plans/auth-revamp.md', '@-'], { input: 'resume: heredoc behind @-\n' });
+    strictEqual(r.status, 0, r.stderr);
+    const promptRaw = readFileSync(path.join(docsDir, 'prompts', 'resume-auth-revamp.md'), 'utf8');
+    ok(promptRaw.includes('resume: heredoc behind @-'));
+  });
+
   it('refuses to run without a body — nothing mutates', () => {
     writePlan('auth-revamp');
     const r = run(['baton', 'docs/plans/auth-revamp.md']);

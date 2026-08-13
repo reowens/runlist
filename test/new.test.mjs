@@ -184,6 +184,46 @@ describe('dotmd new — type-first CLI', () => {
       ok(content.includes('body'));
     });
 
+    // `@-` composes the two documented spellings and used to take the `@` branch,
+    // hunting for a file named `-` while a valid heredoc sat unread on stdin.
+    it('accepts body via @- (the composed stdin spelling)', () => {
+      const docsDir = setupProject();
+      const r = run(['new', 'prompt', 'at-dash-body', '@-'], { input: 'body behind @-\n' });
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'prompts', 'at-dash-body.md'), 'utf8');
+      ok(content.includes('body behind @-'));
+    });
+
+    it('reports @- as a stdin source, not a file, when a template rejects the body', () => {
+      tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-new-'));
+      mkdirSync(path.join(tmpDir, '.git'));
+      mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+      writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+        export const templates = {
+          'plan': {
+            description: 'Override built-in plan, opted out of body input',
+            defaultStatus: 'active',
+            frontmatter: (s, d) => \`type: plan\\nstatus: \${s}\\ncreated: \${d}\\nupdated: \${d}\`,
+            body: (t) => \`\\n# \${t}\\n\`,
+          },
+        };
+        export const root = 'docs';
+      `);
+      const r = run(['new', 'plan', 'at-dash-source', '@-'], { input: 'discarded\n' });
+      strictEqual(r.status, 1, `should fail. stderr: ${r.stderr}`);
+      ok(r.stderr.includes('stdin'), `error should attribute @- to stdin, not a file: ${r.stderr}`);
+    });
+
+    // A file genuinely named `-` is spelled `./-`, which must still take the file branch.
+    it('reads ./- as a real file rather than stdin', () => {
+      const docsDir = setupProject();
+      writeFileSync(path.join(tmpDir, '-'), 'contents of a file literally named dash\n');
+      const r = run(['new', 'prompt', 'dot-slash-dash', '@./-']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'prompts', 'dot-slash-dash.md'), 'utf8');
+      ok(content.includes('contents of a file literally named dash'));
+    });
+
     it('auto-consumes piped stdin when no body arg/flag is given', () => {
       const docsDir = setupProject();
       const r = run(['new', 'prompt', 'auto-stdin'], { input: 'piped body via auto-detect\n' });

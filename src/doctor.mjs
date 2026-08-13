@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fixBrokenRefs } from './fix-refs.mjs';
 import { runLint } from './lint.mjs';
@@ -16,7 +16,7 @@ import { runFrontmatterFix } from './frontmatter-fix.mjs';
 import { normalizeEol } from './frontmatter.mjs';
 import { die, relTime, toRepoPath } from './util.mjs';
 import { inspectTransactions, resolveTransactions } from './atomic-mutation.mjs';
-import { surveyOwnershipClaims } from './pickup.mjs';
+import { releaseVanishedPlanClaim, surveyOwnershipClaims } from './pickup.mjs';
 
 // Tunable thresholds for `dotmd doctor --statuses` conflation detection.
 // MIN_BUCKET_SIZE: only flag buckets with at least this many docs (small buckets aren't worth nagging).
@@ -142,7 +142,15 @@ async function runDoctorClaims(argv, config, opts = {}) {
   if (apply) {
     for (const claim of targets) {
       try {
-        await runSet(['active', claim.plan], config, { force: true, note: 'Claim released by `dotmd doctor --claims` — the owning session was gone.' });
+        // Two shapes of release, because a vanished plan has no file to write a
+        // status into. Deciding by existence here rather than by catching
+        // runSet's "File not found" keeps the bypass narrow and explicit.
+        if (existsSync(path.resolve(config.repoRoot, claim.plan))) {
+          await runSet(['active', claim.plan], config, { force: true, note: 'Claim released by `dotmd doctor --claims` — the owning session was gone.' });
+        } else {
+          releaseVanishedPlanClaim(claim, config);
+          claim.vanished = true;
+        }
         released.push(claim.plan);
       } catch (err) {
         claim.error = err.message.split('\n')[0];
@@ -168,12 +176,21 @@ async function runDoctorClaims(argv, config, opts = {}) {
     }
     const mark = releasedSet.has(claim.plan) ? green('✓') : claim.liveness === 'dead' ? yellow('!') : dim('·');
     const age = claim.since ? relTime(claim.since) : 'age unknown';
-    const note = releasedSet.has(claim.plan) ? 'released' : claim.error ?? `owner ${claim.liveness}`;
+    const note = releasedSet.has(claim.plan)
+      ? (claim.vanished ? 'released (plan no longer exists)' : 'released')
+      : claim.error ?? `owner ${claim.liveness}`;
     process.stdout.write(`  ${mark} ${claim.plan} — ${age}, session ${claim.sessionId}, ${note}\n`);
   }
 
   if (released.length) {
-    process.stdout.write(green(`\n✓ Released ${released.length} claim${released.length === 1 ? '' : 's'}; those plans are active again.\n`));
+    // Only the claims with a plan behind them came back as `active`; saying so
+    // of a vanished one would promise a file the next command cannot open.
+    const vanished = targets.filter(claim => claim.vanished && releasedSet.has(claim.plan)).length;
+    const revived = released.length - vanished;
+    const parts = [];
+    if (revived) parts.push(`${revived} plan${revived === 1 ? ' is' : 's are'} active again`);
+    if (vanished) parts.push(`${vanished} pinned a plan that no longer exists`);
+    process.stdout.write(green(`\n✓ Released ${released.length} claim${released.length === 1 ? '' : 's'}; ${parts.join(', ')}.\n`));
   }
   const pendingDead = dead.filter(claim => !releasedSet.has(claim.plan));
   if (pendingDead.length) {

@@ -32,6 +32,24 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
 
 ### Fixed
 
+- **`@-` discarded a body that was already on stdin.** `@path` reads a file and
+  `-` reads stdin, so `@-` is the natural composition of the two spellings dotmd
+  documents — and it took the `@` branch, hunted for a file literally named `-`,
+  and died with `Body file not found: -` while a valid heredoc sat unread. It
+  happened three times in one repo's session history, each time on a `dotmd
+  baton` whose resume draft was piped in and then thrown away. `@-` now means
+  stdin. A file genuinely named `-` is spelled `./-`, per the usual convention,
+  and still reads as a file.
+- **`doctor --claims --apply` could not clear a claim whose plan had been
+  deleted.** The release routes through `dotmd set active`, which needs a file to
+  write the status into, so an orphaned record failed with `File not found` and
+  survived every sweep — two of fourteen claims in the repo this feature was
+  built for. Those records also poison the path they name: the record key is a
+  hash of it, so a plan later created there was born owned by a session long
+  gone. Such a claim is now released from its own record (re-checking under the
+  lock that the plan really is missing, since that is the whole justification for
+  skipping the status write), and the report says `released (plan no longer
+  exists)` rather than promising a plan that is `active again`.
 - **"Plan is busy in another session" was a dead end.** The refusal printed an
   opaque session UUID and stopped — no indication of how long the claim had been
   held, and no mention of `--force`, which every command that hits it accepts.
