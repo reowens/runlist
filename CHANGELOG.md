@@ -32,6 +32,13 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
 
 ### Fixed
 
+- **`doctor --claims --apply` could not run from a shell with no session identity
+  of its own.** It released through `dotmd set active`, which demands an
+  *authoritative* session id — so the command that exists to unwedge a repo whose
+  sessions are gone refused to work from a bare login shell, a cron job, or a
+  container, which is exactly where you reach for it. Releasing a claim stamps
+  the id in as provenance and takes nothing, so the repair now supplies its own
+  operator identity when the shell has none.
 - **`@-` discarded a body that was already on stdin.** `@path` reads a file and
   `-` reads stdin, so `@-` is the natural composition of the two spellings dotmd
   documents — and it took the `@` branch, hunted for a file literally named `-`,

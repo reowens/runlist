@@ -961,7 +961,13 @@ export async function runSet(argv, config, opts = {}) {
   const releasing = asString(oldFm?.type) === 'plan'
     && (asString(oldFm?.status) === 'in-session' || oldOwnership?.state === 'owned' || oldOwnership?.corrupt);
   if (releasing) {
-    sessionId ??= authoritativeSessionId();
+    // opts.sessionId lets a repair caller supply the operator identity. Only
+    // `doctor --claims` passes it: releasing a claim stamps the id into the
+    // tombstone as provenance and takes nothing, so demanding an *authoritative*
+    // one of the repairer is backwards for the command that exists to unwedge
+    // sessions — it made the recovery path unusable from any shell without a
+    // session of its own (a bare login shell, cron, CI).
+    sessionId ??= opts.sessionId ?? authoritativeSessionId();
     assertPlanMutationAuthorized(repoPath, config, { sessionId, force });
     if (!dryRun) ensurePlanCompletionBeforeRelease(repoPath, config, { testHooks: opts.testHooks });
     else if (planHasPendingCompletion(repoPath, config)) process.stderr.write(`${dim('[dry-run]')} Pending claim completion would block this release.\n`);

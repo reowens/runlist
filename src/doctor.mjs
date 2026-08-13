@@ -16,7 +16,7 @@ import { runFrontmatterFix } from './frontmatter-fix.mjs';
 import { normalizeEol } from './frontmatter.mjs';
 import { die, relTime, toRepoPath } from './util.mjs';
 import { inspectTransactions, resolveTransactions } from './atomic-mutation.mjs';
-import { releaseVanishedPlanClaim, surveyOwnershipClaims } from './pickup.mjs';
+import { availableSessionId, releaseVanishedPlanClaim, surveyOwnershipClaims } from './pickup.mjs';
 
 // Tunable thresholds for `dotmd doctor --statuses` conflation detection.
 // MIN_BUCKET_SIZE: only flag buckets with at least this many docs (small buckets aren't worth nagging).
@@ -139,6 +139,10 @@ async function runDoctorClaims(argv, config, opts = {}) {
   const targets = [...dead, ...aged];
 
   const released = [];
+  // The repair runs under whatever identity the shell has, and a shell with none
+  // is a normal place to run it from — this is the command you reach for when the
+  // sessions are gone. Mirrors the synthetic id `set --dry-run` already uses.
+  const operator = availableSessionId() ?? 'doctor:claims-repair';
   if (apply) {
     for (const claim of targets) {
       try {
@@ -146,7 +150,7 @@ async function runDoctorClaims(argv, config, opts = {}) {
         // status into. Deciding by existence here rather than by catching
         // runSet's "File not found" keeps the bypass narrow and explicit.
         if (existsSync(path.resolve(config.repoRoot, claim.plan))) {
-          await runSet(['active', claim.plan], config, { force: true, note: 'Claim released by `dotmd doctor --claims` — the owning session was gone.' });
+          await runSet(['active', claim.plan], config, { force: true, sessionId: operator, note: 'Claim released by `dotmd doctor --claims` — the owning session was gone.' });
         } else {
           releaseVanishedPlanClaim(claim, config);
           claim.vanished = true;

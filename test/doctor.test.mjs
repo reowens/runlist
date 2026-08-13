@@ -701,6 +701,37 @@ describe('doctor --frontmatter-fix', () => {
     strictEqual(reuse.status, 0, reuse.stderr);
   });
 
+  // CI caught this: the repair demanded an *authoritative* session identity of
+  // the operator, so it could not run from any shell without one — a bare login
+  // shell, cron, a container. Exactly where you unwedge a repo from.
+  it('releases from a shell with no session identity of its own', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-doctor-claims-nosession-'));
+    spawnSync('git', ['init', '-q'], { cwd: tmpDir });
+    mkdirSync(path.join(tmpDir, 'docs', 'plans'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), "export const root = 'docs';\n");
+    const planPath = path.join(tmpDir, 'docs', 'plans', 'stranded.md');
+    writeFileSync(planPath, '---\ntype: plan\nstatus: active\ntitle: stranded\nupdated: 2025-01-01T00:00:00Z\ncurrent_state: testing\n---\n# stranded\n\n## Version History\n\n- **2025-01-01T00:00:00Z** Created.\n');
+    spawnSync('node', [path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs'),
+      'use', 'docs/plans/stranded.md', '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', CLAUDE_CODE_SESSION_ID: 'gone', DOTMD_SESSION_PID: '' },
+    });
+    const recordDir = path.join(tmpDir, '.dotmd', 'ownership');
+    const recordPath = path.join(recordDir, readdirSync(recordDir)[0]);
+    const record = JSON.parse(readFileSync(recordPath, 'utf8'));
+    record.updatedAt = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+    writeFileSync(recordPath, JSON.stringify(record, null, 2) + '\n');
+
+    // Every identity source stripped — the shape a Linux CI runner actually has.
+    const bare = { ...process.env, NO_COLOR: '1' };
+    for (const key of ['DOTMD_SESSION_ID', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_SESSION_ID',
+      'OPENCODE_SESSION_ID', 'OPENCODE_SESSION', 'TERM_SESSION_ID']) delete bare[key];
+    const applied = spawnSync('node', [path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs'),
+      'doctor', '--claims', '--apply', '--older-than', '24h', '--config', path.join(tmpDir, 'dotmd.config.mjs')],
+      { cwd: tmpDir, encoding: 'utf8', env: bare });
+    ok(applied.stdout.includes('Released 1 claim'), `${applied.stdout}\n${applied.stderr}`);
+    ok(readFileSync(planPath, 'utf8').includes('status: active'));
+  });
+
   it('refuses to shortcut the release when the plan is still there', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-doctor-claims-present-'));
     spawnSync('git', ['init', '-q'], { cwd: tmpDir });
