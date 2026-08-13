@@ -380,6 +380,30 @@ describe('durable lifecycle ownership', () => {
     strictEqual(JSON.parse(readFileSync(ownershipFile(), 'utf8')).state, 'released');
   });
 
+  it('a busy refusal carries the claim age and the takeover verb', () => {
+    setup();
+    const file = plan('busy-message');
+    strictEqual(run(['use', file], 'A').status, 0);
+    const record = JSON.parse(readFileSync(ownershipFile(), 'utf8'));
+    record.updatedAt = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+    writeFileSync(ownershipFile(), JSON.stringify(record, null, 2));
+    const denied = run(['set', 'active', file], 'B');
+    ok(denied.status !== 0);
+    match(denied.stderr, /Plan is busy in another session: docs\/plans\/busy-message\.md/);
+    match(denied.stderr, /held by session A since .+ \(3d ago\)/);
+    match(denied.stderr, /--force to take the plan over/);
+  });
+
+  it('a busy rename names the release verb, since rename has no --force', () => {
+    setup();
+    const file = plan('busy-rename');
+    strictEqual(run(['use', file], 'A').status, 0);
+    const denied = run(['rename', file, 'busy-rename-two'], 'B');
+    ok(denied.status !== 0);
+    match(denied.stderr, /release it first with `dotmd set <status> docs\/plans\/busy-rename\.md --force`/);
+    ok(existsSync(file));
+  });
+
   it('rolls document and ownership back together when release transaction fails', async () => {
     setup();
     const file = plan('release-rollback');

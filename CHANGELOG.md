@@ -2,6 +2,30 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- **"Plan is busy in another session" was a dead end.** The refusal printed an
+  opaque session UUID and stopped — no indication of how long the claim had been
+  held, and no mention of `--force`, which every command that hits it accepts.
+  Since nothing expires a session claim, an owner three days dead looked exactly
+  like a colleague mid-edit. A survey of real sessions in a busy repo found 16 of
+  these against 7 plans, every owner long gone, and not one recovered: agents
+  re-ran the same command with the plan addressed differently (path, then slug),
+  reading "busy" as "you named the plan wrong". The message now carries the claim
+  age and the recovery verb:
+
+  ```
+  Plan is busy in another session: docs/plans/guard-estate-audit.md
+    held by session 8a6d80ee-… since 2026-08-10T00:11:41.322Z (3d ago)
+    If that session is gone, re-run this command with --force to take the plan over.
+  ```
+
+  `rename` gets its own recovery line, because a rename carries the claim to the
+  new path rather than ending it and so has no `--force` of its own — it names
+  `dotmd set <status> <plan> --force` instead.
+
 ## 0.74.1 — 2026-08-12
 
 ### Fixed

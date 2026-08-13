@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { currentSessionId, isArchivedPath } from './util.mjs';
+import { currentSessionId, isArchivedPath, relTime } from './util.mjs';
 import { dim, yellow } from './color.mjs';
 import { buildIndex } from './index.mjs';
 import { readJournalEntries, journalFilePath, readMisuseEntries } from './journal.mjs';
@@ -66,19 +66,6 @@ const FLEET_CAP = 5;
 const REJECTIONS_CAP = 3;
 const FLEET_WINDOW_MS = 24 * 60 * 60 * 1000;
 const REJECTIONS_WINDOW_MS = 60 * 60 * 1000;
-
-function relTime(ts, now = Date.now()) {
-  const t = new Date(ts).getTime();
-  if (!Number.isFinite(t)) return '?';
-  const delta = Math.max(0, now - t);
-  const sec = Math.floor(delta / 1000);
-  if (sec < 60) return `${sec}s ago`;
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  return `${Math.floor(hr / 24)}d ago`;
-}
 
 // Coarse error-class for rejection grouping. Most dotmd die() messages follow
 // `<class>: <variable detail>` (e.g. "File not found: docs/foo.md", "Already

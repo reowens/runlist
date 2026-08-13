@@ -4,7 +4,7 @@ import path from 'node:path';
 import { authorizeManagedSource, authorizeRepoGeneratedPath } from './managed-path.mjs';
 import { currentProcessOwner, mutateFileSet, processOwnerLiveness, replaceSnapshot, snapshotFile, withPathLocks } from './atomic-mutation.mjs';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
-import { asString } from './util.mjs';
+import { asString, relTime } from './util.mjs';
 
 export const OWNERSHIP_SCHEMA = 2;
 export const HOOK_DELIVERY_LEASE_MS = 30_000;
@@ -150,6 +150,27 @@ function parseOwnership(raw, recordPath) {
   }
 }
 
+const BUSY_TAKEOVER_RECOVERY = 're-run this command with --force to take the plan over.';
+
+// A busy refusal almost always fires on the command that would have *cleared*
+// the wedge — `baton`, `set`, `archive` — so the message has to carry the two
+// things that decide what to do next: how long the owner has held the claim, and
+// the verb that takes it back. Nothing expires a session claim, so an owner
+// three days gone looks exactly like one mid-edit; a survey of real sessions
+// found 16 of these against 7 plans, every owner long dead, and not one of them
+// recovered. What agents did instead was re-run the same command with the plan
+// addressed differently (path, then slug) — reading a bare "busy in another
+// session (<uuid>)" as "you named the plan wrong". The age is the judgement
+// input and the recovery line is the way out; neither was there to read.
+function planBusyError(repoPath, ownership, recovery = BUSY_TAKEOVER_RECOVERY) {
+  const since = ownership.updatedAt ?? ownership.claimedAt ?? null;
+  const age = since ? relTime(since) : null;
+  const held = age && age !== '?' ? ` since ${since} (${age})` : '';
+  return new Error(`Plan is busy in another session: ${repoPath}\n`
+    + `  held by session ${ownership.sessionId}${held}\n`
+    + `  If that session is gone, ${recovery}`);
+}
+
 function validateBinding(record, identity, config) {
   if (record.corrupt) return record;
   const expectedPath = recordPathForIdentity(identity, config);
@@ -177,7 +198,10 @@ export function prepareOwnershipMigration(oldRepoPath, newPath, config, { sessio
   if (!ownership) return null;
   if (ownership.corrupt) throw new Error(`Ownership record is corrupt for ${oldRepoPath}: ${ownership.reason}; repair or release it before rename.`);
   if (ownership.state === 'owned' && ownership.sessionId !== sessionId) {
-    throw new Error(`Plan is busy in another session (${ownership.sessionId}): ${oldRepoPath}`);
+    // `rename` has no --force of its own: a rename carries the claim across to
+    // the new path rather than ending it, so the takeover has to happen first.
+    throw planBusyError(oldRepoPath, ownership,
+      `release it first with \`dotmd set <status> ${oldRepoPath} --force\`, then rename.`);
   }
   const identity = plannedPlanIdentity(newPath, config);
   const recordPath = recordPathForIdentity(identity, config);
@@ -292,7 +316,7 @@ export function prepareOwnershipRelease(repoPath, config, { sessionId = authorit
   if (!ownership) return null;
   if (ownership.corrupt && !force) throw new Error(`Ownership record is corrupt for ${repoPath}: ${ownership.reason}; use an explicit path with --force to recover.`);
   if (!ownership.corrupt && ownership.state === 'owned' && ownership.sessionId !== sessionId && !force) {
-    throw new Error(`Plan is busy in another session (${ownership.sessionId}): ${repoPath}`);
+    throw planBusyError(repoPath, ownership);
   }
   if (!ownership.corrupt && ownership.state === 'released') return null;
   return {
@@ -309,7 +333,7 @@ export function assertPlanMutationAuthorized(repoPath, config, { sessionId = aut
     throw new Error(`Ownership record is corrupt for ${repoPath}: ${ownership.reason}; use an explicit path with --force to recover.`);
   }
   if (ownership?.state === 'owned' && ownership.sessionId !== sessionId && !force) {
-    throw new Error(`Plan is busy in another session (${ownership.sessionId}): ${repoPath}`);
+    throw planBusyError(repoPath, ownership);
   }
   return ownership;
 }
