@@ -919,7 +919,10 @@ Plan body variants (plans only — pick one body shape):
 Other options:
   --status <s>         Set initial status (defaults to first valid status for the type)
   --title <t>          Override the auto-derived title
-  --root <name>        Create in a specific docs root
+  --root <name>        Create in a specific docs root. Applies to a nested name
+                       too: \`new doc prospects/kim --root docs\` writes
+                       docs/prospects/kim.md. Without it, a name containing a
+                       \`/\` is read relative to the repo.
   --show-files         Append \`files: …\` line to stderr listing what was touched
                        (the new doc + the index file). See \`dotmd archive --help\`.
   --list-types         Show registered types (alias: --list-templates)

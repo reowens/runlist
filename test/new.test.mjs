@@ -401,6 +401,89 @@ describe('dotmd new — type-first CLI', () => {
       ok(!existsSync(path.join(tmpDir, 'docs', 'plans', 'plans', 'auth-revamp.md')), 'no double-nesting');
     });
 
+    // The four-root shape the field audit reproduced against: a catch-all `docs`
+    // listed alongside the type-specific roots nested inside it.
+    function setupNestedRootProject() {
+      tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-new-'));
+      mkdirSync(path.join(tmpDir, '.git'));
+      mkdirSync(path.join(tmpDir, 'docs', 'plans'), { recursive: true });
+      mkdirSync(path.join(tmpDir, 'docs', 'adr'), { recursive: true });
+      mkdirSync(path.join(tmpDir, 'notes'), { recursive: true });
+      writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'),
+        `export const root = ['docs/plans', 'docs/adr', 'docs', 'notes'];`);
+    }
+
+    it('--root applies to a name that carries a directory prefix', () => {
+      setupNestedRootProject();
+      const r = run(['new', 'doc', 'prospects/kim', '--root', 'docs']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      ok(existsSync(path.join(tmpDir, 'docs', 'prospects', 'kim.md')), 'lands under the named root');
+      ok(!existsSync(path.join(tmpDir, 'prospects', 'kim.md')), 'not repo-relative when --root was given');
+    });
+
+    it('--root does not double up a prefix that is already inside that root', () => {
+      setupNestedRootProject();
+      const r = run(['new', 'doc', 'docs/prospects/amy', '--root', 'docs']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      ok(existsSync(path.join(tmpDir, 'docs', 'prospects', 'amy.md')));
+      ok(!existsSync(path.join(tmpDir, 'docs', 'docs', 'prospects', 'amy.md')), 'full repo paths must not nest under the root twice');
+    });
+
+    it('a prefix outside every root names the flag that fixes it', () => {
+      setupNestedRootProject();
+      const r = run(['new', 'doc', 'prospects/jason']);
+      strictEqual(r.status, 1, 'still refuses — which root is genuinely ambiguous');
+      ok(r.stderr.includes('--root docs'), `error must name the working remedy: ${r.stderr}`);
+      ok(r.stderr.includes('docs/prospects/jason.md'), `error must show where that lands: ${r.stderr}`);
+      ok(!existsSync(path.join(tmpDir, 'prospects', 'jason.md')));
+      // And the remedy it prints actually works.
+      const fixed = run(['new', 'doc', 'prospects/jason', '--root', 'docs']);
+      strictEqual(fixed.status, 0, `stderr: ${fixed.stderr}`);
+      ok(existsSync(path.join(tmpDir, 'docs', 'prospects', 'jason.md')));
+    });
+
+    // The remedy is only offered where it works. A traversal is not a
+    // "you meant a different root" mistake, and `--root` cannot fix it, so the
+    // containment check stays the thing that speaks.
+    it('leaves a traversal prefix to the containment error', () => {
+      setupNestedRootProject();
+      const r = run(['new', 'doc', '../escaped']);
+      strictEqual(r.status, 1);
+      ok(/lexically outside/.test(r.stderr), `containment error must win: ${r.stderr}`);
+      ok(!r.stderr.includes('--root'), `must not suggest a root that fixes nothing: ${r.stderr}`);
+    });
+
+    it('a type with no targetRoot lands in the catch-all root, not the first-listed one', () => {
+      setupNestedRootProject();
+      const r = run(['new', 'doc', 'tmp-probe']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      ok(existsSync(path.join(tmpDir, 'docs', 'tmp-probe.md')), 'docs contains the other roots, so it is the catch-all');
+      ok(!existsSync(path.join(tmpDir, 'docs', 'plans', 'tmp-probe.md')), 'a doc must not land in the plans root');
+    });
+
+    it('a template targetRoot still beats the catch-all', () => {
+      setupNestedRootProject();
+      const r = run(['new', 'plan', 'auth-revamp']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      ok(existsSync(path.join(tmpDir, 'docs', 'plans', 'auth-revamp.md')));
+    });
+
+    it('flat sibling roots keep first-listed order — no catch-all exists to find', () => {
+      setupFlatArrayProject(); // docs/plans, docs/modules, docs/prompts — none contains another
+      const r = run(['new', 'doc', 'sibling-probe']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      ok(existsSync(path.join(tmpDir, 'docs', 'plans', 'sibling-probe.md')), 'unchanged where no root nests inside another');
+    });
+
+    it('the Root: line reports where the file landed, not where resolution started', () => {
+      setupNestedRootProject();
+      const r = run(['new', 'doc', 'docs/adr/0001-choice']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      ok(existsSync(path.join(tmpDir, 'docs', 'adr', '0001-choice.md')));
+      ok(/Root: adr\b/.test(r.stdout), `must name the owning root: ${r.stdout}`);
+      ok(!/Root: docs\b/.test(r.stdout), `must not report the root resolution started from: ${r.stdout}`);
+    });
+
     it('user override declaring `targetRoot` routes correctly under flat-array config', () => {
       tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-new-'));
       mkdirSync(path.join(tmpDir, '.git'));

@@ -2,6 +2,27 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- **`dotmd new` ignored `--root` as soon as the name contained a slash.** A
+  directory prefix switched resolution to repo-relative and discarded the root
+  the flag had just chosen — so `dotmd new doc prospects/kim --root docs` died
+  with "outside every configured root", and the one flag that error advertises
+  could not fix it. `--root` now applies to a nested name (`docs/prospects/kim.md`),
+  while a prefix that is already a full repo path stays where it points rather
+  than nesting under the root twice. Without `--root`, a prefix pointing outside
+  every root is still an error — which root is genuinely ambiguous — but the
+  message names the flag, shows where it would land, and lists the roots.
+- **A type with no root of its own landed in whichever root was listed first.**
+  For a project listing `docs/plans` before `docs`, that put every `doc` in the
+  plans root. When one configured root contains the others it is structurally
+  the catch-all, so it wins now; projects with a single root, or with flat
+  sibling roots and no container among them, are unaffected.
+- **The `Root:` line named the root resolution started from**, not the one the
+  file landed in — reporting `Root: plans` while writing `docs/prospects/`.
+
 ## 0.74.2 — 2026-08-13
 
 ### Added

@@ -60,6 +60,27 @@ function fullBodyShortcut(title, bodyInput) {
   return hasOwnTitle ? `\n${b}\n` : `\n# ${title}\n\n${b}\n`;
 }
 
+function lexicallyInside(parent, child) {
+  return child === parent || child.startsWith(parent + path.sep);
+}
+
+// The default root for a type that doesn't name one of its own. This used to be
+// "whichever root is listed first", which drops a `doc` into `docs/plans` for
+// any project that lists its plans root first — the plan type's own root, for a
+// type that isn't a plan. When one configured root contains another it is
+// structurally the catch-all (`docs` holding `docs/plans` and `docs/adr`), so
+// prefer that; the deepest one, so a nested chain picks the most specific
+// container rather than the outermost. Single-root projects and flat sibling
+// roots have no catch-all to find and keep first-listed order.
+export function catchAllRoot(config) {
+  const roots = config.docsRoots ?? [config.docsRoot];
+  if (roots.length < 2) return config.docsRoot;
+  const containers = roots.filter(root => roots.some(other => other !== root && lexicallyInside(root, other)));
+  if (!containers.length) return config.docsRoot;
+  const depth = root => root.split(path.sep).length;
+  return containers.reduce((deepest, root) => depth(root) > depth(deepest) ? root : deepest);
+}
+
 const BUILTIN_TEMPLATES = {
   doc: {
     description: 'Reference doc, design note, module overview — build-up shape lite',
@@ -800,6 +821,9 @@ export async function runNew(argv, config, opts = {}) {
   } else if (name.endsWith('.md')) {
     namePart = name.slice(0, -3);
   }
+  // A prefix the *user* typed and one a template declares resolve differently
+  // below, so the distinction has to survive the template's assignment to nameDir.
+  const userNameDir = nameDir;
 
   // Slugify
   const slug = namePart.toLowerCase().replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').replace(/^-|-$/g, '');
@@ -811,7 +835,7 @@ export async function runNew(argv, config, opts = {}) {
   // Resolve target root. Precedence: CLI --root > template.targetRoot > config.docsRoot.
   // When the chosen root is a first-class type-container (matched by --root or targetRoot),
   // we skip the `template.dir` join — the root already points at the right directory.
-  let targetRoot = config.docsRoot;
+  let targetRoot = catchAllRoot(config);
   let routedToTypeRoot = false;
   if (rootName) {
     const roots = config.docsRoots || [config.docsRoot];
@@ -837,10 +861,46 @@ export async function runNew(argv, config, opts = {}) {
     nameDir = path.join(path.relative(config.repoRoot, targetRoot), template.dir);
   }
 
-  // Path — if user provided a directory prefix OR template declared one, resolve relative to repoRoot
-  const baseDir = nameDir ? path.resolve(config.repoRoot, nameDir) : targetRoot;
+  // Path — a directory prefix is read relative to the repo, because `dotmd new
+  // plan docs/plans/feature` is a full repo path and has to stay one. That was
+  // the ONLY reading, which is how `--root` came to be silently ignored the
+  // moment a name contained a slash: the block above picked a root and this line
+  // threw it away, so the one flag the out-of-root error advertises could not
+  // fix the error. With an explicit --root the prefix is now read relative to
+  // that root — unless the repo-relative reading already lands inside it, so
+  // full paths keep working.
+  const allRoots = config.docsRoots ?? [config.docsRoot];
+  let baseDir;
+  if (!nameDir) baseDir = targetRoot;
+  else if (userNameDir && rootName) {
+    const repoRelative = path.resolve(config.repoRoot, nameDir);
+    baseDir = lexicallyInside(targetRoot, repoRelative) ? repoRelative : path.resolve(targetRoot, nameDir);
+  } else baseDir = path.resolve(config.repoRoot, nameDir);
   const filePath = path.join(baseDir, slug + '.md');
   const repoPath = toRepoPath(filePath, config.repoRoot);
+
+  // Without --root there is nothing to disambiguate with, so a prefix pointing
+  // outside every root stays an error — but it names the flag that resolves it,
+  // and the flag now works. The generic containment error underneath reports
+  // absolute paths and no remedy, which is what agents kept re-guessing at.
+  //
+  // Gated on the remedy actually working: the suggestion is only offered when
+  // `--root` would land the file inside that root. That is what keeps this off
+  // a traversal (`../escaped`, an absolute path), where `--root` fixes nothing
+  // and the containment check below is the error that should speak — printing
+  // an untested remedy is the very defect this finding is about.
+  if (userNameDir && !rootName && !allRoots.some(root => lexicallyInside(root, filePath))) {
+    const rooted = path.resolve(targetRoot, userNameDir, slug + '.md');
+    if (lexicallyInside(targetRoot, rooted)) {
+      die(`Destination is outside every configured root:\n`
+        + `  ${repoPath}\n\n`
+        + `A name with a \`/\` is read relative to the repo.\n`
+        + `To place it under a root instead:\n`
+        + `  dotmd new ${typeName} ${name} --root ${path.basename(targetRoot)}\n`
+        + `     → ${toRepoPath(rooted, config.repoRoot)}\n\n`
+        + `Roots: ${allRoots.map(root => path.basename(root)).join(', ')}`);
+    }
+  }
   const destinationAuthorization = authorizeManagedDestination(filePath, config, { kind: 'New document destination' });
 
   if (existsSync(filePath)) {
@@ -862,12 +922,15 @@ export async function runNew(argv, config, opts = {}) {
   // When the project has >1 root and `--root` was omitted, surface the choice
   // so agents can see that an alternative root was available. Cheap visibility
   // for the "ended up in docs/plans/ for a doc" foot-gun.
-  const allRoots = config.docsRoots ?? [config.docsRoot];
+  // Report the root the file actually landed in, not the one resolution started
+  // from: a directory prefix can move the destination into a different root
+  // entirely, and the line used to say `Root: plans` while writing docs/prospects/.
   let rootHint = '';
   if (!rootName && allRoots.length > 1) {
-    const chosenLabel = path.basename(targetRoot);
+    const owningRoot = destinationAuthorization.root.lexicalPath;
+    const chosenLabel = path.basename(owningRoot);
     const others = allRoots
-      .filter(r => r !== targetRoot)
+      .filter(r => r !== owningRoot)
       .map(r => path.basename(r));
     rootHint = `Root: ${chosenLabel} (others: ${others.join(', ')} — pass --root <name> to change)\n`;
   }
