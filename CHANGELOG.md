@@ -2,7 +2,7 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
-## Unreleased
+## 0.74.3 — 2026-08-13
 
 ### Fixed
 
