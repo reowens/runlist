@@ -22,7 +22,7 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
   nearly all of them auto-fixable with `dotmd doctor --frontmatter-fix`.
   `dotmd statuses` reports `skipWarnings` per type for the same reason.
 
-## Unreleased
+## 0.74.5 — 2026-08-16
 
 ### Fixed
 
