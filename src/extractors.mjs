@@ -41,8 +41,17 @@ export function extractNextStep(body) {
 
 export function extractBodyLinks(body) {
   if (!body) return [];
-  // Strip fenced code blocks and inline code to avoid false positives
-  const stripped = body.replace(/^```[\s\S]*?^```/gm, '').replace(/`[^`]+`/g, '');
+  // Strip fenced code blocks, then MASK inline code rather than delete it.
+  // Deleting it ate the commonest link idiom in a plan hub: [`plan.md`](plan.md)
+  // has its link TEXT as a code span, so removing the span left `[](plan.md)`,
+  // which the regex below rejects for having empty text. A hub with hundreds of
+  // such links reported one — and since this list is what validates body links,
+  // every one of them was also never checked for breakage. Masking to same-length
+  // filler keeps the link matchable while still neutralizing a link that is
+  // itself inside code (`[fake](x.md)` stays unmatched), and preserves offsets.
+  const stripped = body
+    .replace(/^```[\s\S]*?^```/gm, '')
+    .replace(/`[^`]+`/g, match => 'x'.repeat(match.length));
   const links = [];
   // Match [text](path.md) or [text](path.md#anchor), skip images (preceded by !)
   const regex = /(?<!!)\[([^\]]+)\]\(([^)]+\.md(?:#[^)]*)?)\)/g;

@@ -144,6 +144,36 @@ describe('extractBodyLinks', () => {
     strictEqual(links[0].href, 'doc.md');
   });
 
+  it('extracts a link whose text is a code span', () => {
+    // The commonest idiom in a plan hub. Inline code used to be deleted before
+    // matching, leaving `[](plan.md)` — empty text, no match — so a hub with
+    // hundreds of these reported one link and none of them were ever validated.
+    const body = 'Homed here: [`plan-b.md`](plan-b.md) and [`c.md`](c.md).';
+    const links = extractBodyLinks(body);
+    strictEqual(links.length, 2);
+    strictEqual(links[0].href, 'plan-b.md');
+    strictEqual(links[1].href, 'c.md');
+  });
+
+  it('extracts a link with code mixed into its text', () => {
+    const body = 'See [the `plan-b.md` doc](plan-b.md).';
+    const links = extractBodyLinks(body);
+    strictEqual(links.length, 1);
+    strictEqual(links[0].href, 'plan-b.md');
+  });
+
+  it('still ignores a link that is itself inside inline code', () => {
+    const body = 'Write it as `[text](target.md)` in the body.';
+    strictEqual(extractBodyLinks(body).length, 0);
+  });
+
+  it('still ignores links inside fenced code blocks', () => {
+    const body = '```\n[A](a.md)\n```\nBut [B](b.md) counts.';
+    const links = extractBodyLinks(body);
+    strictEqual(links.length, 1);
+    strictEqual(links[0].href, 'b.md');
+  });
+
   it('skips image links', () => {
     const body = '![alt](image.md)';
     const links = extractBodyLinks(body);

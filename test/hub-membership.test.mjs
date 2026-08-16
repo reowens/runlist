@@ -132,6 +132,67 @@ describe('a claim only the hub makes', () => {
     strictEqual(kinds(await warnings(), 'hub-membership-backref').length, 1);
   });
 
+  it('a table under a link-list heading ranks the row subject, not its prose', async () => {
+    // `## Runlist index — by category` matches the link-list heading list, but it
+    // is written as tables. Taking every link in the section made each row's
+    // descriptive prose a membership claim: the row is about A, its prose says A
+    // spawned B, and B got warned for not naming the HUB as its parent — when the
+    // hub never claimed B at all. In a table only the first link per row ranks.
+    const plans = setupProject();
+    hub(plans, 'billing-runlist.md', `# Billing
+
+## Runlist index — by category
+
+| Plan | Notes |
+|---|---|
+| [A](billing-a.md) | Phase 12 spawned a child, [B](billing-b.md), owned by A and not by this hub. |
+`);
+    plan(plans, 'billing-a.md');
+    plan(plans, 'billing-b.md');
+
+    const found = kinds(await warnings(), 'hub-membership-backref');
+    strictEqual(found.length, 1, 'only the row subject is a member');
+    match(found[0].path, /billing-a\.md$/);
+  });
+
+  it('ranks one plan per list line, so an item\'s commentary is not a claim', async () => {
+    // A ranked item carries commentary, and commentary links elsewhere. Measured
+    // on a real hub: item 1 is about plan A and notes that A's open item "closes
+    // on a route decision in [B]" — B is cited, not ranked. First link per line,
+    // the same rule a table row already follows.
+    const plans = setupProject();
+    hub(plans, 'billing-runlist.md', `# Billing
+
+## Order of operations
+
+1. **A** — its open item closes on a decision in [B](billing-b.md). See [A](billing-a.md).
+2. [C](billing-c.md)
+`);
+    plan(plans, 'billing-a.md');
+    plan(plans, 'billing-b.md');
+    plan(plans, 'billing-c.md');
+
+    const found = kinds(await warnings(), 'hub-membership-backref').map(w => w.path);
+    strictEqual(found.length, 2, `first link per line only, got ${JSON.stringify(found)}`);
+    ok(found.some(p => p.endsWith('billing-b.md')), 'line 1 ranks its first link');
+    ok(found.some(p => p.endsWith('billing-c.md')), 'line 2 ranks its only link');
+    ok(!found.some(p => p.endsWith('billing-a.md')), 'the second link on line 1 is commentary');
+  });
+
+  it('a multi-line link list still ranks every entry', async () => {
+    const plans = setupProject();
+    hub(plans, 'billing-runlist.md', `# Billing
+
+## Order of operations
+
+1. [A](billing-a.md)
+2. [B](billing-b.md)
+`);
+    plan(plans, 'billing-a.md');
+    plan(plans, 'billing-b.md');
+    strictEqual(kinds(await warnings(), 'hub-membership-backref').length, 2);
+  });
+
   it('stays silent when the child points at a DIFFERENT hub', async () => {
     // Measured on a real estate: an aggregator hub ranking plans owned by other
     // programs is legitimate and common. Demanding exclusivity would fire on

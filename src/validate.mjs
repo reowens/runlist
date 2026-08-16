@@ -458,10 +458,14 @@ export function checkCoordinationHubExecutionMode(docs, config) {
   for (const doc of docs) {
     if (doc.type && doc.type !== 'plan') continue;
     if (skipDoc(doc)) continue;
-    // A roadmap (`execution_mode: roadmap`) is already an explicit held-out hub —
-    // just a tier up. Don't nudge it toward `coordination` even when its slug is
-    // `*-runlist` (e.g. a `master-runlist` promoted to a roadmap).
-    if (doc.executionMode === 'coordination' || doc.executionMode === 'roadmap') continue;
+    // ANY explicit `execution_mode` ends it. The field is the canonical signal
+    // and the slug is only a fallback for hubs that predate it, so a plan that
+    // already answered — `implementation`, `roadmap`, anything — has said what it
+    // is. Nudging past that misfires on exactly one population: plans ABOUT
+    // runlists, whose slug contains the word while the document is ordinary work.
+    // (A real one: a plan to rename the runlist concept, declared
+    // `execution_mode: implementation`, nagged to call itself a coordination hub.)
+    if (doc.executionMode) continue;
     const base = (doc.path.split('/').pop() || '').replace(/\.md$/, '');
     if (base !== 'runlist' && !base.endsWith('-runlist')) continue;
     warnings.push({

@@ -242,9 +242,31 @@ export function detectBodyRunlistRefs(body) {
   let match;
   while ((match = linkSectionRe.exec(body)) !== null) {
     const section = sliceSection(match.index + match[0].length);
+    // Line by line, because the SHAPE decides what a link means, not the
+    // heading's name. A section titled `## Runlist index — by category` matches
+    // this heading list but is written as tables, and taking every link in it
+    // made each row's descriptive prose a membership claim: a row about plan A
+    // whose prose says "spawned children B, C" ranked B and C as the hub's own,
+    // then warned B and C for not naming the hub as parent. In a table, only the
+    // row's first link is the ranked plan — the same rule the ranked-queue
+    // branch below already applies.
     const allLinks = new RegExp(linkRe.source, 'g');
-    let link;
-    while ((link = allLinks.exec(section)) !== null) refs.push(link[1]);
+    for (const rawLine of section.split('\n')) {
+      const line = rawLine.trim();
+      if (line.startsWith('|')) {
+        const link = firstRowLink(line);
+        if (link) refs.push(link);
+        continue;
+      }
+      // One ranked item per line, first link wins — the same rule as a table
+      // row. A ranked item routinely carries commentary that links elsewhere
+      // ("Phase 7's open item closes on a route decision in [other-plan.md]"),
+      // and counting those made the hub claim plans it was only citing. A hub
+      // that means to rank two plans lists them on two lines.
+      allLinks.lastIndex = 0;
+      const link = allLinks.exec(line);
+      if (link) refs.push(link[1]);
+    }
 
     const checklistRe = /^\s*[-*]\s+\[[ xX]\]\s+([^\s)]+\.md(?:#[^\s)]+)?)/gm;
     let item;

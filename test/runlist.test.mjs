@@ -1056,6 +1056,23 @@ updated: 2026-06-25`);
     match(out, /billing-runlist\.md: reads as a coordination runlist[\s\S]*missing `execution_mode: coordination`/);
     ok(!/master-runlist\.md: reads as a coordination runlist/.test(out), 'explicit coordination hub is not nudged');
   });
+
+  it('does not nudge a *-runlist plan that declared a different execution_mode', () => {
+    // The field is canonical and the slug is only a fallback for hubs predating
+    // it, so a plan that already answered has said what it is. The population
+    // this used to misfire on is plans ABOUT runlists: a real one was a plan to
+    // rename the runlist concept, declared `implementation`, told to relabel
+    // itself a coordination hub by the very heuristic it was written about.
+    const plans = setupProject();
+    writeDoc(plans, 'rename-runlist.md', `type: plan
+status: active
+title: Rename the runlist concept
+execution_mode: implementation
+updated: 2026-06-25`);
+    const r = spawnSync('node', [BIN, 'check', '--verbose'], { cwd: tmpDir, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
+    const out = r.stdout + r.stderr;
+    ok(!/rename-runlist\.md: reads as a coordination runlist/.test(out), `explicit execution_mode ends the nudge, got: ${out}`);
+  });
 });
 
 function runCmd(cmd, args, opts = {}) {

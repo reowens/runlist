@@ -22,6 +22,34 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
   nearly all of them auto-fixable with `dotmd doctor --frontmatter-fix`.
   `dotmd statuses` reports `skipWarnings` per type for the same reason.
 
+## Unreleased
+
+### Fixed
+
+- **A link whose text was a code span was invisible to every body-link reader.**
+  `extractBodyLinks` deleted inline code before matching links, so the commonest
+  idiom in a plan hub — ``[`plan.md`](plan.md)`` — collapsed to `[](plan.md)` and
+  failed the regex for having empty text. One real hub reported **1 link out of
+  hundreds**. Since that list is what validates body links, none of those links
+  were ever checked for breakage either; fixing it surfaced 7 long-dead links in
+  a single repo. Inline code is now masked to same-length filler instead of
+  deleted, so a link inside code (`` `[fake](x.md)` ``) still doesn't count.
+- **A hub's descriptive prose was read as a membership claim.** A body section
+  was parsed as a link *list* — every `.md` link in it is a ranked child — purely
+  because its heading matched a name like `Runlist`. Sections written as tables
+  then ranked each row's commentary: a row about plan A whose prose said "A
+  spawned B and C" claimed B and C for the hub, and warned them for not naming it
+  as parent. Now the shape decides, not the heading: a table row contributes its
+  first link, and a list line contributes its first link, so an item's commentary
+  is no longer a claim. This removed 11 false membership warnings in one repo.
+- **A plan that declared its `execution_mode` was still nudged to change it.**
+  The `*-runlist` slug heuristic skipped only `coordination` and `roadmap`, so a
+  plan that had explicitly answered — `implementation` — was told to relabel
+  itself a coordination hub. The field is canonical and the slug is only a
+  fallback for hubs predating it, so any explicit `execution_mode` now ends the
+  nudge. It misfired on exactly one population: plans *about* runlists, whose
+  slug contains the word while the document is ordinary work.
+
 ## 0.74.3 — 2026-08-13
 
 ### Fixed
