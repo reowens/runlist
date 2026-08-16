@@ -15,7 +15,7 @@ export function buildStats(index, config) {
     }
   }
   const scoped = docs.filter(d => scope.includes(d.status));
-  const nonArchived = docs.filter(d => !config.lifecycle.skipWarningsFor.has(d.status));
+  const nonArchived = docs.filter(d => !config.lifecycle.skipsWarnings(d.status, d.type));
 
   // Health
   const staleCount = nonArchived.filter(d => d.isStale).length;

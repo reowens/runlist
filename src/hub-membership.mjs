@@ -39,10 +39,10 @@ const BACKREF_KIND = 'hub-membership-backref';
 
 export function checkHubMembershipDrift(docs, config) {
   const warnings = [];
-  const quiet = new Set([
-    ...(config.lifecycle?.terminalStatuses ?? []),
-    ...(config.lifecycle?.skipWarningsFor ?? []),
-  ]);
+  // Per-doc: warning suppression is type-scoped, so a status name quiet for one
+  // type stays loud for another that declared the same name.
+  const quiet = (d) => config.lifecycle?.terminalStatuses?.has(d.status)
+    || config.lifecycle?.skipsWarnings(d.status, d.type);
   const byPath = new Map(docs.map(doc => [doc.path, doc]));
   const refFields = [
     ...(config.referenceFields?.bidirectional ?? []),
@@ -82,7 +82,7 @@ export function checkHubMembershipDrift(docs, config) {
   // it lives. Warns on the HUB: the hub's list is the half that lost the entry.
   const knownCache = new Map();
   for (const child of docs) {
-    if (quiet.has(child.status)) continue;
+    if (quiet(child)) continue;
     const parents = child.refFields?.parent_plan ?? [];
     if (parents.length === 0) continue;
     const dir = dirOf(child);
@@ -92,7 +92,7 @@ export function checkHubMembershipDrift(docs, config) {
       // parent rows nothing, and demanding a link back there would be a new
       // opinion rather than a drift check.
       if (!hub || hub.path === child.path || !isHubDoc(hub)) continue;
-      if (quiet.has(hub.status)) continue;
+      if (quiet(hub)) continue;
       if (!knownCache.has(hub.path)) knownCache.set(hub.path, knownTo(hub));
       if (knownCache.get(hub.path).has(child.path)) continue;
       warnings.push({
@@ -113,7 +113,7 @@ export function checkHubMembershipDrift(docs, config) {
   // back-ref is never reported twice. Warns on the CHILD, matching that check:
   // it's the file that needs the edit.
   for (const hub of docs) {
-    if (!isHubDoc(hub) || quiet.has(hub.status)) continue;
+    if (!isHubDoc(hub) || quiet(hub)) continue;
     let body;
     try { ({ body } = extractFrontmatter(readFileSync(path.join(config.repoRoot, hub.path), 'utf8'))); }
     catch { continue; }
@@ -131,7 +131,7 @@ export function checkHubMembershipDrift(docs, config) {
       const child = resolve(ref, dir);
       if (!child || child.path === hub.path || seen.has(child.path)) continue;
       seen.add(child.path);
-      if (quiet.has(child.status)) continue;                 // closed work is normal history
+      if (quiet(child)) continue;                 // closed work is normal history
       if (inFrontmatterRunlist.has(child.path)) continue;    // checkRunlistBackPointers owns it
       if (isHubDoc(child)) continue;                         // a hub under a hub is the roadmap tier
       if (child.type && child.type !== 'plan') continue;     // `parent_plan` is a plan relationship

@@ -93,7 +93,7 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
 
   const knownStatus = isValidStatus(doc.status, doc.root, config, doc.type);
 
-  if (knownStatus && !config.lifecycle.skipWarningsFor.has(doc.status) && !doc.updated) {
+  if (knownStatus && !config.lifecycle.skipsWarnings(doc.status, doc.type) && !doc.updated) {
     doc.errors.push({ path: doc.path, level: 'error', message: 'Missing frontmatter `updated` for non-archived doc.' });
   }
 
@@ -130,7 +130,7 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
     doc.errors.push({ path: doc.path, level: 'error', message: '`modules` is required for this status; declare a real module from `taxonomy.modules`, or `none` as the explicit no-module sentinel.' });
   }
 
-  if (config.validSurfaces && !config.lifecycle.skipWarningsFor.has(doc.status)) {
+  if (config.validSurfaces && !config.lifecycle.skipsWarnings(doc.status, doc.type)) {
     const knownSurfaces = [...config.validSurfaces];
     for (const surface of doc.surfaces) {
       if (!config.validSurfaces.has(surface)) {
@@ -153,7 +153,7 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
   // target is inlined in the message so `dotmd lint --fix` users see exactly
   // what they'll end up with — and so non-fix readers can hand-migrate.
   // Suppress for archived/terminal docs (same noise-control rule as F2).
-  if (!config.lifecycle.skipWarningsFor.has(doc.status)) {
+  if (!config.lifecycle.skipsWarnings(doc.status, doc.type)) {
     for (const { singular, plural } of [{ singular: 'module', plural: 'modules' }, { singular: 'surface', plural: 'surfaces' }]) {
       const singularValue = frontmatter[singular];
       if (!Object.prototype.hasOwnProperty.call(frontmatter, singular)) continue;
@@ -190,13 +190,13 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
     doc.warnings.push({ path: doc.path, level: 'warning', message: 'Missing `title` and no H1 found for fallback.' });
   }
 
-  if (!skipTitleSummary && !config.lifecycle.skipWarningsFor.has(doc.status) && !asString(frontmatter.summary) && !doc.summary) {
+  if (!skipTitleSummary && !config.lifecycle.skipsWarnings(doc.status, doc.type) && !asString(frontmatter.summary) && !doc.summary) {
     doc.warnings.push({ path: doc.path, level: 'warning', message: 'Missing `summary` and no blockquote fallback found.' });
   }
 
   // Determine which statuses should have current_state and next_step (plans only, not docs/research)
   const isPlanWork = knownStatus && doc.status && (!doc.type || doc.type === 'plan')
-    && !config.lifecycle.terminalStatuses.has(doc.status) && !config.lifecycle.skipWarningsFor.has(doc.status);
+    && !config.lifecycle.terminalStatuses.has(doc.status) && !config.lifecycle.skipsWarnings(doc.status, doc.type);
 
   if (isPlanWork && !asString(frontmatter.current_state)) {
     doc.warnings.push({ path: doc.path, level: 'warning', message: 'Missing `current_state`; index output is using a fallback or placeholder.' });
@@ -259,7 +259,7 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
   const docDir = path.dirname(path.join(config.repoRoot, doc.path));
   const allRefFields = [...(config.referenceFields.bidirectional || []), ...(config.referenceFields.unidirectional || [])];
   const skipRefValidation = config.lifecycle.terminalStatuses.has(doc.status)
-    || config.lifecycle.skipWarningsFor.has(doc.status);
+    || config.lifecycle.skipsWarnings(doc.status, doc.type);
   if (!skipRefValidation) {
     for (const field of allRefFields) {
       for (const relPath of (doc.refFields[field] || [])) {
@@ -406,14 +406,14 @@ export function checkBidirectionalReferences(docs, config) {
 // child it doesn't own without nagging the child to add `parent_plan:`.
 export function checkRunlistBackPointers(docs, config) {
   const warnings = [];
-  const skipStatuses = new Set([
-    ...(config.lifecycle.terminalStatuses ?? []),
-    ...(config.lifecycle.skipWarningsFor ?? []),
-  ]);
+  // Per-doc, not a precomputed name set: warning suppression is type-scoped, so
+  // the same status name can be quiet for one type and loud for another.
+  const skipDoc = (d) => config.lifecycle.terminalStatuses.has(d.status)
+    || config.lifecycle.skipsWarnings(d.status, d.type);
   const byPath = new Map(docs.map(d => [d.path, d]));
 
   for (const hub of docs) {
-    if (skipStatuses.has(hub.status)) continue;
+    if (skipDoc(hub)) continue;
     const runlistRefs = hub.refFields?.runlist ?? [];
     const runlistDirs = hub.refFieldDirections?.runlist ?? [];
     if (runlistRefs.length === 0) continue;
@@ -427,7 +427,7 @@ export function checkRunlistBackPointers(docs, config) {
       const childPath = toRepoPath(resolved, config.repoRoot);
       const child = byPath.get(childPath);
       if (!child) continue;
-      if (skipStatuses.has(child.status)) continue;
+      if (skipDoc(child)) continue;
       const childParents = (child.refFields?.parent_plan ?? []).map(p => {
         const abs = resolveRefPath(p, path.dirname(path.join(config.repoRoot, child.path)), config.repoRoot);
         return abs ? toRepoPath(abs, config.repoRoot) : p;
@@ -451,13 +451,13 @@ export function checkRunlistBackPointers(docs, config) {
 // it explicit. Skips terminal/quiet statuses like every other warning-only check.
 export function checkCoordinationHubExecutionMode(docs, config) {
   const warnings = [];
-  const skipStatuses = new Set([
-    ...(config.lifecycle.terminalStatuses ?? []),
-    ...(config.lifecycle.skipWarningsFor ?? []),
-  ]);
+  // Per-doc, not a precomputed name set: warning suppression is type-scoped, so
+  // the same status name can be quiet for one type and loud for another.
+  const skipDoc = (d) => config.lifecycle.terminalStatuses.has(d.status)
+    || config.lifecycle.skipsWarnings(d.status, d.type);
   for (const doc of docs) {
     if (doc.type && doc.type !== 'plan') continue;
-    if (skipStatuses.has(doc.status)) continue;
+    if (skipDoc(doc)) continue;
     // A roadmap (`execution_mode: roadmap`) is already an explicit held-out hub —
     // just a tier up. Don't nudge it toward `coordination` even when its slug is
     // `*-runlist` (e.g. a `master-runlist` promoted to a roadmap).
@@ -482,10 +482,10 @@ export function checkCoordinationHubExecutionMode(docs, config) {
 // coordination hub that merely references one sibling runlist isn't mislabelled.
 export function checkRoadmapHubExecutionMode(docs, config) {
   const warnings = [];
-  const skipStatuses = new Set([
-    ...(config.lifecycle.terminalStatuses ?? []),
-    ...(config.lifecycle.skipWarningsFor ?? []),
-  ]);
+  // Per-doc, not a precomputed name set: warning suppression is type-scoped, so
+  // the same status name can be quiet for one type and loud for another.
+  const skipDoc = (d) => config.lifecycle.terminalStatuses.has(d.status)
+    || config.lifecycle.skipsWarnings(d.status, d.type);
   const byPath = new Map(docs.map(d => [d.path, d]));
   const byBasename = new Map();
   for (const d of docs) {
@@ -501,7 +501,7 @@ export function checkRoadmapHubExecutionMode(docs, config) {
   };
   for (const doc of docs) {
     if (doc.type && doc.type !== 'plan') continue;
-    if (skipStatuses.has(doc.status)) continue;
+    if (skipDoc(doc)) continue;
     if (doc.executionMode === 'roadmap') continue;       // already a roadmap
     if (doc.executionMode !== 'coordination') continue;  // only nudge explicit coordination hubs
     const refs = doc.refFields?.related_plans ?? [];
@@ -585,7 +585,7 @@ export function validatePlanShape(doc, body, frontmatter, config) {
   if (doc.type !== 'plan') return;
   // Skip plans in terminal/archive statuses (closed work shouldn't generate noise)
   if (config.lifecycle.terminalStatuses.has(doc.status) || config.lifecycle.archiveStatuses.has(doc.status)) return;
-  if (config.lifecycle.skipWarningsFor.has(doc.status)) return;
+  if (config.lifecycle.skipsWarnings(doc.status, doc.type)) return;
 
   // 1. next_step length cap (800 chars). Was 300; raised in parallel with
   // current_state for the same reason: agents need to encode "what to do next"
@@ -658,7 +658,7 @@ export function validatePlanShape(doc, body, frontmatter, config) {
 export function validateDocShape(doc, body, frontmatter, config) {
   if (doc.type !== 'doc') return;
   if (config.lifecycle.terminalStatuses.has(doc.status) || config.lifecycle.archiveStatuses.has(doc.status)) return;
-  if (config.lifecycle.skipWarningsFor.has(doc.status)) return;
+  if (config.lifecycle.skipsWarnings(doc.status, doc.type)) return;
 
   if (!body) return;
 

@@ -2,6 +2,26 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- **A status marked quiet by one type silenced that status name for every other
+  type.** `skipWarnings` (and `quiet:`) are declared per type, but the derived
+  `lifecycle.skipWarningsFor` was a flat union of status *names* with no type
+  qualifier — so a config declaring `journey.active: { skipWarnings: true }`
+  suppressed surface, summary, deprecation and reference warnings on every
+  `active` **plan** in the repo. Statuses are type-scoped everywhere else
+  (`typeStatuses`, `isValidStatus`), and now the suppression that reads them is
+  too: a type that declares rich statuses answers for its own statuses, including
+  answering "not quiet" for a name another type marked quiet. A type that
+  declares none, an untyped doc, and an explicit repo-wide
+  `lifecycle.skipWarningsFor` all keep reading the flat set, so array-form
+  configs are unchanged. Expect previously-hidden warnings to appear on the
+  affected statuses — in one repo this took a `check` from 13 warnings to 192,
+  nearly all of them auto-fixable with `dotmd doctor --frontmatter-fix`.
+  `dotmd statuses` reports `skipWarnings` per type for the same reason.
+
 ## 0.74.3 — 2026-08-13
 
 ### Fixed

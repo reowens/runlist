@@ -291,8 +291,8 @@ function _renderContext(index, config, opts = {}) {
     lines.push('Stale: none');
   }
 
-  const withErrors = index.docs.filter(d => d.errors.length > 0 && !config.lifecycle.skipWarningsFor.has(d.status));
-  const withWarnings = index.docs.filter(d => d.warnings.length > 0 && !config.lifecycle.skipWarningsFor.has(d.status));
+  const withErrors = index.docs.filter(d => d.errors.length > 0 && !config.lifecycle.skipsWarnings(d.status, d.type));
+  const withWarnings = index.docs.filter(d => d.warnings.length > 0 && !config.lifecycle.skipsWarnings(d.status, d.type));
   if (withErrors.length || withWarnings.length) {
     const parts = [];
     if (withErrors.length) parts.push(`${withErrors.length} with errors`);

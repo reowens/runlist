@@ -451,7 +451,7 @@ async function runMigrateType(args, config, opts) {
     if (lc.terminalStatuses.has(name)) props.terminal = true;
     // Apply quiet sugar when both skipStale and skipWarnings hold; otherwise emit the individual flag.
     const skipStale = lc.skipStaleFor.has(name);
-    const skipWarnings = lc.skipWarningsFor.has(name);
+    const skipWarnings = lc.skipsWarnings(name, typeName);
     if (skipStale && skipWarnings) props.quiet = true;
     else {
       if (skipStale) props.skipStale = true;

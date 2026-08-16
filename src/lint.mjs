@@ -79,7 +79,7 @@ export function runLint(argv, config, opts = {}) {
     const parsed = parseSimpleFrontmatter(frontmatter);
     const repoPath = toRepoPath(filePath, config.repoRoot);
     const fixes = [];
-    const skipWarnings = config.lifecycle.skipWarningsFor.has(asString(parsed.status));
+    const skipWarnings = config.lifecycle.skipsWarnings(asString(parsed.status), asString(parsed.type));
 
     // Missing type (fixable — infer from root: plans → 'plan', else 'doc')
     if (!asString(parsed.type)) {

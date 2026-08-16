@@ -22,7 +22,7 @@ export function resolveStatusMetadata(config) {
 
     byType[type] = statuses.map((name, rank) => {
       const skipStale = config.lifecycle.skipStaleFor.has(name);
-      const skipWarnings = config.lifecycle.skipWarningsFor.has(name);
+      const skipWarnings = config.lifecycle.skipsWarnings(name, type);
       const hasTypeStaleDays = Object.prototype.hasOwnProperty.call(typeDef.staleDays ?? {}, name);
       return {
         name,

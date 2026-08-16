@@ -9,12 +9,16 @@ import { buildStats, renderStats, renderStatsJson } from '../src/stats.mjs';
 let tmpDir;
 
 function makeConfig(overrides = {}) {
-  return {
+  const config = {
     statusOrder: ['active', 'ready', 'planned', 'blocked', 'archived'],
     lifecycle: { skipWarningsFor: new Set(['archived']), skipStaleFor: new Set(['archived']), archiveStatuses: new Set(['archived']), terminalStatuses: new Set(['archived', 'deprecated', 'reference', 'done']) },
     hooks: {},
     ...overrides,
   };
+  // resolveConfig ships `skipsWarnings` alongside the flat set; these fixtures
+  // declare no per-type statuses, so it resolves to the flat set for every type.
+  config.lifecycle.skipsWarnings ??= (status) => config.lifecycle.skipWarningsFor.has(status);
+  return config;
 }
 
 function makeDoc(overrides = {}) {

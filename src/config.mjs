@@ -146,6 +146,13 @@ function normalizeRichStatuses(config, userConfig) {
     archiveStatuses: [],
     skipStaleFor: [],
     skipWarningsFor: [],
+    // Same membership as `skipWarningsFor`, but kept per declaring type. The flat
+    // list is a union of status NAMES, so a name any type marks quiet suppresses
+    // warnings for every other type that happens to share it — `journey.active`
+    // silencing every `active` plan in the repo. Statuses are type-scoped
+    // everywhere else (`typeStatuses`, `isValidStatus`), so the suppression that
+    // reads them has to be too.
+    skipWarningsForByType: {},
     terminalStatuses: [],
     moduleRequiredFor: [],
     // F15: status-name → directory-name (defaults to the status name verbatim).
@@ -166,6 +173,10 @@ function normalizeRichStatuses(config, userConfig) {
     if (typeof typeDef.statuses !== 'object') continue;
 
     hasRich = true;
+    // Claim the key even when no status is quiet: an empty list means "this type
+    // declared its statuses and suppresses nothing", which must not fall back to
+    // the global union. Absent entirely means "type never declared rich statuses".
+    derived.skipWarningsForByType[typeName] ??= [];
     const statusNames = [];
     const typeContext = { expanded: [], listed: [], counted: [] };
     const typeStaleDays = {};
@@ -203,7 +214,10 @@ function normalizeRichStatuses(config, userConfig) {
       if (p.archive && !derived.archiveStatuses.includes(name)) derived.archiveStatuses.push(name);
       if (p.startable && !derived.startableStatuses.includes(name)) derived.startableStatuses.push(name);
       if ((p.skipStale || quietImpliesSkipStale) && !derived.skipStaleFor.includes(name)) derived.skipStaleFor.push(name);
-      if ((p.skipWarnings || quietImpliesSkipWarnings) && !derived.skipWarningsFor.includes(name)) derived.skipWarningsFor.push(name);
+      if (p.skipWarnings || quietImpliesSkipWarnings) {
+        if (!derived.skipWarningsFor.includes(name)) derived.skipWarningsFor.push(name);
+        (derived.skipWarningsForByType[typeName] ??= []).push(name);
+      }
       if (p.terminal && !derived.terminalStatuses.includes(name)) derived.terminalStatuses.push(name);
       if (p.requiresModule && !derived.moduleRequiredFor.includes(name)) derived.moduleRequiredFor.push(name);
       if (p.filed && !derived.filedStatuses[name]) {
@@ -253,8 +267,17 @@ function applyDerivedConfig(config, userConfig, derived) {
   if (!userConfig.lifecycle?.skipStaleFor && derived.skipStaleFor.length) {
     config.lifecycle.skipStaleFor = derived.skipStaleFor;
   }
+  // Assigned on BOTH branches, never conditionally: `config.lifecycle` can be the
+  // module-level DEFAULTS.lifecycle object itself (deepMerge shallow-copies, so a
+  // user config with no `lifecycle` key shares the reference), and a conditional
+  // write would leave a previous resolveConfig call's map in place.
   if (!userConfig.lifecycle?.skipWarningsFor && derived.skipWarningsFor.length) {
     config.lifecycle.skipWarningsFor = derived.skipWarningsFor;
+    config.lifecycle.skipWarningsForByType = derived.skipWarningsForByType;
+  } else {
+    // An explicit `lifecycle.skipWarningsFor` is a deliberate repo-wide statement
+    // and stays type-blind.
+    config.lifecycle.skipWarningsForByType = {};
   }
   if (!userConfig.lifecycle?.terminalStatuses && derived.terminalStatuses.length) {
     config.lifecycle.terminalStatuses = derived.terminalStatuses;
@@ -504,6 +527,17 @@ export async function resolveConfig(cwd, explicitConfigPath) {
   const startableStatuses = new Set(lifecycle.startableStatuses ?? ['active', 'planned']);
   const skipStaleFor = new Set(lifecycle.skipStaleFor);
   const skipWarningsFor = new Set(lifecycle.skipWarningsFor);
+  const skipWarningsForByType = new Map(
+    Object.entries(lifecycle.skipWarningsForByType ?? {}).map(([type, names]) => [type, new Set(names)]),
+  );
+  // Does `status` suppress warning-only checks for a doc of this type? A type that
+  // declared rich statuses answers for itself — including answering "no" for a
+  // name some other type marked quiet. Everything else (no rich statuses, an
+  // explicit global `skipWarningsFor`, a doc with no type) reads the flat set.
+  const skipsWarnings = (status, type) => {
+    const own = type != null ? skipWarningsForByType.get(type) : undefined;
+    return own ? own.has(status) : skipWarningsFor.has(status);
+  };
   const terminalStatuses = new Set(lifecycle.terminalStatuses);
   // F15: filedStatuses keyed by status name, value = directory name. Empty
   // object when no status opts in via `filed: true` (or `filed: '<dirname>'`).
@@ -555,7 +589,7 @@ export async function resolveConfig(cwd, explicitConfigPath) {
     rootValidStatuses,
     staleDaysByStatus,
 
-    lifecycle: { archiveStatuses, startableStatuses, skipStaleFor, skipWarningsFor, terminalStatuses, filedStatuses, archiveNestedTypes },
+    lifecycle: { archiveStatuses, startableStatuses, skipStaleFor, skipWarningsFor, skipWarningsForByType, skipsWarnings, terminalStatuses, filedStatuses, archiveNestedTypes },
 
     validSurfaces,
     validModules,

@@ -33,7 +33,7 @@ export function runFrontmatterFix(config, opts = {}) {
     const status = asString(parsed.status);
     if (config.lifecycle.terminalStatuses.has(status)
       || config.lifecycle.archiveStatuses.has(status)
-      || config.lifecycle.skipWarningsFor.has(status)) continue;
+      || config.lifecycle.skipsWarnings(status, docType)) continue;
 
     const ops = [];
     for (const { name, cap, target, heading } of FIELDS) {

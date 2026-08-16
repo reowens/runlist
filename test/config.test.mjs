@@ -672,3 +672,76 @@ describe('rich status contradiction warnings', () => {
     ok(!stderr.includes('plan.blocked'), `unexpected warning for clean config, got: ${stderr}`);
   });
 });
+
+// A status name marked quiet by ONE type used to suppress warnings for EVERY
+// type sharing that name: `skipWarningsFor` was a flat union of names with no
+// type qualifier. In a real repo that meant `journey.active: { skipWarnings }`
+// silenced surface/summary/deprecation warnings on every `active` PLAN — the
+// single largest working bucket — with no way to tell from the config that it
+// had happened.
+describe('skipWarnings is scoped to the declaring type', () => {
+  const twoTypes = `
+    export const types = {
+      plan: {
+        statuses: {
+          'active':   { context: 'expanded', staleDays: 14 },
+          'archived': { context: 'counted', archive: true, terminal: true, skipWarnings: true },
+        }
+      },
+      journey: {
+        statuses: {
+          'active': { context: 'counted', skipStale: true, skipWarnings: true },
+        }
+      }
+    };
+  `;
+
+  it('does not leak one type\'s quiet status into another type', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), twoTypes);
+    const config = await resolveConfig(tmpDir);
+    const { skipsWarnings } = config.lifecycle;
+
+    strictEqual(skipsWarnings('active', 'journey'), true, 'journey.active declared skipWarnings');
+    strictEqual(skipsWarnings('active', 'plan'), false, 'plan.active did NOT declare skipWarnings');
+    strictEqual(skipsWarnings('archived', 'plan'), true, 'plan.archived declared skipWarnings');
+  });
+
+  it('a rich type that marks nothing quiet suppresses nothing', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), twoTypes);
+    const config = await resolveConfig(tmpDir);
+    // `archived` is quiet for plan; journey declared statuses but never named it.
+    strictEqual(config.lifecycle.skipsWarnings('archived', 'journey'), false);
+  });
+
+  it('falls back to the flat set for an unknown or absent type', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), twoTypes);
+    const config = await resolveConfig(tmpDir);
+    // No rich declaration to consult — the union stays in force, so behavior for
+    // array-form and untyped docs is unchanged.
+    strictEqual(config.lifecycle.skipsWarnings('active', undefined), true);
+    strictEqual(config.lifecycle.skipsWarnings('active', 'doc'), true);
+  });
+
+  it('an explicit lifecycle.skipWarningsFor stays repo-wide', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const lifecycle = { skipWarningsFor: ['active'] };
+      ${twoTypes}
+    `);
+    const config = await resolveConfig(tmpDir);
+    // The user said it globally and meant it globally — no per-type override.
+    strictEqual(config.lifecycle.skipsWarnings('active', 'plan'), true);
+    strictEqual(config.lifecycle.skipsWarnings('active', 'journey'), true);
+  });
+
+  it('quiet: true is scoped the same way as skipWarnings: true', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const types = {
+        plan: { statuses: { 'partial': { context: 'listed' } } },
+        doc:  { statuses: { 'partial': { context: 'counted', quiet: true } } }
+      };
+    `);
+    const config = await resolveConfig(tmpDir);
+    strictEqual(config.lifecycle.skipsWarnings('partial', 'doc'), true);
+    strictEqual(config.lifecycle.skipsWarnings('partial', 'plan'), false);
+  });
+});

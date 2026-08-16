@@ -89,16 +89,16 @@ export function collectHubStatusRows(docs, config, { hubPaths = null } = {}) {
     const key = doc.path.toLowerCase();
     docByFoldedPath.set(key, docByFoldedPath.has(key) ? null : doc);
   }
-  const quiet = new Set([
-    ...(config.lifecycle?.terminalStatuses ?? []),
-    ...(config.lifecycle?.skipWarningsFor ?? []),
-  ]);
+  // Per-doc: warning suppression is type-scoped, so a status name quiet for one
+  // type stays loud for another that declared the same name.
+  const quiet = (d) => config.lifecycle?.terminalStatuses?.has(d.status)
+    || config.lifecycle?.skipsWarnings(d.status, d.type);
   const out = [];
 
   for (const hub of docs) {
     if (!isHubDoc(hub)) continue;
     if (hubPaths) { if (!hubPaths.has(hub.path)) continue; }
-    else if (quiet.has(hub.status)) continue;
+    else if (quiet(hub)) continue;
 
     let raw;
     try { raw = readFileSync(path.join(config.repoRoot, hub.path), 'utf8'); } catch { continue; }
