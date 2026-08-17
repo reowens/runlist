@@ -297,15 +297,58 @@ describe('dotmd baton', () => {
     match(baton.stderr, /Baton passed.*doc-relative/);
   });
 
-  it('stale linked plan leaves the prompt pending and unchanged', () => {
+  // A linked plan that cannot be claimed must not withhold the BODY. Refusing
+  // the whole consumption deadlocked the loop baton exists to close: baton
+  // stamps the link and parks the plan in one breath, and only `active` and
+  // `planned` are startable — so every other release status produced a prompt
+  // `use` refused forever, while the SessionStart hud kept telling each new
+  // session to run exactly that command.
+  it('stale linked plan still delivers the body, and says why it did not claim', () => {
     writeFileSync(path.join(docsDir, 'prompts', 'resume-ghost.md'),
-      '---\ntype: prompt\nstatus: pending\nplan: docs/plans/ghost.md\n---\n# resume\n\nbody\n');
-    const promptPath = path.join(docsDir, 'prompts', 'resume-ghost.md');
-    const before = readFileSync(promptPath, 'utf8');
+      '---\ntype: prompt\nstatus: pending\nplan: docs/plans/ghost.md\n---\n# resume\n\nGHOST-BODY\n');
     const r = run(['use', 'resume-ghost.md']);
-    ok(r.status !== 0);
-    match(r.stderr, /prompt was not consumed/);
-    strictEqual(readFileSync(promptPath, 'utf8'), before);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stdout, /GHOST-BODY/);
+    match(r.stderr, /Not claimed.*missing/);
+    ok(existsSync(path.join(docsDir, 'prompts', 'archived', 'resume-ghost.md')), 'prompt was consumed');
+  });
+
+  for (const status of ['paused', 'awaiting', 'partial', 'blocked', 'queued-after']) {
+    it(`a plan parked as ${status} by baton yields a prompt the next session can still consume`, () => {
+      writePlan('parked', { status: 'active' });
+      run(['use', 'docs/plans/parked.md'], { sid: 'first' });
+      const b = run(['baton', '--status', status, '--message', 'PARKED-BODY'], { sid: 'first' });
+      strictEqual(b.status, 0, b.stderr);
+
+      const r = run(['use'], { sid: 'second' });
+      strictEqual(r.status, 0, r.stderr);
+      match(r.stdout, /PARKED-BODY/, 'the body is the point of a saved prompt');
+      match(r.stderr, new RegExp(`Not claimed.*is ${status}`));
+      match(r.stderr, /dotmd set active/, 'says how to unpark it');
+    });
+  }
+
+  it('a release status that files the plan elsewhere repoints the prompt link', () => {
+    // `paused` files into docs/plans/held/ (lifecycle.filedStatuses). The
+    // prompt is created inside the same transaction as that move, so its link
+    // carried the pre-move path and was stale on arrival.
+    writePlan('filed', { status: 'active' });
+    run(['use', 'docs/plans/filed.md'], { sid: 'first' });
+    strictEqual(run(['baton', '--status', 'paused', '--message', 'x'], { sid: 'first' }).status, 0);
+
+    ok(existsSync(path.join(plansDir, 'held', 'filed.md')), 'precondition: paused files the plan');
+    const prompt = readFileSync(path.join(docsDir, 'prompts', 'resume-filed.md'), 'utf8');
+    match(prompt, /^plan: docs\/plans\/held\/filed\.md$/m, 'link points at where the plan actually is');
+  });
+
+  it('an unclaimable link does not stop a startable one from being claimed', () => {
+    writePlan('live', { status: 'active' });
+    writeFileSync(path.join(docsDir, 'prompts', 'resume-live.md'),
+      '---\ntype: prompt\nstatus: pending\nplan: docs/plans/live.md\n---\n# resume\n\nLIVE-BODY\n');
+    const r = run(['use', 'resume-live.md'], { sid: 'claimer' });
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stderr, /Claimed.*live\.md/);
+    ok(!/Not claimed/.test(r.stderr), 'no skip notice when the claim succeeded');
   });
 
   it('does not infer ownership from multiple unattributed in-session plans', () => {

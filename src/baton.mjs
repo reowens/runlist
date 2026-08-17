@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { asString, toRepoPath, die, warn } from './util.mjs';
@@ -205,6 +205,26 @@ export async function runBaton(argv, config, opts = {}) {
     if (json) process.stdout.write = originalStdoutWrite;
   }
   if (!createdSlug) die(`Could not find a free prompt slug for ${slugBase} (tried ${slugBase}-2 … ${slugBase}-9).`);
+
+  // A release status can FILE the plan into a bucket (`lifecycle.filedStatuses`,
+  // e.g. paused → docs/plans/held/). The prompt is created inside the same
+  // transaction as that move, so its `plan:` link necessarily holds the
+  // pre-move path and is stale the instant it lands. The move's own reference
+  // rewrite does not cover it: `plan` is deliberately not a `referenceFields`
+  // entry, so nothing validates or repoints it. Retarget it here.
+  if (!dryRun && promptRepoPath && archiveResult?.newRepoPath && archiveResult.newRepoPath !== repoPath) {
+    const promptPath = path.join(config.repoRoot, promptRepoPath);
+    try {
+      const { frontmatter, body } = extractFrontmatter(readFileSync(promptPath, 'utf8'));
+      // Rewritten in place rather than through replaceFrontmatterField, which
+      // always emits a folded block scalar — right for prose fields, wrong for
+      // a path every other prompt carries on one line. Baton wrote this line
+      // itself moments ago, so the single-line form is guaranteed.
+      const rewritten = frontmatter.replace(/^plan:[ \t]*\S.*$/m, `plan: ${archiveResult.newRepoPath}`);
+      if (rewritten !== frontmatter) writeFileSync(promptPath, `---\n${rewritten}\n---\n${body}`, 'utf8');
+    }
+    catch (err) { warn(`Saved the prompt, but could not repoint its plan link to ${archiveResult.newRepoPath}: ${err.message}`); }
+  }
 
   const normalizeRepoPath = candidate => {
     if (!candidate) return null;

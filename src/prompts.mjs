@@ -6,7 +6,7 @@ import { buildIndex, resolveDocArg } from './index.mjs';
 import { runQuery } from './query.mjs';
 import { completePlanClaim, regenIndex, renderLifecycleMutation, runArchive, runStatus } from './lifecycle.mjs';
 import { runNew } from './new.mjs';
-import { green, dim } from './color.mjs';
+import { green, dim, yellow } from './color.mjs';
 import { authorizeManagedSource } from './managed-path.mjs';
 import {
   authoritativeSessionId,
@@ -259,11 +259,17 @@ export async function consumePrompt(filePath, config, opts) {
 
   const planRef = asString(parsed.plan);
   let linkedClaim = null;
-  if (planRef) linkedClaim = prepareLinkedPromptClaim(planRef, config, path.dirname(filePath));
+  let claimSkipReason = null;
+  if (planRef) {
+    const outcome = prepareLinkedPromptClaim(planRef, config, path.dirname(filePath));
+    if (outcome?.skipped) claimSkipReason = outcome.reason;
+    else linkedClaim = outcome;
+  }
 
   if (dryRun) {
     const prefix = dim('[dry-run]');
     process.stderr.write(`${prefix} Would emit body and archive: ${repoPath} (${status ?? 'unknown'} → archived)\n`);
+    if (claimSkipReason) process.stderr.write(`${prefix} Would NOT claim the linked plan: ${claimSkipReason}\n`);
     const bytes = Buffer.byteLength(body, 'utf8');
     const lines = body.split('\n').length;
     process.stderr.write(`${prefix} body preview (${bytes}B, ${lines} lines):\n`);
@@ -315,6 +321,7 @@ export async function consumePrompt(filePath, config, opts) {
     }
     process.stderr.write(`${green('→ Claimed')}: ${linkedClaim.repoPath} (in-session)\n`);
   }
+  if (claimSkipReason) process.stderr.write(`${yellow('→ Not claimed')}: ${claimSkipReason}\n`);
   process.stderr.write(`${green('✓ Consumed')}: ${consumedPath}\n`);
   const ownershipRecordPath = linkedClaim?.prepared?.recordPath ?? (linkedClaim ? readPlanOwnership(linkedClaim.repoPath, config)?.recordPath : null);
   const ownershipPath = ownershipRecordPath ? toRepoPath(ownershipRecordPath, config.repoRoot) : null;
@@ -364,16 +371,54 @@ export async function writeConsumedBody(body, archivedPath, write = null, linked
 // with `resolveDocPath` alone read only the repo-root form, so a doc-relative
 // link — the form nothing validates, since `plan` is not a `referenceFields`
 // entry — died as "missing" while pointing at a file that was plainly there.
+// Why a linked plan could not be claimed, phrased so the reader knows what to
+// do next. Each of these used to abort consumption entirely (see the skip
+// contract on prepareLinkedPromptClaim).
+// `startable` comes from the repo's own lifecycle config rather than the
+// built-in default: a repo that configures its own startable statuses would
+// otherwise be told to run `dotmd set active`, which its own validation
+// rejects.
+function explainUnclaimablePlan(disposition, repoPath, status, startable) {
+  switch (disposition.kind) {
+    case 'parked':
+      return `${repoPath} is ${status} — \`dotmd set ${startable} ${repoPath}\` to unpark it, then \`dotmd use ${repoPath}\``;
+    case 'busy':
+      return `${repoPath} is claimed by another session (${disposition.owner})`;
+    case 'terminal':
+    case 'physical-archive':
+      return `${repoPath} is already closed (${status})`;
+    case 'wrong-type':
+      return `${repoPath} is not a plan`;
+    case 'unconfigured-status':
+      return `${repoPath} has a status this repo does not configure (${status ?? 'none'})`;
+    case 'ownership-corrupt':
+      return `${repoPath} has an unreadable ownership record — \`dotmd doctor --claims\``;
+    default:
+      return `${repoPath} cannot be claimed (${disposition.kind})`;
+  }
+}
+
+// Returns a claim, or `{ skipped, reason }` when the linked plan cannot be
+// claimed. It never refuses the consumption itself.
+//
+// It used to `die` on all three of these paths, which deadlocked the handoff
+// loop the feature exists to close: `dotmd baton` stamps this link and parks
+// the plan in the same breath, and five of the seven statuses it parks with are
+// not startable — so baton routinely produced a prompt that `dotmd use` would
+// refuse forever, while the SessionStart hud kept telling every new session to
+// run exactly that command. The body is the whole point of a saved prompt, and
+// no reason to skip the claim is a reason to withhold it.
 function prepareLinkedPromptClaim(planRef, config, promptDir) {
+  const skip = reason => ({ skipped: true, reason });
   let planPath = resolveRefPath(planRef, promptDir, config.repoRoot)
     ?? resolveDocPath(planRef, config)
     ?? resolveDocArg(planRef, config, { dieOnMiss: false });
-  if (!planPath || !existsSync(planPath)) die(`Linked plan is missing; prompt was not consumed: ${planRef}`);
+  if (!planPath || !existsSync(planPath)) return skip(`linked plan is missing (moved or renamed): ${planRef}`);
   planPath = authorizeManagedSource(planPath, config, { kind: 'Prompt linked plan source' }).path;
   const raw = readFileSync(planPath, 'utf8');
   let parsed;
   try { parsed = parseSimpleFrontmatter(extractFrontmatter(raw).frontmatter); }
-  catch { die(`Linked plan is malformed; prompt was not consumed: ${planRef}`); }
+  catch { return skip(`linked plan has malformed frontmatter: ${toRepoPath(planPath, config.repoRoot)}`); }
   const repoPath = toRepoPath(planPath, config.repoRoot);
   const sessionId = authoritativeSessionId();
   const ownership = readPlanOwnership(repoPath, config);
@@ -391,7 +436,10 @@ function prepareLinkedPromptClaim(planRef, config, promptDir) {
     sessionId,
     malformed: false,
   });
-  if (!disposition.pickupable) die(`Linked plan cannot be claimed (${disposition.kind}); prompt was not consumed: ${repoPath}`);
+  if (!disposition.pickupable) {
+    const startable = [...(config.lifecycle.startableStatuses ?? [])][0] ?? 'active';
+    return skip(explainUnclaimablePlan(disposition, repoPath, oldStatus, startable));
+  }
   if (disposition.kind === 'resume') return { planPath, repoPath, prepared: null, planChanged: false, disposition: disposition.kind };
   const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
   const rendered = disposition.kind === 'start'

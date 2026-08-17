@@ -528,17 +528,21 @@ describe('durable lifecycle ownership', () => {
     ok(existsSync(renamed));
   });
 
-  it('busy linked prompt remains pending and byte-identical', () => {
+  // The prompt belongs to the session consuming it; the plan belongs to
+  // whoever claimed it. Another session holding the plan is a reason to skip
+  // the claim, never a reason to withhold this session's body.
+  it('busy linked prompt is still consumed, and the plan is left to its owner', () => {
     setup();
     const file = plan('busy-linked');
     strictEqual(run(['use', file], 'A').status, 0);
+    const planBefore = readFileSync(file, 'utf8');
     const prompt = path.join(tmp, 'docs', 'prompts', 'resume-busy.md');
-    writeFileSync(prompt, '---\ntype: prompt\nstatus: pending\nplan: docs/plans/busy-linked.md\n---\nresume body\n');
-    const before = readFileSync(prompt, 'utf8');
+    writeFileSync(prompt, '---\ntype: prompt\nstatus: pending\nplan: docs/plans/busy-linked.md\n---\nBUSY-RESUME-BODY\n');
     const result = run(['use', prompt], 'B');
-    ok(result.status !== 0);
-    match(result.stderr, /busy/);
-    strictEqual(readFileSync(prompt, 'utf8'), before);
+    strictEqual(result.status, 0, result.stderr);
+    match(result.stdout, /BUSY-RESUME-BODY/);
+    match(result.stderr, /Not claimed.*another session/);
+    strictEqual(readFileSync(file, 'utf8'), planBefore, "session A's plan is untouched");
   });
 
   it('prompt pickup applies custom startable, parked, terminal, and physical-archive classification', () => {
@@ -561,13 +565,20 @@ describe('durable lifecycle ownership', () => {
       writeFileSync(path.join(tmp, 'docs', 'prompts', `${name}.md`), `---\ntype: prompt\nstatus: pending\nplan: ${ref}\n---\n${name} body\n`);
     }
     strictEqual(run(['use', 'ready'], 'A').status, 0);
-    for (const [name, kind] of [['parked', 'parked'], ['terminal', 'terminal'], ['physical', 'physical-archive']]) {
-      const prompt = path.join(tmp, 'docs', 'prompts', `${name}.md`);
-      const before = readFileSync(prompt, 'utf8');
+    // Each classification skips the claim and explains itself, and none of them
+    // withholds the body. The unpark hint has to name a status THIS repo calls
+    // startable — `ready-now` here — not the built-in default.
+    for (const [name, expected] of [
+      ['parked', /is active — `dotmd set ready-now /],
+      ['terminal', /already closed \(done\)/],
+      ['physical', /already closed/],
+    ]) {
       const result = run(['use', name], 'A');
-      ok(result.status !== 0, name);
-      match(result.stderr, new RegExp(kind), name);
-      strictEqual(readFileSync(prompt, 'utf8'), before, name);
+      strictEqual(result.status, 0, `${name}: ${result.stderr}`);
+      match(result.stdout, new RegExp(`${name} body`), name);
+      match(result.stderr, /Not claimed/, name);
+      match(result.stderr, expected, name);
+      ok(existsSync(path.join(tmp, 'docs', 'prompts', 'archived', `${name}.md`)), `${name} consumed`);
     }
   });
 
