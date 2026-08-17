@@ -2,6 +2,21 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Changed
+
+- **The `docs/` planning tree is no longer tracked in git.** dotmd is developed by running it against a large private corpus, so its own plans, prompts and audits accumulate consumer detail as a matter of course — that is what makes them useful planning documents and what makes them unpublishable from a public repo. 104 files left the index and stayed on disk. `docs/` keeps its normal path, so `repoRoot` containment and every config default are untouched, and every dotmd verb still works. Nothing user-facing changes: the npm tarball never contained `docs/`. Chosen over a private nested repo (two repos to commit in for one change), over making the whole repo private (losing public source presence costs more than the history is worth for a published package), and over git-crypt (a fresh clone without the filter configured commits plaintext silently — the wrong failure mode for the thing whose job is not leaking).
+
+### Added
+
+- **A guard against private names reaching public test fixtures.** dotmd is developed by running it against a large private corpus, and this is a public repo — so measuring the tool produces real module names, and writing a fixture from what you just measured publishes them. A denylist of private names cannot live here, since publishing the list *is* the leak. `test/fixture-vocabulary.test.mjs` inverts that: it asserts every `module:`/`modules:` value in `test/` comes from a declared allowlist of neutral words, which is safe to publish precisely because those words carry no information — and unlike a denylist it catches a name nobody had yet identified as private, the first time anyone writes it. It runs on every `npm test`, so it gates releases with no external setup. `CLAUDE.md` states the rule it enforces: preserve the shape, replace the words; aggregates are evidence, anything identifying a single plan, module, product or repository is not.
+
+### Fixed
+
+- **`dotmd baton` produced saved prompts that `dotmd use` refused to open.** Baton stamps a `plan:` link on the prompt and parks the plan in the same call, but only `active` and `planned` are startable — so parking as `paused`, `awaiting`, `partial`, `blocked` or `queued-after` (four of which baton's own error message recommends) created a prompt that could never be consumed. Five of seven release statuses were broken. Nothing detected it: `check` and `doctor` were both silent, while the SessionStart hud kept telling every new session to run the one command guaranteed to fail. `dotmd use` now always delivers the body and archives the prompt, skipping only the claim, and prints why: `→ Not claimed: docs/plans/x.md is blocked — dotmd set active docs/plans/x.md to unpark it`. The unpark hint names a status the repo actually configures as startable rather than hardcoding `active`. Same change covers the other unclaimable cases — a plan another session holds, one already closed, a malformed or missing link — none of which is a reason to withhold a body the prompt exists to carry.
+- **A release status that files the plan elsewhere left the prompt's link stale on arrival.** `paused` files a plan into `docs/plans/held/` (`lifecycle.filedStatuses`), but the prompt is created inside that same transaction and so recorded the pre-move path. `plan` is deliberately not a `referenceFields` entry, so the move's own reference rewrite never covered it and nothing validated it. Baton now repoints the link after the move.
+
 ## 0.74.4 — 2026-08-16
 
 ### Fixed
