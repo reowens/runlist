@@ -2,6 +2,7 @@ import path from 'node:path';
 import { asString, resolveRefPath, suggestCandidates } from './util.mjs';
 import { getGitLastModified, getGitLastModifiedBatch, getGitLastSubstantiveModifiedBatch } from './git.mjs';
 import { toRepoPath } from './util.mjs';
+import { detectMarker, isPhaseHeading, phaseMarkerConflict, walkSections } from './section.mjs';
 
 const NOW = new Date();
 
@@ -635,25 +636,39 @@ export function validatePlanShape(doc, body, frontmatter, config) {
     }
   }
 
-  // 5. Phases section exists but no phase H3 has a status marker
-  const phasesIdx = body.search(/^## Phases\s*$/m);
-  if (phasesIdx >= 0) {
-    // Find the section's body (until next H2 or EOF)
-    const after = body.slice(phasesIdx);
-    const nextH2 = after.slice(8).search(/^## /m);
-    const phasesBody = nextH2 >= 0 ? after.slice(8, 8 + nextH2) : after.slice(8);
-    const phaseHeadings = [...phasesBody.matchAll(/^###\s+(.+?)\s*$/gm)].map(m => m[1]);
-    if (phaseHeadings.length > 0) {
-      const markerRe = /(✅|⏭|🟡|⬜|🚧|☑|✔|◻|☐|⬛|\bshipped\b|\bskip(?:ped)?\b|\bin[-_ ]?(?:progress|flight)\b|\bblocked\b|\btodo\b|\bnot[-_ ]?started\b|\bwip\b|\bdone\b|\bcomplete\b)/i;
-      const unmarked = phaseHeadings.filter(h => !markerRe.test(h));
-      if (unmarked.length > 0) {
-        doc.warnings.push({
-          path: doc.path,
-          level: 'warning',
-          message: `${unmarked.length} of ${phaseHeadings.length} phase heading(s) lack a status marker. Use one of ✅ shipped, ⏭ skipped, 🟡 in-progress, ⬜ todo, 🚧 blocked.`,
-        });
-      }
+  // 5 & 6 read phases through section.mjs rather than re-parsing them here.
+  // This check used to carry its own heading scan and its own copy of the
+  // marker vocabulary, which drifted from the real reader in both directions:
+  // it counted `### Phase 3 outcome` as a phase needing a marker, and it never
+  // learned the fixes section.mjs got. Two parsers for one concept disagreeing
+  // is the same defect class as `reference-planner` vs `resolveRefPath`.
+  const phases = walkSections(body).filter(isPhaseHeading);
+
+  // 5. Phase headings that carry no status marker at all.
+  if (phases.length > 0) {
+    const unmarked = phases.filter(p => detectMarker(p.heading) === null);
+    if (unmarked.length > 0) {
+      doc.warnings.push({
+        path: doc.path,
+        level: 'warning',
+        message: `${unmarked.length} of ${phases.length} phase heading(s) lack a status marker. Use one of ✅ shipped, ⏭ skipped, 🟡 in-progress, ⬜ todo, 🚧 blocked.`,
+      });
     }
+  }
+
+  // 6. A phase whose own checklist contradicts its marker. Reported, never
+  // fixed: dotmd cannot know whether the marker or the boxes are the stale
+  // half, and guessing would either mark work done that is not, or reopen work
+  // that is. Both halves are the author's own writing — this only says they
+  // disagree.
+  for (const phase of phases) {
+    const conflict = phaseMarkerConflict(phase);
+    if (!conflict) continue;
+    doc.warnings.push({
+      path: doc.path,
+      level: 'warning',
+      message: `Phase marker contradicts its own checklist (line ${phase.lineStart}): \`${phase.heading.trim()}\` is marked ${conflict.declared}, but ${conflict.checked}/${conflict.total} boxes are checked — that reads as ${conflict.implied}. Update whichever half is stale.`,
+    });
   }
 }
 
