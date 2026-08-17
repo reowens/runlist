@@ -32,6 +32,21 @@ pnpm-lock.yaml
 yarn.lock
 .dotmd/
 
-# Live saved-prompt queue — session-local, never committed. The single `*` stops
-# at the directory on purpose: docs/prompts/archived/ is the committed record.
-/docs/prompts/*.md
+# The planning tree is NOT public. dotmd is developed by running it against a
+# large private corpus, so its own plans, prompts and audits accumulate consumer
+# detail as a matter of course — that is what makes them good planning documents
+# and what makes them unpublishable. This repo is public, so the tree stays on
+# disk and out of the index.
+#
+# Chosen over a private nested repo (two repos to commit in for one change) and
+# over making the whole repo private (dotmd is a published package; losing public
+# source presence costs more than the history is worth). git-crypt was rejected
+# on foot-gun: a fresh clone without the filter configured commits plaintext
+# silently, which is the wrong failure mode for the thing whose job is not
+# leaking.
+#
+# `docs/` keeps its normal path, so repoRoot containment and every config default
+# are untouched. Anything that should be publicly readable goes OUTSIDE this tree
+# rather than being carved out as an exception — README.md already carries usage.
+# See docs/plans/sanitize-public-repo.md § Phase 3.
+/docs/
