@@ -139,7 +139,7 @@ describe('init basic', () => {
     // Pre-fix: `dotmd new` wrote the doc but didn't regen `docs/docs.md`'s
     // generated block, so the very next `dotmd check` failed with
     // "Generated index block is stale" on a brand-new repo the user
-    // couldn't have srostered up. Mirror archive/status behavior: regen on
+    // couldn't have screwed up. Mirror archive/status behavior: regen on
     // any doc-set mutation.
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
     mkdirSync(path.join(tmpDir, '.git'));
