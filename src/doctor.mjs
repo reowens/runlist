@@ -7,15 +7,16 @@ import { runSet, runTouch } from './lifecycle.mjs';
 import { buildIndex, collectDocFiles } from './index.mjs';
 import { writeRenderedIndex } from './index-file.mjs';
 import { renderCheck, renderManualFixes } from './render.mjs';
-import { bold, dim, green, yellow } from './color.mjs';
+import { bold, dim, green, red, yellow } from './color.mjs';
 import { checkClaudeCommands, removeGeneratedSlashCommands } from './claude-commands.mjs';
 import { checkSkillDrift } from './skill-drift.mjs';
 import { runMigrateTemplate } from './migrate-template.mjs';
 import { runMigratePrompts } from './migrate-prompts.mjs';
 import { runFrontmatterFix } from './frontmatter-fix.mjs';
 import { normalizeEol } from './frontmatter.mjs';
-import { die, relTime, toRepoPath } from './util.mjs';
+import { die, dotmdVersion, relTime, toRepoPath } from './util.mjs';
 import { inspectTransactions, resolveTransactions } from './atomic-mutation.mjs';
+import { describeSessionIdentity, opencodeStatus } from './host-integration.mjs';
 import { availableSessionId, releaseVanishedPlanClaim, surveyOwnershipClaims } from './pickup.mjs';
 
 // Tunable thresholds for `dotmd doctor --statuses` conflation detection.
@@ -209,6 +210,29 @@ async function runDoctorClaims(argv, config, opts = {}) {
   }
 }
 
+// Read-only: what session identity does dotmd see, and is the current host's
+// integration installed? Never writes — installing lives behind `dotmd install`
+// because it touches state outside the repo.
+function runDoctorSession(argv) {
+  const identity = describeSessionIdentity({ version: dotmdVersion() });
+  const oc = opencodeStatus({ version: dotmdVersion() });
+  if (argv.includes('--json')) {
+    process.stdout.write(JSON.stringify({ identity, hosts: { opencode: oc } }, null, 2) + '\n');
+    return;
+  }
+  process.stdout.write(bold('Session identity\n'));
+  const mark = identity.scope === 'session' ? green('✓') : identity.id ? yellow('!') : red('✗');
+  process.stdout.write(`  ${mark} ${identity.id ?? dim('none')}\n`);
+  process.stdout.write(`    ${dim(identity.summary)}\n`);
+  for (const line of identity.advice) process.stdout.write(`    → ${line}\n`);
+
+  process.stdout.write('\n' + bold('Host integration\n'));
+  if (oc.foreign) process.stdout.write(`  ${yellow('!')} opencode: a dotmd.js dotmd did not write — ${oc.path}\n`);
+  else if (!oc.exists) process.stdout.write(`  ${dim('·')} opencode: not installed — ${dim(oc.path)}\n`);
+  else process.stdout.write(`  ${oc.stale ? yellow('!') : green('✓')} opencode: ${oc.version}${oc.stale ? ` (CLI is ${dotmdVersion()} — run \`dotmd update\`)` : ''}\n`);
+  process.stdout.write(dim('  Claude Code ships as a plugin — `dotmd install` reports both hosts.\n'));
+}
+
 export function runDoctor(argv, config, opts = {}) {
   if (argv.includes('--project')) {
     runDoctorProject(config, { json: argv.includes('--json') });
@@ -236,6 +260,10 @@ export function runDoctor(argv, config, opts = {}) {
   }
   if (argv.includes('--claims')) {
     return runDoctorClaims(argv, config, opts);
+  }
+  if (argv.includes('--session')) {
+    runDoctorSession(argv);
+    return;
   }
 
   const { dryRun, testHooks } = opts;
@@ -324,6 +352,18 @@ export function runDoctor(argv, config, opts = {}) {
   if (manual.trim()) {
     process.stdout.write('\n' + bold('Closeout guidance') + '\n');
     process.stdout.write(manual);
+  }
+
+  // Not a numbered step and never auto-fixed: installing touches state outside
+  // the repo, which is `dotmd install`'s job. Doctor's part is making sure a
+  // degraded identity is something you're told about rather than something you
+  // find out when a verb fails. Silent when there is nothing to say.
+  const identity = describeSessionIdentity({ version: dotmdVersion() });
+  if (identity.advice.length) {
+    process.stdout.write('\n' + bold('Session identity') + '\n');
+    process.stdout.write(`${yellow('!')} ${identity.summary}\n`);
+    for (const line of identity.advice) process.stdout.write(dim(`  → ${line}\n`));
+    process.stdout.write(dim('  `dotmd doctor --session` for the full picture.\n'));
   }
 }
 

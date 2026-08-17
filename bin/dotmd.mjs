@@ -142,6 +142,44 @@ guard entirely with DOTMD_GUARD=0. Read the log with \`dotmd misuse\`; when one
 rule trips ≥3× in 7 days in a repo, \`dotmd hud\` opens the next session there
 with a one-line recap naming the habit to break.`,
 
+  install: `dotmd install [<host>] — install dotmd's integration into an agent host
+
+  dotmd install                report what is installed for each known host
+  dotmd install claude         install the Claude Code plugin (marketplace + plugin)
+  dotmd install opencode       install/refresh the OpenCode plugin (global config dir)
+  dotmd install <host> --remove
+  dotmd install opencode --path <dir>   write to a specific plugin directory
+  dotmd install opencode --force        overwrite a dotmd.js dotmd did not write
+
+The CLI on its own gives an agent no orientation and no session identity. Each
+host gets that a different way:
+
+  claude    Drives \`claude plugin marketplace add ${'reowens/dotmd'}\` +
+            \`claude plugin install dotmd@dotmd\`. This is the FIRST install;
+            \`dotmd update\` only refreshes a plugin already present (it skips
+            with "plugin not installed"), and the README's slash commands only
+            work from inside a session. Without the \`claude\` CLI on PATH the
+            two in-session commands are printed instead.
+
+  opencode  Writes one auto-discovered plugin file. OpenCode has no plugin
+            registry but globs \`{plugin,plugins}/*.{ts,js}\` under its global
+            config dir, so no opencode.json edit is needed. It supplies two
+            things the CLI cannot get on its own:
+              - Per-session ownership identity. OpenCode exports no session id
+                to a tool shell, so without it every session in one OpenCode
+                process shares one identity and can release the others'
+                in-session plans.
+              - The \`dotmd hud\` primer at session start, the equivalent of
+                Claude Code's SessionStart hook. OpenCode's Claude Code
+                compatibility covers skills and the system prompt — not hooks —
+                so nothing else runs it.
+            The file is version-stamped and refreshed by \`dotmd update\`. A
+            \`dotmd.js\` without that stamp is treated as hand-authored and is
+            never overwritten or removed without --force.
+
+Writing outside the repo is why this is an explicit verb: \`dotmd doctor\`
+reports a missing integration but never installs one.`,
+
   update: `dotmd update — update the dotmd CLI and the Claude Code plugin together
 
   dotmd update                 npm i -g dotmd-cli  +  claude plugin update dotmd@dotmd
@@ -232,6 +270,7 @@ Create & Export:
 
 Setup:
   init                              Create starter config + docs directory
+  install [opencode]                Install the agent-host integration (no arg = status)
   update [--check|--cli-only|--plugin-only]  Update the CLI + Claude Code plugin (--check reports skew, no network)
   statuses [list|add|set|remove|migrate]  Manage per-project status taxonomy
   help statuses                     Full status vocabulary + unstuck-actions + transitions
@@ -464,8 +503,9 @@ another session's work.
 a unique bare slug / basename across the doc roots (\`set paused auth-revamp\`).
 Ambiguous slugs error with the candidate list instead of guessing.
 When the path is omitted, exactly one plan must be owned by this session.
-Claude Code and OpenCode session IDs are recognized automatically. Other hosts
-must set DOTMD_SESSION_ID; anonymous ownership mutations fail closed.
+Claude Code session IDs are recognized automatically, as is OpenCode (via
+OPENCODE_PID — per OpenCode process, not per session). Other hosts must set
+DOTMD_SESSION_ID; anonymous ownership mutations fail closed.
 Pickup hooks use at-least-once delivery with a stable operationId; hook side
 effects must deduplicate that ID.
 
@@ -743,6 +783,15 @@ Modes:
                          another machine — that are older than the duration.
                          That threshold is your judgement, not dotmd's: it
                          cannot tell a dead session from a slow one.
+  --session              Read-only: what session identity dotmd resolved, from
+                         which environment variable, and whether it names THIS
+                         session or something coarser that its siblings share
+                         (a host process, a terminal) — sessions sharing an id
+                         can release each other's plans. Also reports whether
+                         the current host's integration is installed. Run this
+                         when a verb says "No authoritative session identity",
+                         or on any host dotmd has never been tried on.
+  --session --json       Machine-readable identity + host-integration state.
   --statuses             Read-only diagnostic: detect overloaded status
                          buckets where one status holds plans pursuing
                          multiple distinct unstuck-actions. Suggests how
@@ -1724,6 +1773,7 @@ async function main() {
   if (command === 'hud') { const { runHud } = await import('../src/hud.mjs'); runHud(restArgs, config); return; }
   if (command === 'guard') { const { runGuard } = await import('../src/guard.mjs'); await runGuard(restArgs, config, { dryRun }); return; }
   if (command === 'update') { const { runUpdate } = await import('../src/update.mjs'); runUpdate(restArgs, config, { dryRun }); return; }
+  if (command === 'install') { const { runInstall } = await import('../src/install.mjs'); runInstall(restArgs, config, { dryRun }); return; }
   if (command === 'misuse') { const { runMisuse } = await import('../src/misuse-read.mjs'); runMisuse(restArgs, config); return; }
   if (command === 'journal') { const { runJournal } = await import('../src/journal-read.mjs'); runJournal(restArgs, config); return; }
   if (command === 'pickup' || command === 'unpickup' || command === 'release' || command === 'finish') {

@@ -1,16 +1,88 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import os from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { dim } from './color.mjs';
+
+// The one list of environment variables that can name the session dotmd is
+// running inside. It lives here, in a leaf module, because both consumers must
+// read the same list: `currentSessionId` below (journal attribution, which falls
+// back to the shell) and `authoritativeSessionId` in pickup.mjs (plan ownership,
+// which fails closed). Two hand-maintained copies is how the OpenCode entries
+// drifted into naming variables OpenCode does not set.
+//
+// Order is most-specific-first. `OPENCODE_PID` is a real fallback, not a guess:
+// OpenCode's CLI middleware sets it on the process every tool shell inherits,
+// and it is per-OpenCode-process rather than per-session, so it sits below the
+// session-scoped names above it and above `TERM_SESSION_ID` — a terminal id is
+// shared by every agent run in that window and outlives all of them.
+// `scope: 'session'` means the variable names one agent session; `'process'`
+// and `'terminal'` are coarser — several sessions can share one, so they cannot
+// tell two of them apart. `dotmd doctor --session` reports that distinction, and
+// it is the whole reason `dotmd install opencode` exists.
+const SESSION_ID_SOURCES = [
+  { variable: 'DOTMD_SESSION_ID', prefix: null, scope: 'session', host: 'explicit override' },
+  { variable: 'CLAUDE_CODE_SESSION_ID', prefix: null, scope: 'session', host: 'Claude Code' },
+  { variable: 'CLAUDE_SESSION_ID', prefix: null, scope: 'session', host: 'Claude Code' },
+  { variable: 'OPENCODE_SESSION_ID', prefix: null, scope: 'session', host: 'OpenCode' },
+  { variable: 'OPENCODE_SESSION', prefix: null, scope: 'session', host: 'OpenCode' },
+  { variable: 'OPENCODE_PID', prefix: 'opencode', scope: 'process', host: 'OpenCode' },
+  { variable: 'TERM_SESSION_ID', prefix: 'term', scope: 'terminal', host: 'terminal' },
+];
+
+// Which source named the session, with the id it produced — or null when the
+// environment names none.
+export function hostSessionSource(env = process.env) {
+  for (const source of SESSION_ID_SOURCES) {
+    const value = env[source.variable]?.trim();
+    if (!value) continue;
+    return { ...source, id: source.prefix ? `${source.prefix}:${value}` : value };
+  }
+  return null;
+}
+
+// The session id the environment names, or null when it names none.
+export function hostSessionId(env = process.env) {
+  return hostSessionSource(env)?.id ?? null;
+}
 
 // Stable identifier for the current shell/agent session. Used for journal
 // attribution and hint de-duplication — not for any plan locking.
 export function currentSessionId() {
-  if (process.env.DOTMD_SESSION_ID) return process.env.DOTMD_SESSION_ID;
-  if (process.env.CLAUDE_CODE_SESSION_ID) return process.env.CLAUDE_CODE_SESSION_ID;
-  if (process.env.CLAUDE_SESSION_ID) return process.env.CLAUDE_SESSION_ID;
-  if (process.env.TERM_SESSION_ID) return `term:${process.env.TERM_SESSION_ID}`;
-  return `shell:${os.userInfo().username}@${os.hostname()}`;
+  return hostSessionId() ?? `shell:${os.userInfo().username}@${os.hostname()}`;
+}
+
+// The running CLI's version, read once and memoized — several surfaces compare
+// it against what a host integration was generated from.
+let cachedVersion;
+export function dotmdVersion() {
+  if (cachedVersion === undefined) {
+    try {
+      const pkgPath = path.resolve(fileURLToPath(import.meta.url), '..', '..', 'package.json');
+      cachedVersion = JSON.parse(readFileSync(pkgPath, 'utf8')).version ?? null;
+    } catch {
+      cachedVersion = null;
+    }
+  }
+  return cachedVersion;
+}
+
+// Is `bin` runnable from PATH? Used to decide whether dotmd can drive a host's
+// own CLI or must print the in-session commands for the user to run instead.
+export function which(bin) {
+  try {
+    const cmd = process.platform === 'win32' ? 'where' : 'which';
+    return spawnSync(cmd, [bin], { encoding: 'utf8' }).status === 0;
+  } catch {
+    return false;
+  }
+}
+
+// Windows resolves `foo` to `foo.cmd` only through a shell; spawn needs the
+// real name.
+export function executableName(bin) {
+  return process.platform === 'win32' && !bin.endsWith('.cmd') ? `${bin}.cmd` : bin;
 }
 
 export function escapeTable(value) {

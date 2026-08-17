@@ -724,7 +724,7 @@ describe('doctor --frontmatter-fix', () => {
     // Every identity source stripped — the shape a Linux CI runner actually has.
     const bare = { ...process.env, NO_COLOR: '1' };
     for (const key of ['DOTMD_SESSION_ID', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_SESSION_ID',
-      'OPENCODE_SESSION_ID', 'OPENCODE_SESSION', 'TERM_SESSION_ID']) delete bare[key];
+      'OPENCODE_SESSION_ID', 'OPENCODE_SESSION', 'OPENCODE_PID', 'TERM_SESSION_ID']) delete bare[key];
     const applied = spawnSync('node', [path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs'),
       'doctor', '--claims', '--apply', '--older-than', '24h', '--config', path.join(tmpDir, 'dotmd.config.mjs')],
       { cwd: tmpDir, encoding: 'utf8', env: bare });

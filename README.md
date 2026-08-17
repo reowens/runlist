@@ -23,9 +23,23 @@ npx dotmd-cli init          # try it without installing
 Maintainer release automation is POSIX-only because it uses Bash and POSIX
 command-line tools. The published Node.js CLI remains cross-platform.
 
+### Agent host setup
+
+The CLI alone gives an agent no orientation and no session identity. Install the
+integration for whichever host you run:
+
+```bash
+dotmd install             # what's installed for each host
+dotmd install claude      # Claude Code plugin (marketplace + plugin)
+dotmd install opencode    # OpenCode plugin (one auto-discovered file)
+dotmd doctor --session    # what identity dotmd sees here, and from where
+```
+
+Both are one-time and global; `dotmd update` keeps them in step with the CLI.
+
 ### Claude Code Plugin
 
-The recommended Claude Code setup is the dotmd plugin:
+`dotmd install claude` runs the two steps below for you. From inside a session:
 
 ```text
 /plugin marketplace add reowens/dotmd
@@ -35,6 +49,23 @@ The recommended Claude Code setup is the dotmd plugin:
 The plugin provides SessionStart and SubagentStart orientation, a PreToolUse
 guard, the canonical workflow skill, and `/plans`, `/docs`, `/prompts`, and
 `/baton` commands.
+
+### OpenCode Plugin
+
+`dotmd install opencode` writes one plugin file into OpenCode's global config
+directory, where OpenCode auto-discovers it — no `opencode.json` edit. It
+supplies the two things the CLI cannot get on its own:
+
+- **Per-session plan ownership.** OpenCode exports no session id to a tool
+  shell. Without the plugin, dotmd falls back to `OPENCODE_PID`, which names the
+  OpenCode *process* — so every session in one OpenCode instance shares an
+  identity and can release the others' in-session plans.
+- **A session-start briefing**, the equivalent of Claude Code's SessionStart
+  hook. OpenCode's Claude Code compatibility covers skills and the system
+  prompt, not hooks, so nothing else runs `dotmd hud`.
+
+Restart OpenCode after installing. The file is version-stamped; a `dotmd.js`
+without that stamp is treated as hand-authored and is never overwritten.
 
 The plugin requires a global CLI install because its hooks resolve `dotmd` from
 `PATH`. A project devDependency is useful for npm scripts but does not put the

@@ -40,9 +40,14 @@ function plan(name, status = 'active') {
   return file;
 }
 
+// A `null` override unsets the variable rather than blanking it: the pid chain
+// treats an empty string as a deliberate suppression, so a test that needs the
+// runner's own harness variables *absent* cannot express that by blanking them.
 function run(args, sid = 'A', env = {}) {
+  const merged = { ...process.env, NO_COLOR: '1', CLAUDE_CODE_SESSION_ID: sid, ...env };
+  for (const [key, value] of Object.entries(merged)) if (value === null) delete merged[key];
   return spawnSync('node', [bin, ...args, '--config', path.join(tmp, 'dotmd.config.mjs')], {
-    cwd: tmp, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', CLAUDE_CODE_SESSION_ID: sid, ...env },
+    cwd: tmp, encoding: 'utf8', env: merged,
   });
 }
 
@@ -248,7 +253,7 @@ describe('durable lifecycle ownership', () => {
     const file = plan('host-id');
     const cleared = {
       CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '', DOTMD_SESSION_ID: '', TERM_SESSION_ID: '',
-      OPENCODE_SESSION_ID: 'oc-42', OPENCODE_SESSION: '',
+      OPENCODE_SESSION_ID: 'oc-42', OPENCODE_SESSION: '', OPENCODE_PID: '',
     };
     strictEqual(run(['use', file], '', cleared).status, 0);
     strictEqual(JSON.parse(readFileSync(ownershipFile(), 'utf8')).sessionId, 'oc-42');
@@ -257,6 +262,37 @@ describe('durable lifecycle ownership', () => {
     const failed = run(['use', other], '', { ...cleared, OPENCODE_SESSION_ID: '' });
     ok(failed.status !== 0);
     match(failed.stderr, /DOTMD_SESSION_ID/);
+  });
+
+  // OpenCode sets no session-id variable at all — the names above were a guess,
+  // and every OpenCode session failed closed on a verb as ordinary as `use`.
+  // What it does set on the process every tool shell inherits is OPENCODE_PID.
+  it('falls back to the OpenCode process id, and records it as the owning process', () => {
+    setup();
+    const file = plan('oc-pid');
+    const cleared = {
+      CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '', DOTMD_SESSION_ID: '', TERM_SESSION_ID: '',
+      OPENCODE_SESSION_ID: '', OPENCODE_SESSION: '', DOTMD_SESSION_PID: null, CLAUDE_PID: null,
+      OPENCODE_PID: String(process.pid),
+    };
+    strictEqual(run(['use', file], '', cleared).status, 0);
+    const record = JSON.parse(readFileSync(ownershipFile(), 'utf8'));
+    strictEqual(record.sessionId, `opencode:${process.pid}`);
+    // Namespaced, so it can never collide with a host that hands out bare ids.
+    strictEqual(record.sessionOwner.pid, process.pid);
+  });
+
+  // A terminal id is shared by every agent run in that window, so it must lose
+  // to the id of the process actually hosting this session.
+  it('prefers the OpenCode process id over the surrounding terminal id', () => {
+    setup();
+    const file = plan('oc-over-term');
+    strictEqual(run(['use', file], '', {
+      CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '', DOTMD_SESSION_ID: '',
+      OPENCODE_SESSION_ID: '', OPENCODE_SESSION: '',
+      OPENCODE_PID: '4242', TERM_SESSION_ID: 'w0t0p0',
+    }).status, 0);
+    strictEqual(JSON.parse(readFileSync(ownershipFile(), 'utf8')).sessionId, 'opencode:4242');
   });
 
   it('uses canonical filesystem identity across equivalent root spellings and case aliases where supported', async () => {

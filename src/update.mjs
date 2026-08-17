@@ -4,6 +4,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { green, dim, yellow } from './color.mjs';
+import { executableName, which } from './util.mjs';
+import { installOpencodePlugin, opencodeStatus } from './host-integration.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
@@ -72,21 +74,17 @@ export function planUpdate(opts, ctx) {
     } else {
       steps.push({ kind: 'plugin', cmd: ['claude', 'plugin', 'update', ctx.plugin.id] });
     }
+    // The OpenCode integration is a file dotmd wrote, so it goes stale silently
+    // the moment the CLI moves on. Refresh it here — but only if it is already
+    // installed. `update` keeps hosts in lockstep; it never adopts a new one,
+    // which stays the job of the explicit `dotmd install`.
+    if (ctx.opencode?.exists && ctx.opencode.stale) {
+      steps.push({ kind: 'opencode', path: ctx.opencode.path });
+    } else if (ctx.opencode?.foreign) {
+      steps.push({ kind: 'skip', reason: `${ctx.opencode.path} was not written by dotmd — leaving it alone` });
+    }
   }
   return steps;
-}
-
-function which(bin) {
-  try {
-    const cmd = process.platform === 'win32' ? 'where' : 'which';
-    return spawnSync(cmd, [bin], { encoding: 'utf8' }).status === 0;
-  } catch {
-    return false;
-  }
-}
-
-function executableName(bin) {
-  return process.platform === 'win32' && !bin.endsWith('.cmd') ? `${bin}.cmd` : bin;
 }
 
 export function runUpdate(argv, _config, opts = {}) {
@@ -105,15 +103,21 @@ export function runUpdate(argv, _config, opts = {}) {
         : yellow('ahead — CLI is behind');
       process.stdout.write(`dotmd plugin: ${plugin.version ?? '?'} (${plugin.id}) ${tag}\n`);
     } else {
-      process.stdout.write(dim('dotmd plugin: not installed\n'));
+      process.stdout.write(dim('dotmd plugin: not installed — `dotmd install claude`\n'));
     }
+    const oc = opencodeStatus({ version: pkg.version });
+    if (!oc.exists) process.stdout.write(dim('dotmd opencode: not installed\n'));
+    else if (oc.foreign) process.stdout.write(`dotmd opencode: ${yellow('unmanaged file — not written by dotmd')}\n`);
+    else process.stdout.write(`dotmd opencode: ${oc.version} ${oc.stale ? yellow('behind — run `dotmd update`') : green('in sync')}\n`);
     return;
   }
 
-  const steps = planUpdate({ cliOnly, pluginOnly }, { plugin, hasClaude: which('claude'), hasNpm: which('npm') });
+  const opencode = opencodeStatus({ version: pkg.version });
+  const steps = planUpdate({ cliOnly, pluginOnly }, { plugin, opencode, hasClaude: which('claude'), hasNpm: which('npm') });
   if (opts.dryRun) {
     for (const step of steps) {
       if (step.kind === 'skip') process.stdout.write(dim(`[dry-run] skip: ${step.reason}\n`));
+      else if (step.kind === 'opencode') process.stdout.write(dim(`[dry-run] Would refresh: ${step.path}\n`));
       else process.stdout.write(dim(`[dry-run] Would run: ${step.cmd.join(' ')}\n`));
     }
     return;
@@ -123,6 +127,12 @@ export function runUpdate(argv, _config, opts = {}) {
   for (const s of steps) {
     if (s.kind === 'skip') {
       process.stdout.write(dim(`skip: ${s.reason}\n`));
+      continue;
+    }
+    if (s.kind === 'opencode') {
+      const result = installOpencodePlugin({ version: pkg.version });
+      process.stdout.write(dim(`refreshed opencode integration → ${pkg.version}  ${result.path}\n`));
+      ran = true;
       continue;
     }
     process.stdout.write(dim(`$ ${s.cmd.join(' ')}\n`));
