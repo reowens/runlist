@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
-  CLAUDE_MARKETPLACE, CLAUDE_PLUGIN_ID, GENERATED_MARKER, describeSessionIdentity,
+  CLAUDE_MARKETPLACE, CLAUDE_PLUGIN_ID, GENERATED_MARKER, degradedIdentityNotice, describeSessionIdentity,
   installOpencodePlugin, installedVersion, opencodeConfigDir, opencodePluginDir,
   opencodeStatus, planClaudeInstall, removeOpencodePlugin, renderOpencodePlugin,
 } from '../src/host-integration.mjs';
@@ -250,6 +250,56 @@ describe('session identity reporting', () => {
   });
 });
 
+// Every other surface has to be sought out. This one comes to the session,
+// because the degraded mode is silent: with the OPENCODE_PID fallback the verbs
+// all work, they just share an identity.
+describe('degraded-identity notice', () => {
+  const opencodeEnv = pid => ({
+    CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '', DOTMD_SESSION_ID: '',
+    OPENCODE_SESSION_ID: '', OPENCODE_SESSION: '', TERM_SESSION_ID: '',
+    OPENCODE: '1', OPENCODE_PID: String(pid),
+  });
+
+  it('fires once per session, then stays quiet', () => {
+    const home = setup();
+    const opts = { env: opencodeEnv(42), homedir: home };
+    match(degradedIdentityNotice(home, opts) ?? '', /dotmd install opencode/);
+    strictEqual(degradedIdentityNotice(home, opts), null);
+    // A different session in the same repo is a different reader.
+    match(degradedIdentityNotice(home, { env: opencodeEnv(99), homedir: home }) ?? '', /dotmd install opencode/);
+  });
+
+  it('says nothing on a host that is not degraded, or when hints are off', () => {
+    const home = setup();
+    strictEqual(degradedIdentityNotice(home, {
+      env: { ...opencodeEnv(42), CLAUDE_CODE_SESSION_ID: 'abc' }, homedir: home,
+    }), null);
+    // Not under OpenCode at all: the check must cost nothing and say nothing.
+    strictEqual(degradedIdentityNotice(home, { env: { TERM_SESSION_ID: 'w0' }, homedir: home }), null);
+    strictEqual(degradedIdentityNotice(home, {
+      env: { ...opencodeEnv(42), DOTMD_NO_HINTS: '1' }, homedir: home,
+    }), null);
+  });
+
+  // Once installed, a still-coarse session is one that predates the plugin —
+  // saying "install it" there would send the user to fix what is already fixed.
+  it('switches to a restart nudge once the integration is installed', () => {
+    const home = setup();
+    installOpencodePlugin({ version: '1.0.0', dir: path.join(home, '.config', 'opencode', 'plugin') });
+    const notice = degradedIdentityNotice(home, { env: opencodeEnv(42), homedir: home, version: '1.0.0' });
+    match(notice ?? '', /Restart OpenCode/);
+    ok(!/dotmd install opencode/.test(notice ?? ''));
+  });
+
+  it('can answer without spending the once-per-session budget', () => {
+    const home = setup();
+    const opts = { env: opencodeEnv(42), homedir: home };
+    ok(degradedIdentityNotice(home, { ...opts, record: false }));
+    // Still unspent, so the real emission still happens.
+    ok(degradedIdentityNotice(home, opts));
+  });
+});
+
 describe('claude code install planning', () => {
   it('drives marketplace + install on a first install, and skips when present', () => {
     const fresh = planClaudeInstall({ installed: null, hasClaude: true });
@@ -328,6 +378,36 @@ describe('dotmd install command', () => {
     const parsed = JSON.parse(result.stdout);
     strictEqual(parsed.hosts.opencode.exists, false);
     ok(parsed.hosts.opencode.path.startsWith(path.join(tmp, 'oc')));
+  });
+
+  // The notice has to reach the agent on whatever verb it happens to run, and
+  // must not contaminate a --json stdout that a caller is parsing.
+  it('warns an unequipped OpenCode session on stderr, once, leaving stdout parseable', () => {
+    const home = setup();
+    spawnSync('git', ['init', '-q'], { cwd: home });
+    mkdirSync(path.join(home, 'docs', 'plans'), { recursive: true });
+    writeFileSync(path.join(home, 'dotmd.config.mjs'), "export const root = 'docs';\n");
+
+    const plans = (pid, args = []) => spawnSync('node', [bin, 'plans', ...args, '--config', path.join(home, 'dotmd.config.mjs')], {
+      cwd: home,
+      encoding: 'utf8',
+      env: {
+        ...process.env, NO_COLOR: '1',
+        CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '', DOTMD_SESSION_ID: '', TERM_SESSION_ID: '',
+        OPENCODE_SESSION_ID: '', OPENCODE_SESSION: '', DOTMD_NO_HINTS: '',
+        OPENCODE: '1', OPENCODE_PID: String(pid), OPENCODE_CONFIG_DIR: path.join(home, 'oc'),
+      },
+    });
+
+    const first = plans(4242);
+    match(first.stderr, /dotmd install opencode/);
+    ok(!first.stdout.includes('dotmd install opencode'), 'notice must not reach stdout');
+
+    strictEqual(plans(4242).stderr.includes('dotmd install opencode'), false, 'second call in the same session must be quiet');
+
+    const json = plans(777, ['--json']);
+    match(json.stderr, /dotmd install opencode/);
+    JSON.parse(json.stdout); // throws if the notice leaked into stdout
   });
 
   it('rejects an unknown host instead of guessing', () => {

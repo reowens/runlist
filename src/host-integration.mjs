@@ -16,6 +16,7 @@
 // reports that the integration is missing and names the command; it never
 // installs. Passive commands touch nothing.
 
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -164,6 +165,59 @@ export function describeSessionIdentity(opts = {}) {
       : `${source.scope}-scoped identity from ${source.variable} — sessions sharing it can release each other's plans`,
     advice,
   };
+}
+
+// --- Telling the session it is running degraded -----------------------------
+//
+// Every other surface here has to be sought out: `doctor`, `install`, the npm
+// postinstall line. But the degraded mode is SILENT — with the OPENCODE_PID
+// fallback in place, `use`/`set`/`baton` all work, they just share one identity
+// across every session in the OpenCode process. Nobody goes looking for a
+// diagnostic about a thing that appears to work, so this comes to them.
+//
+// Warning, not error. Failing closed would undo the fallback that unblocked
+// OpenCode in the first place, and punish a setup that is working.
+//
+// Once per session per repo, via a marker under the gitignored .dotmd/. Silent
+// under DOTMD_NO_HINTS=1, the switch the repeat-failure hints already use.
+const NOTICE_DIR = 'notices';
+
+function noticeMarkerPath(repoRoot, key) {
+  const digest = createHash('sha256').update(key).digest('hex').slice(0, 32);
+  return path.join(path.resolve(repoRoot), '.dotmd', NOTICE_DIR, `${digest}`);
+}
+
+// Returns the notice text the first time it applies in a session, then null.
+// `record: false` answers without consuming the once-per-session budget.
+export function degradedIdentityNotice(repoRoot, opts = {}) {
+  const { env = process.env, homedir = os.homedir(), version, record = true } = opts;
+  if (env.DOTMD_NO_HINTS === '1') return null;
+  // Cheap env check first: a user on any other host pays nothing for this.
+  if (!env.OPENCODE && !env.OPENCODE_PID) return null;
+
+  const identity = describeSessionIdentity({ env, homedir, version });
+  if (identity.scope === 'session') return null;
+
+  const installed = opencodeStatus({ env, homedir, version }).exists;
+  const lines = installed
+    ? ['[dotmd] This OpenCode session started before the dotmd integration loaded, so its plan',
+      '        ownership is still process-scoped. Restart OpenCode to pick it up.']
+    : ['[dotmd] OpenCode detected, dotmd integration not installed — plan ownership is scoped to',
+      '        the OpenCode process, so another session in it can release plans this one claimed,',
+      '        and no session-start briefing runs. Fix once: dotmd install opencode'];
+
+  if (!record) return lines.join('\n');
+  if (!repoRoot) return lines.join('\n');
+  const marker = noticeMarkerPath(repoRoot, `opencode:${identity.id}:${installed ? 'restart' : 'install'}`);
+  if (existsSync(marker)) return null;
+  try {
+    mkdirSync(path.dirname(marker), { recursive: true });
+    writeFileSync(marker, '', 'utf8');
+  } catch {
+    // Unwritable .dotmd: say it once anyway rather than stay silent about a
+    // real ownership weakness. Worst case it repeats.
+  }
+  return lines.join('\n');
 }
 
 // --- Claude Code -----------------------------------------------------------

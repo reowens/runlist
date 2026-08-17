@@ -2,6 +2,12 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- **An unequipped OpenCode session now says so, instead of working quietly wrong.** 0.75.0 shipped the fix and the installer but put every nudge on a surface you have to go looking for — `doctor`, `install`, the npm postinstall line. None of them reach a session that is running *right now* under a process-scoped identity, and that mode is silent by construction: `use`, `set` and `baton` all work, they just share one identity across every session in the OpenCode process, so a second session can release the first one's plans. dotmd now writes one line to stderr on whatever verb the session reaches for first, naming `dotmd install opencode`. Once per session per repo (a marker under the gitignored `.dotmd/`), stderr so a `--json` caller's stdout stays parseable, skipped for `install`/`doctor`/`update` (which report it themselves) and for the `hud`/`guard` hooks (which fire on every tool call and must stay silent), and off under `DOTMD_NO_HINTS=1`. Once the integration *is* installed, a still-coarse session is one that predates it, so the line switches to "restart OpenCode" rather than sending you to fix what is already fixed. A warning, not an error: failing closed would undo the fallback that unblocked OpenCode in the first place.
+
 ## 0.75.0 — 2026-08-17
 
 ### Added

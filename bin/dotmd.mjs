@@ -1594,6 +1594,18 @@ async function main() {
     throw err;
   }
   _resolvedConfig = config;
+  // The one place that reaches an OpenCode session running without the
+  // integration — whatever verb it reaches for first. stderr, so `--json`
+  // consumers are untouched, and once per session so it informs rather than
+  // nags. `install`/`doctor`/`update` are skipped: they report this themselves,
+  // and telling `dotmd install opencode` to run `dotmd install opencode` is
+  // noise.
+  if (!['install', 'doctor', 'update', 'hud', 'guard'].includes(command)) {
+    const { degradedIdentityNotice } = await import('../src/host-integration.mjs');
+    const notice = degradedIdentityNotice(config?.repoRoot, { version: pkg.version });
+    if (notice) process.stderr.write(`${notice}\n`);
+  }
+
   const suppressSideEffects = effectiveDryRun || command === 'hud' || passiveMachineContext;
   Object.defineProperty(config, '_execution', {
     value: { dryRun, passive: command === 'hud' || passiveMachineContext, suppressSideEffects, gitStaleness },
