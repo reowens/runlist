@@ -90,22 +90,22 @@ describe('plan-shape lint', () => {
 
   it('warns when module is used (F18: singular is universally deprecated)', () => {
     const docsDir = setupProject();
-    writeDoc(docsDir, 'plan.md', `type: plan\nstatus: active\nupdated: 2026-05-13\nmodule: auth\nmodules:\n  - identity\n  - billing`);
+    writeDoc(docsDir, 'plan.md', `type: plan\nstatus: active\nupdated: 2026-05-13\nmodule: notify\nmodules:\n  - lobby\n  - gallery`);
 
     const idx = checkJson();
     const w = idx.warnings.find(x => x.message.includes('`module:` (singular) is deprecated'));
     ok(w, 'expected F18 deprecation warning');
-    ok(w.message.includes('modules: ["auth", "identity", "billing"]'), `migration target should merge: ${w.message}`);
+    ok(w.message.includes('modules: ["notify", "lobby", "gallery"]'), `migration target should merge: ${w.message}`);
   });
 
   it('warns when module is already a member of the modules array (F18: singular still deprecated)', () => {
     const docsDir = setupProject();
-    writeDoc(docsDir, 'plan.md', `type: plan\nstatus: active\nupdated: 2026-05-13\nmodule: auth\nmodules:\n  - auth\n  - identity`);
+    writeDoc(docsDir, 'plan.md', `type: plan\nstatus: active\nupdated: 2026-05-13\nmodule: notify\nmodules:\n  - notify\n  - lobby`);
 
     const idx = checkJson();
     const w = idx.warnings.find(x => x.message.includes('`module:` (singular) is deprecated'));
     ok(w, 'F18: singular use always warns, even when already in plural');
-    ok(w.message.includes('modules: ["auth", "identity"]'), `migration target should dedupe: ${w.message}`);
+    ok(w.message.includes('modules: ["notify", "lobby"]'), `migration target should dedupe: ${w.message}`);
   });
 
   it('accepts case-only ## Open questions heading variants', () => {

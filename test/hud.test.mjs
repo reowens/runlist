@@ -103,7 +103,7 @@ describe('dotmd hud', () => {
 
   it('surfaces pending prompts as an actionable instruction; passive state stays suppressed', () => {
     const docsDir = setupProject();
-    writeDoc(docsDir, 'p.md', 'type: plan\nstatus: active\nupdated: 2025-01-01\nmodules: [core]', '# P\n');
+    writeDoc(docsDir, 'p.md', 'type: plan\nstatus: active\nupdated: 2025-01-01\nmodules: [atrium]', '# P\n');
     mkdirSync(path.join(docsDir, 'prompts'), { recursive: true });
     writeDoc(docsDir, 'prompts/x.md', 'type: prompt\nstatus: pending\ncreated: 2025-01-01', 'body\n');
     writeDoc(docsDir, 'broken.md', 'type: plan\nstatus: archived\nupdated: 2025-01-01', '# Broken\n');
@@ -144,7 +144,7 @@ describe('dotmd hud', () => {
 
   it('stays prompt-silent when nothing is pending', () => {
     const docsDir = setupProject();
-    writeDoc(docsDir, 'p.md', 'type: plan\nstatus: active\nupdated: 2025-01-01\nmodules: [core]', '# P\n');
+    writeDoc(docsDir, 'p.md', 'type: plan\nstatus: active\nupdated: 2025-01-01\nmodules: [atrium]', '# P\n');
     const r = runCli(['hud']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
     ok(!/\d+ pending prompt/.test(r.stdout), `no pending-prompt line when queue is empty; got: ${r.stdout}`);
@@ -153,7 +153,7 @@ describe('dotmd hud', () => {
 
   it('--json still exposes structured state for programmatic callers', () => {
     const docsDir = setupProject();
-    writeDoc(docsDir, 'p.md', 'type: plan\nstatus: active\nupdated: 2025-01-01\nmodules: [core]', '# P\n');
+    writeDoc(docsDir, 'p.md', 'type: plan\nstatus: active\nupdated: 2025-01-01\nmodules: [atrium]', '# P\n');
 
     const r = runCli(['hud', '--json']);
     strictEqual(r.status, 0, `hud --json failed: ${r.stderr}`);
@@ -254,7 +254,7 @@ describe('dotmd hud', () => {
     function checkErrorCount(json) { return (JSON.parse(json).errors ?? []).length; }
 
     const docsDir = setupProject();
-    writeDoc(docsDir, 'plan-a.md', 'type: plan\nstatus: active\nupdated: 2025-01-01\nmodules: [core]', '# A\n');
+    writeDoc(docsDir, 'plan-a.md', 'type: plan\nstatus: active\nupdated: 2025-01-01\nmodules: [atrium]', '# A\n');
     let hudJson = runCli(['hud', '--json']);
     let checkJson = runCli(['check', '--json']);
     strictEqual(errorCount(hudJson.stdout), checkErrorCount(checkJson.stdout), 'clean-repo parity');

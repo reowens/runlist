@@ -67,7 +67,7 @@ describe('modules-required gate (opt-in via taxonomy.modules)', () => {
     mkdirSync(path.join(tmpDir, '.git'));
     mkdirSync(path.join(tmpDir, 'docs', 'plans'), { recursive: true });
     writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'),
-      `export const root = 'docs';\nexport const taxonomy = { modules: ['payments', 'catalog'] };`);
+      `export const root = 'docs';\nexport const taxonomy = { modules: ['kiosk', 'catalog'] };`);
     writeFileSync(path.join(tmpDir, 'docs', 'plans', 'p.md'),
       '---\ntype: plan\nstatus: partial\nupdated: 2026-05-28\n---\n# P\n');
     const r = run(['check', '--verbose']);

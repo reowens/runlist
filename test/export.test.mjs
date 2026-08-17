@@ -19,7 +19,7 @@ function setupProject() {
       unidirectional: [],
     };
   `);
-  writeFileSync(path.join(docsDir, 'a.md'), '---\nstatus: active\nupdated: 2025-01-01\nmodule: auth\nrelated_plans:\n  - b.md\n---\n# Plan A\n\nSome **bold** content.\n\n- item 1\n- item 2\n');
+  writeFileSync(path.join(docsDir, 'a.md'), '---\nstatus: active\nupdated: 2025-01-01\nmodule: notify\nrelated_plans:\n  - b.md\n---\n# Plan A\n\nSome **bold** content.\n\n- item 1\n- item 2\n');
   writeFileSync(path.join(docsDir, 'b.md'), '---\nstatus: planned\nupdated: 2025-01-01\n---\n# Plan B\n\nAnother doc.\n');
   writeFileSync(path.join(docsDir, 'c.md'), '---\nstatus: active\nupdated: 2025-01-01\n---\n# Plan C\n\nOrphan doc.\n');
   return docsDir;

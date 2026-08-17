@@ -45,10 +45,10 @@ describe('migrateOne (pure)', () => {
   });
 
   it('drops singular module when modules array is populated', () => {
-    const raw = `---\ntype: plan\nstatus: active\nupdated: 2026-05-13\nmodule: auth\nmodules:\n  - auth\n  - identity\n---\n# P\n`;
+    const raw = `---\ntype: plan\nstatus: active\nupdated: 2026-05-13\nmodule: notify\nmodules:\n  - notify\n  - lobby\n---\n# P\n`;
     const { changes, newRaw } = migrateOne(raw);
     ok(changes.some(c => c.kind === 'drop-singular' && c.detail.startsWith('module:')));
-    ok(!/^module: auth$/m.test(newRaw));
+    ok(!/^module: notify$/m.test(newRaw));
     ok(/^modules:/m.test(newRaw));
   });
 

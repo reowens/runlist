@@ -80,18 +80,18 @@ describe('dotmd migrate', () => {
 
   it('works with non-status fields', () => {
     const docsDir = setupProject();
-    writeFileSync(path.join(docsDir, 'a.md'), '---\nstatus: active\nupdated: 2025-01-01\nmodule: auth\n---\n# A\n');
-    writeFileSync(path.join(docsDir, 'b.md'), '---\nstatus: active\nupdated: 2025-01-01\nmodule: billing\n---\n# B\n');
+    writeFileSync(path.join(docsDir, 'a.md'), '---\nstatus: active\nupdated: 2025-01-01\nmodule: notify\n---\n# A\n');
+    writeFileSync(path.join(docsDir, 'b.md'), '---\nstatus: active\nupdated: 2025-01-01\nmodule: gallery\n---\n# B\n');
 
-    const result = run(['migrate', 'module', 'auth', 'identity']);
+    const result = run(['migrate', 'module', 'notify', 'lobby']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(result.stdout.includes('1 file(s)'), 'reports 1 updated');
 
     const aContent = readFileSync(path.join(docsDir, 'a.md'), 'utf8');
-    ok(aContent.includes('module: identity'), 'a.md module updated');
+    ok(aContent.includes('module: lobby'), 'a.md module updated');
 
     const bContent = readFileSync(path.join(docsDir, 'b.md'), 'utf8');
-    ok(bContent.includes('module: billing'), 'b.md unchanged');
+    ok(bContent.includes('module: gallery'), 'b.md unchanged');
   });
 
   it('errors on missing arguments', () => {

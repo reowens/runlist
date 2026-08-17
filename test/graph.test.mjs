@@ -174,10 +174,10 @@ describe('buildGraph', () => {
   it('filters by module', () => {
     const config = makeConfig();
     const index = makeIndex([
-      makeDoc({ path: 'docs/a.md', module: 'auth', modules: ['auth'] }),
-      makeDoc({ path: 'docs/b.md', module: 'core', modules: ['core'] }),
+      makeDoc({ path: 'docs/a.md', module: 'notify', modules: ['notify'] }),
+      makeDoc({ path: 'docs/b.md', module: 'atrium', modules: ['atrium'] }),
     ]);
-    const graph = buildGraph(index, config, { module: 'auth' });
+    const graph = buildGraph(index, config, { module: 'notify' });
     strictEqual(graph.stats.nodeCount, 1);
     strictEqual(graph.nodes[0].slug, 'a');
   });

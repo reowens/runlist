@@ -396,7 +396,7 @@ describe('buildCoverage', () => {
     const index = {
       docs: [
         makeDoc({ status: 'ready', module: null }),
-        makeDoc({ status: 'ready', module: 'core' }),
+        makeDoc({ status: 'ready', module: 'atrium' }),
       ],
     };
     const coverage = buildCoverage(index, makeConfig());

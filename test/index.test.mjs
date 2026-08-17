@@ -202,13 +202,13 @@ describe('parseDocFile', () => {
 
   it('extracts status, owner, surface, module', async () => {
     const docsDir = setup();
-    writeDoc(docsDir, 'a.md', 'status: active\nowner: alice\nsurface: web\nmodule: auth', '# A');
+    writeDoc(docsDir, 'a.md', 'status: active\nowner: alice\nsurface: web\nmodule: notify', '# A');
     const config = await resolveConfig(tmpDir);
     const doc = parseDocFile(path.join(docsDir, 'a.md'), config);
     strictEqual(doc.status, 'active');
     strictEqual(doc.owner, 'alice');
     strictEqual(doc.surface, 'web');
-    strictEqual(doc.module, 'auth');
+    strictEqual(doc.module, 'notify');
   });
 
   it('merges singular surface into surfaces array', async () => {
@@ -223,11 +223,11 @@ describe('parseDocFile', () => {
 
   it('merges singular module into modules array', async () => {
     const docsDir = setup();
-    writeDoc(docsDir, 'a.md', 'status: active\nmodule: auth\nmodules:\n  - billing', '# A');
+    writeDoc(docsDir, 'a.md', 'status: active\nmodule: notify\nmodules:\n  - gallery', '# A');
     const config = await resolveConfig(tmpDir);
     const doc = parseDocFile(path.join(docsDir, 'a.md'), config);
-    ok(doc.modules.includes('auth'));
-    ok(doc.modules.includes('billing'));
+    ok(doc.modules.includes('notify'));
+    ok(doc.modules.includes('gallery'));
   });
 
   it('extracts checklist counts', async () => {

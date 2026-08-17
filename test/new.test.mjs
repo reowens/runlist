@@ -774,7 +774,7 @@ describe('dotmd new — type-first CLI', () => {
       mkdirSync(path.join(tmpDir, '.git'));
       mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
       writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'),
-        `export const root = 'docs';\nexport const taxonomy = { modules: ['core', 'platform'], moduleRequiredFor: ['active', 'planned', 'blocked'] };`);
+        `export const root = 'docs';\nexport const taxonomy = { modules: ['atrium', 'platform'], moduleRequiredFor: ['active', 'planned', 'blocked'] };`);
       const r = run(['new', 'plan', 'tooling-only']);
       strictEqual(r.status, 0, `stderr: ${r.stderr}`);
       const content = readFileSync(path.join(tmpDir, 'docs', 'plans', 'tooling-only.md'), 'utf8');
@@ -802,11 +802,11 @@ describe('dotmd new — type-first CLI', () => {
       mkdirSync(path.join(tmpDir, '.git'));
       mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
       writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'),
-        `export const root = 'docs';\nexport const taxonomy = { modules: ['core', 'platform'] };`);
+        `export const root = 'docs';\nexport const taxonomy = { modules: ['atrium', 'platform'] };`);
       const r = run(['new', 'plan', 'with-mod-taxonomy']);
       strictEqual(r.status, 0, `stderr: ${r.stderr}`);
       const content = readFileSync(path.join(tmpDir, 'docs', 'plans', 'with-mod-taxonomy.md'), 'utf8');
-      ok(content.includes('# modules — valid: core, platform'),
+      ok(content.includes('# modules — valid: atrium, platform'),
         `expected modules comment; got:\n${content}`);
     });
 
@@ -844,7 +844,7 @@ describe('dotmd new — type-first CLI', () => {
         '---',
         'status: planned',
         'modules:',
-        '  - core',
+        '  - atrium',
         'current_state: Drafted via @path with full frontmatter.',
         'next_step: Wire it up',
         '---',
@@ -865,7 +865,7 @@ describe('dotmd new — type-first CLI', () => {
       strictEqual(fmBlocks, 2, `expected exactly 2 --- markers (one fm block); got ${fmBlocks}\n${content}`);
       // Body's frontmatter keys landed in scaffold
       ok(content.includes('status: planned'), 'status overlaid');
-      ok(/modules:\n  - core/.test(content), 'modules overlaid');
+      ok(/modules:\n  - atrium/.test(content), 'modules overlaid');
       ok(content.includes('current_state: Drafted via @path'), 'current_state overlaid');
       ok(content.includes('next_step: Wire it up'), 'next_step overlaid');
       // Body content (after second ---) is just the body, not the frontmatter

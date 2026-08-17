@@ -322,7 +322,7 @@ describe('dotmd lint', () => {
   it('--fix drops an empty singular surface:/module: and keeps the plural values (F18, issue #17)', () => {
     const docsDir = setupProject();
     writeFileSync(path.join(docsDir, 'e.md'),
-      '---\nstatus: active\nupdated: 2025-01-01\nsurface:\nsurfaces:\n  - db\nmodule:\nmodules:\n  - core\n---\n# E\n');
+      '---\nstatus: active\nupdated: 2025-01-01\nsurface:\nsurfaces:\n  - db\nmodule:\nmodules:\n  - atrium\n---\n# E\n');
 
     const result = run(['lint', '--fix']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
@@ -331,7 +331,7 @@ describe('dotmd lint', () => {
     ok(!/^surface:/m.test(content), `empty singular surface: removed: ${content}`);
     ok(!/^module:/m.test(content), `empty singular module: removed: ${content}`);
     ok(/^surfaces:\n\s+- db$/m.test(content), `surfaces value preserved: ${content}`);
-    ok(/^modules:\n\s+- core$/m.test(content), `modules value preserved: ${content}`);
+    ok(/^modules:\n\s+- atrium$/m.test(content), `modules value preserved: ${content}`);
   });
 
   it('--fix drops an empty singular even with no plural counterpart present (F18)', () => {

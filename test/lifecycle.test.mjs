@@ -143,7 +143,7 @@ describe('init auto-detect', () => {
     mkdirSync(docsDir, { recursive: true });
 
     writeFileSync(path.join(docsDir, 'a.md'), '---\nstatus: active\nsurface: backend\nrelated_plans:\n  - ./b.md\n---\n# A\n');
-    writeFileSync(path.join(docsDir, 'b.md'), '---\nstatus: planned\nsurface: frontend\nmodule: auth\n---\n# B\n');
+    writeFileSync(path.join(docsDir, 'b.md'), '---\nstatus: planned\nsurface: frontend\nmodule: notify\n---\n# B\n');
 
     const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
     const result = spawnSync('node', [bin, 'init'], { cwd: tmpDir, encoding: 'utf8' });

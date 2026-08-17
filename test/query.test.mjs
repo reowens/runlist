@@ -193,23 +193,23 @@ describe('unknown --module value hint', () => {
     mkdirSync(docsDir, { recursive: true });
     writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';`);
     writeFileSync(path.join(docsDir, 'a.md'),
-      '---\nstatus: active\nupdated: 2025-01-01\nmodules:\n  - payments\n---\n# A\n');
+      '---\nstatus: active\nupdated: 2025-01-01\nmodules:\n  - kiosk\n---\n# A\n');
     return docsDir;
   }
 
   it('suggests close module names when --module value is a typo', () => {
     setupProject();
-    const r = spawnDotmd(['query', '--module', 'paymentz']);
+    const r = spawnDotmd(['query', '--module', 'kiosl']);
     strictEqual(r.status, 0, `stderr: ${r.stderr}`);
-    ok(r.stdout.includes('No module `paymentz`'), `expected unknown-module line, got: ${r.stdout}`);
+    ok(r.stdout.includes('No module `kiosl`'), `expected unknown-module line, got: ${r.stdout}`);
     ok(r.stdout.includes('Did you mean'), `expected suggestion, got: ${r.stdout}`);
-    ok(r.stdout.includes('payments'), `expected payments in suggestion, got: ${r.stdout}`);
+    ok(r.stdout.includes('kiosk'), `expected kiosk in suggestion, got: ${r.stdout}`);
   });
 
   it('omits hint when --module value exists (combination miss, not typo)', () => {
     setupProject();
     // The module exists, but the keyword filter knocks the lone doc out.
-    const r = spawnDotmd(['query', '--module', 'payments', '--keyword', 'unmatchable']);
+    const r = spawnDotmd(['query', '--module', 'kiosk', '--keyword', 'unmatchable']);
     strictEqual(r.status, 0, `stderr: ${r.stderr}`);
     ok(!r.stdout.includes('No module'), `should not emit unknown-module hint, got: ${r.stdout}`);
   });

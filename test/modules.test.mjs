@@ -44,39 +44,39 @@ describe('dotmd modules — dashboard', () => {
   it('renders one row per discovered module', () => {
     const docsDir = setup();
     writeDoc(docsDir, 'a.md', `type: plan\nstatus: active\nupdated: ${today}\nmodules: [catalog]`, '# A');
-    writeDoc(docsDir, 'b.md', `type: plan\nstatus: active\nupdated: ${today}\nmodules: [suite]`, '# B');
+    writeDoc(docsDir, 'b.md', `type: plan\nstatus: active\nupdated: ${today}\nmodules: [parcel]`, '# B');
     writeDoc(docsDir, 'c.md', `type: plan\nstatus: planned\nupdated: ${today}\nmodules: [beacon]`, '# C');
     const out = runJson(['modules']);
     strictEqual(out.modules.length, 3);
     const names = out.modules.map(m => m.name).sort();
-    deepStrictEqual(names, ['beacon', 'catalog', 'suite']);
+    deepStrictEqual(names, ['beacon', 'catalog', 'parcel']);
     strictEqual(out._totalUnique, 3);
   });
 
   it('orders by --sort cleanup formula (stale × avgAge / total)', () => {
     // catalog: 1 stale plan, very old → high cleanup score per plan.
-    // suite: 0 stale plans, lots of active work → low cleanup score.
+    // parcel: 0 stale plans, lots of active work → low cleanup score.
     const docsDir = setup();
     writeDoc(docsDir, 'catalog-old.md', 'type: plan\nstatus: active\nupdated: 2020-01-01\nmodules: [catalog]', '# catalog-old');
     writeDoc(docsDir, 'catalog-new.md', `type: plan\nstatus: active\nupdated: ${today}\nmodules: [catalog]`, '# catalog-new');
-    writeDoc(docsDir, 'suite-1.md', `type: plan\nstatus: active\nupdated: ${today}\nmodules: [suite]`, '# s1');
-    writeDoc(docsDir, 'suite-2.md', `type: plan\nstatus: active\nupdated: ${today}\nmodules: [suite]`, '# s2');
-    writeDoc(docsDir, 'suite-3.md', `type: plan\nstatus: active\nupdated: ${today}\nmodules: [suite]`, '# s3');
+    writeDoc(docsDir, 'parcel-1.md', `type: plan\nstatus: active\nupdated: ${today}\nmodules: [parcel]`, '# s1');
+    writeDoc(docsDir, 'parcel-2.md', `type: plan\nstatus: active\nupdated: ${today}\nmodules: [parcel]`, '# s2');
+    writeDoc(docsDir, 'parcel-3.md', `type: plan\nstatus: active\nupdated: ${today}\nmodules: [parcel]`, '# s3');
     const out = runJson(['modules', '--sort', 'cleanup']);
     strictEqual(out.modules[0].name, 'catalog',
-      `catalog (1 stale × huge age) should rank above suite (0 stale): ${JSON.stringify(out.modules.map(m => m.name))}`);
+      `catalog (1 stale × huge age) should rank above parcel (0 stale): ${JSON.stringify(out.modules.map(m => m.name))}`);
     ok(out.modules[0].stale >= 1, `catalog expected stale ≥1, got ${out.modules[0].stale}`);
   });
 
   it('double-counts multi-module plans and surfaces _totalUnique in JSON', () => {
     const docsDir = setup();
-    writeDoc(docsDir, 'shared.md', `type: plan\nstatus: active\nupdated: ${today}\nmodules: [catalog, suite]`, '# shared');
+    writeDoc(docsDir, 'shared.md', `type: plan\nstatus: active\nupdated: ${today}\nmodules: [catalog, parcel]`, '# shared');
     writeDoc(docsDir, 'only-catalog.md', `type: plan\nstatus: active\nupdated: ${today}\nmodules: [catalog]`, '# catalog-only');
     const out = runJson(['modules']);
     const catalog = out.modules.find(m => m.name === 'catalog');
-    const suite = out.modules.find(m => m.name === 'suite');
+    const parcel = out.modules.find(m => m.name === 'parcel');
     strictEqual(catalog.total, 2, 'catalog should count shared + only-catalog');
-    strictEqual(suite.total, 1, 'suite should count shared');
+    strictEqual(parcel.total, 1, 'parcel should count shared');
     strictEqual(out._totalUnique, 2,
       'unique plan count is 2 even though per-module sum is 3');
   });

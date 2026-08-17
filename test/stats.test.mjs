@@ -119,7 +119,7 @@ describe('buildStats', () => {
       },
     });
     const index = makeIndex([
-      makeDoc({ status: 'active', surface: 'web', module: 'auth', hasNextStep: true }),
+      makeDoc({ status: 'active', surface: 'web', module: 'notify', hasNextStep: true }),
       makeDoc({ status: 'partial', surface: null, module: null, hasNextStep: false }),
       makeDoc({ status: 'archived', surface: null, module: null, hasNextStep: false }),
     ]);
@@ -148,7 +148,7 @@ describe('buildStats', () => {
   it('computes completeness for scoped docs', () => {
     const config = makeConfig();
     const index = makeIndex([
-      makeDoc({ status: 'active', owner: 'alice', surface: 'web', module: 'auth', hasNextStep: true }),
+      makeDoc({ status: 'active', owner: 'alice', surface: 'web', module: 'notify', hasNextStep: true }),
       makeDoc({ status: 'active', owner: null, surface: null, module: null, hasNextStep: false }),
       makeDoc({ status: 'archived', owner: null, surface: null, module: null, hasNextStep: false }),
     ]);
@@ -226,7 +226,7 @@ describe('renderStats', () => {
   it('shows all sections', () => {
     const config = makeConfig();
     const stats = buildStats(makeIndex([
-      makeDoc({ owner: 'a', surface: 'web', module: 'auth', checklist: { completed: 1, open: 1, total: 2 }, checklistCompletionRate: 0.5, auditLevel: 'pass1' }),
+      makeDoc({ owner: 'a', surface: 'web', module: 'notify', checklist: { completed: 1, open: 1, total: 2 }, checklistCompletionRate: 0.5, auditLevel: 'pass1' }),
     ]), config);
     const text = renderStats(stats, config);
     ok(text.includes('Status'), 'has Status section');
