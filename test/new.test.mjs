@@ -113,6 +113,38 @@ describe('dotmd new — type-first CLI', () => {
       }
     });
 
+    // The `doc` template had the same slot-nesting problem plans were fixed for,
+    // and nothing caught it: an authored document landed under `## Overview`,
+    // beneath the scaffold's own `# Title` and a placeholder summary, with the
+    // skeleton's trailing sections after a document that had already ended.
+    it('full-body shortcut applies to `doc` too: an authored body is not re-wrapped', () => {
+      const docsDir = setupProject();
+      const body = '# My Real Title\n\nOpening the author wrote.\n\n## Findings\n\nContent.';
+      const r = run(['new', 'doc', 'authored-doc', body]);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'authored-doc.md'), 'utf8');
+      ok(content.includes('type: doc'));
+      // The author's own title survives, and is the only one.
+      strictEqual((content.match(/^# .+$/gm) || []).length, 1, 'exactly one H1');
+      ok(content.includes('# My Real Title'));
+      // No scaffold wrapper around a document that already had a shape.
+      ok(!content.includes('## Overview'), 'authored body must not be nested in the scaffold slot');
+      ok(!content.includes('One-line summary of what this doc covers'), 'no placeholder summary');
+      strictEqual((content.match(/^## Findings$/gm) || []).length, 1, 'Findings appears once');
+    });
+
+    // Section-content (no `## ` heading) is not a document — it still flows into
+    // the scaffold's slot, which is the behavior most `new doc` calls rely on.
+    it('doc scaffold still wraps a body that is only section content', () => {
+      const docsDir = setupProject();
+      const r = run(['new', 'doc', 'scoped-doc', 'just a sentence of content']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'scoped-doc.md'), 'utf8');
+      ok(content.includes('## Overview'), 'scaffold still applies');
+      ok(content.includes('just a sentence of content'));
+      ok(content.includes('## Version History'));
+    });
+
     it('full-body shortcut: body containing `## Section` headings skips the scaffold ladder (A2 polish)', () => {
       const docsDir = setupProject();
       const body = '## Problem\nthe real problem\n\n## Goals\n- ship\n\n## Phases\n### Phase 1 — do ⬜';

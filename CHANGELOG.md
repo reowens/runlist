@@ -2,6 +2,12 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- **`dotmd new doc <name> @body.md` re-wrapped a document that already had a shape.** The plan templates have had a full-body shortcut for a while — a body that already authors `## Section` headings is a complete document, so it is emitted verbatim instead of being nested in the scaffold's single slot. The `doc` template never got it. Passing a written document produced a second `# Title` beneath the scaffold's, the placeholder line `> One-line summary of what this doc covers.` sitting above the author's own opening, the whole document buried under `## Overview`, and the skeleton's `## Version History` / `## Related Documentation` appended after a document that had already ended. Found by using it: writing this release's own reference doc required hand-deleting the wrapper afterwards. `doc` now uses the same shortcut as `plan`. Section-content input (no `## ` heading) still flows into the scaffold slot, which is what most `new doc` calls rely on. One deliberate consequence: an authored body with no summary blockquote now gets an honest `check` warning instead of a placeholder that silenced it while saying nothing.
+
 ## 0.76.0 — 2026-08-17
 
 ### Added

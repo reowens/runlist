@@ -101,7 +101,16 @@ const BUILTIN_TEMPLATES = {
       'related_plans:',
       'related_docs:',
     ].join('\n'),
-    body: (t, ctx) => `
+    body: (t, ctx) => {
+      // Same full-body shortcut the plan templates use, and for the same
+      // reason: a body that already authors `## Section` headings is a complete
+      // document, not section-content for one slot. Nesting it under `## Overview`
+      // produced a second `# Title` under the scaffold's, a placeholder summary
+      // line above the author's own opening, and the skeleton's trailing
+      // sections after a document that had already ended.
+      const authored = fullBodyShortcut(t, ctx?.bodyInput);
+      if (authored !== null) return authored;
+      return `
 # ${t}
 
 > One-line summary of what this doc covers.
@@ -116,7 +125,8 @@ ${ctx?.bodyInput?.trim() ?? ''}
 
 ## Related Documentation
 
-`,
+`;
+    },
   },
   plan: {
     description: 'Execution plan — build-up shape (Problem → Phases → Closeout) with phase status markers and Version History',
