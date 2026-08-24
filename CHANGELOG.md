@@ -2,6 +2,16 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- **Body-link validation now covers repo-local files, assets, and directories, not only `.md` documents.** The lightweight inline-link reader accepts ordinary and angle-bracket destinations, Markdown-escaped or percent-encoded spaces, optional titles, and query/fragment suffixes while continuing to ignore images, code, anchors, URI schemes, protocol-relative URLs, and root-relative site routes. Targets resolve only from the containing document, must remain inside the repository both lexically and after symlink resolution, and may be files or directories; frontmatter references retain their separate repo-root fallback contract.
+
+### Fixed
+
+- **Non-document link findings are never offered to document-reference auto-fix.** Body-link metadata now distinguishes document targets from files/assets and records the resolution reason. `fix-refs` is limited to missing document targets, preserves query/fragment and angle-bracket form, and refuses repository escapes; manual output directs file and asset findings back to the source document. Prompt target discovery and hub membership also ignore the newly visible non-document links. The full downstream source sweep found no missing repo-local targets and surfaced eight deliberate cross-repository paths for manual cleanup rather than validating machine-local files outside the checkout.
+
 ## 0.76.5 — 2026-08-24
 
 ### Changed
