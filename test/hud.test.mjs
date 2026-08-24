@@ -43,7 +43,19 @@ function runCli(args, { session = 'sess-A', input } = {}) {
 }
 
 afterEach(() => {
-  if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
+  // A just-exited git child can briefly keep writing under .git/objects on macOS,
+  // making recursive removal report ENOTEMPTY. Let Node retry that documented
+  // transient instead of turning a clean test run into a release-blocking failure.
+  const finishedTmpDir = tmpDir;
+  tmpDir = undefined;
+  if (finishedTmpDir) {
+    rmSync(finishedTmpDir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 25,
+    });
+  }
 });
 
 // HUD contract:
