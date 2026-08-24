@@ -290,7 +290,8 @@ export function parseDocFile(filePath, config, opts = {}) {
   // criterion: "should defer to frontmatter when status is terminal."
   const fmCurrentState = asString(parsedFrontmatter.current_state);
   const docStatus = asString(parsedFrontmatter.status);
-  const isTerminalDoc = docStatus && config.lifecycle?.terminalStatuses?.has?.(docStatus);
+  const isTerminalDoc = docStatus && (config.lifecycle?.isTerminal?.(docStatus, asString(parsedFrontmatter.type) ?? null)
+    ?? config.lifecycle?.terminalStatuses?.has?.(docStatus));
   // Track where currentState came from so renderers can prefix `(auto)` on
   // body-scraped values. Frontmatter wins silently; body-scraped values flag
   // their origin so the user knows the string was inferred (and that adding

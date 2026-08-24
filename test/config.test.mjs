@@ -745,3 +745,38 @@ describe('skipWarnings is scoped to the declaring type', () => {
     strictEqual(config.lifecycle.skipsWarnings('partial', 'plan'), false);
   });
 });
+
+describe('terminal status is scoped to the declaring type', () => {
+  const twoTypes = `
+    export const types = {
+      doc: {
+        statuses: {
+          'current':  { context: 'expanded' },
+          'outdated': { context: 'counted', terminal: true },
+        }
+      },
+      research: {
+        statuses: {
+          'outdated': { context: 'listed' },
+        }
+      }
+    };
+  `;
+
+  it('does not leak one type\'s terminal status into another type', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), twoTypes);
+    const config = await resolveConfig(tmpDir);
+    strictEqual(config.lifecycle.isTerminal('outdated', 'doc'), true);
+    strictEqual(config.lifecycle.isTerminal('outdated', 'research'), false);
+  });
+
+  it('an explicit lifecycle.terminalStatuses remains repo-wide', async () => {
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const lifecycle = { terminalStatuses: ['outdated'] };
+      ${twoTypes}
+    `);
+    const config = await resolveConfig(tmpDir);
+    strictEqual(config.lifecycle.isTerminal('outdated', 'doc'), true);
+    strictEqual(config.lifecycle.isTerminal('outdated', 'research'), true);
+  });
+});

@@ -519,6 +519,60 @@ describe('archived/terminal status suppresses noise validators', () => {
   });
 });
 
+describe('reference validation coverage ratchet', () => {
+  function setupTypeScopedProject() {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-refcoverage-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const root = 'docs';
+      export const referenceFields = { bidirectional: [], unidirectional: ['related_docs'] };
+      export const types = {
+        doc: { statuses: {
+          current: { context: 'expanded', quiet: true },
+          outdated: { context: 'counted', terminal: true, quiet: true },
+        } },
+        research: { statuses: {
+          outdated: { context: 'listed', quiet: true },
+        } },
+      };
+    `);
+    return tmpDir;
+  }
+
+  it('checks quiet live refs and body links as warnings without changing exit status', () => {
+    const root = setupTypeScopedProject();
+    writeFileSync(path.join(root, 'docs', 'live.md'),
+      '---\ntype: doc\nstatus: current\nupdated: 2026-08-24\nrelated_docs:\n  - ./missing-ref.md\n---\n# Live\n\n[missing body](./missing-body.md)\n');
+    const result = run(['check', '--json']);
+    const json = JSON.parse(result.stdout);
+    strictEqual(result.status, 0);
+    strictEqual(json.errorCount, 0);
+    strictEqual(json.referenceValidation.checkedDocs, 1);
+    strictEqual(json.referenceValidation.terminalDocsSkipped, 0);
+    ok(json.warnings.some(issue => issue.meta?.kind === 'ref-resolution-compat'));
+    ok(json.warnings.some(issue => issue.meta?.field === 'body-link'));
+  });
+
+  it('keeps a same-named terminal status scoped to its declaring type', () => {
+    const root = setupTypeScopedProject();
+    writeFileSync(path.join(root, 'docs', 'history.md'),
+      '---\ntype: doc\nstatus: outdated\nupdated: 2026-08-24\nrelated_docs:\n  - ./gone.md\n---\n# History\n\n[gone](./gone.md)\n');
+    writeFileSync(path.join(root, 'docs', 'research.md'),
+      '---\ntype: research\nstatus: outdated\nupdated: 2026-08-24\nrelated_docs:\n  - ./missing.md\n---\n# Research\n\n[missing](./missing.md)\n');
+    const result = run(['check', '--json']);
+    const json = JSON.parse(result.stdout);
+    strictEqual(result.status, 0);
+    strictEqual(json.referenceValidation.checkedDocs, 1);
+    strictEqual(json.referenceValidation.terminalDocsSkipped, 1);
+    ok(json.warnings.every(issue => issue.path !== 'docs/history.md'));
+    ok(json.warnings.some(issue => issue.path === 'docs/research.md'));
+
+    const text = run(['check']);
+    ok(text.stdout.includes('reference validation: 1 docs checked; 1 terminal docs skipped'));
+  });
+});
+
 describe('rootStatuses validation', () => {
   function setupMultiRootProject() {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-rootstatus-'));

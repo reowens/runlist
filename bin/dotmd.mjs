@@ -1831,7 +1831,7 @@ async function main() {
 
   // All remaining commands need the index + render modules
   const { buildIndex } = await import('../src/index.mjs');
-  const { renderCompactList, renderVerboseList, renderContext, renderBriefing, renderCheck, renderCoverage, buildCoverage } = await import('../src/render.mjs');
+  const { renderCompactList, renderVerboseList, renderContext, renderBriefing, renderCheck, renderCoverage, buildCoverage, buildReferenceValidationCoverage } = await import('../src/render.mjs');
   const { runFocus, runQuery } = await import('../src/query.mjs');
   // `dotmd check` is the one shared-buildIndex command that should auto-heal a
   // drifted index block (frontmatter edits by direct Edit/Write, `lint --fix`,
@@ -1898,6 +1898,7 @@ async function main() {
         warnings: errorsOnly ? [] : checkIndex.warnings,
         errorCount: checkIndex.errors.length,
         warningCount: checkIndex.warnings.length,
+        referenceValidation: buildReferenceValidationCoverage(checkIndex, config),
         passed: complete ? builtInPassed : null,
         ...(complete ? {} : {
           builtInPassed,

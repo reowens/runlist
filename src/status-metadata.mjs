@@ -30,7 +30,7 @@ export function resolveStatusMetadata(config) {
         context: contextByStatus.get(name) ?? 'counted',
         staleDays: hasTypeStaleDays ? typeDef.staleDays[name] : (config.staleDaysByStatus?.[name] ?? null),
         startable: config.lifecycle.startableStatuses.has(name),
-        terminal: config.lifecycle.terminalStatuses.has(name),
+        terminal: config.lifecycle.isTerminal?.(name, type) ?? config.lifecycle.terminalStatuses.has(name),
         archive: config.lifecycle.archiveStatuses.has(name),
         filed: config.lifecycle.filedStatuses.get(name) ?? null,
         skipStale,

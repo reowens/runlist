@@ -154,6 +154,7 @@ function normalizeRichStatuses(config, userConfig) {
     // reads them has to be too.
     skipWarningsForByType: {},
     terminalStatuses: [],
+    terminalStatusesByType: {},
     moduleRequiredFor: [],
     // F15: status-name → directory-name (defaults to the status name verbatim).
     // Filed statuses move docs into <root>/<dirName>/ on transition INTO the
@@ -177,6 +178,7 @@ function normalizeRichStatuses(config, userConfig) {
     // declared its statuses and suppresses nothing", which must not fall back to
     // the global union. Absent entirely means "type never declared rich statuses".
     derived.skipWarningsForByType[typeName] ??= [];
+    derived.terminalStatusesByType[typeName] ??= [];
     const statusNames = [];
     const typeContext = { expanded: [], listed: [], counted: [] };
     const typeStaleDays = {};
@@ -218,7 +220,10 @@ function normalizeRichStatuses(config, userConfig) {
         if (!derived.skipWarningsFor.includes(name)) derived.skipWarningsFor.push(name);
         (derived.skipWarningsForByType[typeName] ??= []).push(name);
       }
-      if (p.terminal && !derived.terminalStatuses.includes(name)) derived.terminalStatuses.push(name);
+      if (p.terminal) {
+        if (!derived.terminalStatuses.includes(name)) derived.terminalStatuses.push(name);
+        derived.terminalStatusesByType[typeName].push(name);
+      }
       if (p.requiresModule && !derived.moduleRequiredFor.includes(name)) derived.moduleRequiredFor.push(name);
       if (p.filed && !derived.filedStatuses[name]) {
         // dirName defaults to the status name; users can override with
@@ -281,6 +286,10 @@ function applyDerivedConfig(config, userConfig, derived) {
   }
   if (!userConfig.lifecycle?.terminalStatuses && derived.terminalStatuses.length) {
     config.lifecycle.terminalStatuses = derived.terminalStatuses;
+    config.lifecycle.terminalStatusesByType = derived.terminalStatusesByType;
+  } else {
+    // An explicit lifecycle list is intentionally repo-wide.
+    config.lifecycle.terminalStatusesByType = {};
   }
   if (!userConfig.lifecycle?.filedStatuses && Object.keys(derived.filedStatuses).length) {
     config.lifecycle.filedStatuses = derived.filedStatuses;
@@ -539,6 +548,13 @@ export async function resolveConfig(cwd, explicitConfigPath) {
     return own ? own.has(status) : skipWarningsFor.has(status);
   };
   const terminalStatuses = new Set(lifecycle.terminalStatuses);
+  const terminalStatusesByType = new Map(
+    Object.entries(lifecycle.terminalStatusesByType ?? {}).map(([type, names]) => [type, new Set(names)]),
+  );
+  const isTerminal = (status, type) => {
+    const own = type != null ? terminalStatusesByType.get(type) : undefined;
+    return own ? own.has(status) : terminalStatuses.has(status);
+  };
   // F15: filedStatuses keyed by status name, value = directory name. Empty
   // object when no status opts in via `filed: true` (or `filed: '<dirname>'`).
   const filedStatuses = new Map(Object.entries(lifecycle.filedStatuses ?? {}));
@@ -589,7 +605,7 @@ export async function resolveConfig(cwd, explicitConfigPath) {
     rootValidStatuses,
     staleDaysByStatus,
 
-    lifecycle: { archiveStatuses, startableStatuses, skipStaleFor, skipWarningsFor, skipWarningsForByType, skipsWarnings, terminalStatuses, filedStatuses, archiveNestedTypes },
+    lifecycle: { archiveStatuses, startableStatuses, skipStaleFor, skipWarningsFor, skipWarningsForByType, skipsWarnings, terminalStatuses, terminalStatusesByType, isTerminal, filedStatuses, archiveNestedTypes },
 
     validSurfaces,
     validModules,

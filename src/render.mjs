@@ -404,7 +404,7 @@ export function renderBriefing(index, config) {
 }
 
 export function renderCheck(index, config, opts = {}) {
-  const defaultRenderer = (idx) => _renderCheck(idx, opts);
+  const defaultRenderer = (idx) => _renderCheck(idx, config, opts);
   if (!config._execution?.suppressSideEffects && config.hooks.renderCheck) {
     try { return config.hooks.renderCheck(index, defaultRenderer); }
     catch (err) { warn(`Hook 'renderCheck' threw: ${err.message}`); }
@@ -500,12 +500,26 @@ export function renderManualFixes(index) {
   return lines.join('\n');
 }
 
-function _renderCheck(index, opts = {}) {
+export function buildReferenceValidationCoverage(index, config) {
+  let checkedDocs = 0;
+  let terminalDocsSkipped = 0;
+  for (const doc of index.docs) {
+    const terminal = config.lifecycle.isTerminal?.(doc.status, doc.type)
+      ?? config.lifecycle.terminalStatuses.has(doc.status);
+    if (terminal) terminalDocsSkipped++;
+    else checkedDocs++;
+  }
+  return { checkedDocs, terminalDocsSkipped };
+}
+
+function _renderCheck(index, config, opts = {}) {
   const { errorsOnly, noCollapse, verbose } = opts;
+  const referenceValidation = buildReferenceValidationCoverage(index, config);
   const lines = ['Check', ''];
   lines.push(`- docs scanned: ${index.docs.length}`);
   lines.push(`- errors: ${index.errors.length}`);
   lines.push(`- warnings: ${index.warnings.length}`);
+  lines.push(`- reference validation: ${referenceValidation.checkedDocs} docs checked; ${referenceValidation.terminalDocsSkipped} terminal docs skipped`);
   lines.push('');
 
   if (index.errors.length > 0) {

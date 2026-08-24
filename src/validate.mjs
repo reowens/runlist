@@ -259,18 +259,20 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
   // exit code with a hard error.
   const docDir = path.dirname(path.join(config.repoRoot, doc.path));
   const allRefFields = [...(config.referenceFields.bidirectional || []), ...(config.referenceFields.unidirectional || [])];
-  const skipRefValidation = config.lifecycle.terminalStatuses.has(doc.status)
-    || config.lifecycle.skipsWarnings(doc.status, doc.type);
+  const skipRefValidation = config.lifecycle.isTerminal?.(doc.status, doc.type)
+    ?? config.lifecycle.terminalStatuses.has(doc.status);
   if (!skipRefValidation) {
+    const compatibilityWarning = config.lifecycle.skipsWarnings(doc.status, doc.type);
     for (const field of allRefFields) {
       for (const relPath of (doc.refFields[field] || [])) {
         if (!resolveRefPath(relPath, docDir, config.repoRoot)) {
-          doc.errors.push({
+          const issue = {
             path: doc.path,
-            level: 'error',
+            level: compatibilityWarning ? 'warning' : 'error',
             message: `${field} entry \`${relPath}\` does not resolve to an existing file.`,
-            meta: { kind: 'ref-resolution', field, relPath },
-          });
+            meta: { kind: compatibilityWarning ? 'ref-resolution-compat' : 'ref-resolution', field, relPath },
+          };
+          (compatibilityWarning ? doc.warnings : doc.errors).push(issue);
         }
       }
     }
@@ -326,7 +328,7 @@ function candidatePathsForType(docs, type) {
 // name implies one (e.g. `related_plans` → plans only).
 export function enrichRefErrorSuggestions(docs, config) {
   const enrich = (entry) => {
-    if (!entry?.meta || entry.meta.kind !== 'ref-resolution') return;
+    if (!entry?.meta || !['ref-resolution', 'ref-resolution-compat'].includes(entry.meta.kind)) return;
     if (entry._suggested) return;
     const inferred = inferRefFieldType(entry.meta.field);
     const candidates = candidatePathsForType(docs, inferred);
