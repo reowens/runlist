@@ -533,24 +533,43 @@ describe('reference validation coverage ratchet', () => {
           outdated: { context: 'counted', terminal: true, quiet: true },
         } },
         research: { statuses: {
+          current: { context: 'listed', quiet: true },
           outdated: { context: 'listed', quiet: true },
+        } },
+        journey: { statuses: {
+          current: { context: 'listed', quiet: true },
+        } },
+        plan: { statuses: {
+          partial: { context: 'counted', quiet: true },
         } },
       };
     `);
     return tmpDir;
   }
 
-  it('checks quiet live refs and body links as warnings without changing exit status', () => {
+  it('checks quiet live refs as errors and body links as warnings', () => {
     const root = setupTypeScopedProject();
-    writeFileSync(path.join(root, 'docs', 'live.md'),
-      '---\ntype: doc\nstatus: current\nupdated: 2026-08-24\nrelated_docs:\n  - ./missing-ref.md\n---\n# Live\n\n[missing body](./missing-body.md)\n');
+    const cases = [
+      ['doc', 'current'],
+      ['journey', 'current'],
+      ['research', 'current'],
+      ['plan', 'partial'],
+    ];
+    for (const [type, status] of cases) {
+      writeFileSync(path.join(root, 'docs', `${type}.md`),
+        `---\ntype: ${type}\nstatus: ${status}\nupdated: 2026-08-24\nrelated_docs:\n  - ./missing-ref.md\n---\n# ${type}\n`);
+    }
+    writeFileSync(path.join(root, 'docs', 'doc.md'),
+      '---\ntype: doc\nstatus: current\nupdated: 2026-08-24\nrelated_docs:\n  - ./missing-ref.md\n---\n# doc\n\n[missing body](./missing-body.md)\n');
     const result = run(['check', '--json']);
     const json = JSON.parse(result.stdout);
-    strictEqual(result.status, 0);
-    strictEqual(json.errorCount, 0);
-    strictEqual(json.referenceValidation.checkedDocs, 1);
+    strictEqual(result.status, 1);
+    strictEqual(json.errorCount, 4);
+    strictEqual(json.referenceValidation.checkedDocs, 4);
     strictEqual(json.referenceValidation.terminalDocsSkipped, 0);
-    ok(json.warnings.some(issue => issue.meta?.kind === 'ref-resolution-compat'));
+    for (const [type] of cases) {
+      ok(json.errors.some(issue => issue.path === `docs/${type}.md` && issue.meta?.kind === 'ref-resolution'));
+    }
     ok(json.warnings.some(issue => issue.meta?.field === 'body-link'));
   });
 
@@ -562,11 +581,12 @@ describe('reference validation coverage ratchet', () => {
       '---\ntype: research\nstatus: outdated\nupdated: 2026-08-24\nrelated_docs:\n  - ./missing.md\n---\n# Research\n\n[missing](./missing.md)\n');
     const result = run(['check', '--json']);
     const json = JSON.parse(result.stdout);
-    strictEqual(result.status, 0);
+    strictEqual(result.status, 1);
     strictEqual(json.referenceValidation.checkedDocs, 1);
     strictEqual(json.referenceValidation.terminalDocsSkipped, 1);
-    ok(json.warnings.every(issue => issue.path !== 'docs/history.md'));
-    ok(json.warnings.some(issue => issue.path === 'docs/research.md'));
+    ok([...json.errors, ...json.warnings].every(issue => issue.path !== 'docs/history.md'));
+    ok(json.errors.some(issue => issue.path === 'docs/research.md' && issue.meta?.kind === 'ref-resolution'));
+    ok(json.warnings.some(issue => issue.path === 'docs/research.md' && issue.meta?.field === 'body-link'));
 
     const text = run(['check']);
     ok(text.stdout.includes('reference validation: 1 docs checked; 1 terminal docs skipped'));
