@@ -2,6 +2,12 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- **Phase headings marked with dotmd's lightweight `✓` success glyph were not read as shipped.** dotmd prints U+2713 CHECK MARK in its own success output, but the phase reader recognized only `✅`, `☑`, and `✔`. A trailing `✓` therefore left a phase unmarked, while a leading `✓` prevented the heading from entering the phase set at all. The shipped-marker and leading-decoration vocabularies now both accept `✓`, including emoji-presentation form. A table-driven regression keeps every status glyph aligned across both paths and locks glyph priority over incidental prose.
+
 ## 0.76.1 — 2026-08-17
 
 ### Fixed
