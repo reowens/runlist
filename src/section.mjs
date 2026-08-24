@@ -9,6 +9,7 @@ export function walkSections(body) {
   const headingRe = /^(#{1,6})\s+(.+?)\s*$/;
   const sections = [];
   let fenceChar = null;
+  let h2Ancestor = null;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -22,13 +23,18 @@ export function walkSections(body) {
     if (fenceChar !== null) continue;
     const h = line.match(headingRe);
     if (!h) continue;
+    const level = h[1].length;
+    const heading = h[2];
+    if (level === 1) h2Ancestor = null;
     sections.push({
-      level: h[1].length,
-      heading: h[2],
+      level,
+      heading,
+      h2Ancestor: level > 2 ? h2Ancestor : null,
       lineStart: i + 1, // 1-indexed
       lineEnd: lines.length, // patched below
       bodyLineStart: i + 2,
     });
+    if (level === 2) h2Ancestor = heading;
   }
 
   for (let i = 0; i < sections.length; i++) {
@@ -111,6 +117,7 @@ export function detectMarker(heading) {
 // codepoint was. Reported by the owner, 2026-08-16.
 const PHASE_DECORATION = String.raw`[\s>*_~\`#-]*(?:[✅🚧⬜🟡⏭☑✔✓◻☐⬛🔴🔄][︎️]?\s*)*`;
 const PHASE_LEAD = new RegExp(`^${PHASE_DECORATION}phase\\b`, 'i');
+const FILES_MANIFEST_ANCESTOR = new RegExp(`^${PHASE_DECORATION}files\\b`, 'i');
 
 // "Phase 3 outcome" is commentary ABOUT a phase, not a phase. Counting it
 // inflates the phase set, and because `findActivePhase` ranks blocked above
@@ -126,9 +133,33 @@ const PHASE_COMMENTARY = new RegExp(
   'i',
 );
 
+// Compound commentary shapes covered by regression fixtures. Keep
+// these anchored immediately after the phase identifier: the individual nouns
+// all collide with genuine work. In particular, do not add bare `status`,
+// `audit`, `design`, `shape`, `plan`, `pre-plan`, or `gap-check`; the corpus has
+// executable phases with each of those names. The dated gap-check form below is
+// a status report, while `Phase N — gap-check fixes` remains a real phase.
+const PHASE_COMPOUND_COMMENTARY = new RegExp(
+  `^${PHASE_DECORATION}phase\\s+\\S+\\s+(?:` +
+    `execution\\s+status|` +
+    `status\\s+snapshot|` +
+    `gap[- ]check\\s+\\d{4}-\\d{2}-\\d{2}|` +
+    `audit\\s+results?|` +
+    `inventory\\s+findings?|` +
+    `deviations\\s*(?:\\+|&|and)\\s*(?:open\\s+questions|notes?)|` +
+    `design\\s+[-—:]\\s*researched|` +
+    `shape\\s+[-—:]\\s*worked\\s+out|` +
+    `sub[- ]phases` +
+  `)\\b`,
+  'i',
+);
+
 export function isPhaseHeading(section) {
   if (section.level !== 3) return false;
-  return PHASE_LEAD.test(section.heading) && !PHASE_COMMENTARY.test(section.heading);
+  if (FILES_MANIFEST_ANCESTOR.test(section.h2Ancestor ?? '')) return false;
+  return PHASE_LEAD.test(section.heading)
+    && !PHASE_COMMENTARY.test(section.heading)
+    && !PHASE_COMPOUND_COMMENTARY.test(section.heading);
 }
 
 // A phase's OWN checklist — the boxes directly under its heading, stopping at

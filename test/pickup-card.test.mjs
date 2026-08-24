@@ -61,6 +61,25 @@ describe('walkSections', () => {
     ok(!headings.includes('Fake heading'), 'must skip headings inside code fence');
   });
 
+  it('records the nearest H2 ancestor and resets it across H1 and H2 boundaries', () => {
+    const body = `# First\n\n### Orphan\n\n## Files\n\n### Phase 1\n\n#### Detail\n\n## Phases\n\n### Phase 2\n\n# Second\n\n### Orphan 2\n`;
+    const byHeading = new Map(walkSections(body).map(section => [section.heading, section]));
+    strictEqual(byHeading.get('First').h2Ancestor, null);
+    strictEqual(byHeading.get('Orphan').h2Ancestor, null);
+    strictEqual(byHeading.get('Files').h2Ancestor, null);
+    strictEqual(byHeading.get('Phase 1').h2Ancestor, 'Files');
+    strictEqual(byHeading.get('Detail').h2Ancestor, 'Files');
+    strictEqual(byHeading.get('Phases').h2Ancestor, null);
+    strictEqual(byHeading.get('Phase 2').h2Ancestor, 'Phases');
+    strictEqual(byHeading.get('Orphan 2').h2Ancestor, null);
+  });
+
+  it('does not let a fenced H2 alter ancestry', () => {
+    const body = `## Real\n\n\`\`\`md\n## Fake\n\`\`\`\n\n### Child\n`;
+    const child = walkSections(body).find(section => section.heading === 'Child');
+    strictEqual(child.h2Ancestor, 'Real');
+  });
+
   it('computes correct lineEnd by walking until same-or-higher level', () => {
     const body = `# T\n\n## A\nx\n\n### A1\ny\n\n## B\nz\n`;
     const out = walkSections(body);

@@ -79,6 +79,33 @@ describe('isPhaseHeading', () => {
     ok(!isPhaseHeading(h3('⬜ Phase 5 outcome')), 'decoration does not smuggle commentary back in');
   });
 
+  it('rejects only corpus-proven compound commentary shapes', () => {
+    const commentary = [
+      'Phase 2a status snapshot (post-2a.3) — ✅ shipped',
+      'Phase 2b gap-check 2026-04-30 — ✅ shipped',
+      '✅ Phase 5E execution status — decision answered',
+      'Phase 0 audit results — completed ✅',
+      'Phase 3 inventory findings (2026-08-03) — ✅ shipped',
+      'Phase 1 deviations + open questions — ✅ shipped',
+      'Phase 2 deviations and notes — ✅ shipped',
+      '✅ Phase 1 design — researched 2026-08-21',
+      'Phase 3 shape — worked out 2026-08-23',
+      'Phase 1 sub-phases',
+    ];
+    for (const heading of commentary) ok(!isPhaseHeading(h3(heading)), heading);
+
+    const genuine = [
+      'Phase 1 — Status updates and system messages ⬜',
+      'Phase 2.7 — Audit cleanup ⬜',
+      'Phase 1 — Design the API ⬜',
+      'Phase 2 — Shape the event payload ⬜',
+      'Phase 4.1 pre-plan — shared compliance records 🟡',
+      'Phase 6 — gap-check triage + remediation ⬜',
+      'Phase 7 sub-phase plan ⬜',
+    ];
+    for (const heading of genuine) ok(isPhaseHeading(h3(heading)), heading);
+  });
+
   it('still counts a phase whose TITLE merely contains a commentary word', () => {
     // The exclusion is "phase <id> <noun>", not "the word appears somewhere".
     // Over-excluding hides real work, which is the worse failure.
@@ -92,6 +119,18 @@ describe('isPhaseHeading', () => {
     ok(!isPhaseHeading(h3('Phasing out the old API')), 'word boundary, not a prefix match');
     ok(!isPhaseHeading({ level: 2, heading: 'Phase 1' }));
     ok(!isPhaseHeading({ level: 4, heading: 'Phase 1' }));
+  });
+
+  it('rejects phase-shaped file-manifest entries by H2 ancestry', () => {
+    for (const ancestor of ['Files', 'Files Changed (anticipated)', 'Files in scope', 'Files to touch', '**Files Involved**']) {
+      const phase = walkSections(`## ${ancestor}\n\n### Phase 1 — Import route\n`)
+        .find(section => section.level === 3);
+      ok(!isPhaseHeading(phase), ancestor);
+    }
+
+    const genuine = walkSections('## Filesystem migration\n\n### Phase 1 — Import route\n')
+      .find(section => section.level === 3);
+    ok(isPhaseHeading(genuine), 'the Files word boundary must not hide Filesystem work');
   });
 });
 
@@ -244,5 +283,26 @@ describe('summarizePhases and findActivePhase', () => {
   it('treats a phase with no readable marker as todo', () => {
     const summary = summarizePhases(walkSections('## Phases\n\n### Phase S1: Audit trail groundwork\n'));
     deepStrictEqual(summary.counts, { todo: 1 });
+  });
+
+  it('ignores manifest copies in summaries and active-phase selection', () => {
+    const sections = walkSections([
+      '## Phases',
+      '',
+      '### Phase 1 — shipped work ✅',
+      '',
+      '### Phase 2 — real next work ⬜',
+      '',
+      '## Files Changed (anticipated)',
+      '',
+      '### Phase 1 — files already changed',
+      '',
+      '### Phase 2 — files to change 🚧',
+      '',
+    ].join('\n'));
+    const summary = summarizePhases(sections);
+    strictEqual(summary.total, 2);
+    deepStrictEqual(summary.counts, { shipped: 1, todo: 1 });
+    strictEqual(findActivePhase(sections).heading, 'Phase 2 — real next work ⬜');
   });
 });

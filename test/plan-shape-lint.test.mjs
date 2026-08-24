@@ -147,6 +147,15 @@ describe('plan-shape lint', () => {
     ok(!w, 'should not warn when all phases marked');
   });
 
+  it('does not validate phase-shaped rows in a Files manifest', () => {
+    const docsDir = setupProject();
+    writeDoc(docsDir, 'plan.md', `type: plan\nstatus: active\nupdated: 2026-05-13`, `# P\n\n## Phases\n\n### Phase 1 ✅\n\n## Files Changed (anticipated)\n\n### Phase 1\n\n### Phase 2\n`);
+
+    const idx = checkJson();
+    const w = idx.warnings.find(x => x.message.includes('phase heading(s) lack'));
+    ok(!w, 'file-manifest rows are not independent phases');
+  });
+
   it('does not warn on non-plan documents', () => {
     const docsDir = setupProject();
     const longText = 'x'.repeat(600);
