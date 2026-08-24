@@ -9,6 +9,13 @@ import { detectMarker, findActivePhase, isPhaseHeading, phaseMarkerConflict, sum
 // vocabulary. The shape is what the reader parses; the words never mattered.
 
 const h3 = heading => ({ level: 3, heading });
+const STATUS_GLYPHS = [
+  { kind: 'shipped', glyphs: ['✅', '☑', '✔', '✓'] },
+  { kind: 'skipped', glyphs: ['⏭'] },
+  { kind: 'in-progress', glyphs: ['🟡', '🔄'] },
+  { kind: 'blocked', glyphs: ['🚧', '🔴'] },
+  { kind: 'todo', glyphs: ['⬜', '⬛', '◻', '☐'] },
+];
 
 describe('isPhaseHeading', () => {
   it('counts a plain phase heading', () => {
@@ -33,12 +40,22 @@ describe('isPhaseHeading', () => {
     // character CLASS — the selector sits between glyph and space, is not \s,
     // and ended the run, so these were not phase headings at all while their
     // bare-codepoint twins were.
-    for (const heading of ['⏭️ Phase 3 — superseded', '☑️ Phase 2 — done', '✔️ Phase 4 — done']) {
+    for (const heading of ['⏭️ Phase 3 — superseded', '☑️ Phase 2 — done', '✔️ Phase 4 — done', '✓️ Phase 5 — done']) {
       ok(isPhaseHeading(h3(heading)), heading);
     }
     // The bare forms must keep working.
-    for (const heading of ['⏭ Phase 3', '☑ Phase 2', '✔ Phase 4']) {
+    for (const heading of ['⏭ Phase 3', '☑ Phase 2', '✔ Phase 4', '✓ Phase 5']) {
       ok(isPhaseHeading(h3(heading)), heading);
+    }
+  });
+
+  it('keeps leading-decoration and marker glyph vocabularies in parity', () => {
+    for (const { kind, glyphs } of STATUS_GLYPHS) {
+      for (const glyph of glyphs) {
+        const heading = `${glyph} Phase 9`;
+        ok(isPhaseHeading(h3(heading)), heading);
+        strictEqual(detectMarker(heading), kind, heading);
+      }
     }
   });
 
@@ -83,6 +100,13 @@ describe('detectMarker', () => {
     strictEqual(detectMarker('Phase 1 ✅'), 'shipped');
     strictEqual(detectMarker('✅ Phase 1'), 'shipped');
     strictEqual(detectMarker('Phase 1 — done (2026-06-12) — notes'), 'shipped');
+  });
+
+  it('reads the lightweight success mark emitted by dotmd', () => {
+    strictEqual(detectMarker('✓ Phase 1'), 'shipped');
+    strictEqual(detectMarker('✓️ Phase 1'), 'shipped');
+    strictEqual(detectMarker('Phase 1 ✓'), 'shipped');
+    strictEqual(detectMarker('Phase 1 ✓ — not started elsewhere'), 'shipped');
   });
 
   it('reads prose state words, not only glyphs', () => {

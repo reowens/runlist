@@ -65,7 +65,7 @@ export function findSection(sections, name) {
 // Within each tier the order is still priority order, which decides a heading
 // carrying more than one mark.
 const GLYPH_PATTERNS = [
-  { kind: 'shipped',     re: /(✅|☑|✔)/ },
+  { kind: 'shipped',     re: /(✅|☑|✔|✓)/ },
   { kind: 'skipped',     re: /(⏭)/ },
   { kind: 'in-progress', re: /(🟡|🔄)/ },
   { kind: 'blocked',     re: /(🚧|🔴)/ },
@@ -109,7 +109,7 @@ export function detectMarker(heading) {
 // and the space, is not \s, and ends the run — so a heading led by the
 // emoji-presentation form was not a phase heading at all, while the bare
 // codepoint was. Reported by the owner, 2026-08-16.
-const PHASE_DECORATION = String.raw`[\s>*_~\`#-]*(?:[✅🚧⬜🟡⏭☑✔◻☐⬛🔴🔄][︎️]?\s*)*`;
+const PHASE_DECORATION = String.raw`[\s>*_~\`#-]*(?:[✅🚧⬜🟡⏭☑✔✓◻☐⬛🔴🔄][︎️]?\s*)*`;
 const PHASE_LEAD = new RegExp(`^${PHASE_DECORATION}phase\\b`, 'i');
 
 // "Phase 3 outcome" is commentary ABOUT a phase, not a phase. Counting it
