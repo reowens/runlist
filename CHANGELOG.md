@@ -2,6 +2,12 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- **Per-phase file manifests and status records were counted as independent phases.** The section walker carries the nearest H2 ancestor and excludes phase-shaped rows below `Files` headings. Compound report headings are excluded while ambiguous bare words remain eligible as real phases.
+
 ## 0.76.2 — 2026-08-24
 
 ### Fixed
