@@ -6,6 +6,7 @@ import os from 'node:os';
 import { currentProcessOwner, mutateFileSet, processOwnerLiveness, processStartIdentity, replaceSnapshot, snapshotFile, withPathLocks } from './atomic-mutation.mjs';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { asString, hostSessionId, relTime } from './util.mjs';
+import { readEnv, stateDir } from './naming.mjs';
 
 export const OWNERSHIP_SCHEMA = 2;
 export const HOOK_DELIVERY_LEASE_MS = 30_000;
@@ -13,14 +14,14 @@ export const HOOK_DELIVERY_LEASE_MS = 30_000;
 export function authoritativeSessionId(env = process.env) {
   const id = hostSessionId(env);
   if (id) return id;
-  // Name the host when we can recognize it. The generic "set DOTMD_SESSION_ID"
+  // Name the host when we can recognize it. The generic "set RUNLIST_SESSION_ID"
   // is the fallback of last resort, and a poor one to reach for first: exported
   // from a shell profile it gives every session in that shell ONE id, which is
   // the collision the ownership record exists to prevent.
   const host = env.OPENCODE || env.OPENCODE_PID ? 'opencode' : null;
   throw new Error(host
-    ? `No authoritative session identity. Run \`dotmd install ${host}\` to give each ${host} session its own, or set DOTMD_SESSION_ID for this shell.`
-    : 'No authoritative session identity. Set DOTMD_SESSION_ID for this shell or host session, or see `dotmd install` for supported hosts.');
+    ? `No authoritative session identity. Run \`runlist install ${host}\` to give each ${host} session its own, or set RUNLIST_SESSION_ID for this shell.`
+    : 'No authoritative session identity. Set RUNLIST_SESSION_ID for this shell or host session, or see `runlist install` for supported hosts.');
 }
 
 export function availableSessionId(env = process.env) {
@@ -38,7 +39,7 @@ export function availableSessionId(env = process.env) {
 // `OPENCODE_PID` is the OpenCode server process, which is exactly that harness:
 // it hosts the session and outlives every tool shell it spawns.
 export function sessionProcessOwner(env = process.env) {
-  const raw = (env.DOTMD_SESSION_PID ?? env.CLAUDE_PID ?? env.OPENCODE_PID)?.trim();
+  const raw = (readEnv('SESSION_PID', env) ?? env.CLAUDE_PID ?? env.OPENCODE_PID)?.trim();
   const pid = Number(raw);
   if (!raw || !Number.isInteger(pid) || pid <= 0) return null;
   return {
@@ -116,7 +117,7 @@ export function classifyPlanPickup(facts) {
 }
 
 function ownershipRoot(config) {
-  return path.join(config.repoRoot, '.dotmd', 'ownership');
+  return path.join(stateDir(config.repoRoot), 'ownership');
 }
 
 export function canonicalPlanIdentity(filePath, config) {

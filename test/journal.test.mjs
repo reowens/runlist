@@ -19,8 +19,8 @@ function setupProject(extraConfig = '') {
   mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
   configPath = path.join(tmpDir, 'dotmd.config.mjs');
   writeFileSync(configPath, `export const root = 'docs';\n${extraConfig}`);
-  journalFile = path.join(tmpDir, '.dotmd', 'journal.jsonl');
-  journalBackup = path.join(tmpDir, '.dotmd', 'journal.jsonl.1');
+  journalFile = path.join(tmpDir, '.runlist', 'journal.jsonl');
+  journalBackup = path.join(tmpDir, '.runlist', 'journal.jsonl.1');
 }
 
 function run(args, env = {}) {
@@ -286,11 +286,11 @@ describe('dotmd journal (reader)', () => {
     ok(arr[0].argv.includes('bogus-command'));
   });
 
-  it('disabled-state message names DOTMD_JOURNAL env var and journal config key', () => {
+  it('disabled-state message names RUNLIST_JOURNAL env var and journal config key', () => {
     // No journal file exists, env not set, config not set.
     const r = run(['journal']);
     strictEqual(r.status, 0, r.stderr);
-    ok(r.stderr.includes('DOTMD_JOURNAL'),
+    ok(r.stderr.includes('RUNLIST_JOURNAL'),
       `hint should name env var, got: ${r.stderr}`);
     ok(r.stderr.includes('journal: true'),
       `hint should name config key, got: ${r.stderr}`);

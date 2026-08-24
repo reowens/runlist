@@ -20,8 +20,8 @@ function setupProject() {
   // Pre-stamp the primer marker so the default test setup represents a
   // session that's already seen the teach-once primer. Tests that want to
   // exercise the first-session primer should delete this marker explicitly.
-  mkdirSync(path.join(tmpDir, '.dotmd'), { recursive: true });
-  writeFileSync(path.join(tmpDir, '.dotmd', 'primer-shown'), '');
+  mkdirSync(path.join(tmpDir, '.runlist'), { recursive: true });
+  writeFileSync(path.join(tmpDir, '.runlist', 'primer-shown'), '');
   return docsDir;
 }
 
@@ -221,7 +221,7 @@ describe('dotmd hud', () => {
     }
     ok(!existsSync(validateSentinel), 'validate hook was not invoked');
     ok(!existsSync(transformSentinel), 'transformDoc hook was not invoked');
-    ok(!existsSync(path.join(tmpDir, '.dotmd', 'journal.jsonl')), 'HUD did not append a journal entry');
+    ok(!existsSync(path.join(tmpDir, '.runlist', 'journal.jsonl')), 'HUD did not append a journal entry');
   });
 
   it('does not touch user-managed slash-command files (no banner)', () => {

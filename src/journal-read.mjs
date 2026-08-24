@@ -32,7 +32,7 @@ export function runJournal(argv, config) {
   if (!existsSync(file)) {
     if (!isJournalEnabled(config)) {
       process.stderr.write(
-        'Journal is opt-in. Enable with `DOTMD_JOURNAL=1` (env) or `journal: true` (in dotmd.config.mjs).\n',
+        'Journal is opt-in. Enable with `RUNLIST_JOURNAL=1` (env) or `journal: true` (in runlist.config.mjs).\n',
       );
       return;
     }

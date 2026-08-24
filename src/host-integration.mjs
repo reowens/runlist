@@ -22,6 +22,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { hostSessionSource } from './util.mjs';
+import { readEnv, stateDir } from './naming.mjs';
 
 export const GENERATED_MARKER = 'dotmd-generated:';
 const PLUGIN_FILENAME = 'dotmd.js';
@@ -137,8 +138,8 @@ export function describeSessionIdentity(opts = {}) {
       id: null, scope: 'none', source: null, host: null,
       summary: 'no session identity — `use`, `set`, `baton` and `archive` fail closed',
       advice: underOpencode
-        ? ['dotmd install opencode', 'or set DOTMD_SESSION_ID for this shell']
-        : ['set DOTMD_SESSION_ID for this shell or host session', 'known hosts: dotmd install'],
+        ? ['runlist install opencode', 'or set RUNLIST_SESSION_ID for this shell']
+        : ['set RUNLIST_SESSION_ID for this shell or host session', 'known hosts: runlist install'],
     };
   }
 
@@ -153,7 +154,7 @@ export function describeSessionIdentity(opts = {}) {
       ? 'restart OpenCode — this session predates the installed integration'
       : 'dotmd install opencode  — for a per-session identity');
   } else if (source.scope === 'terminal') {
-    advice.push('every agent session in this terminal shares this id — set DOTMD_SESSION_ID per session');
+    advice.push('every agent session in this terminal shares this id — set RUNLIST_SESSION_ID per session');
   }
   return {
     id: source.id,
@@ -179,19 +180,19 @@ export function describeSessionIdentity(opts = {}) {
 // OpenCode in the first place, and punish a setup that is working.
 //
 // Once per session per repo, via a marker under the gitignored .dotmd/. Silent
-// under DOTMD_NO_HINTS=1, the switch the repeat-failure hints already use.
+// under RUNLIST_NO_HINTS=1, the switch the repeat-failure hints already use.
 const NOTICE_DIR = 'notices';
 
 function noticeMarkerPath(repoRoot, key) {
   const digest = createHash('sha256').update(key).digest('hex').slice(0, 32);
-  return path.join(path.resolve(repoRoot), '.dotmd', NOTICE_DIR, `${digest}`);
+  return path.join(stateDir(repoRoot), NOTICE_DIR, `${digest}`);
 }
 
 // Returns the notice text the first time it applies in a session, then null.
 // `record: false` answers without consuming the once-per-session budget.
 export function degradedIdentityNotice(repoRoot, opts = {}) {
   const { env = process.env, homedir = os.homedir(), version, record = true } = opts;
-  if (env.DOTMD_NO_HINTS === '1') return null;
+  if (readEnv('NO_HINTS', env) === '1') return null;
   // Cheap env check first: a user on any other host pays nothing for this.
   if (!env.OPENCODE && !env.OPENCODE_PID) return null;
 

@@ -1,13 +1,14 @@
 import { existsSync } from 'node:fs';
 import { readJournalEntries, isJournalEnabled, journalFilePath } from './journal.mjs';
 import { currentSessionId } from './util.mjs';
+import { readEnv } from './naming.mjs';
 
 // F17c: repeat-failure hints. When an agent runs the same broken invocation
 // twice in the same session within HINT_WINDOW_MS, the second die() output is
 // suffixed with a Tip: paragraph informed by the prior failure's recorded
 // stderr. First failures stay terse — don't punish humans typing a command
 // for the first time. The lookup is skipped cleanly when the journal is
-// disabled or DOTMD_NO_HINTS=1, so this costs nothing for non-opt-in users.
+// disabled or RUNLIST_NO_HINTS=1, so this costs nothing for non-opt-in users.
 
 const HINT_WINDOW_MS = 10 * 60 * 1000;
 const OVERLAP_THRESHOLD = 0.75;
@@ -83,7 +84,7 @@ function jaccard(a, b) {
 // journal must never break the error-reporting path.
 export function findRepeatFailureHint(failingArgv, config) {
   try {
-    if (process.env.DOTMD_NO_HINTS === '1') return null;
+    if (readEnv('NO_HINTS') === '1') return null;
     if (!config) return null;
     if (!isJournalEnabled(config)) return null;
     if (!existsSync(journalFilePath(config))) return null;

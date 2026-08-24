@@ -19,7 +19,7 @@ describe('watch command', () => {
     const modulePath = path.join(os.tmpdir(), 'dotmd watch # percent%', 'src', 'watch.mjs');
     strictEqual(
       watchCliPath(pathToFileURL(modulePath)),
-      path.resolve(path.dirname(modulePath), '..', 'bin', 'dotmd.mjs'),
+      path.resolve(path.dirname(modulePath), '..', 'bin', 'runlist.mjs'),
     );
   });
 

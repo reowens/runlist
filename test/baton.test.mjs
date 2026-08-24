@@ -46,7 +46,7 @@ function journalOwn(planRepoPath, sid = 'test-sid') {
 // Seed an arbitrary journal entry (e.g. `use <prompt>` under another sid) to
 // exercise ownership-signal gating.
 function journalArgv(argv, sid = 'test-sid') {
-  const dir = path.join(tmpDir, '.dotmd');
+  const dir = path.join(tmpDir, '.runlist');
   mkdirSync(dir, { recursive: true });
   const entry = {
     schema: 2,
@@ -260,7 +260,7 @@ describe('dotmd baton', () => {
     writePlan('other', { status: 'in-session' });
     writeFileSync(path.join(docsDir, 'prompts', 'resume-claimed.md'),
       '---\ntype: prompt\nstatus: pending\nplan: docs/plans/claimed.md\n---\n# Resume\n\ncontinue\n');
-    const journal = path.join(tmpDir, '.dotmd', 'journal.jsonl');
+    const journal = path.join(tmpDir, '.runlist', 'journal.jsonl');
     ok(!existsSync(journal), 'precondition: no journal history');
 
     const consume = run(['use', 'resume-claimed.md'], { sid: 'fresh-session' });
@@ -268,7 +268,7 @@ describe('dotmd baton', () => {
     const entries = readFileSync(journal, 'utf8').trim().split('\n').map(JSON.parse);
     ok(!entries.some(entry => entry.argv?.join(' ') === 'set in-session docs/plans/claimed.md'));
     ok(entries.every(entry => entry.schema === 2), 'outer journal remains observability-only');
-    ok(existsSync(path.join(tmpDir, '.dotmd', 'ownership')), 'durable ownership was created');
+    ok(existsSync(path.join(tmpDir, '.runlist', 'ownership')), 'durable ownership was created');
 
     const baton = run(['baton', '--message', 'continue claimed'], { sid: 'fresh-session' });
     strictEqual(baton.status, 0, baton.stderr);
@@ -496,7 +496,7 @@ describe('dotmd baton', () => {
     strictEqual(value.status.to, 'active');
     ok(value.repositoryFiles.includes('docs/plans/structured.md'));
     ok(value.sessionFiles.includes('docs/prompts/resume-structured.md'));
-    ok(value.sessionFiles.some(item => item.startsWith('.dotmd/ownership/')));
+    ok(value.sessionFiles.some(item => item.startsWith('.runlist/ownership/')));
     strictEqual(value.generatedFiles.length, 0);
     ok(value.deferredGeneratedFiles.includes('docs/docs.md'));
     strictEqual(Buffer.compare(readFileSync(path.join(docsDir, 'docs.md')), indexBefore), 0);

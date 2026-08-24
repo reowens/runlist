@@ -36,6 +36,7 @@ describe('isAllowed', () => {
     ok(isAllowed('package.json'));
     ok(isAllowed('package-lock.json'));
     ok(isAllowed('dotmd.config.mjs'));
+    ok(isAllowed('runlist.config.example.mjs'));
     ok(isAllowed('README.md'));
     ok(isAllowed('CLAUDE.md'));
     ok(isAllowed('CHANGELOG.md'));
@@ -50,6 +51,7 @@ describe('isAllowed', () => {
     ok(!isAllowed('credentials.json'));
     ok(!isAllowed('scratch/notes.md'));
     ok(!isAllowed('.dotmd/in-session.json'));
+    ok(!isAllowed('.runlist/in-session.json'));
   });
 });
 

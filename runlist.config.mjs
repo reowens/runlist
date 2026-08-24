@@ -1,5 +1,5 @@
-// dotmd.config.mjs — document management configuration
-// All exports are optional. See dotmd.config.example.mjs for full reference.
+// runlist.config.mjs — document management configuration
+// All exports are optional. See runlist.config.example.mjs for full reference.
 
 export const root = 'docs';
 

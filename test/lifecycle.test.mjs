@@ -126,7 +126,7 @@ describe('init command', () => {
     const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
     const result = spawnSync('node', [bin, 'init'], { cwd: tmpDir, encoding: 'utf8' });
 
-    ok(existsSync(path.join(tmpDir, 'dotmd.config.mjs')), 'config file created');
+    ok(existsSync(path.join(tmpDir, 'runlist.config.mjs')), 'config file created');
     ok(existsSync(path.join(tmpDir, 'docs')), 'docs dir created');
     ok(existsSync(path.join(tmpDir, 'docs', 'docs.md')), 'index file created');
 
@@ -150,7 +150,7 @@ describe('init auto-detect', () => {
 
     ok(result.stdout.includes('detected 2 docs'), 'reports detected doc count');
 
-    const config = readFileSync(path.join(tmpDir, 'dotmd.config.mjs'), 'utf8');
+    const config = readFileSync(path.join(tmpDir, 'runlist.config.mjs'), 'utf8');
     ok(config.includes("'active'"), 'detected active status');
     ok(config.includes("'planned'"), 'detected planned status');
     ok(config.includes("'backend'"), 'detected backend surface');
@@ -164,7 +164,7 @@ describe('init auto-detect', () => {
     const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
     spawnSync('node', [bin, 'init'], { cwd: tmpDir, encoding: 'utf8' });
 
-    const config = readFileSync(path.join(tmpDir, 'dotmd.config.mjs'), 'utf8');
+    const config = readFileSync(path.join(tmpDir, 'runlist.config.mjs'), 'utf8');
     ok(config.includes('All exports are optional'), 'uses starter config');
     ok(!config.includes('auto-detected'), 'not auto-detected');
   });
@@ -178,7 +178,7 @@ describe('init auto-detect', () => {
     const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
     spawnSync('node', [bin, 'init'], { cwd: tmpDir, encoding: 'utf8' });
 
-    const config = readFileSync(path.join(tmpDir, 'dotmd.config.mjs'), 'utf8');
+    const config = readFileSync(path.join(tmpDir, 'runlist.config.mjs'), 'utf8');
     ok(!config.includes('auto-detected'), 'not auto-detected');
   });
 });
@@ -917,17 +917,18 @@ describe('set/archive --note appends to Version History', () => {
   });
 });
 
-describe('init writes .dotmd/ to .gitignore', () => {
-  it('creates .gitignore with .dotmd/ when missing', () => {
+describe('init writes current and legacy state to .gitignore', () => {
+  it('creates .gitignore with both state directories when missing', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
     spawnSync('git', ['init'], { cwd: tmpDir });
     const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
     spawnSync('node', [bin, 'init'], { cwd: tmpDir, encoding: 'utf8' });
     const gi = readFileSync(path.join(tmpDir, '.gitignore'), 'utf8');
-    ok(gi.includes('.dotmd/'), 'gitignore has .dotmd/');
+    ok(gi.includes('.runlist/'), 'gitignore has .runlist/');
+    ok(gi.includes('.dotmd/'), 'gitignore retains .dotmd/');
   });
 
-  it('appends .dotmd/ to an existing .gitignore', () => {
+  it('appends both state directories to an existing .gitignore', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
     spawnSync('git', ['init'], { cwd: tmpDir });
     writeFileSync(path.join(tmpDir, '.gitignore'), 'node_modules/\n.env\n');
@@ -935,10 +936,11 @@ describe('init writes .dotmd/ to .gitignore', () => {
     spawnSync('node', [bin, 'init'], { cwd: tmpDir, encoding: 'utf8' });
     const gi = readFileSync(path.join(tmpDir, '.gitignore'), 'utf8');
     ok(gi.includes('node_modules/'), 'preserved existing entries');
+    ok(gi.includes('.runlist/'), 'appended .runlist/');
     ok(gi.includes('.dotmd/'), 'appended .dotmd/');
   });
 
-  it('does not duplicate .dotmd/ if already present', () => {
+  it('does not duplicate legacy state and adds current state', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
     spawnSync('git', ['init'], { cwd: tmpDir });
     writeFileSync(path.join(tmpDir, '.gitignore'), '.dotmd/\n');
@@ -947,6 +949,7 @@ describe('init writes .dotmd/ to .gitignore', () => {
     const gi = readFileSync(path.join(tmpDir, '.gitignore'), 'utf8');
     const matches = (gi.match(/\.dotmd\/$/gm) || []).length;
     strictEqual(matches, 1, 'only one .dotmd/ entry');
+    strictEqual((gi.match(/\.runlist\/$/gm) || []).length, 1, 'one .runlist/ entry');
   });
 });
 

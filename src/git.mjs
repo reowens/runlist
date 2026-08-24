@@ -3,6 +3,7 @@ import { chmodSync, closeSync, existsSync, fsyncSync, linkSync, lstatSync, openS
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { commitRename } from './durable-rename.mjs';
+import { ARTIFACT_PREFIX, isOwnedArtifact } from './naming.mjs';
 
 // Best-effort `git check-ignore` for a path. Returns true only when git
 // definitively reports the path is ignored; any failure (not a repo, git
@@ -579,7 +580,7 @@ function prepareMoveIndex(source, target, repoRoot, before, options = {}) {
   const paths = [source, target].map(candidate => path.isAbsolute(candidate) ? path.relative(repoRoot, candidate) : candidate);
   assertSafeGitPaths(paths);
   const { indexDir } = gitIndexLocations(repoRoot);
-  const preparedPath = path.join(indexDir, `.dotmd-index-${process.pid}-${randomUUID()}`);
+  const preparedPath = path.join(indexDir, `${ARTIFACT_PREFIX}index-${process.pid}-${randomUUID()}`);
   const artifactPath = options.artifactPath ?? preparedPath;
   writeGeneration(artifactPath, before);
   let seed = { ...describePrepared(artifactPath, before), state: 'preparing', tempPath: preparedPath, work: null };
@@ -690,7 +691,7 @@ function publishIndexGeneration(repoRoot, expected, desired, prepared, testHooks
 function publishIndexGenerationLocked(repoRoot, expected, desired, prepared, testHooks, notePublished) {
   const { indexPath, indexDir, lockPath } = gitIndexLocations(repoRoot);
   if (expected.indexPath !== indexPath || desired.indexPath !== indexPath) throw new Error('Selected Git index changed since the transaction snapshot; recovery refused to target a different index.');
-  if (!prepared || prepared.state !== 'prepared' || path.dirname(prepared.tempPath) !== indexDir || !path.basename(prepared.tempPath).startsWith('.dotmd-index-') || !preparedMatches(prepared)) throw new Error('Prepared Git index ownership could not be verified.');
+  if (!prepared || prepared.state !== 'prepared' || path.dirname(prepared.tempPath) !== indexDir || !isOwnedArtifact(path.basename(prepared.tempPath), 'index') || !preparedMatches(prepared)) throw new Error('Prepared Git index ownership could not be verified.');
   if ((desired.exists && (prepared.hash !== desired.hash || prepared.size !== desired.size || prepared.mode !== desired.mode)) || (!desired.exists && prepared.size !== 0)) throw new Error('Prepared Git index artifact does not match the desired generation.');
   const publication = prepared.work ?? prepared;
   if (!preparedMatches(publication) || (desired.exists && (publication.hash !== desired.hash || publication.size !== desired.size || publication.mode !== desired.mode)) || (!desired.exists && publication.size !== 0)) throw new Error('Selected-directory Git working index does not match the desired generation.');
@@ -766,12 +767,12 @@ export function stageMovePathsCas(source, target, repoRoot, before, options = {}
 
 export function restoreGitIndexCas(before, ownedAfter, repoRoot, options = {}) {
   const { indexDir } = gitIndexLocations(repoRoot);
-  const preparedPath = options.artifactPath ?? path.join(indexDir, `.dotmd-index-restore-${process.pid}-${randomUUID()}`);
+  const preparedPath = options.artifactPath ?? path.join(indexDir, `${ARTIFACT_PREFIX}index-restore-${process.pid}-${randomUUID()}`);
   let artifact = null;
   try {
     writeGeneration(preparedPath, before);
     const prepared = before;
-    const tempPath = path.join(indexDir, `.dotmd-index-restore-${process.pid}-${randomUUID()}`);
+    const tempPath = path.join(indexDir, `${ARTIFACT_PREFIX}index-restore-${process.pid}-${randomUUID()}`);
     artifact = { ...describePrepared(preparedPath, prepared), state: 'preparing', tempPath, work: null };
     options.testHooks?.afterGitRestoreArtifact?.({ before, ownedAfter, prepared: artifact });
     writeGeneration(tempPath, before);
@@ -802,7 +803,7 @@ export function reclaimPreparedGitIndex(manifestGitIndex, repoRoot, options = {}
   const retainedPaths = [];
   const { indexPath, indexDir, lockPath } = gitIndexLocations(repoRoot);
   if (manifestGitIndex.before?.indexPath !== indexPath || prepared.generation?.indexPath !== indexPath) throw new Error('Recovery environment selects a different Git index than the abandoned transaction.');
-  if (path.dirname(prepared.tempPath) !== indexDir || !path.basename(prepared.tempPath).startsWith('.dotmd-index-')) throw new Error('Abandoned prepared Git index path is unsafe.');
+  if (path.dirname(prepared.tempPath) !== indexDir || !isOwnedArtifact(path.basename(prepared.tempPath), 'index')) throw new Error('Abandoned prepared Git index path is unsafe.');
   if (!existsSync(prepared.path)) {
     // The lock is only ever ours as a hard link to the publication inode, so a
     // lock that does not carry that inode cannot be ours — it belongs to a live

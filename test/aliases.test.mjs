@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 
 let tmpDir;
 const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+const runlistBin = path.resolve(import.meta.dirname, '..', 'bin', 'runlist.mjs');
 
 function setupProject() {
   tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-aliases-'));
@@ -41,6 +42,15 @@ afterEach(() => {
 });
 
 describe('command aliases (F20)', () => {
+  it('runlist is canonical while dotmd remains a byte-compatible executable alias', () => {
+    const current = spawnSync('node', [runlistBin, '--help'], { encoding: 'utf8' });
+    const legacy = spawnSync('node', [bin, '--help'], { encoding: 'utf8' });
+    strictEqual(current.status, 0);
+    strictEqual(legacy.status, 0);
+    strictEqual(current.stdout, legacy.stdout);
+    ok(current.stdout.startsWith('runlist v'));
+  });
+
   it('`dotmd prompt list` produces the same output as `dotmd prompts list`', () => {
     const docsDir = setupProject();
     writePrompt(docsDir, 'a.md', 'type: prompt\nstatus: pending\ncreated: 2025-01-01');
@@ -62,7 +72,7 @@ describe('command aliases (F20)', () => {
     strictEqual(singular.status, 0);
     strictEqual(singular.stdout, plural.stdout,
       '`prompt --help` must route to HELP.prompts (singular rewrite must precede --help dispatch)');
-    ok(plural.stdout.includes('dotmd prompts — manage saved prompts'),
+    ok(plural.stdout.includes('runlist prompts — manage saved prompts'),
       'sanity: help text is the prompts namespace help');
   });
 

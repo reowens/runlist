@@ -2,8 +2,8 @@ import { existsSync, mkdirSync, appendFileSync, statSync, renameSync, readFileSy
 import path from 'node:path';
 import os from 'node:os';
 import { currentSessionId } from './util.mjs';
+import { readEnv, stateDir } from './naming.mjs';
 
-const JOURNAL_DIR = '.dotmd';
 const JOURNAL_FILE = 'journal.jsonl';
 const JOURNAL_BACKUP = 'journal.jsonl.1';
 const ROTATE_SIZE_BYTES = 5 * 1024 * 1024;
@@ -118,17 +118,17 @@ export function sanitizeTelemetryText(value, secrets = []) {
 }
 
 export function isJournalEnabled(config) {
-  if (process.env.DOTMD_JOURNAL === '1') return true;
-  if (process.env.DOTMD_JOURNAL === '0') return false;
+  if (readEnv('JOURNAL') === '1') return true;
+  if (readEnv('JOURNAL') === '0') return false;
   return config?.journal === true;
 }
 
 export function journalFilePath(config) {
-  return path.join(config.repoRoot, JOURNAL_DIR, JOURNAL_FILE);
+  return path.join(stateDir(config.repoRoot), JOURNAL_FILE);
 }
 
 export function journalBackupPath(config) {
-  return path.join(config.repoRoot, JOURNAL_DIR, JOURNAL_BACKUP);
+  return path.join(stateDir(config.repoRoot), JOURNAL_BACKUP);
 }
 
 function firstEntry(file) {
@@ -206,7 +206,7 @@ export function appendJournalEntry(config, entry) {
       ...(Array.isArray(entry?.argv) ? { argv: sanitized.argv } : {}),
       ...(entry?.err ? { err: sanitizeTelemetryText(entry.err, sanitized.secrets) } : {}),
     };
-    const dir = path.join(config.repoRoot, JOURNAL_DIR);
+    const dir = stateDir(config.repoRoot);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     const file = journalFilePath(config);
     maybeRotate(file, journalBackupPath(config), safeEntry);
@@ -267,11 +267,11 @@ export function recordCliInvocation({ config, startMs, args, err, version }) {
 
 // Global error log: always-on, cross-repo, captured per failed invocation.
 // Independent of `isJournalEnabled` so silent failures stop disappearing.
-// DOTMD_ERROR_LOG_DIR overrides the default location (for tests, or for
+// RUNLIST_ERROR_LOG_DIR overrides the default location (for tests, or for
 // users who want the log somewhere other than ~/.claude/logs).
 
 export function globalErrorLogDir() {
-  return process.env.DOTMD_ERROR_LOG_DIR || path.join(os.homedir(), '.claude', 'logs');
+  return readEnv('ERROR_LOG_DIR') || path.join(os.homedir(), '.claude', 'logs');
 }
 
 export function globalErrorLogPath() {

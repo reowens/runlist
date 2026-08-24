@@ -152,7 +152,7 @@ describe('dotmd use — plan', () => {
     strictEqual(res.status, 0, `stderr: ${res.stderr}`);
     strictEqual(readFileSync(file, 'utf8'), before, 'plan remains byte-identical');
     ok(!existsSync(sentinel), 'onPickup hook was not invoked');
-    ok(!existsSync(path.join(tmpDir, '.dotmd', 'journal.jsonl')), 'dry-run did not create a journal');
+    ok(!existsSync(path.join(tmpDir, '.runlist', 'journal.jsonl')), 'dry-run did not create a journal');
   });
 
   it('resolves a shell-expanded basename from cwd without running validation lookup', () => {

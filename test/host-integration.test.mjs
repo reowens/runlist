@@ -130,9 +130,11 @@ describe('the generated opencode plugin module', () => {
     const output = { env: {} };
     await hooks['shell.env']({ sessionID: 'ses_abc', cwd: tmp }, output);
     strictEqual(output.env.DOTMD_SESSION_ID, 'opencode:ses_abc');
+    strictEqual(output.env.RUNLIST_SESSION_ID, 'opencode:ses_abc');
     // The opencode process hosts the session and outlives the tool shell, so it
     // is what `doctor --claims` probes for liveness.
     strictEqual(output.env.DOTMD_SESSION_PID, String(process.pid));
+    strictEqual(output.env.RUNLIST_SESSION_PID, String(process.pid));
   });
 
   // A rejected hook fails the chat turn opencode is serving, so a malformed
@@ -157,7 +159,7 @@ describe('the generated opencode plugin module', () => {
     // this keeps the test off whatever version happens to be installed.
     const fakeBin = path.join(home, 'bin');
     mkdirSync(fakeBin, { recursive: true });
-    const stub = path.join(fakeBin, 'dotmd');
+    const stub = path.join(fakeBin, 'runlist');
     writeFileSync(stub, '#!/bin/sh\ncat "$DOTMD_TEST_HUD_FILE"\n');
     chmodSync(stub, 0o755);
     const hudFile = path.join(home, 'hud.txt');
@@ -207,7 +209,7 @@ describe('packaging', () => {
 
 describe('session identity reporting', () => {
   const bare = {
-    CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '', DOTMD_SESSION_ID: '',
+    CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '', RUNLIST_SESSION_ID: '', DOTMD_SESSION_ID: '',
     OPENCODE_SESSION_ID: '', OPENCODE_SESSION: '', OPENCODE_PID: '', TERM_SESSION_ID: '',
   };
 
@@ -246,7 +248,7 @@ describe('session identity reporting', () => {
     const none = describeSessionIdentity({ env: { ...bare, OPENCODE: '1' }, homedir: home });
     strictEqual(none.id, null);
     match(none.summary, /fail closed/);
-    match(none.advice.join(' '), /dotmd install opencode/);
+    match(none.advice.join(' '), /runlist install opencode/);
   });
 });
 

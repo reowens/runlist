@@ -1,4 +1,4 @@
-// Canonical command grammar. Execution stays in bin/dotmd.mjs; this schema owns
+// Canonical command grammar. Execution starts at bin/runlist.mjs; this schema owns
 // names, aliases, visibility, options, positional arity, help groups, and policy.
 const none = Object.freeze({ mutation: 'none', pathPolicy: 'read-only' });
 const mutates = (pathPolicy) => Object.freeze({ mutation: 'conditional', pathPolicy });

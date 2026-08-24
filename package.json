@@ -5,6 +5,7 @@
   "type": "module",
   "license": "MIT",
   "bin": {
+    "runlist": "bin/runlist.mjs",
     "dotmd": "bin/dotmd.mjs"
   },
   "exports": {
@@ -15,7 +16,7 @@
     "src/",
     "assets/",
     "scripts/postinstall.mjs",
-    "dotmd.config.example.mjs"
+    "runlist.config.example.mjs"
   ],
   "keywords": [
     "markdown",

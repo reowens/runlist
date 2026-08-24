@@ -2,8 +2,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { die, warn } from './util.mjs';
-
-const CONFIG_FILENAMES = ['dotmd.config.mjs', '.dotmd.config.mjs', 'dotmd.config.js'];
+import { CONFIG_FILENAMES } from './naming.mjs';
 
 // Keys where user config replaces defaults entirely (not deep-merged).
 // These are flat maps or config sections where the user's version is authoritative —
@@ -116,7 +115,7 @@ const DEFAULTS = {
   glossary: null,
 
   // Opt-in JSONL command journal at .dotmd/journal.jsonl. Default off — agents
-  // and users who want usage observability flip this on (or set DOTMD_JOURNAL=1).
+  // and users who want usage observability flip this on (or set RUNLIST_JOURNAL=1).
   journal: false,
 
   // PreToolUse guard behavior. `deny: false` drops the status-edit rules from

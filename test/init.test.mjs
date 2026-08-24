@@ -36,7 +36,7 @@ describe('init basic', () => {
     mkdirSync(path.join(tmpDir, '.git'));
     const result = run(['init']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-    ok(existsSync(path.join(tmpDir, 'dotmd.config.mjs')));
+    ok(existsSync(path.join(tmpDir, 'runlist.config.mjs')));
     ok(existsSync(path.join(tmpDir, 'docs')));
     ok(existsSync(path.join(tmpDir, 'docs', 'docs.md')));
   });
@@ -45,7 +45,7 @@ describe('init basic', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
     mkdirSync(path.join(tmpDir, '.git'));
     run(['init']);
-    const content = readFileSync(path.join(tmpDir, 'dotmd.config.mjs'), 'utf8');
+    const content = readFileSync(path.join(tmpDir, 'runlist.config.mjs'), 'utf8');
     ok(content.includes("root = 'docs'"));
   });
 
@@ -72,7 +72,7 @@ describe('init basic', () => {
     ok(r.stdout.includes('[dry-run]'), `dry-run output should be tagged; got: ${r.stdout}`);
 
     // Nothing should have actually been created.
-    ok(!existsSync(path.join(tmpDir, 'dotmd.config.mjs')), 'config not written in dry-run');
+    ok(!existsSync(path.join(tmpDir, 'runlist.config.mjs')), 'config not written in dry-run');
     ok(!existsSync(path.join(tmpDir, 'docs')), 'docs/ not created in dry-run');
     ok(!existsSync(path.join(tmpDir, '.claude', 'commands')), '.claude/commands/ not created in dry-run');
   });
@@ -83,7 +83,7 @@ describe('init basic', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
     mkdirSync(path.join(tmpDir, '.git'));
     mkdirSync(path.join(tmpDir, '.claude', 'commands'), { recursive: true });
-    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';\n`);
+    writeFileSync(path.join(tmpDir, 'runlist.config.mjs'), `export const root = 'docs';\n`);
     // Plant a generated slash-command file (dotmd banner present).
     writeFileSync(
       path.join(tmpDir, '.claude', 'commands', 'plans.md'),
@@ -101,7 +101,7 @@ describe('init basic', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
     mkdirSync(path.join(tmpDir, '.git'));
     mkdirSync(path.join(tmpDir, '.claude', 'commands'), { recursive: true });
-    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';\n`);
+    writeFileSync(path.join(tmpDir, 'runlist.config.mjs'), `export const root = 'docs';\n`);
     const custom = path.join(tmpDir, '.claude', 'commands', 'plans.md');
     writeFileSync(custom, '# my custom plans command, no dotmd marker\n');
     const r = run(['init']);
@@ -168,7 +168,7 @@ describe('init basic', () => {
     mkdirSync(path.join(tmpDir, '.git'));
     run(['init']);
 
-    const config = readFileSync(path.join(tmpDir, 'dotmd.config.mjs'), 'utf8');
+    const config = readFileSync(path.join(tmpDir, 'runlist.config.mjs'), 'utf8');
     ok(config.includes('referenceFields'), 'STARTER_CONFIG should declare referenceFields');
     ok(config.includes('related_plans'), 'should track related_plans by default');
     ok(config.includes('related_docs'), 'should track related_docs by default');
@@ -196,11 +196,11 @@ describe('init idempotency', () => {
   it('skips config file when it already exists', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
     mkdirSync(path.join(tmpDir, '.git'));
-    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), 'export const root = "custom";');
+    writeFileSync(path.join(tmpDir, 'runlist.config.mjs'), 'export const root = "custom";');
     const result = run(['init']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(result.stdout.includes('exists'));
-    const content = readFileSync(path.join(tmpDir, 'dotmd.config.mjs'), 'utf8');
+    const content = readFileSync(path.join(tmpDir, 'runlist.config.mjs'), 'utf8');
     ok(content.includes('custom'), 'original config preserved');
   });
 
@@ -235,7 +235,7 @@ describe('init scanning', () => {
     const result = run(['init']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(result.stdout.includes('detected'));
-    const config = readFileSync(path.join(tmpDir, 'dotmd.config.mjs'), 'utf8');
+    const config = readFileSync(path.join(tmpDir, 'runlist.config.mjs'), 'utf8');
     ok(config.includes('active'));
     ok(config.includes('blocked'));
   });
@@ -254,7 +254,7 @@ describe('init scanning', () => {
     writeFileSync(path.join(tmpDir, 'docs', 'b.md'), '---\nstatus: wip\n---\n# B');
     strictEqual(run(['init']).status, 0);
 
-    const config = readFileSync(path.join(tmpDir, 'dotmd.config.mjs'), 'utf8');
+    const config = readFileSync(path.join(tmpDir, 'runlist.config.mjs'), 'utf8');
     ok(config.includes('staleDays:'), 'generated config emits a staleDays block');
     ok(!config.includes('ready') && !config.includes('scoping'),
       `generated staleDays must not carry default-only keys; got:\n${config}`);
@@ -271,7 +271,7 @@ describe('init scanning', () => {
     writeFileSync(path.join(tmpDir, 'docs', 'a.md'), '---\nstatus: active\nsurface: web\n---\n# A');
     const result = run(['init']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-    const config = readFileSync(path.join(tmpDir, 'dotmd.config.mjs'), 'utf8');
+    const config = readFileSync(path.join(tmpDir, 'runlist.config.mjs'), 'utf8');
     ok(config.includes('web'));
     ok(config.includes('taxonomy'));
   });
@@ -283,7 +283,7 @@ describe('init scanning', () => {
     writeFileSync(path.join(tmpDir, 'docs', 'a.md'), '---\nstatus: active\nmodules:\n  - gallery\n---\n# A');
     const result = run(['init']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-    const config = readFileSync(path.join(tmpDir, 'dotmd.config.mjs'), 'utf8');
+    const config = readFileSync(path.join(tmpDir, 'runlist.config.mjs'), 'utf8');
     ok(config.includes('taxonomy'));
     ok(config.includes('modules'));
     ok(config.includes('gallery'));
@@ -297,7 +297,7 @@ describe('init scanning', () => {
     writeFileSync(path.join(tmpDir, 'docs', 'b.md'), '---\nstatus: active\n---\n# B');
     const result = run(['init']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-    const config = readFileSync(path.join(tmpDir, 'dotmd.config.mjs'), 'utf8');
+    const config = readFileSync(path.join(tmpDir, 'runlist.config.mjs'), 'utf8');
     ok(config.includes('referenceFields'));
     ok(config.includes('depends_on'));
   });
@@ -309,7 +309,7 @@ describe('init scanning', () => {
     writeFileSync(path.join(tmpDir, 'docs', 'a.md'), '---\nstatus: blocked\n---\n# A');
     writeFileSync(path.join(tmpDir, 'docs', 'b.md'), '---\nstatus: active\n---\n# B');
     run(['init']);
-    const config = readFileSync(path.join(tmpDir, 'dotmd.config.mjs'), 'utf8');
+    const config = readFileSync(path.join(tmpDir, 'runlist.config.mjs'), 'utf8');
     const activeIdx = config.indexOf("'active'");
     const blockedIdx = config.indexOf("'blocked'");
     ok(activeIdx < blockedIdx, 'active appears before blocked in status order');
@@ -463,10 +463,10 @@ describe('init Claude integration', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
     mkdirSync(path.join(tmpDir, '.git'));
     mkdirSync(path.join(tmpDir, '.claude'));
-    // NOTE: no pre-existing dotmd.config.mjs.
+    // NOTE: no pre-existing runlist.config.mjs.
     const result = run(['init']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-    ok(existsSync(path.join(tmpDir, 'dotmd.config.mjs')), 'STARTER_CONFIG should be written');
+    ok(existsSync(path.join(tmpDir, 'runlist.config.mjs')), 'STARTER_CONFIG should be written');
     ok(!existsSync(path.join(tmpDir, '.claude', 'commands', 'plans.md')),
       'init must not scaffold plans.md');
     ok(!existsSync(path.join(tmpDir, '.claude', 'commands', 'docs.md')),
@@ -480,7 +480,7 @@ describe('init Claude integration', () => {
     mkdirSync(path.join(tmpDir, '.git'));
     mkdirSync(path.join(tmpDir, '.claude'));
     mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
-    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';`);
+    writeFileSync(path.join(tmpDir, 'runlist.config.mjs'), `export const root = 'docs';`);
     const result = run(['init']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(!existsSync(path.join(tmpDir, '.claude', 'commands', 'plans.md')));
@@ -666,12 +666,13 @@ describe('init scaffold survives a clone', () => {
   });
 });
 
-describe('init gitignores the live prompt queue', () => {
-  it('writes both rules on a fresh init', () => {
+describe('init gitignores product state and the live prompt queue', () => {
+  it('writes current state, legacy state, and prompt rules on a fresh init', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
     mkdirSync(path.join(tmpDir, '.git'));
     run(['init']);
     const gi = readFileSync(path.join(tmpDir, '.gitignore'), 'utf8').split('\n').map(l => l.trim());
+    ok(gi.includes('.runlist/'), gi.join('|'));
     ok(gi.includes('.dotmd/'), gi.join('|'));
     ok(gi.includes('/docs/prompts/*.md'), gi.join('|'));
   });
@@ -697,6 +698,7 @@ describe('init gitignores the live prompt queue', () => {
     run(['init']);
     const gi = readFileSync(path.join(tmpDir, '.gitignore'), 'utf8');
     strictEqual(gi.split('\n').filter(l => l.trim() === '.dotmd/').length, 1, `no duplicate: ${gi}`);
+    strictEqual(gi.split('\n').filter(l => l.trim() === '.runlist/').length, 1, `current state rule: ${gi}`);
     ok(gi.includes('/docs/prompts/*.md'), gi);
   });
 

@@ -22,6 +22,7 @@ import { dim } from './color.mjs';
 // tell two of them apart. `dotmd doctor --session` reports that distinction, and
 // it is the whole reason `dotmd install opencode` exists.
 const SESSION_ID_SOURCES = [
+  { variable: 'RUNLIST_SESSION_ID', prefix: null, scope: 'session', host: 'explicit override' },
   { variable: 'DOTMD_SESSION_ID', prefix: null, scope: 'session', host: 'explicit override' },
   { variable: 'CLAUDE_CODE_SESSION_ID', prefix: null, scope: 'session', host: 'Claude Code' },
   { variable: 'CLAUDE_SESSION_ID', prefix: null, scope: 'session', host: 'Claude Code' },

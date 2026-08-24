@@ -37,7 +37,7 @@ export class AmbiguousReferenceError extends Error {
   constructor(token, sourcePath, local, repository) {
     super(`Ambiguous reference '${token}' in ${sourcePath}: document-relative resolves to ${local}, repository-relative resolves to ${repository}. Use an explicit unambiguous path.`);
     this.name = 'AmbiguousReferenceError';
-    this.code = 'DOTMD_AMBIGUOUS_REFERENCE';
+    this.code = 'RUNLIST_AMBIGUOUS_REFERENCE';
   }
 }
 

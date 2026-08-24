@@ -63,7 +63,7 @@ function runAsync(args, sid) {
 }
 
 function ownershipFile() {
-  const dir = path.join(tmp, '.dotmd', 'ownership');
+  const dir = path.join(tmp, '.runlist', 'ownership');
   const files = existsSync(dir) ? readdirSync(dir).filter(f => f.endsWith('.json')) : [];
   strictEqual(files.length, 1);
   return path.join(dir, files[0]);
@@ -139,7 +139,7 @@ describe('durable lifecycle ownership', () => {
     const result = run(['use', file], 'A');
     ok(result.status !== 0);
     match(result.stderr, /terminal/);
-    ok(!existsSync(path.join(tmp, '.dotmd', 'ownership')));
+    ok(!existsSync(path.join(tmp, '.runlist', 'ownership')));
   });
 
   it('requires explicit --force to recover another session and rewrites ownership', () => {
@@ -203,7 +203,7 @@ describe('durable lifecycle ownership', () => {
       ),
       /changed while the mutation set was being prepared/,
     );
-    ok(!existsSync(path.join(tmp, '.dotmd', 'ownership')),
+    ok(!existsSync(path.join(tmp, '.runlist', 'ownership')),
       'a refused claim leaves no record — and no empty directory — behind');
     match(readFileSync(file, 'utf8'), /^status: active$/m);
   });
@@ -248,6 +248,17 @@ describe('durable lifecycle ownership', () => {
     strictEqual(JSON.parse(readFileSync(ownershipFile(), 'utf8')).sessionId, 'ci-worker-7');
   });
 
+  it('RUNLIST_SESSION_ID is canonical and wins over the legacy override', () => {
+    setup();
+    const file = plan('runlist-host');
+    const env = {
+      CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '',
+      RUNLIST_SESSION_ID: 'current-worker', DOTMD_SESSION_ID: 'legacy-worker',
+    };
+    strictEqual(run(['use', file], '', env).status, 0);
+    strictEqual(JSON.parse(readFileSync(ownershipFile(), 'utf8')).sessionId, 'current-worker');
+  });
+
   it('recognizes OpenCode identity and otherwise fails closed across fresh processes', () => {
     setup();
     const file = plan('host-id');
@@ -261,7 +272,7 @@ describe('durable lifecycle ownership', () => {
     const other = plan('no-host');
     const failed = run(['use', other], '', { ...cleared, OPENCODE_SESSION_ID: '' });
     ok(failed.status !== 0);
-    match(failed.stderr, /DOTMD_SESSION_ID/);
+    match(failed.stderr, /RUNLIST_SESSION_ID/);
   });
 
   // OpenCode sets no session-id variable at all — the names above were a guess,
@@ -345,7 +356,7 @@ describe('durable lifecycle ownership', () => {
     const busy = run(['use', exact], 'B');
     ok(busy.status !== 0);
     match(busy.stderr, /busy/);
-    strictEqual(readdirSync(path.join(tmp, '.dotmd', 'ownership')).filter(name => name.endsWith('.json')).length, 1);
+    strictEqual(readdirSync(path.join(tmp, '.runlist', 'ownership')).filter(name => name.endsWith('.json')).length, 1);
   });
 
   it('fails closed when record plan/canonical/key binding is semantically corrupted', () => {
@@ -638,7 +649,7 @@ describe('durable lifecycle ownership', () => {
     }
     strictEqual(readFileSync(prompt, 'utf8'), beforePrompt);
     strictEqual(readFileSync(file, 'utf8'), beforePlan);
-    ok(!existsSync(path.join(tmp, '.dotmd', 'ownership')) || readdirSync(path.join(tmp, '.dotmd', 'ownership')).length === 0);
+    ok(!existsSync(path.join(tmp, '.runlist', 'ownership')) || readdirSync(path.join(tmp, '.runlist', 'ownership')).length === 0);
   });
 
   it('same-status baton still releases ownership and rejects in-session target', () => {
@@ -1064,7 +1075,7 @@ describe('durable lifecycle ownership', () => {
     const record = JSON.parse(readFileSync(ownershipFile(), 'utf8'));
     strictEqual(record.sessionId, 'A');
     strictEqual(record.state, 'owned');
-    ok(existsSync(path.join(tmp, '.dotmd', 'journal.jsonl')), 'journal remains optional observability');
+    ok(existsSync(path.join(tmp, '.runlist', 'journal.jsonl')), 'journal remains optional observability');
   });
 
   it('dry-run creates neither ownership state nor plan changes', () => {
@@ -1073,7 +1084,7 @@ describe('durable lifecycle ownership', () => {
     const before = readFileSync(file, 'utf8');
     strictEqual(run(['use', file, '--dry-run'], 'A').status, 0);
     strictEqual(readFileSync(file, 'utf8'), before);
-    ok(!existsSync(path.join(tmp, '.dotmd', 'ownership')));
+    ok(!existsSync(path.join(tmp, '.runlist', 'ownership')));
   });
 
   it('prompt and direct claims share timestamp, history, index, and pickup hook behavior', () => {

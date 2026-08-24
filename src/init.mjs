@@ -36,7 +36,7 @@ function detectSessionStartHook(cwd) {
     for (const entry of sessionStart) {
       const inner = Array.isArray(entry?.hooks) ? entry.hooks : [];
       for (const hook of inner) {
-        if (typeof hook?.command === 'string' && /\bdotmd\s+hud\b/.test(hook.command)) {
+        if (typeof hook?.command === 'string' && /\b(?:runlist|dotmd)\s+hud\b/.test(hook.command)) {
           const rel = file.startsWith(cwd) ? path.relative(cwd, file) : file;
           return { wired: true, file: rel };
         }
@@ -46,8 +46,8 @@ function detectSessionStartHook(cwd) {
   return { wired: false };
 }
 
-const STARTER_CONFIG = `// dotmd.config.mjs — document management configuration
-// All exports are optional. See dotmd.config.example.mjs for full reference.
+const STARTER_CONFIG = `// runlist.config.mjs — document management configuration
+// All exports are optional. See runlist.config.example.mjs for full reference.
 
 export const root = 'docs';
 
@@ -212,7 +212,7 @@ const KNOWN_STALE_DAYS = {
 };
 
 function generateDetectedConfig(scan, rootPath) {
-  const lines = [`// dotmd.config.mjs — auto-detected from ${scan.docCount} existing docs`, ''];
+  const lines = [`// runlist.config.mjs — auto-detected from ${scan.docCount} existing docs`, ''];
   lines.push(`export const root = '${rootPath}';`);
   lines.push('');
 
@@ -274,7 +274,7 @@ function generateDetectedConfig(scan, rootPath) {
 
 export async function runInit(cwd, config, opts = {}) {
   const { dryRun = false } = opts;
-  const configPath = path.join(cwd, 'dotmd.config.mjs');
+  const configPath = path.join(cwd, 'runlist.config.mjs');
   const docsDir = path.join(cwd, 'docs');
   const indexPath = path.join(docsDir, 'docs.md');
 
@@ -288,14 +288,14 @@ export async function runInit(cwd, config, opts = {}) {
   const scan = existsSync(docsDir) ? scanExistingDocs(docsDir) : null;
 
   if (existsSync(configPath)) {
-    process.stdout.write(`  ${dryTag}${dim('exists')}  dotmd.config.mjs\n`);
+    process.stdout.write(`  ${dryTag}${dim('exists')}  ${path.basename(config.configPath)}\n`);
   } else {
     if (scan && scan.docCount > 0) {
       if (!dryRun) writeFileSync(configPath, generateDetectedConfig(scan, 'docs'), 'utf8');
-      process.stdout.write(`  ${dryTag}${green('create')}  dotmd.config.mjs (detected ${scan.docCount} docs)\n`);
+      process.stdout.write(`  ${dryTag}${green('create')}  runlist.config.mjs (detected ${scan.docCount} docs)\n`);
     } else {
       if (!dryRun) writeFileSync(configPath, STARTER_CONFIG, 'utf8');
-      process.stdout.write(`  ${dryTag}${green('create')}  dotmd.config.mjs\n`);
+      process.stdout.write(`  ${dryTag}${green('create')}  runlist.config.mjs\n`);
     }
   }
 
@@ -377,9 +377,10 @@ export async function runInit(cwd, config, opts = {}) {
     process.stdout.write(`                 export const root = [${subs.map(s => `'${s}'`).join(', ')}];\n`);
   }
 
-  // .gitignore: two rules.
+  // .gitignore: three rules.
   //
-  //   .dotmd/                 — session ownership records
+  //   .runlist/               — session ownership records
+  //   .dotmd/                 — legacy state during the compatibility window
   //   <docs>/prompts/*.md     — the LIVE saved-prompt queue
   //
   // The second one is load-bearing. Saved prompts are session-local by design and
@@ -392,6 +393,7 @@ export async function runInit(cwd, config, opts = {}) {
   const docsRel = path.relative(cwd, docsDir).split(path.sep).join('/');
   const promptsIgnore = `/${docsRel ? `${docsRel}/` : ''}prompts/*.md`;
   const ignoreRules = [
+    { line: '.runlist/', accepts: (l) => l === '.runlist/' || l === '.runlist' },
     { line: '.dotmd/', accepts: (l) => l === '.dotmd/' || l === '.dotmd' },
     { line: promptsIgnore, accepts: (l) => l === promptsIgnore || l === promptsIgnore.slice(1) },
   ];

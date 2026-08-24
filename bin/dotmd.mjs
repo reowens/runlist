@@ -138,7 +138,7 @@ Rules:
 
 \`guard: { deny: false }\` in dotmd.config.mjs drops edit-status back to
 warn-only. Every catch is appended to the cross-repo misuse log. Disable the
-guard entirely with DOTMD_GUARD=0. Read the log with \`dotmd misuse\`; when one
+guard entirely with RUNLIST_GUARD=0. Read the log with \`dotmd misuse\`; when one
 rule trips ≥3× in 7 days in a repo, \`dotmd hud\` opens the next session there
 with a one-line recap naming the habit to break.`,
 
@@ -278,7 +278,7 @@ Setup:
   watch [command]                   Re-run a command on file changes
   completions <shell>               Shell completion script (bash, zsh)
   journal [--tail N|--errors|--by-command|--session id|--since iso|--json]
-                                    View opt-in JSONL command journal (enable: DOTMD_JOURNAL=1 or journal: true)
+                                    View opt-in JSONL command journal (enable: RUNLIST_JOURNAL=1 or journal: true)
 
 Global Options:
   --config <path>        Explicit config file path
@@ -400,10 +400,10 @@ invocation appends one JSONL line to .dotmd/journal.jsonl with argv, exit
 code, elapsed ms, session id, and (on error) a single-line err message.
 
 Enable:
-  - env:    DOTMD_JOURNAL=1
+  - env:    RUNLIST_JOURNAL=1
   - config: \`export const journal = true;\` in dotmd.config.mjs
 
-The env var beats config (DOTMD_JOURNAL=0 forces off). The journal is
+The env var beats config (RUNLIST_JOURNAL=0 forces off). The journal is
 default-off so non-agent users don't pay the size/PII cost.
 
 Reader options:
@@ -421,7 +421,7 @@ Storage:
   rotation or pruned after the retention window.
 
 Examples:
-  DOTMD_JOURNAL=1 dotmd plans
+  RUNLIST_JOURNAL=1 dotmd plans
   dotmd journal --tail 5
   dotmd journal --errors
   dotmd journal --by-command
@@ -506,7 +506,7 @@ Ambiguous slugs error with the candidate list instead of guessing.
 When the path is omitted, exactly one plan must be owned by this session.
 Claude Code session IDs are recognized automatically, as is OpenCode (via
 OPENCODE_PID — per OpenCode process, not per session). Other hosts must set
-DOTMD_SESSION_ID; anonymous ownership mutations fail closed.
+RUNLIST_SESSION_ID; anonymous ownership mutations fail closed.
 Pickup hooks use at-least-once delivery with a stable operationId; hook side
 effects must deduplicate that ID.
 
@@ -1442,6 +1442,20 @@ Pass file paths as positional args to scope to those files only; otherwise
 the whole docs tree is scanned.`,
 };
 
+// Help presents the new product name while the compatibility package and
+// plugin still use their old registry identities. Protect those identifiers
+// from the display-only command-name rewrite until the package cutover.
+function canonicalHelp(text) {
+  return String(text)
+    .replaceAll('dotmd-cli', '\u0000PACKAGE\u0000')
+    .replaceAll('dotmd@dotmd', '\u0000PLUGIN\u0000')
+    .replaceAll('reowens/dotmd', '\u0000REPOSITORY\u0000')
+    .replace(/\bdotmd\b/g, 'runlist')
+    .replaceAll('\u0000PACKAGE\u0000', 'dotmd-cli')
+    .replaceAll('\u0000PLUGIN\u0000', 'dotmd@dotmd')
+    .replaceAll('\u0000REPOSITORY\u0000', 'reowens/dotmd');
+}
+
 const GLOBAL_VALUE_OPTIONS = new Set(['--config', '--root', '--type']);
 const GLOBAL_BOOLEAN_OPTIONS = new Set(['--dry-run', '-n', '--verbose']);
 
@@ -1512,7 +1526,7 @@ async function main() {
   // Tolerate accidentally pasting the command prefix twice, while leaving all
   // remaining arguments to the normal `use` grammar and path validation.
   if (command === 'use') {
-    while (restArgs[0] === 'dotmd' && restArgs[1] === 'use') restArgs = restArgs.slice(2);
+    while ((restArgs[0] === 'runlist' || restArgs[0] === 'dotmd') && restArgs[1] === 'use') restArgs = restArgs.slice(2);
   }
 
   // Reconstruct the active global flags for proxy commands (e.g. `watch`) that
@@ -1559,12 +1573,12 @@ async function main() {
     const topic = restArgs[0];
     if (topic) {
       const key = `help:${topic}`;
-      if (HELP[key]) { process.stdout.write(`${HELP[key]}\n`); return; }
-      if (HELP[topic]) { process.stdout.write(`${HELP[topic]}\n`); return; }
+      if (HELP[key]) { process.stdout.write(`${canonicalHelp(HELP[key])}\n`); return; }
+      if (HELP[topic]) { process.stdout.write(`${canonicalHelp(HELP[topic])}\n`); return; }
       process.stderr.write(`Unknown help topic: ${topic}\n\nAvailable topics: all, statuses\nPer-command help: dotmd <cmd> --help\n`);
       process.exit(1);
     }
-    process.stdout.write(`${HELP._main}\n`);
+    process.stdout.write(`${canonicalHelp(HELP._main)}\n`);
     return;
   }
 
@@ -1588,7 +1602,7 @@ async function main() {
   // Per-command help
   if (args.includes('--help') || args.includes('-h')) {
     requireCommandPolicy(command, dispatchPolicy);
-    process.stdout.write(`${HELP[command] ?? commandUsage(command)}\n`);
+    process.stdout.write(`${canonicalHelp(HELP[command] ?? commandUsage(command))}\n`);
     return;
   }
 
@@ -1623,11 +1637,21 @@ async function main() {
     if (notice) process.stderr.write(`${notice}\n`);
   }
 
-  const suppressSideEffects = effectiveDryRun || command === 'hud' || passiveMachineContext;
+  const suppressSideEffects = effectiveDryRun || command === 'hud' || command === 'guard' || passiveMachineContext;
   Object.defineProperty(config, '_execution', {
     value: { dryRun, passive: command === 'hud' || passiveMachineContext, suppressSideEffects, gitStaleness },
     enumerable: false,
   });
+  if (!suppressSideEffects) {
+    const { migrateStateDirectory } = await import('../src/state-migration.mjs');
+    const { LEGACY_STATE_DIR, STATE_DIR } = await import('../src/naming.mjs');
+    const migration = migrateStateDirectory(config.repoRoot);
+    if (migration.status === 'migrated') {
+      process.stderr.write(`[runlist] migrated ${LEGACY_STATE_DIR}/ → ${STATE_DIR}/ (session state moved; repository files unchanged)\n`);
+    } else if (migration.status === 'refused') {
+      warn(migration.message);
+    }
+  }
   // Unknown names may still be user-defined query presets. Every built-in
   // dispatcher branch, including mutators above the shared index path, must be
   // present in the centralized command policy registry.
@@ -2240,7 +2264,7 @@ main()
     let out = err.message;
     // F17c: append a repeat-failure tip when the journal shows this same shape
     // has already failed in this session within the lookup window. Lookup is
-    // a no-op when the journal is disabled or DOTMD_NO_HINTS=1.
+    // a no-op when the journal is disabled or RUNLIST_NO_HINTS=1.
     try {
       const hint = findRepeatFailureHint(sanitizeTelemetryArgv(_invocationArgs), _resolvedConfig);
       if (hint) out = `${out}\n\nTip: ${hint}`;

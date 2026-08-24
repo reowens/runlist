@@ -22,21 +22,22 @@ afterEach(() => {
   if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
 });
 
-describe('dotmd completions', () => {
+describe('runlist completions', () => {
   it('bash output contains complete -F', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-comp-'));
     const result = run(['completions', 'bash']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(result.stdout.includes('complete -F'), 'has complete -F directive');
-    ok(result.stdout.includes('_dotmd'), 'has _dotmd function');
+    ok(result.stdout.includes('_runlist'), 'has _runlist function');
+    ok(result.stdout.includes('runlist dotmd'), 'registers canonical and legacy binaries');
   });
 
   it('zsh output contains compdef', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-comp-'));
     const result = run(['completions', 'zsh']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-    ok(result.stdout.includes('compdef _dotmd dotmd'), 'has compdef directive');
-    ok(result.stdout.includes('_dotmd'), 'has _dotmd function');
+    ok(result.stdout.includes('compdef _runlist runlist dotmd'), 'has dual-name compdef directive');
+    ok(result.stdout.includes('_runlist'), 'has _runlist function');
   });
 
   it('unknown shell exits with error', () => {

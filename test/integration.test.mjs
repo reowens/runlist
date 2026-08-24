@@ -59,7 +59,7 @@ describe('CLI integration', () => {
     const result = run(['--help']);
     ok(result.stdout.includes('Common commands:'), 'has Common commands section');
     ok(result.stdout.includes('prompts'), 'top-level help surfaces prompt queue commands');
-    ok(result.stdout.includes('dotmd help all'), 'points at full command list');
+    ok(result.stdout.includes('runlist help all'), 'points at full command list');
     // Keep the top-level terse — full categorized list lives under `help all`.
     ok(result.stdout.split('\n').length < 30,
       `top-level --help should stay under 30 lines; got ${result.stdout.split('\n').length}`);
@@ -200,10 +200,10 @@ describe('CLI integration', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-help-schema-'));
     const roadmap = run(['roadmap', '--help']);
     strictEqual(roadmap.status, 0, roadmap.stderr);
-    ok(roadmap.stdout.includes('dotmd roadmap next [hub]'), roadmap.stdout);
+    ok(roadmap.stdout.includes('runlist roadmap next [hub]'), roadmap.stdout);
     const use = run(['use', '--help']);
     strictEqual(use.status, 0, use.stderr);
-    ok(use.stdout.includes('dotmd use [file]'), use.stdout);
+    ok(use.stdout.includes('runlist use [file]'), use.stdout);
   });
 
   it('context outputs briefing', () => {

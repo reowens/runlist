@@ -30,6 +30,7 @@ Thumbs.db
 # Lockfiles from other package managers (this is an npm project)
 pnpm-lock.yaml
 yarn.lock
+.runlist/
 .dotmd/
 
 # The planning tree is NOT public. dotmd is developed by running it against a

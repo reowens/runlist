@@ -647,7 +647,7 @@ describe('doctor --frontmatter-fix', () => {
     });
 
     // Strip the owner the way every record written before this feature looks.
-    const recordDir = path.join(tmpDir, '.dotmd', 'ownership');
+    const recordDir = path.join(tmpDir, '.runlist', 'ownership');
     const recordPath = path.join(recordDir, readdirSync(recordDir)[0]);
     const record = JSON.parse(readFileSync(recordPath, 'utf8'));
     delete record.sessionOwner;
@@ -680,7 +680,7 @@ describe('doctor --frontmatter-fix', () => {
       cwd: tmpDir, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', CLAUDE_CODE_SESSION_ID: 'gone', DOTMD_SESSION_PID: '' },
     });
 
-    const recordDir = path.join(tmpDir, '.dotmd', 'ownership');
+    const recordDir = path.join(tmpDir, '.runlist', 'ownership');
     const recordPath = path.join(recordDir, readdirSync(recordDir)[0]);
     const record = JSON.parse(readFileSync(recordPath, 'utf8'));
     record.updatedAt = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
@@ -716,7 +716,7 @@ describe('doctor --frontmatter-fix', () => {
       'use', 'docs/plans/stranded.md', '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
       cwd: tmpDir, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', CLAUDE_CODE_SESSION_ID: 'gone', DOTMD_SESSION_PID: '' },
     });
-    const recordDir = path.join(tmpDir, '.dotmd', 'ownership');
+    const recordDir = path.join(tmpDir, '.runlist', 'ownership');
     const recordPath = path.join(recordDir, readdirSync(recordDir)[0]);
     const record = JSON.parse(readFileSync(recordPath, 'utf8'));
     record.updatedAt = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
@@ -744,7 +744,7 @@ describe('doctor --frontmatter-fix', () => {
       'use', 'docs/plans/present.md', '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
       cwd: tmpDir, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', CLAUDE_CODE_SESSION_ID: 'gone', DOTMD_SESSION_PID: '' },
     });
-    const recordDir = path.join(tmpDir, '.dotmd', 'ownership');
+    const recordDir = path.join(tmpDir, '.runlist', 'ownership');
     const recordPath = path.join(recordDir, readdirSync(recordDir)[0]);
     const record = JSON.parse(readFileSync(recordPath, 'utf8'));
     record.updatedAt = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();

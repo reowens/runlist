@@ -17,8 +17,8 @@ function setupProject() {
   mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
   configPath = path.join(tmpDir, 'dotmd.config.mjs');
   writeFileSync(configPath, `export const root = 'docs';\n`);
-  mkdirSync(path.join(tmpDir, '.dotmd'), { recursive: true });
-  journalFile = path.join(tmpDir, '.dotmd', 'journal.jsonl');
+  mkdirSync(path.join(tmpDir, '.runlist'), { recursive: true });
+  journalFile = path.join(tmpDir, '.runlist', 'journal.jsonl');
 }
 
 const FIXED_SID = 'test-session-fixed';

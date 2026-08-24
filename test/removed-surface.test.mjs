@@ -35,7 +35,7 @@ describe('removed product surfaces', () => {
     const removedHelp = spawnSync('node', [bin, 'help', 'notion'], { cwd: root, encoding: 'utf8' });
     const bashCompletion = spawnSync('node', [bin, 'completions', 'bash'], { cwd: root, encoding: 'utf8' });
     const zshCompletion = spawnSync('node', [bin, 'completions', 'zsh'], { cwd: root, encoding: 'utf8' });
-    const configExample = readFileSync(path.join(root, 'dotmd.config.example.mjs'), 'utf8');
+    const configExample = readFileSync(path.join(root, 'runlist.config.example.mjs'), 'utf8');
     const readme = readFileSync(path.join(root, 'README.md'), 'utf8');
     const claude = readFileSync(path.join(root, 'CLAUDE.md'), 'utf8');
     const repo = mkdtempSync(path.join(os.tmpdir(), 'dotmd-removed-config-'));
@@ -109,8 +109,8 @@ describe('removed product surfaces', () => {
 
       const packageRoot = path.join(installRoot, 'node_modules', 'dotmd-cli');
       for (const productPath of [
-        'package.json', 'README.md', 'dotmd.config.example.mjs',
-        'bin/dotmd.mjs', 'src/commands.mjs', 'src/completions.mjs', 'src/config.mjs',
+        'package.json', 'README.md', 'runlist.config.example.mjs',
+        'bin/runlist.mjs', 'bin/dotmd.mjs', 'src/commands.mjs', 'src/completions.mjs', 'src/config.mjs',
       ]) {
         const content = readFileSync(path.join(packageRoot, productPath), 'utf8');
         ok(!/\bnotion\b/i.test(content), `${productPath} still contains a removed product claim`);

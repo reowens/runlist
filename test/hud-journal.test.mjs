@@ -22,9 +22,9 @@ function setupProject() {
   mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
   configPath = path.join(tmpDir, 'dotmd.config.mjs');
   writeFileSync(configPath, `export const root = 'docs';\n`);
-  mkdirSync(path.join(tmpDir, '.dotmd'), { recursive: true });
-  writeFileSync(path.join(tmpDir, '.dotmd', 'primer-shown'), '');
-  journalFile = path.join(tmpDir, '.dotmd', 'journal.jsonl');
+  mkdirSync(path.join(tmpDir, '.runlist'), { recursive: true });
+  writeFileSync(path.join(tmpDir, '.runlist', 'primer-shown'), '');
+  journalFile = path.join(tmpDir, '.runlist', 'journal.jsonl');
 }
 
 function writeEntries(entries) {

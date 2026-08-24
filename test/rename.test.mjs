@@ -90,7 +90,7 @@ describe('dotmd rename', () => {
     // Files should not have changed
     ok(existsSync(oldPath), 'old file still exists');
     ok(!existsSync(path.join(docsDir, 'new-name.md')), 'new file not created');
-    ok(!existsSync(path.join(tmpDir, '.dotmd')), 'no transaction, lock, or temp state created');
+    ok(!existsSync(path.join(tmpDir, '.runlist')), 'no transaction, lock, or temp state created');
   });
 
   it('errors when target already exists', () => {
@@ -283,9 +283,9 @@ closing\` [after multiline](old-name.md)
     strictEqual(run(['use', 'docs/owned.md', '--no-index'], { env }).status, 0);
     const renamed = run(['rename', 'docs/owned.md', 'renamed.md'], { env });
     strictEqual(renamed.status, 0, renamed.stderr);
-    const records = readdirSync(path.join(tmpDir, '.dotmd', 'ownership')).filter(name => name.endsWith('.json'));
+    const records = readdirSync(path.join(tmpDir, '.runlist', 'ownership')).filter(name => name.endsWith('.json'));
     strictEqual(records.length, 1);
-    const record = JSON.parse(readFileSync(path.join(tmpDir, '.dotmd', 'ownership', records[0]), 'utf8'));
+    const record = JSON.parse(readFileSync(path.join(tmpDir, '.runlist', 'ownership', records[0]), 'utf8'));
     strictEqual(record.plan, 'docs/renamed.md');
     strictEqual(record.sessionId, 'owner-a');
 

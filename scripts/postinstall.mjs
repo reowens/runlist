@@ -6,7 +6,7 @@
 //   - Only on GLOBAL installs (`npm i -g`). A project devDep / CI / Docker
 //     install must never touch a user's Claude Code state.
 //   - Default: just print a one-line nudge. A CLI install silently mutating the
-//     agent's plugin cache is surprising; opt in with DOTMD_AUTO_PLUGIN_UPDATE=1
+//     agent's plugin cache is surprising; opt in with RUNLIST_AUTO_PLUGIN_UPDATE=1
 //     to actually run the refresh.
 //   - NEVER fail the install: everything is swallowed and we always exit 0. A
 //     nonzero postinstall would break `npm i -g dotmd-cli`.
@@ -34,7 +34,7 @@ try {
     } catch { return false; }
   })();
 
-  if (process.env.DOTMD_AUTO_PLUGIN_UPDATE === '1' && hasClaude) {
+  if ((process.env.RUNLIST_AUTO_PLUGIN_UPDATE ?? process.env.DOTMD_AUTO_PLUGIN_UPDATE) === '1' && hasClaude) {
     spawnSync('claude', ['plugin', 'update', 'dotmd@dotmd'], { stdio: 'ignore', timeout: 60000 });
     process.stdout.write('dotmd: refreshed the Claude Code plugin — restart your session (or /reload-plugins) to apply.\n');
   } else {

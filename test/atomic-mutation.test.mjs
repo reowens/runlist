@@ -82,7 +82,7 @@ async function waitForFiles(files, timeoutMs = 30_000) {
 }
 
 function lockEntries(root) {
-  const lockRoot = path.join(root, '.dotmd', 'locks');
+  const lockRoot = path.join(root, '.runlist', 'locks');
   return existsSync(lockRoot) ? readdirSync(lockRoot) : [];
 }
 
@@ -250,7 +250,7 @@ describe('atomic mutation substrate', () => {
     });
     strictEqual(result.status, 0, result.stderr);
     strictEqual(existsSync(path.join(root, 'docs', 'dry.md')), false);
-    strictEqual(existsSync(path.join(root, '.dotmd')), false);
+    strictEqual(existsSync(path.join(root, '.runlist')), false);
     strictEqual(readdirSync(path.join(root, 'docs')).some(name => name.includes('dotmd-tmp')), false);
   });
 
@@ -276,7 +276,7 @@ describe('atomic mutation substrate', () => {
     writeFileSync(file, 'x');
     const canonical = realpathSync(file);
     const key = createHash('sha256').update(canonical).digest('hex');
-    const lockPath = path.join(root, '.dotmd', 'locks', `${key}.lock`);
+    const lockPath = path.join(root, '.runlist', 'locks', `${key}.lock`);
     mkdirSync(lockPath, { recursive: true });
     writeFileSync(path.join(lockPath, 'owner.json'), JSON.stringify({
       pid: 99999999, hostname: os.hostname(), createdAt: new Date().toISOString(), processStartedAt: 'dead', path: canonical,
@@ -400,11 +400,11 @@ describe('atomic mutation substrate', () => {
       repoRoot: root,
       testHooks: { afterSetCommit: () => { writeFileSync(updated, 'replacement'); throw new Error('fail update'); } },
     }), err => {
-      match(err.message, /Original content: .*dotmd-recovery-original/);
+      match(err.message, /Original content: .*runlist-recovery-original/);
       return true;
     });
     strictEqual(readFileSync(updated, 'utf8'), 'replacement');
-    const recovery = readdirSync(root).find(name => name.includes('dotmd-recovery-original'));
+    const recovery = readdirSync(root).find(name => name.includes('runlist-recovery-original'));
     strictEqual(readFileSync(path.join(root, recovery), 'utf8'), 'old');
 
     const created = path.join(root, 'created.md');
@@ -553,8 +553,8 @@ describe('atomic mutation substrate', () => {
       const target = path.join(root, 'target.md');
       const refA = path.join(root, 'ref-a.md');
       const refB = path.join(root, 'ref-b.md');
-      const oldOwnership = path.join(root, '.dotmd', 'ownership', 'old.json');
-      const newOwnership = path.join(root, '.dotmd', 'ownership', 'new.json');
+      const oldOwnership = path.join(root, '.runlist', 'ownership', 'old.json');
+      const newOwnership = path.join(root, '.runlist', 'ownership', 'new.json');
       mkdirSync(path.dirname(oldOwnership), { recursive: true });
       writeFileSync(source, 'source-old');
       writeFileSync(refA, 'a-old');
@@ -597,7 +597,7 @@ describe('atomic mutation substrate', () => {
       strictEqual(readFileSync(refB, 'utf8'), rolledForward ? 'b-new' : 'b-old');
       strictEqual(existsSync(oldOwnership), !rolledForward);
       strictEqual(existsSync(newOwnership), rolledForward);
-      const txRoot = path.join(root, '.dotmd', 'transactions');
+      const txRoot = path.join(root, '.runlist', 'transactions');
       strictEqual(existsSync(txRoot) ? readdirSync(txRoot).length : 0, 0);
       strictEqual(readdirSync(root).some(name => name.includes('dotmd-move') || name.includes('dotmd-tmp')), false);
       rmSync(root, { recursive: true, force: true });
@@ -639,7 +639,7 @@ describe('atomic mutation substrate', () => {
       return true;
     });
     strictEqual(readFileSync(ref, 'utf8'), 'unrelated-new-generation');
-    ok(readdirSync(path.join(root, '.dotmd', 'transactions')).length > 0, 'intent and artifacts remain for manual repair');
+    ok(readdirSync(path.join(root, '.runlist', 'transactions')).length > 0, 'intent and artifacts remain for manual repair');
   });
 
   it('rejects untrusted manifest paths, Git traversal, and symlink escapes', async () => {
@@ -654,7 +654,7 @@ describe('atomic mutation substrate', () => {
       const escapeTarget = path.join(root, 'outside');
       if (attack === 'symlink-parent' || attack === 'artifact-symlink') mkdirSync(escapeTarget);
       if (attack === 'symlink-parent') symlinkSync(escapeTarget, path.join(root, 'docs', 'escape'), process.platform === 'win32' ? 'junction' : 'dir');
-      const directory = path.join(root, '.dotmd', 'transactions', `attack-${attack}`);
+      const directory = path.join(root, '.runlist', 'transactions', `attack-${attack}`);
       mkdirSync(directory, { recursive: true });
       if (attack === 'artifact-symlink') symlinkSync(escapeTarget, path.join(directory, 'escape'), process.platform === 'win32' ? 'junction' : 'dir');
       let participantPath = validDoc;
@@ -695,13 +695,13 @@ describe('atomic mutation substrate', () => {
     }
 
     const root = setup();
-    mkdirSync(path.join(root, '.dotmd'));
+    mkdirSync(path.join(root, '.runlist'));
     const escapeTarget = path.join(root, 'outside');
     mkdirSync(escapeTarget);
-    symlinkSync(escapeTarget, path.join(root, '.dotmd', 'transactions'), process.platform === 'win32' ? 'junction' : 'dir');
+    symlinkSync(escapeTarget, path.join(root, '.runlist', 'transactions'), process.platform === 'win32' ? 'junction' : 'dir');
     throws(() => recoverAbandonedTransactions(root), /symlink|unsafe/i);
-    rmSync(path.join(root, '.dotmd', 'transactions'));
-    symlinkSync(escapeTarget, path.join(root, '.dotmd', 'locks'), process.platform === 'win32' ? 'junction' : 'dir');
+    rmSync(path.join(root, '.runlist', 'transactions'));
+    symlinkSync(escapeTarget, path.join(root, '.runlist', 'locks'), process.platform === 'win32' ? 'junction' : 'dir');
     const file = path.join(root, 'doc.md');
     writeFileSync(file, 'x');
     throws(() => withPathLocks([file], { repoRoot: root }, () => {}), /symlink|unsafe/i);
@@ -731,7 +731,7 @@ describe('atomic mutation substrate', () => {
       }), new RegExp(`injected ${injected}`));
       strictEqual(readFileSync(sourceAgain, 'utf8'), 'old');
       strictEqual(existsSync(targetAgain), false);
-      const txRoot = path.join(root, '.dotmd', 'transactions');
+      const txRoot = path.join(root, '.runlist', 'transactions');
       strictEqual(existsSync(txRoot) ? readdirSync(txRoot).length : 0, 0);
     }
   });
@@ -763,7 +763,7 @@ describe('atomic mutation substrate', () => {
     }), /source parent fsync/);
     strictEqual(readFileSync(source, 'utf8'), 'old');
     strictEqual(existsSync(target), false);
-    const txRoot = path.join(root, '.dotmd', 'transactions');
+    const txRoot = path.join(root, '.runlist', 'transactions');
     const manifest = JSON.parse(readFileSync(path.join(txRoot, readdirSync(txRoot)[0], 'manifest.json'), 'utf8'));
     strictEqual(manifest.status, 'failed-manual');
   });
@@ -822,7 +822,7 @@ describe('atomic mutation substrate', () => {
     proc.kill('SIGKILL');
     await done;
 
-    const txRoot = path.join(root, '.dotmd', 'transactions');
+    const txRoot = path.join(root, '.runlist', 'transactions');
     const manifestPath = path.join(txRoot, readdirSync(txRoot)[0], 'manifest.json');
     const statusBefore = JSON.parse(readFileSync(manifestPath, 'utf8')).status;
     ok(statusBefore !== 'failed-manual', `abandoned manifest starts recoverable, got ${statusBefore}`);
@@ -871,7 +871,7 @@ describe('atomic mutation substrate', () => {
     proc.kill('SIGKILL');
     await done;
 
-    const txRoot = path.join(root, '.dotmd', 'transactions');
+    const txRoot = path.join(root, '.runlist', 'transactions');
     const manifestPath = path.join(txRoot, readdirSync(txRoot)[0], 'manifest.json');
     // Force the terminal state the wedge produces.
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
@@ -928,7 +928,7 @@ describe('atomic mutation substrate', () => {
     }), /current staging was preserved/);
     const staged = captureGitIndexPaths([source, target], root);
     ok(staged.records.some(record => record.includes('docs/target.md')));
-    const txRoot = path.join(root, '.dotmd', 'transactions');
+    const txRoot = path.join(root, '.runlist', 'transactions');
     const manifests = readdirSync(txRoot).map(entry => JSON.parse(readFileSync(path.join(txRoot, entry, 'manifest.json'), 'utf8')));
     strictEqual(manifests[0].status, 'failed-manual');
   });
@@ -969,7 +969,7 @@ describe('atomic mutation substrate', () => {
       // complete and nothing is left for manual repair. Retaining the
       // transaction here (as this once did) bricked every later mutation in
       // the repo until `doctor --transactions --apply` ran.
-      strictEqual(readdirSync(path.join(root, '.dotmd', 'transactions')).length, 0);
+      strictEqual(readdirSync(path.join(root, '.runlist', 'transactions')).length, 0);
       rmSync(root, { recursive: true, force: true });
       tmpDir = null;
     }
@@ -1033,7 +1033,7 @@ describe('atomic mutation substrate', () => {
     ok(staged.includes('external.txt'), 'the peer staging survives');
     ok(staged.includes('target.md'));
     ok(!existsSync(source));
-    strictEqual(readdirSync(path.join(root, '.dotmd', 'transactions')).length, 0);
+    strictEqual(readdirSync(path.join(root, '.runlist', 'transactions')).length, 0);
   });
 
   it('retries a lost index publication once the racer stops winning', () => {
@@ -1066,7 +1066,7 @@ describe('atomic mutation substrate', () => {
     const staged = spawnSync('git', ['diff', '--cached', '--name-only'], { cwd: root, encoding: 'utf8' }).stdout.trim().split('\n');
     ok(staged.includes('external.txt'));
     ok(staged.includes('target.md'));
-    strictEqual(readdirSync(path.join(root, '.dotmd', 'transactions')).length, 0);
+    strictEqual(readdirSync(path.join(root, '.runlist', 'transactions')).length, 0);
   });
 
   it('rolls back cleanly when a live peer holds the real Git index lock', () => {
@@ -1096,7 +1096,7 @@ describe('atomic mutation substrate', () => {
     strictEqual(readFileSync(foreignLock, 'utf8'), 'peer git', 'the peer keeps its lock');
     strictEqual(readFileSync(source, 'utf8'), 'source');
     strictEqual(existsSync(target), false);
-    strictEqual(readdirSync(path.join(root, '.dotmd', 'transactions')).length, 0);
+    strictEqual(readdirSync(path.join(root, '.runlist', 'transactions')).length, 0);
   });
 
   it('does not retry a Git staging failure that is a verdict rather than a race', () => {
@@ -1121,7 +1121,7 @@ describe('atomic mutation substrate', () => {
     strictEqual(prepares, 1, 'a refused `git add` is not contention; retrying only multiplies it');
     strictEqual(readFileSync(source, 'utf8'), 'source');
     strictEqual(existsSync(target), false);
-    strictEqual(readdirSync(path.join(root, '.dotmd', 'transactions')).length, 0);
+    strictEqual(readdirSync(path.join(root, '.runlist', 'transactions')).length, 0);
   });
 
   it('checkpoints and cleans exact working state when ordinary Git preparation fails', () => {
@@ -1137,8 +1137,8 @@ describe('atomic mutation substrate', () => {
     }), /ordinary preparation failure/);
     strictEqual(readFileSync(source, 'utf8'), 'source');
     strictEqual(existsSync(target), false);
-    strictEqual(readdirSync(path.join(root, '.git')).some(name => name.startsWith('.dotmd-index-') || name === 'index.lock'), false);
-    strictEqual(readdirSync(path.join(root, '.dotmd', 'transactions')).length, 0);
+    strictEqual(readdirSync(path.join(root, '.git')).some(name => name.startsWith('.runlist-index-') || name === 'index.lock'), false);
+    strictEqual(readdirSync(path.join(root, '.runlist', 'transactions')).length, 0);
   });
 
   it('retains unverified work and manual evidence when preparation directory fsync fails', () => {
@@ -1154,7 +1154,7 @@ describe('atomic mutation substrate', () => {
         if (reason === 'working-index-step') throw new Error('working index step fsync failed');
       } },
     }), /working index step fsync failed/);
-    const txRoot = path.join(root, '.dotmd', 'transactions');
+    const txRoot = path.join(root, '.runlist', 'transactions');
     const manifestPath = path.join(txRoot, readdirSync(txRoot)[0], 'manifest.json');
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
     strictEqual(manifest.status, 'failed-manual');
@@ -1214,7 +1214,7 @@ describe('atomic mutation substrate', () => {
     await waitForFiles([ready]);
     proc.kill('SIGKILL');
     await done;
-    const txRoot = path.join(root, '.dotmd', 'transactions');
+    const txRoot = path.join(root, '.runlist', 'transactions');
     const directory = path.join(txRoot, readdirSync(txRoot)[0]);
     const manifest = JSON.parse(readFileSync(path.join(directory, 'manifest.json'), 'utf8'));
     for (const artifact of manifest.participants.flatMap(item => [item.old.artifact, item.new.artifact]).filter(Boolean)) unlinkSync(artifact);
@@ -1314,8 +1314,8 @@ describe('atomic mutation substrate', () => {
       proc.kill('SIGKILL');
       await done;
       if (phase === 'git-index-post-subprocess') {
-        const recoveryError = captureThrown(() => recoverAbandonedTransactions(root), /unverified work.*manual recovery|\.dotmd-index-/i);
-        const txRoot = path.join(root, '.dotmd', 'transactions');
+        const recoveryError = captureThrown(() => recoverAbandonedTransactions(root), /unverified work.*manual recovery|\.runlist-index-/i);
+        const txRoot = path.join(root, '.runlist', 'transactions');
         const manifestPath = path.join(txRoot, readdirSync(txRoot)[0], 'manifest.json');
         const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
         strictEqual(manifest.status, 'failed-manual');
@@ -1334,9 +1334,9 @@ describe('atomic mutation substrate', () => {
       const tracked = spawnSync('git', ['ls-files', '--error-unmatch', 'target.md'], { cwd: root });
       strictEqual(tracked.status, 0, phase);
       strictEqual(existsSync(path.join(root, '.git', 'index.lock')), false);
-      const prepResidue = readdirSync(path.join(root, '.git')).filter(name => name.startsWith('.dotmd-index-'));
+      const prepResidue = readdirSync(path.join(root, '.git')).filter(name => name.startsWith('.runlist-index-'));
       strictEqual(prepResidue.length, 0);
-      strictEqual(readdirSync(path.join(root, '.dotmd', 'transactions')).length, 0);
+      strictEqual(readdirSync(path.join(root, '.runlist', 'transactions')).length, 0);
       rmSync(root, { recursive: true, force: true });
       tmpDir = null;
     }
@@ -1399,7 +1399,7 @@ describe('atomic mutation substrate', () => {
       strictEqual(spawnSync('git', ['ls-files', '--error-unmatch', 'target.md'], { cwd: root }).status, 0);
       strictEqual(Buffer.compare(readFileSync(normalIndex), normalBytes), 0, 'normal index remains untouched');
       strictEqual(existsSync(`${alternate}.lock`), false);
-      strictEqual(readdirSync(path.dirname(alternate)).some(name => name.startsWith('.dotmd-index-')), false);
+      strictEqual(readdirSync(path.dirname(alternate)).some(name => name.startsWith('.runlist-index-')), false);
     } finally {
       if (prior === undefined) delete process.env.GIT_INDEX_FILE;
       else process.env.GIT_INDEX_FILE = prior;
@@ -1443,7 +1443,7 @@ describe('atomic mutation substrate', () => {
           if (directory === outside && reason === 'publication') throw new Error('alternate index directory fsync failure');
         } },
       }), /alternate index directory fsync failure/);
-      const txRoot = path.join(root, '.dotmd', 'transactions');
+      const txRoot = path.join(root, '.runlist', 'transactions');
       const manifest = JSON.parse(readFileSync(path.join(txRoot, readdirSync(txRoot)[0], 'manifest.json'), 'utf8'));
       strictEqual(manifest.status, 'failed-manual');
     } finally {
@@ -1473,7 +1473,7 @@ describe('atomic mutation substrate', () => {
     ok(chmods > 1, 'the losing attempt was retried on a fresh generation');
     strictEqual(statSync(indexPath).mode & 0o7777, modes[(chmods - 1) % modes.length]);
     strictEqual(readFileSync(source, 'utf8'), 'old');
-    strictEqual(readdirSync(path.join(root, '.dotmd', 'transactions')).length, 0);
+    strictEqual(readdirSync(path.join(root, '.runlist', 'transactions')).length, 0);
   });
 
   it('fails closed when recovery selects a different inherited Git index', async () => {
@@ -1535,7 +1535,7 @@ describe('atomic mutation substrate', () => {
     await waitForFiles([ready]);
     proc.kill('SIGKILL');
     await done;
-    const txRoot = path.join(root, '.dotmd', 'transactions');
+    const txRoot = path.join(root, '.runlist', 'transactions');
     const manifestPath = path.join(txRoot, readdirSync(txRoot)[0], 'manifest.json');
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
     unlinkSync(manifest.gitIndex.prepared.path);
@@ -1617,7 +1617,7 @@ describe('atomic mutation substrate', () => {
       if (phase === 'transaction-cleanup-directory-delete') strictEqual(recovered.length, 0);
       else ok(['rolled-forward', 'cleanup-completed'].includes(recovered[0].result));
       strictEqual(readFileSync(target, 'utf8'), 'new');
-      const txRoot = path.join(root, '.dotmd', 'transactions');
+      const txRoot = path.join(root, '.runlist', 'transactions');
       strictEqual(existsSync(txRoot) ? readdirSync(txRoot).length : 0, 0);
       rmSync(root, { recursive: true, force: true });
       tmpDir = null;
@@ -1925,13 +1925,13 @@ describe('atomic lifecycle moves', () => {
       ok(result.repositoryFiles.includes('docs/plans/linked.md'));
       ok(!result.repositoryFiles.includes('docs/referrer.md'));
       strictEqual(readFileSync(referrer, 'utf8'), referrerContent, 'session-local prompt consumption skips durable inbound-reference repair');
-      ok(result.repositoryFiles.every(file => !file.startsWith('.dotmd/ownership/')));
-      ok(result.sessionFiles.some(file => file.startsWith('.dotmd/ownership/')));
+      ok(result.repositoryFiles.every(file => !file.startsWith('.runlist/ownership/')));
+      ok(result.sessionFiles.some(file => file.startsWith('.runlist/ownership/')));
       ok(result.sessionFiles.includes('docs/prompts/resume.md'));
       ok(result.sessionFiles.includes('docs/prompts/archived/resume.md'));
       strictEqual(result.generatedFiles.join(','), 'docs/docs.md');
       strictEqual(result.deferredGeneratedFiles.length, 0);
-      const existingOwnershipPath = path.join(root, result.sessionFiles.find(file => file.startsWith('.dotmd/ownership/')));
+      const existingOwnershipPath = path.join(root, result.sessionFiles.find(file => file.startsWith('.runlist/ownership/')));
       const existingOwnership = JSON.parse(readFileSync(existingOwnershipPath, 'utf8'));
       existingOwnership.state = 'released';
       existingOwnership.operation = null;
@@ -1941,8 +1941,8 @@ describe('atomic lifecycle moves', () => {
       const resumedPrompt = path.join(root, 'docs', 'prompts', 'resume-existing.md');
       writeFileSync(resumedPrompt, '---\ntype: prompt\nstatus: pending\nplan: docs/plans/linked.md\nupdated: 2026-01-02\n---\nresume existing\n');
       const resumed = await consumePrompt(resumedPrompt, config, { writeBody: async () => true });
-      ok(resumed.sessionFiles.some(file => file.startsWith('.dotmd/ownership/')), 'existing ownership update is session state');
-      ok(resumed.repositoryFiles.every(file => !file.startsWith('.dotmd/ownership/')), 'existing ownership update is never repository state');
+      ok(resumed.sessionFiles.some(file => file.startsWith('.runlist/ownership/')), 'existing ownership update is session state');
+      ok(resumed.repositoryFiles.every(file => !file.startsWith('.runlist/ownership/')), 'existing ownership update is never repository state');
     } finally {
       if (prior === undefined) delete process.env.DOTMD_SESSION_ID;
       else process.env.DOTMD_SESSION_ID = prior;

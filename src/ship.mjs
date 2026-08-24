@@ -20,6 +20,8 @@ const ALLOWLIST_PATTERNS = [
   /^plugins\//,
   /^\.claude-plugin\//,
   /^\.claude\/commands\//,
+  /^runlist\.config\.example\.mjs$/,
+  /^runlist\.config\.mjs$/,
   /^dotmd\.config\.example\.mjs$/,
   /^dotmd\.config\.mjs$/,
   /^package(?:-lock)?\.json$/,

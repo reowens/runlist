@@ -1,4 +1,4 @@
-// dotmd.config.mjs — document management configuration
+// runlist.config.mjs — document management configuration
 // All exports are optional. Omitted values use built-in defaults.
 // Place this file at the root of your project.
 
@@ -7,17 +7,17 @@
 // Directory containing your markdown docs (relative to this config file)
 export const root = 'docs';
 
-// Subdirectory for archived docs (used by `dotmd archive` and `dotmd status`)
+// Subdirectory for archived docs (used by `runlist archive` and `runlist status`)
 export const archiveDir = 'archived';
 
 // Directories to skip when scanning
 export const excludeDirs = ['evidence'];
 
-// Floor under the scan surface. `dotmd check` fails when it scans fewer docs than
+// Floor under the scan surface. `runlist check` fails when it scans fewer docs than
 // this, so a broken root or an over-eager exclude can't read as a clean estate —
 // zero errors and zero docs look identical otherwise. Off when unset. Set it well
 // below your real count (round down hard); raise it as the corpus grows.
-// Override for one run with `dotmd check --min-docs <n>`; skipped for path-scoped
+// Override for one run with `runlist check --min-docs <n>`; skipped for path-scoped
 // checks, which are deliberate subsets.
 // export const minDocs = 500;
 
@@ -44,7 +44,7 @@ export const excludeDirs = ['evidence'];
 // `terminal` and `quiet` are orthogonal. Mark a status `terminal` only when it represents closure
 // (excluded from active-work scope). Use `quiet` for noise suppression without closure semantics.
 //
-// Contradiction check (since 0.36.2): dotmd `warn()`s at config-load when a status combines
+// Contradiction check (since 0.36.2): runlist `warn()`s at config-load when a status combines
 // `skipStale: true` with a `staleDays` value (the number is silently ignored) or
 // `skipWarnings: true` with `requiresModule: true` (the module requirement can never fire).
 // The same check applies via the `quiet: true` sugar. Drop one of the conflicting fields to silence.
@@ -80,8 +80,8 @@ export const excludeDirs = ['evidence'];
 //     },
 //   },
 //   prompt: {
-//     // Saved prompts that seed future Claude sessions. `dotmd hud` surfaces
-//     // pending prompts on session start; `dotmd prompts next` claims the oldest.
+//     // Saved prompts that seed future Claude sessions. `runlist hud` surfaces
+//     // pending prompts on session start; `runlist prompts next` claims the oldest.
 //     statuses: {
 //       'pending':  { context: 'expanded', staleDays: 30 },
 //       'held':     { context: 'counted', quiet: true },   // saved but not next: hidden from hud/briefing, skipped by no-arg `use`
@@ -132,7 +132,7 @@ export const statuses = {
 // no `types` definition. With rich-form types, the runtime derives these from
 // per-status `terminal` / `archive` / `skipStale` / `skipWarnings` / `quiet`
 // flags. An explicit `lifecycle` export sitting alongside rich-form types will
-// SILENTLY OVERRIDE the per-status flags — `dotmd statuses` will warn you
+// SILENTLY OVERRIDE the per-status flags — `runlist statuses` will warn you
 // before writing into a config in that state.
 //
 // export const lifecycle = {
@@ -155,13 +155,13 @@ export const taxonomy = {
 // Index file generation — remove this section to disable
 export const index = {
   path: 'docs/docs.md',
-  startMarker: '<!-- GENERATED:dotmd:start -->',
-  endMarker: '<!-- GENERATED:dotmd:end -->',
+  startMarker: '<!-- GENERATED:runlist:start -->',
+  endMarker: '<!-- GENERATED:runlist:end -->',
   snapshot: 'status', // default; use 'state' to include live current_state text
   archivedLimit: 8,
 };
 
-// Context briefing layout (`dotmd context`)
+// Context briefing layout (`runlist context`)
 export const context = {
   expanded: ['active'],
   listed: ['ready', 'planned'],
@@ -170,7 +170,7 @@ export const context = {
   recentStatuses: ['active', 'ready', 'planned'],
   recentLimit: 10,
   truncateNextStep: 80,
-  // Cap on slugs shown in the "Stale: …" tail before "…and N more (run `dotmd stale`)"
+  // Cap on slugs shown in the "Stale: …" tail before "…and N more (run `runlist stale`)"
   // takes over (since 0.36.2). Raise on wide terminals; lower for tighter briefings.
   staleTailLimit: 8,
 };
@@ -198,13 +198,13 @@ export const presets = {
 };
 
 // ─── Templates ───────────────────────────────────────────────────────────────
-// Define new types or override builtins. `dotmd new <type> <name>` looks here first.
+// Define new types or override builtins. `runlist new <type> <name>` looks here first.
 //
 // Properties:
-//   description:    string — shown in `dotmd new --list-types`
+//   description:    string — shown in `runlist new --list-types`
 //   defaultStatus:  string — initial status if `--status` not passed
 //   acceptsBody:    boolean — allow body input (inline / --body / @file / piped stdin).
-//                   REQUIRED if you want `cat draft.md | dotmd new <type> <slug>` (or @path,
+//                   REQUIRED if you want `cat draft.md | runlist new <type> <slug>` (or @path,
 //                   --body, heredoc) to work. Your `body` fn must also interpolate the input,
 //                   e.g. `${ctx?.bodyInput?.trim() ?? ''}`. See the body-acceptance guard below.
 //   requiresBody:   boolean — error if no body input (implies acceptsBody; see `prompt` builtin)
@@ -221,13 +221,13 @@ export const presets = {
 //
 // Body-acceptance guard (the #1 custom-template gotcha):
 //   When you override a builtin and supply your OWN `body` fn that NEVER references
-//   `bodyInput`, dotmd assumes the fn would silently discard piped input — so it strips
+//   `bodyInput`, runlist assumes the fn would silently discard piped input — so it strips
 //   the inherited `acceptsBody`/`requiresBody` and rejects body input with a fail-fast
 //   error. Two ways to keep piped/@path/heredoc bodies working in a custom template:
 //     1. interpolate `${ctx?.bodyInput?.trim() ?? ''}` somewhere in your `body` fn, OR
 //     2. set `acceptsBody: true` explicitly (do BOTH if you want the input to actually land).
 //   A `body: (t) =>` that ignores `ctx` is the classic trap — it scaffolds fine but
-//   `dotmd new <type> <slug> < draft.md` errors until you wire in `bodyInput`.
+//   `runlist new <type> <slug> < draft.md` errors until you wire in `bodyInput`.
 //
 // Custom type example — adds a `spike` type that lives in the `spikes` root (or
 // under `docs/spikes/` in single-root layouts):

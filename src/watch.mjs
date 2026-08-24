@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { dim } from './color.mjs';
 
 export function watchCliPath(moduleUrl = import.meta.url) {
-  return path.resolve(path.dirname(fileURLToPath(moduleUrl)), '..', 'bin', 'dotmd.mjs');
+  return path.resolve(path.dirname(fileURLToPath(moduleUrl)), '..', 'bin', 'runlist.mjs');
 }
 
 export function runWatch(argv, config) {

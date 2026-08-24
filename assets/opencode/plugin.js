@@ -28,25 +28,30 @@ import { execFile } from 'node:child_process';
 const PRIMER_TTL_MS = 60_000;
 const PRIMER_TIMEOUT_MS = 5_000;
 
-function dotmdExecutable() {
-  return process.platform === 'win32' ? 'dotmd.cmd' : 'dotmd';
+function cliExecutables() {
+  return process.platform === 'win32' ? ['runlist.cmd', 'dotmd.cmd'] : ['runlist', 'dotmd'];
 }
 
 function runHud(directory) {
   return new Promise(resolve => {
     let settled = false;
     const done = value => { if (!settled) { settled = true; resolve(value); } };
-    try {
-      execFile(dotmdExecutable(), ['hud'], {
-        cwd: directory,
-        timeout: PRIMER_TIMEOUT_MS,
-        windowsHide: true,
-        env: { ...process.env, NO_COLOR: '1' },
-      }, (error, stdout) => done(error ? '' : (stdout ?? '').trim()));
-    } catch {
-      // `dotmd` not on PATH, spawn refused — no primer, no noise.
-      done('');
-    }
+    const candidates = cliExecutables();
+    const attempt = index => {
+      if (index >= candidates.length) { done(''); return; }
+      try {
+        execFile(candidates[index], ['hud'], {
+          cwd: directory,
+          timeout: PRIMER_TIMEOUT_MS,
+          windowsHide: true,
+          env: { ...process.env, NO_COLOR: '1' },
+        }, (error, stdout) => {
+          if (error?.code === 'ENOENT') attempt(index + 1);
+          else done(error ? '' : (stdout ?? '').trim());
+        });
+      } catch { attempt(index + 1); }
+    };
+    attempt(0);
   });
 }
 
@@ -76,10 +81,14 @@ export default async function dotmdOpencodePlugin({ directory }) {
     // available to a tool shell.
     'shell.env': async (input, output) => {
       try {
-        if (input?.sessionID) output.env.DOTMD_SESSION_ID = `opencode:${input.sessionID}`;
+        if (input?.sessionID) {
+          output.env.RUNLIST_SESSION_ID = `opencode:${input.sessionID}`;
+          output.env.DOTMD_SESSION_ID = `opencode:${input.sessionID}`;
+        }
         // The OpenCode server process hosts the session and outlives every tool
         // shell, so it is the process whose liveness answers "is this claim's
         // owner still there?" — `dotmd doctor --claims` probes exactly this.
+        output.env.RUNLIST_SESSION_PID = String(process.pid);
         output.env.DOTMD_SESSION_PID = String(process.pid);
       } catch { /* never break a shell over this */ }
     },

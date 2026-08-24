@@ -7,9 +7,9 @@ const COMMAND_WORDS = Object.freeze(Object.fromEntries(
 ));
 
 function bashCompletion() {
-  return `# dotmd bash completion
-# Add to ~/.bashrc: eval "$(dotmd completions bash)"
-_dotmd() {
+  return `# runlist bash completion
+# Add to ~/.bashrc: eval "$(runlist completions bash)"
+_runlist() {
   local cur cmd expect_value
   cur="\${COMP_WORDS[COMP_CWORD]}"
   cmd=""
@@ -39,13 +39,13 @@ ${Object.entries(COMMAND_WORDS).map(([command, words]) =>
     *) COMPREPLY=( $(compgen -W "${GLOBAL_FLAGS.join(' ')}" -- "$cur") ) ;;
   esac
 }
-complete -F _dotmd dotmd`;
+complete -F _runlist runlist dotmd`;
 }
 
 function zshCompletion() {
-  return `# dotmd zsh completion
-# Add to ~/.zshrc: eval "$(dotmd completions zsh)"
-_dotmd() {
+  return `# runlist zsh completion
+# Add to ~/.zshrc: eval "$(runlist completions zsh)"
+_runlist() {
   local -a commands global_flags
   commands=(
 ${COMPLETION_COMMANDS.map(command => `    '${command}'`).join('\n')}
@@ -81,12 +81,12 @@ ${Object.entries(COMMAND_WORDS).map(([command, words]) =>
 
   _describe 'flag' global_flags
 }
-compdef _dotmd dotmd`;
+compdef _runlist runlist dotmd`;
 }
 
 export function runCompletions(argv) {
   const shell = argv[0];
-  if (!shell) die('Usage: dotmd completions <bash|zsh>');
+  if (!shell) die('Usage: runlist completions <bash|zsh>');
   if (shell === 'bash') process.stdout.write(bashCompletion() + '\n');
   else if (shell === 'zsh') process.stdout.write(zshCompletion() + '\n');
   else die(`Unsupported shell: ${shell}\nSupported: bash, zsh`);

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { inspectGitCommandPaths } from './git.mjs';
 import { recordGuardEvent } from './journal.mjs';
+import { readEnv } from './naming.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
@@ -348,7 +349,7 @@ function evalEdit(input, config, deps = {}) {
 // Pure evaluation — `deps.isIgnored(path) -> bool` is injected so tests don't
 // need a real git tree. Returns null (no opinion) or a result object.
 export function evaluateGuard(payload, config, deps = {}) {
-  if (process.env.DOTMD_GUARD === '0') return null;
+  if (readEnv('GUARD') === '0') return null;
   if (!config?.configFound) return null;
   const tool = payload?.tool_name;
   const input = payload?.tool_input || {};

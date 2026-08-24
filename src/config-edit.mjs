@@ -1,5 +1,5 @@
 // Line-based, brace-aware editor for the `types.<typename>.statuses` block in
-// dotmd.config.mjs. Edits are scoped to single-line status entries; we refuse
+// runlist config. Edits are scoped to single-line status entries; we refuse
 // (with an actionable error) on multi-line entries, array form, or anything
 // outside our supported shape. Atomic write contract:
 //
@@ -16,6 +16,7 @@
 
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { ARTIFACT_PREFIX } from './naming.mjs';
 import { resolveConfig } from './config.mjs';
 import { commitRename } from './durable-rename.mjs';
 
@@ -229,7 +230,7 @@ function skipToNextProperty(content, start, end) {
 export function parseStatusesBlock(content, typeName) {
   const types = locateTypesBlock(content);
   if (!types) {
-    throw new ConfigEditError('Your dotmd.config.mjs does not define a `types` block — there is nothing for `dotmd statuses` to edit. Add a `types: {...}` export to opt in to per-project status taxonomy. See dotmd.config.example.mjs for the rich-form template.');
+    throw new ConfigEditError('Your runlist config does not define a `types` block — there is nothing for `runlist statuses` to edit. Add a `types: {...}` export to opt in to per-project status taxonomy. See runlist.config.example.mjs for the rich-form template.');
   }
   const typeProp = findChildProperty(content, types.start, types.end, typeName);
   if (!typeProp) {
@@ -529,7 +530,7 @@ export function replaceEntry(content, parsed, name, newLine) {
     throw new ConfigEditError(`Status '${name}' is not defined for this type.`);
   }
   if (target.multiLine) {
-    throw new ConfigEditError(`Status '${name}' spans multiple lines; this CLI only edits single-line entries. Edit dotmd.config.mjs by hand.`);
+    throw new ConfigEditError(`Status '${name}' spans multiple lines; this CLI only edits single-line entries. Edit the runlist config by hand.`);
   }
   return content.slice(0, target.lineStart) + newLine + content.slice(target.lineEnd);
 }
@@ -541,7 +542,7 @@ export function deleteEntry(content, parsed, name) {
     throw new ConfigEditError(`Status '${name}' is not defined for this type.`);
   }
   if (target.multiLine) {
-    throw new ConfigEditError(`Status '${name}' spans multiple lines; delete it by hand in dotmd.config.mjs.`);
+    throw new ConfigEditError(`Status '${name}' spans multiple lines; delete it by hand in the runlist config.`);
   }
   return content.slice(0, target.lineStart) + content.slice(target.lineEnd);
 }
@@ -565,7 +566,7 @@ export function inferIndent(content, parsed) {
 export async function writeConfigAtomic(configPath, newContent, cwd) {
   // Node only imports .mjs/.js/.cjs, so the temp must keep a JS extension.
   // Sibling file in the same dir → atomic renameSync within one filesystem.
-  const tmpPath = configPath.replace(/(\.[^.]+)$/, `.dotmd-edit-${process.pid}-${Date.now()}$1`);
+  const tmpPath = configPath.replace(/(\.[^.]+)$/, `${ARTIFACT_PREFIX}edit-${process.pid}-${Date.now()}$1`);
   writeFileSync(tmpPath, newContent, 'utf8');
 
   try {

@@ -42,6 +42,18 @@ describe('resolveConfig', () => {
     strictEqual(config.indexPath, null);
   });
 
+  it('prefers runlist config and still discovers a legacy dotmd config', async () => {
+    const legacy = path.join(tmpDir, 'dotmd.config.mjs');
+    writeFileSync(legacy, "export const root = 'legacy-docs';\n");
+    strictEqual((await resolveConfig(tmpDir)).configPath, legacy);
+
+    const current = path.join(tmpDir, 'runlist.config.mjs');
+    writeFileSync(current, "export const root = 'current-docs';\n");
+    const config = await resolveConfig(tmpDir);
+    strictEqual(config.configPath, current);
+    strictEqual(config.docsRoot, path.join(tmpDir, 'current-docs'));
+  });
+
   it('default plan vocabulary covers unstuck-action distinctions', async () => {
     const config = await resolveConfig(tmpDir);
     const planStatuses = config.typeStatuses.get('plan');

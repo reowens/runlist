@@ -1,5 +1,5 @@
 #!/bin/sh
-# dotmd plugin hook wrapper.
+# runlist compatibility plugin hook wrapper.
 #
 # The plugin's hooks drive the whole workflow through the PATH `dotmd` binary
 # (`dotmd hud`, `dotmd guard`). If a user enables the plugin but hasn't run
@@ -23,9 +23,13 @@ if [ "$1" = "--hint" ]; then
   shift
 fi
 
-if ! command -v dotmd >/dev/null 2>&1; then
+if command -v runlist >/dev/null 2>&1; then
+  CLI=runlist
+elif command -v dotmd >/dev/null 2>&1; then
+  CLI=dotmd
+else
   if [ "$hint" = "1" ]; then
-    echo "dotmd plugin: the \`dotmd\` CLI isn't installed, so its hooks are no-ops. Enable the workflow with: npm i -g dotmd-cli"
+    echo "runlist plugin: neither \`runlist\` nor \`dotmd\` is on PATH, so its hooks are no-ops. Enable the workflow with: npm i -g dotmd-cli"
   fi
   exit 0
 fi
@@ -46,7 +50,7 @@ if [ "$1" = "guard" ]; then
   # included. Always route those forms through the guard.
   case "$payload" in
     *git*add*|*git*stage*|*git*commit*)
-      printf '%s' "$payload" | dotmd "$@"
+      printf '%s' "$payload" | "$CLI" "$@"
       exit $?
       ;;
   esac
@@ -54,7 +58,7 @@ if [ "$1" = "guard" ]; then
     *.md*)
       case "$payload" in
         *prompts/*|*prompts\\*|*status*)
-          printf '%s' "$payload" | dotmd "$@"
+          printf '%s' "$payload" | "$CLI" "$@"
           exit $?
           ;;
       esac
@@ -64,4 +68,4 @@ if [ "$1" = "guard" ]; then
   exit 0
 fi
 
-exec dotmd "$@"
+exec "$CLI" "$@"

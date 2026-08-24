@@ -23,6 +23,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { captureGitIndexGeneration, gitIndexProvablyUnpublished, gitIndexPublicationRaced, reclaimPreparedGitIndex, restoreGitIndexCas, sameGitIndexGeneration, stageMovePathsCas } from './git.mjs';
 import { authorizeManagedDestination, authorizeManagedSource, authorizeRepoGeneratedPath } from './managed-path.mjs';
+import { ARTIFACT_PREFIX, LEGACY_ARTIFACT_PREFIX, LEGACY_STATE_DIR, STATE_DIR, isOwnedArtifact, stateDir } from './naming.mjs';
 import { commitRename } from './durable-rename.mjs';
 
 const sleepBuffer = new Int32Array(new SharedArrayBuffer(4));
@@ -85,7 +86,7 @@ export class MutationConflictError extends Error {
   constructor(message) {
     super(message);
     this.name = 'MutationConflictError';
-    this.code = 'DOTMD_MUTATION_CONFLICT';
+    this.code = 'RUNLIST_MUTATION_CONFLICT';
   }
 }
 
@@ -93,7 +94,7 @@ export class MutationLockError extends Error {
   constructor(message) {
     super(message);
     this.name = 'MutationLockError';
-    this.code = 'DOTMD_MUTATION_LOCK_TIMEOUT';
+    this.code = 'RUNLIST_MUTATION_LOCK_TIMEOUT';
   }
 }
 
@@ -117,7 +118,7 @@ function safeGeneratedPath(filePath, repoRoot, options, kind) {
 }
 
 function transactionRoot(repoRoot, options = {}) {
-  return safeGeneratedPath(path.join(path.resolve(repoRoot), '.dotmd', 'transactions'), repoRoot, options, 'Transaction root');
+  return safeGeneratedPath(path.join(stateDir(repoRoot), 'transactions'), repoRoot, options, 'Transaction root');
 }
 
 function durableJson(filePath, value, options = {}) {
@@ -237,7 +238,7 @@ function validatePreparedGitIndex(prepared, label, directory) {
   }
   validateGitSnapshot(prepared.generation, `${label}.generation`);
   validateTransactionArtifact(prepared.path, directory, label);
-  if (path.dirname(prepared.tempPath) !== path.dirname(prepared.generation.indexPath) || !path.basename(prepared.tempPath).startsWith('.dotmd-index-')) {
+  if (path.dirname(prepared.tempPath) !== path.dirname(prepared.generation.indexPath) || !isOwnedArtifact(path.basename(prepared.tempPath), 'index')) {
     throw new MutationConflictError(`Unsafe prepared Git index path in ${label}.`);
   }
   if ((prepared.generation.exists && (prepared.hash !== prepared.generation.hash || prepared.size !== prepared.generation.size))
@@ -289,7 +290,7 @@ function validateParticipantPath(participant, repoRoot, options, label) {
     throw new MutationConflictError(`Invalid transaction participant ${label}.`);
   }
   const txRoot = transactionRoot(repoRoot, options);
-  const lockRoot = safeGeneratedPath(path.join(repoRoot, '.dotmd', 'locks'), repoRoot, options, 'Lock root');
+  const lockRoot = safeGeneratedPath(path.join(stateDir(repoRoot), 'locks'), repoRoot, options, 'Lock root');
   if (contained(txRoot, participant.path) || contained(lockRoot, participant.path)) {
     throw new MutationConflictError(`Transaction participant targets transaction/lock state: ${participant.path}`);
   }
@@ -299,7 +300,7 @@ function validateParticipantPath(participant, repoRoot, options, label) {
   } else {
     const authorized = safeGeneratedPath(participant.path, repoRoot, options, 'Transaction generated participant');
     if (options.config) {
-      const ownershipRoot = path.join(path.resolve(repoRoot), '.dotmd', 'ownership');
+      const ownershipRoot = path.join(stateDir(repoRoot), 'ownership');
       if (!contained(ownershipRoot, authorized)) throw new MutationConflictError(`Generated transaction participant is outside session ownership state: ${participant.path}`);
       if (participant.label !== 'ownership') throw new MutationConflictError(`Session-generated participant must be classified as ownership: ${participant.path}`);
     }
@@ -349,8 +350,9 @@ function validateManifest(manifest, manifestPath, directory, repoRoot, options) 
     if (!participant || !contained(createdDirectory.path, participant.path) || createdDirectory.path === participant.path) {
       throw new MutationConflictError(`Transaction-created directory is not bound to a destination participant: ${createdDirectory.path}`);
     }
-    const expectedMarker = path.join(createdDirectory.path, `.dotmd-transaction-${manifest.id}`);
-    if (createdDirectory.marker !== expectedMarker || createdDirectory.token !== manifest.directoryToken) {
+    const expectedMarkers = [ARTIFACT_PREFIX, LEGACY_ARTIFACT_PREFIX]
+      .map(prefix => path.join(createdDirectory.path, `${prefix}transaction-${manifest.id}`));
+    if (!expectedMarkers.includes(createdDirectory.marker) || createdDirectory.token !== manifest.directoryToken) {
       throw new MutationConflictError(`Transaction-created directory marker binding mismatch: ${createdDirectory.path}`);
     }
     if (!['intended', 'created', 'removing', 'removed'].includes(createdDirectory.markerState)) throw new MutationConflictError(`Invalid transaction directory marker state: ${createdDirectory.path}`);
@@ -358,7 +360,7 @@ function validateManifest(manifest, manifestPath, directory, repoRoot, options) 
       throw new MutationConflictError(`Invalid transaction-created directory identity: ${createdDirectory.path}`);
     }
     if (createdDirectory.markerState !== 'intended' && createdDirectory.identity === null) throw new MutationConflictError(`Transaction-created directory state lacks an identity: ${createdDirectory.path}`);
-    if (participant.policy === 'managed' && options.config) authorizeManagedDestination(path.join(createdDirectory.path, '.dotmd-directory-check.md'), options.config, { kind: 'Transaction-created directory' });
+    if (participant.policy === 'managed' && options.config) authorizeManagedDestination(path.join(createdDirectory.path, `${ARTIFACT_PREFIX}directory-check.md`), options.config, { kind: 'Transaction-created directory' });
     else safeGeneratedPath(createdDirectory.path, repoRoot, options, 'Transaction-created directory');
   }
   const createdPaths = new Set(manifest.createdDirectories.map(item => item.path));
@@ -752,7 +754,7 @@ function ensureTransactionDirectory(directory, transaction, options, participant
     const intent = {
       path: item,
       participantPath: path.resolve(participantPath),
-      marker: path.join(item, `.dotmd-transaction-${transaction.manifest.id}`),
+      marker: path.join(item, `${ARTIFACT_PREFIX}transaction-${transaction.manifest.id}`),
       token: transaction.manifest.directoryToken,
       markerState: 'intended',
       identity: null,
@@ -850,9 +852,9 @@ function setMoveManifestPhase(transaction, phase, options, detail = null) {
 }
 
 function companionPhase(item, fallback) {
-  return item.label === 'ownership' || item.path.includes(`${path.sep}.dotmd${path.sep}ownership${path.sep}`)
-    ? 'ownership-publication'
-    : fallback;
+  const ownershipPath = [STATE_DIR, LEGACY_STATE_DIR]
+    .some(dir => item.path.includes(`${path.sep}${dir}${path.sep}ownership${path.sep}`));
+  return item.label === 'ownership' || ownershipPath ? 'ownership-publication' : fallback;
 }
 
 function statIdentity(stat) {
@@ -919,7 +921,7 @@ function canonicalPath(filePath) {
 
 function lockPathFor(canonical, repoRoot) {
   const key = createHash('sha256').update(canonical).digest('hex');
-  return path.join(path.resolve(repoRoot), '.dotmd', 'locks', `${key}.lock`);
+  return path.join(stateDir(repoRoot), 'locks', `${key}.lock`);
 }
 
 function ownerDescription(lockPath) {
@@ -978,7 +980,7 @@ export function withPathLocks(filePaths, options, callback) {
   const { repoRoot, timeoutMs = MUTATION_LOCK_TIMEOUT_MS, retryMs = 20 } = options;
   if (!repoRoot) throw new Error('withPathLocks requires repoRoot.');
   const canonicals = [...new Set(filePaths.map(canonicalPath))].sort();
-  const lockRoot = safeGeneratedPath(path.join(path.resolve(repoRoot), '.dotmd', 'locks'), repoRoot, options, 'Lock root');
+  const lockRoot = safeGeneratedPath(path.join(stateDir(repoRoot), 'locks'), repoRoot, options, 'Lock root');
   ensureDirectoryDurable(lockRoot, options, 'lock-root-create');
   const acquired = [];
   const deadline = Date.now() + timeoutMs;
@@ -1059,7 +1061,7 @@ export function withPathLocks(filePaths, options, callback) {
 
 function tempPathFor(filePath) {
   const base = path.basename(filePath);
-  return path.join(path.dirname(filePath), `.${base}.dotmd-tmp-${process.pid}-${Date.now()}-${tempSequence++}`);
+  return path.join(path.dirname(filePath), `.${base}${ARTIFACT_PREFIX}tmp-${process.pid}-${Date.now()}-${tempSequence++}`);
 }
 
 function fsyncDirectory(dirPath, options = {}, phase = 'directory') {
@@ -1110,7 +1112,7 @@ function committedGeneration(prepared, finalPath) {
 }
 
 function recoveryArtifact(filePath, content, mode, label) {
-  const artifact = path.join(path.dirname(filePath), `.${path.basename(filePath)}.dotmd-recovery-${label}-${randomUUID()}`);
+  const artifact = path.join(path.dirname(filePath), `.${path.basename(filePath)}${ARTIFACT_PREFIX}recovery-${label}-${randomUUID()}`);
   const temp = writeCompleteTemp(artifact, content, mode);
   renameSync(temp.path, artifact);
   fsyncDirectory(path.dirname(artifact));

@@ -16,6 +16,7 @@ import {
   readPlanOwnership,
 } from './pickup.mjs';
 import { actionablePromptStatuses, comparePromptDocs } from './status-metadata.mjs';
+import { LEGACY_STATE_DIR, STATE_DIR } from './naming.mjs';
 
 // `resume` is an alias for `use` — agents reach for "resume" when continuing a
 // session; `use` reads as internal mechanics. Both names stay valid; the
@@ -330,8 +331,10 @@ export async function consumePrompt(filePath, config, opts) {
     ...(linkedClaim?.planChanged ? [linkedClaim.repoPath] : []),
     ...(archiveResult?.referencePaths ?? []),
   ].filter(Boolean).map(normalize);
-  const ownershipResultPaths = resultPaths.filter(candidate => candidate.startsWith('.dotmd/ownership/'));
-  const repositoryFiles = [...new Set(resultPaths.filter(candidate => !candidate.startsWith('.dotmd/ownership/')))];
+  const isOwnershipPath = candidate => [STATE_DIR, LEGACY_STATE_DIR]
+    .some(dir => candidate.startsWith(`${dir}/ownership/`));
+  const ownershipResultPaths = resultPaths.filter(isOwnershipPath);
+  const repositoryFiles = [...new Set(resultPaths.filter(candidate => !isOwnershipPath(candidate)))];
   const sessionFiles = [...new Set([
     repoPath,
     consumedPath,
