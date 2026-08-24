@@ -102,7 +102,9 @@ export function fixBrokenRefs(config, opts = {}) {
 
   for (const doc of index.docs) {
     const brokenBodyWarnings = doc.warnings.filter(w =>
-      w.message.startsWith('body link') && w.message.includes('does not resolve')
+      w.meta?.kind === 'body-link-resolution'
+        && w.meta?.targetKind === 'document'
+        && w.meta?.reason === 'missing'
     );
     if (!brokenBodyWarnings.length) continue;
 
@@ -112,12 +114,14 @@ export function fixBrokenRefs(config, opts = {}) {
     let newBody = body;
     const docDir = path.dirname(absPath);
     const bodyFixes = [];
+    const seenBodyTargets = new Set();
 
     for (const warn of brokenBodyWarnings) {
-      const match = warn.message.match(/body link `([^`]+)` does not resolve/);
-      if (!match) continue;
-
-      const brokenHref = match[1];
+      const brokenHref = warn.meta.relPath;
+      const rawHref = warn.meta.rawHref ?? brokenHref;
+      const targetKey = `${warn.meta.angle ? 'angle' : 'plain'}:${rawHref}`;
+      if (seenBodyTargets.has(targetKey)) continue;
+      seenBodyTargets.add(targetKey);
       const brokenBasename = path.basename(brokenHref);
 
       if (duplicateBasenames.has(brokenBasename)) continue;
@@ -127,14 +131,21 @@ export function fixBrokenRefs(config, opts = {}) {
       const correctHref = path.relative(docDir, resolved).split(path.sep).join('/');
       if (correctHref === brokenHref) continue;
 
+      const suffixAt = rawHref.search(/[?#]/);
+      const suffix = suffixAt === -1 ? '' : rawHref.slice(suffixAt);
+      const renderedHref = warn.meta.angle
+        ? `<${correctHref}${suffix}>`
+        : `${correctHref.replace(/([\s()[\]<>])/g, '\\$1')}${suffix}`;
       const linkRegex = new RegExp(
-        '(?<!!)\\[([^\\]]+)\\]\\(' + escapeRegex(brokenHref) + '(#[^)]*)?\\)',
+        '(\\]\\(\\s*)' + (warn.meta.angle ? '<' : '') + escapeRegex(rawHref) + (warn.meta.angle ? '>' : '') + '(?=\\s|\\))',
         'g'
       );
-      newBody = newBody.replace(linkRegex, (_, text, anchor) =>
-        `[${text}](${correctHref}${anchor ?? ''})`
-      );
-      bodyFixes.push({ brokenHref, correctHref });
+      let replacements = 0;
+      newBody = newBody.replace(linkRegex, (_, prefix) => {
+        replacements++;
+        return `${prefix}${renderedHref}`;
+      });
+      for (let i = 0; i < replacements; i++) bodyFixes.push({ brokenHref, correctHref });
     }
 
     if (bodyFixes.length > 0 && newBody !== body) {

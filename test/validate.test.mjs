@@ -1,6 +1,6 @@
 import { describe, it, afterEach } from 'node:test';
 import { strictEqual, ok, deepStrictEqual } from 'node:assert';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, symlinkSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -98,6 +98,62 @@ describe('body link validation', () => {
     const result = run(['check', '--verbose']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(!result.stdout.includes('body link'), 'no body link warning for valid link');
+  });
+
+  it('validates existing files and directories outside the docs root but inside the repo', () => {
+    const docsDir = setupProject();
+    mkdirSync(path.join(tmpDir, 'assets'));
+    writeFileSync(path.join(tmpDir, 'assets', 'my file.png'), 'image');
+    writeFileSync(path.join(docsDir, 'a.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\n---\n# A\n\n[asset](<../assets/my file.png?raw=1#preview>) [folder](../assets/)\n');
+
+    const result = run(['check', '--json']);
+    const json = JSON.parse(result.stdout);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(!json.warnings.some(issue => issue.meta?.kind === 'body-link-resolution'));
+  });
+
+  it('reports missing non-document targets as manual file findings', () => {
+    const docsDir = setupProject();
+    writeFileSync(path.join(docsDir, 'a.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\n---\n# A\n\n[asset](../assets/missing.png)\n');
+
+    const result = run(['check', '--json']);
+    const json = JSON.parse(result.stdout);
+    const issue = json.warnings.find(entry => entry.meta?.kind === 'body-link-resolution');
+    strictEqual(result.status, 0);
+    strictEqual(issue?.meta?.targetKind, 'file');
+    strictEqual(issue?.meta?.reason, 'missing');
+  });
+
+  it('does not use the frontmatter repo-root fallback for Markdown links', () => {
+    const docsDir = setupProject();
+    writeFileSync(path.join(tmpDir, 'target.md'), '# Wrong fallback target\n');
+    writeFileSync(path.join(docsDir, 'a.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\n---\n# A\n\n[target](target.md)\n');
+
+    const result = run(['check', '--json']);
+    const json = JSON.parse(result.stdout);
+    ok(json.warnings.some(issue => issue.meta?.kind === 'body-link-resolution'));
+  });
+
+  it('rejects lexical and symlink escapes from the repository', () => {
+    const docsDir = setupProject();
+    const outside = mkdtempSync(path.join(os.tmpdir(), 'dotmd-outside-'));
+    try {
+      writeFileSync(path.join(outside, 'secret.txt'), 'secret');
+      symlinkSync(path.join(outside, 'secret.txt'), path.join(docsDir, 'linked-secret.txt'));
+      writeFileSync(path.join(docsDir, 'a.md'),
+        '---\nstatus: active\nupdated: 2025-01-01\n---\n# A\n\n[lexical](../../secret.txt) [symlink](linked-secret.txt)\n');
+
+      const result = run(['check', '--json']);
+      const json = JSON.parse(result.stdout);
+      const escapes = json.warnings.filter(issue => issue.meta?.reason === 'outside-repo');
+      strictEqual(escapes.length, 2);
+      ok(escapes.every(issue => issue.message.includes('escapes the repository')));
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 
   it('skips links inside fenced code blocks', () => {
@@ -328,15 +384,15 @@ describe('reference path resolution', () => {
       `repo-root-relative path should resolve. stdout: ${result.stdout}`);
   });
 
-  it('accepts repo-root-relative paths in body links', () => {
+  it('rejects repo-root-relative paths in body links when they are not document-relative', () => {
     const root = setupRefProject();
     writeFileSync(path.join(root, 'docs', 'plans', 'a.md'),
       '---\nstatus: active\nupdated: 2025-01-01\n---\n# A\n\nSee [catalog](docs/modules/catalog/catalog.md).\n');
     writeFileSync(path.join(root, 'docs', 'modules', 'catalog', 'catalog.md'),
       '---\nstatus: active\nupdated: 2025-01-01\n---\n# Catalog\n');
     const result = run(['check', '--verbose']);
-    ok(!result.stdout.includes('body link'),
-      `repo-root-relative body link should resolve. stdout: ${result.stdout}`);
+    ok(result.stdout.includes('body link'),
+      `Markdown paths must resolve from their containing document. stdout: ${result.stdout}`);
   });
 
   it('still flags genuinely missing reference targets', () => {

@@ -1,9 +1,10 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, normalizeEol } from './frontmatter.mjs';
-import { die, isArchivedPath, resolveRefPath, toRepoPath } from './util.mjs';
+import { die, isArchivedPath, toRepoPath } from './util.mjs';
 import { cyan, dim, green, red, yellow } from './color.mjs';
 import { authorizeManagedSweep } from './managed-path.mjs';
+import { resolveBodyLinkTarget } from './body-link.mjs';
 import {
   MARKER_CLOSE,
   MARKER_OPEN,
@@ -21,8 +22,8 @@ import {
 // dotmd already reads those rows to compute next-pickup, so the guard is
 // standing next to the data it needs. Everything it needs is already owned:
 // `config.types[<type>].statuses` for the vocabulary (type-aware, so a `doc`
-// rowed in a plan hub is judged by the doc vocabulary), `resolveRefPath` for
-// the link (case-fold-aware), the index for the child's real status, and
+// rowed in a plan hub is judged by the doc vocabulary), the strict Markdown
+// body-link resolver, the index for the child's real status, and
 // archive-dir-outranks-frontmatter for archived children.
 //
 // The three-way split below is the part that is easy to get wrong. A row with
@@ -79,7 +80,7 @@ function truncate(text, max = 60) {
 // for that hub by name, so the noise-control rule doesn't apply).
 export function collectHubStatusRows(docs, config, { hubPaths = null } = {}) {
   const docByPath = new Map(docs.map(doc => [doc.path, doc]));
-  // `resolveRefPath` is case-fold-aware, so on a case-folding filesystem a row
+  // The filesystem resolver is case-fold-aware, so on a case-folding filesystem a row
   // linking `BILLING-A.md` resolves to the file that is indexed as
   // `billing-a.md` — a path string the exact map can't answer. Fold as a
   // fallback, and only when the fold is unambiguous: on a case-SENSITIVE
@@ -91,7 +92,8 @@ export function collectHubStatusRows(docs, config, { hubPaths = null } = {}) {
   }
   // Per-doc: warning suppression is type-scoped, so a status name quiet for one
   // type stays loud for another that declared the same name.
-  const quiet = (d) => config.lifecycle?.terminalStatuses?.has(d.status)
+  const quiet = (d) => (config.lifecycle?.isTerminal?.(d.status, d.type)
+      ?? config.lifecycle?.terminalStatuses?.has(d.status))
     || config.lifecycle?.skipsWarnings(d.status, d.type);
   const out = [];
 
@@ -108,11 +110,11 @@ export function collectHubStatusRows(docs, config, { hubPaths = null } = {}) {
     const rows = [];
     for (const row of scanHubStatusRows(body)) {
       const href = row.ref.replace(/#.*$/, '');
-      const abs = resolveRefPath(href, hubDir, config.repoRoot);
+      const resolution = resolveBodyLinkTarget(href, hubDir, config.repoRoot);
       // A row whose link is broken is already a body-link finding. Reporting it
       // again as unreadable status would double-report one problem.
-      if (!abs) continue;
-      const repoPath = toRepoPath(abs, config.repoRoot);
+      if (!resolution.ok) continue;
+      const repoPath = toRepoPath(resolution.path, config.repoRoot);
       const target = docByPath.get(repoPath) ?? docByFoldedPath.get(repoPath.toLowerCase()) ?? null;
       if (!target || target.path === hub.path) continue;
       const actual = effectiveStatus(target, config);

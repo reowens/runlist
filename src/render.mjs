@@ -454,7 +454,13 @@ export function classifyIssueAction(issue) {
   if (/`modules` is required/.test(message)) {
     return { action: `edit ${file} modules: or run dotmd lint --fix if scaffolded empty`, fixable: false, label: 'module metadata' };
   }
-  if (/entry `.*` does not resolve|body link `.*` does not resolve/.test(message)) {
+  if (issue?.meta?.kind === 'body-link-resolution') {
+    if (issue.meta.targetKind === 'document' && issue.meta.reason === 'missing') {
+      return { action: 'dotmd fix-refs --dry-run', fixable: true, label: 'document links' };
+    }
+    return { action: `edit ${file}: correct the linked file, asset, or directory`, fixable: false, label: 'file links' };
+  }
+  if (/entry `.*` does not resolve/.test(message)) {
     return { action: 'dotmd fix-refs --dry-run', fixable: true, label: 'references' };
   }
 

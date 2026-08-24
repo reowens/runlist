@@ -139,9 +139,11 @@ describe('extractBodyLinks', () => {
   });
 
   it('strips anchor fragments from href', () => {
-    const body = 'See [section](doc.md#heading).';
+    const body = 'See [section](doc.md?view=full#heading).';
     const links = extractBodyLinks(body);
     strictEqual(links[0].href, 'doc.md');
+    strictEqual(links[0].rawHref, 'doc.md?view=full#heading');
+    strictEqual(links[0].targetKind, 'document');
   });
 
   it('extracts a link whose text is a code span', () => {
@@ -192,10 +194,31 @@ describe('extractBodyLinks', () => {
     strictEqual(links.length, 0);
   });
 
-  it('skips non-.md links', () => {
-    const body = '[pic](image.png) and [pdf](doc.pdf)';
+  it('extracts non-document files and directories as manual targets', () => {
+    const body = '[pic](image.png) and [source](../src/index.mjs) and [folder](../assets/)';
     const links = extractBodyLinks(body);
-    strictEqual(links.length, 0);
+    strictEqual(links.length, 3);
+    deepStrictEqual(links.map(link => link.targetKind), ['file', 'file', 'file']);
+  });
+
+  it('supports escaped and angle-bracket destinations with spaces', () => {
+    const body = '[one](my\\ file.md) and [two](<assets/my file.png> "asset") and [three](encoded%20file.md)';
+    const links = extractBodyLinks(body);
+    deepStrictEqual(links.map(link => link.href), ['my file.md', 'assets/my file.png', 'encoded file.md']);
+    deepStrictEqual(links.map(link => link.angle), [false, true, false]);
+  });
+
+  it('skips renderer-only and external destination forms', () => {
+    const body = [
+      '[anchor](#part)', '[root](/site/path)', '[host](//example.com/x)',
+      '[mail](mailto:a@example.com)', '[phone](tel:123)', '[data](data:text/plain,x)',
+      '[custom](app:item)',
+    ].join(' ');
+    strictEqual(extractBodyLinks(body).length, 0);
+  });
+
+  it('documents unsupported nested-parenthesis destinations by ignoring them', () => {
+    strictEqual(extractBodyLinks('[x](folder/name(1).md)').length, 0);
   });
 
   it('skips links inside fenced code blocks', () => {

@@ -3,6 +3,7 @@ import { asString, resolveRefPath, suggestCandidates } from './util.mjs';
 import { getGitLastModified, getGitLastModifiedBatch, getGitLastSubstantiveModifiedBatch } from './git.mjs';
 import { toRepoPath } from './util.mjs';
 import { detectMarker, isPhaseHeading, phaseMarkerConflict, walkSections } from './section.mjs';
+import { resolveBodyLinkTarget } from './body-link.mjs';
 
 const NOW = new Date();
 
@@ -277,12 +278,24 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
 
     // Validate body links resolve to existing files
     for (const link of (doc.bodyLinks || [])) {
-      if (!resolveRefPath(link.href, docDir, config.repoRoot)) {
+      const resolution = resolveBodyLinkTarget(link.href, docDir, config.repoRoot);
+      if (!resolution.ok) {
+        const shownHref = link.rawHref ?? link.href;
         doc.warnings.push({
           path: doc.path,
           level: 'warning',
-          message: `body link \`${link.href}\` does not resolve to an existing file.`,
-          meta: { kind: 'ref-resolution', field: 'body-link', relPath: link.href },
+          message: resolution.reason === 'outside-repo'
+            ? `body link \`${shownHref}\` escapes the repository.`
+            : `body link \`${shownHref}\` does not resolve to an existing file or directory.`,
+          meta: {
+            kind: 'body-link-resolution',
+            field: 'body-link',
+            relPath: link.href,
+            rawHref: shownHref,
+            targetKind: link.targetKind ?? 'document',
+            angle: link.angle === true,
+            reason: resolution.reason,
+          },
         });
       }
     }
@@ -326,7 +339,9 @@ function candidatePathsForType(docs, type) {
 // name implies one (e.g. `related_plans` → plans only).
 export function enrichRefErrorSuggestions(docs, config) {
   const enrich = (entry) => {
-    if (!entry?.meta || entry.meta.kind !== 'ref-resolution') return;
+    if (!entry?.meta || !['ref-resolution', 'body-link-resolution'].includes(entry.meta.kind)) return;
+    if (entry.meta.kind === 'body-link-resolution'
+      && (entry.meta.targetKind !== 'document' || entry.meta.reason !== 'missing')) return;
     if (entry._suggested) return;
     const inferred = inferRefFieldType(entry.meta.field);
     const candidates = candidatePathsForType(docs, inferred);

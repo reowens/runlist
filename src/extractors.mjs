@@ -53,16 +53,28 @@ export function extractBodyLinks(body) {
     .replace(/^```[\s\S]*?^```/gm, '')
     .replace(/`[^`]+`/g, match => 'x'.repeat(match.length));
   const links = [];
-  // Match [text](path.md) or [text](path.md#anchor), skip images (preceded by !)
-  const regex = /(?<!!)\[([^\]]+)\]\(([^)]+\.md(?:#[^)]*)?)\)/g;
+  // Supported inline destinations are a whitespace-free token (with Markdown
+  // backslash escapes) or an angle-bracket destination, plus an optional
+  // quoted/parenthesized title. Reference links, HTML links, and nested
+  // unescaped parentheses remain deliberately outside this lightweight parser.
+  const regex = /(?<!!)\[([^\]\n]+)\]\(\s*(<[^>\n]+>|(?:\\.|[^\s()])+)(?:\s+(?:"[^"\n]*"|'[^'\n]*'|\([^\n)]*\)))?\s*\)/g;
   let match;
   while ((match = regex.exec(stripped)) !== null) {
-    const href = match[2];
-    // Skip external URLs
-    if (/^https?:\/\//i.test(href)) continue;
-    // Strip anchor fragment for path resolution
-    const cleanHref = href.replace(/#.*$/, '');
-    links.push({ text: match[1], href: cleanHref });
+    const destination = match[2];
+    const angle = destination.startsWith('<') && destination.endsWith('>');
+    const rawHref = angle ? destination.slice(1, -1) : destination;
+    // These destinations are meaningful to a renderer or another application,
+    // not portable repo-local filesystem targets.
+    if (/^(?:#|\/|[a-z][a-z\d+.-]*:)/i.test(rawHref)) continue;
+
+    const rawPath = rawHref.replace(/[?#].*$/, '');
+    if (!rawPath) continue;
+    const unescaped = rawPath.replace(/\\([\s()[\]<>])/g, '$1');
+    let href;
+    try { href = decodeURIComponent(unescaped); }
+    catch { href = unescaped; }
+    const targetKind = /\.md$/i.test(href) ? 'document' : 'file';
+    links.push({ text: match[1], rawHref, href, targetKind, angle });
   }
   return links;
 }

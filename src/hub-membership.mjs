@@ -3,6 +3,7 @@ import path from 'node:path';
 import { extractFrontmatter } from './frontmatter.mjs';
 import { resolveRefPath, toRepoPath } from './util.mjs';
 import { detectBodyRunlistRefs, isHubDoc } from './hub.mjs';
+import { resolveBodyLinkTarget } from './body-link.mjs';
 
 // Membership drift: a hub's list of children and the plans that claim it via
 // `parent_plan:` are two halves of one relationship, and either half can go
@@ -41,7 +42,8 @@ export function checkHubMembershipDrift(docs, config) {
   const warnings = [];
   // Per-doc: warning suppression is type-scoped, so a status name quiet for one
   // type stays loud for another that declared the same name.
-  const quiet = (d) => config.lifecycle?.terminalStatuses?.has(d.status)
+  const quiet = (d) => (config.lifecycle?.isTerminal?.(d.status, d.type)
+      ?? config.lifecycle?.terminalStatuses?.has(d.status))
     || config.lifecycle?.skipsWarnings(d.status, d.type);
   const byPath = new Map(docs.map(doc => [doc.path, doc]));
   const refFields = [
@@ -53,6 +55,11 @@ export function checkHubMembershipDrift(docs, config) {
   const resolve = (ref, dir) => {
     const abs = resolveRefPath(String(ref).replace(/#.*$/, ''), dir, config.repoRoot);
     return abs ? byPath.get(toRepoPath(abs, config.repoRoot)) ?? null : null;
+  };
+  const resolveBody = (link, dir) => {
+    if (link.targetKind && link.targetKind !== 'document') return null;
+    const result = resolveBodyLinkTarget(link.href, dir, config.repoRoot);
+    return result.ok ? byPath.get(toRepoPath(result.path, config.repoRoot)) ?? null : null;
   };
 
   // Everything a hub says about other docs: every configured reference field
@@ -68,7 +75,7 @@ export function checkHubMembershipDrift(docs, config) {
       }
     }
     for (const link of (hub.bodyLinks ?? [])) {
-      const target = resolve(link.href, dir);
+      const target = resolveBody(link, dir);
       if (target) known.add(target.path);
     }
     return known;

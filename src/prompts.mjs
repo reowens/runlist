@@ -118,7 +118,7 @@ function findPromptTarget(promptDoc, config) {
   }
 
   const links = promptDoc.bodyLinks ?? [];
-  const mdLink = links.find(l => /\.md(?:#|$)/.test(l.href ?? ''));
+  const mdLink = links.find(l => l.targetKind === 'document');
   if (mdLink) return resolveBodyLink(mdLink.href, promptDoc.path);
   return null;
 }

@@ -113,6 +113,32 @@ describe('fix-refs command', () => {
     ok(content.includes('[section](archived/b.md#details)'), 'anchor preserved');
   });
 
+  it('preserves query/fragment suffixes and angle destination shape', () => {
+    const docsDir = setupProject();
+    writeFileSync(path.join(docsDir, 'a.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\n---\n# A\n\nSee [section](<b.md?raw=1#details> "title") here.\n');
+    writeFileSync(path.join(docsDir, 'archived', 'b.md'),
+      '---\nstatus: archived\n---\n# B\n');
+
+    run(['fix-refs']);
+    const content = readFileSync(path.join(docsDir, 'a.md'), 'utf8');
+    ok(content.includes('[section](<archived/b.md?raw=1#details> "title")'), 'suffix and angle brackets preserved');
+  });
+
+  it('never auto-fixes broken file or asset targets', () => {
+    const docsDir = setupProject();
+    writeFileSync(path.join(docsDir, 'a.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\n---\n# A\n\n[asset](b.png)\n');
+    writeFileSync(path.join(docsDir, 'archived', 'b.md'),
+      '---\nstatus: archived\n---\n# B\n');
+
+    const before = readFileSync(path.join(docsDir, 'a.md'), 'utf8');
+    const result = run(['fix-refs']);
+    strictEqual(result.status, 0, result.stderr);
+    strictEqual(readFileSync(path.join(docsDir, 'a.md'), 'utf8'), before);
+    ok(!result.stdout.includes('body link'), 'manual file finding is not advertised as fixed');
+  });
+
   it('dry-run does not modify body links', () => {
     const docsDir = setupProject();
     writeFileSync(path.join(docsDir, 'a.md'),

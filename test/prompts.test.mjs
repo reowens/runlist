@@ -96,7 +96,7 @@ describe('dotmd prompts list', () => {
 
   it('`prompts list --verbose` falls back to first body markdown link', () => {
     const file = path.join(promptsDir, 'resume-bar.md');
-    writeFileSync(file, `---\ntype: prompt\nstatus: pending\ncreated: 2025-01-01\n---\nContinue [bar plan](../plans/bar-plan.md) where we left off.\n`);
+    writeFileSync(file, `---\ntype: prompt\nstatus: pending\ncreated: 2025-01-01\n---\nRead [notes](../assets/notes.txt), then continue [bar plan](../plans/bar-plan.md) where we left off.\n`);
     spawnSync('git', ['add', file], { cwd: tmpDir });
     spawnSync('git', ['commit', '-qm', 'add resume-bar'], { cwd: tmpDir });
     const r = run(['prompts', 'list', '--verbose']);

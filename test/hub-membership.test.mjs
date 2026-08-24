@@ -84,6 +84,16 @@ describe('a claim only the child makes', () => {
     deepStrictEqual(kinds(await warnings(), 'hub-membership-orphan'), []);
   });
 
+  it('does not treat a non-document body link as hub membership', async () => {
+    const plans = setupProject();
+    const hubPath = hub(plans, 'auth-runlist.md', '# Auth\n\nSee [the extract](auth-a.txt) for context.\n');
+    plan(plans, 'auth-a.md', { parent: './auth-runlist.md' });
+
+    const found = kinds(await warnings(), 'hub-membership-orphan');
+    strictEqual(found.length, 1);
+    strictEqual(found[0].path, hubPath);
+  });
+
   it('is silent when the named parent is not a hub, or either side is closed', async () => {
     const plans = setupProject();
     // A plain plan as parent: it rows nothing, so a link back is not expected.

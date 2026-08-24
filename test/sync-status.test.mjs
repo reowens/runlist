@@ -371,6 +371,18 @@ describe('dotmd sync-status', () => {
     match(action.action, /lead the status cell with the status word/);
   });
 
+  it('offers auto-fix only for broken document links, not files or assets', () => {
+    const base = { path: 'docs/a.md', message: 'body link `missing` does not resolve', meta: { kind: 'body-link-resolution' } };
+    const document = classifyIssueAction({ ...base, meta: { ...base.meta, targetKind: 'document', reason: 'missing' } });
+    const file = classifyIssueAction({ ...base, meta: { ...base.meta, targetKind: 'file', reason: 'missing' } });
+    const escape = classifyIssueAction({ ...base, meta: { ...base.meta, targetKind: 'document', reason: 'outside-repo' } });
+    strictEqual(document.fixable, true);
+    strictEqual(document.action, 'dotmd fix-refs --dry-run');
+    strictEqual(file.fixable, false);
+    match(file.action, /correct the linked file, asset, or directory/);
+    strictEqual(escape.fixable, false);
+  });
+
   it('is reachable from `check --fix`', () => {
     const plans = setupProject();
     child(plans, 'billing-a.md', 'archived');
