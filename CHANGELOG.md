@@ -2,6 +2,16 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- **Quiet live statuses no longer disable factual link and reference checks.** Missing body-link targets are now reported as warnings for every non-terminal document, including statuses that suppress ordinary editorial noise. Missing frontmatter references on those quiet live statuses enter as compatibility warnings, preserving an exit-zero cleanup window before a later strictness ratchet; non-quiet live references remain errors. Terminal detection is also type-scoped when it comes from rich status declarations, so a terminal status name in one document type no longer hides validation for a live same-named status in another.
+
+### Added
+
+- **`dotmd check` now reports reference-validation coverage.** Text and JSON output distinguish records checked from terminal records deliberately skipped.
+
 ## 0.76.3 — 2026-08-24
 
 ### Fixed
