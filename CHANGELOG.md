@@ -2,6 +2,16 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- **`dotmd fix-membership` repairs the one mechanically safe direction of hub membership drift.** A live child plan with no `parent_plan:` may receive a back-reference only when exactly one live hub already names it in a non-one-way frontmatter `runlist:` or in the body execution order shared with `dotmd runlist next`. The command supports optional hub scope, `--dry-run`, and `--json`; writes child-relative forward-slash refs and `updated:` through the atomic multi-file mutation substrate; locks the authorizing hubs as read-only guards; and refuses ambiguous multi-hub ownership, existing parents, terminal/quiet documents, nested hubs, non-plans, one-way entries, and stale evidence. It never creates or edits hub prose.
+
+### Changed
+
+- **Mechanical membership repair now composes with `dotmd check --fix` and the existing preview-by-default `dotmd doctor` sweep.** Missing back-reference findings carry stable source metadata and are offered as `dotmd fix-membership`; orphan claims and wrong-parent conflicts remain explicitly manual. The parent-plan writer already used by `runlist add` is now shared, keeping path spelling, no-clobber behavior, timestamps, compare-and-swap checks, and rollback semantics identical across both mutation paths.
+
 ## 0.76.6 — 2026-08-24
 
 ### Added

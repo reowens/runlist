@@ -152,6 +152,14 @@ Case is preserved (`Active` stays capitalized) and nothing else in the cell is t
 
 Two silences are deliberate: an ordinary body table is not a membership claim (rowing a plan says "related", not "this hub owns you"), and a ranked plan whose `parent_plan:` names a *different* hub is fine — aggregator hubs legitimately rank plans owned by other programs.
 
+```bash
+dotmd fix-membership                    # repair every unambiguous missing child back-ref
+dotmd fix-membership <hub>...           # narrow to named hubs
+dotmd fix-membership --dry-run --json   # preview the exact child writes
+```
+
+The fixer handles only the safe arrow: one live hub already states the relationship and the live child has no parent. It never generates or edits a hub row, overwrites another parent, or chooses between multiple hubs. `check --fix` and `doctor --apply` include it; bare `doctor` previews it.
+
 #### Roadmaps (tier-3: composing runlists)
 
 A roadmap is the tier *above* runlists: `execution_mode: roadmap` on a hub whose `related_plans:` point at other hubs (runlists / coordination hubs). It exists for the one thing a coordination hub can't do — **roll progress up across runlists**. Where a runlist shows its own `done/total`, a roadmap *sums* its children into a grand total (`master 280/520`), recursively (a child runlist contributes its own rollup; a leaf-plan child counts as one unit). Scaffold with `dotmd new plan <hub> --roadmap`.

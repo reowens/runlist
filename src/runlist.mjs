@@ -5,7 +5,6 @@ import { extractFirstHeading } from './extractors.mjs';
 import {
   asString,
   die,
-  escapeRegex,
   isArchivedPath,
   normalizeStringList,
   nowIso,
@@ -21,6 +20,7 @@ import { bold, cyan, dim, green, red, yellow } from './color.mjs';
 import { authorizeManagedDestination, authorizeManagedSource } from './managed-path.mjs';
 import { mutateFileSet, MutationConflictError } from './atomic-mutation.mjs';
 import { pickupFactsForDoc } from './pickup.mjs';
+import { planChildParentUpdate, upsertFrontmatterField } from './parent-plan.mjs';
 
 // A child is the runlist's NEXT PICKUP only when a session could start it right
 // now — i.e. its status is one `dotmd use` accepts. The "parked" statuses
@@ -433,17 +433,6 @@ function renderRunlist(hubRepoPath, children, opts = {}) {
 
 // --- `runlist add` mutation (Phase 1) -------------------------------------
 
-// Replace a top-level frontmatter field (its `key:` line + any indented
-// continuation block) with `serialized`, or append it when absent. The regex
-// mirrors what `mergeBodyFrontmatter` uses so the rewritten field keeps the
-// scaffold's shape. Shared by the block-array (`runlist:`) and scalar
-// (`parent_plan:`, `updated:`) writers below.
-function upsertFrontmatterField(fm, key, serialized) {
-  const re = new RegExp(`^${escapeRegex(key)}:.*(\\n[ \\t]+.*)*`, 'm');
-  if (re.test(fm)) return fm.replace(re, serialized);
-  return fm.replace(/\s*$/, '') + '\n' + serialized;
-}
-
 function serializeBlockArray(key, items) {
   if (items.length === 0) return `${key}:`;
   return `${key}:\n${items.map(v => `  - ${v}`).join('\n')}`;
@@ -497,37 +486,6 @@ function classifyChildToken(token, hubDir, hubSlug, pos, config) {
     slug: childSlug,
     title: titleize(token.replace(/\.md$/, '')),
   };
-}
-
-// Set `parent_plan:` on an existing child to point back at the hub, unless it
-// already resolves to the hub. Never clobbers a parent_plan that points
-// elsewhere (warns instead — the child may belong to another hub). Returns
-// true when it wrote, false when it left the file alone.
-function planChildParentUpdate(childAbs, hubAbs, config) {
-  const raw = readFileSync(childAbs, 'utf8');
-  const { frontmatter: fmRaw } = extractFrontmatter(raw);
-  if (fmRaw == null) return { wrote: false };
-  const fm = parseSimpleFrontmatter(fmRaw);
-  const childDir = path.dirname(childAbs);
-  const existing = asString(fm.parent_plan);
-  if (existing) {
-    const resolved = resolveRefPath(existing, childDir, config.repoRoot);
-    if (resolved === hubAbs) return { wrote: false }; // already points at this hub
-    warn(`${toRepoPath(childAbs, config.repoRoot)} already has parent_plan: ${existing} — left as-is (not pointing it at the hub).`);
-    return { wrote: false };
-  }
-  const ref = path.relative(childDir, hubAbs).split(path.sep).join('/');
-  return { wrote: true, update: { path: childAbs, expectedContent: raw, render: current => {
-    const { frontmatter: currentFm } = extractFrontmatter(current);
-    const currentParsed = parseSimpleFrontmatter(currentFm);
-    const currentParent = asString(currentParsed.parent_plan);
-    if (currentParent && resolveRefPath(currentParent, childDir, config.repoRoot) !== hubAbs) {
-      throw new MutationConflictError(`Child parent_plan changed while the runlist mutation was being prepared: ${toRepoPath(childAbs, config.repoRoot)}`);
-    }
-    let updatedFm = upsertFrontmatterField(currentFm, 'parent_plan', `parent_plan: ${ref}`);
-    updatedFm = upsertFrontmatterField(updatedFm, 'updated', `updated: ${nowIso()}`);
-    return replaceFrontmatter(current, updatedFm);
-  } } };
 }
 
 // `dotmd runlist add <hub> <child...>` — append children to a hub's `runlist:`
@@ -619,6 +577,9 @@ async function runRunlistAdd(positional, config, { dryRun, json, testHooks }) {
       if (!json) process.stdout.write(`${prefix}  ${green('+')} ${c.repoPath} ${dim('(scaffolded · planned)')}\n`);
     } else {
       const planned = planChildParentUpdate(c.abs, hubAbs, config);
+      if (planned.reason === 'different-parent') {
+        warn(`${c.repoPath} already has parent_plan: ${planned.existing} — left as-is (not pointing it at the hub).`);
+      }
       if (planned.update) updates.push(planned.update);
       const note = planned.wrote ? 'existing · parent_plan set' : 'existing';
       if (!json) process.stdout.write(`${prefix}  ${green('+')} ${c.repoPath} ${dim(`(${note})`)}\n`);

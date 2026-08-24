@@ -238,12 +238,13 @@ Analyze:
   glossary <term> [--list] [--json] Look up domain terms + related docs
 
 Validate & Fix:
-  doctor [--apply]                  Auto-fix everything: refs, lint, long fields, dates, index (preview by default)
+  doctor [--apply]                  Auto-fix everything: refs, membership, lint, long fields, dates, index (preview by default)
   doctor --transactions             Report/clear wedged mutation transactions (run this if mutations refuse repo-wide)
   doctor --claims                   Report/release plan claims held by sessions that are gone ("busy in another session")
   self-check                        Project/version skew diagnostic (alias: doctor --project)
   lint [--fix]                      Check and auto-fix frontmatter issues
   fix-refs [--dry-run]              Auto-fix broken reference paths + body links
+  fix-membership [<hub>...]         Add unambiguous missing child parent_plan back-references
   sync-status [<hub>...] [--adopt]  Rewrite hub table rows whose printed status drifted from the plan
 
 Lifecycle:
@@ -749,9 +750,10 @@ the command says so instead of printing an empty list.`,
 
   doctor: `dotmd doctor — auto-fix everything in one pass
 
-Runs in sequence: fix broken references, lint --fix, move over-cap
-frontmatter prose into body sections, sync dates from git, regenerate
-the index, then show remaining issues.
+Runs in sequence: fix broken references, repair unambiguous membership
+back-references, lint --fix, move over-cap frontmatter prose into body sections,
+sync hub status rows, sync dates from git, regenerate the index, then show
+remaining issues.
 
 Modes:
   (default)              Auto-fix pass — previews by default since 0.37.0
@@ -860,6 +862,21 @@ Rows under a status column with no readable status word are reported by
 \`dotmd check\` and left alone here; rows in a table with no status column at all
 are not findings. Not to be confused with \`dotmd set <status>\`, which changes a
 document's OWN status — this only rewrites what a hub prints about others.`,
+
+  'fix-membership': `dotmd fix-membership — repair unambiguous missing parent_plan back-references
+
+A repair is safe only when one live hub has already declared the relationship
+in its frontmatter runlist or body execution order and the live child plan has
+no parent_plan at all. The command writes the child-relative back-reference and
+updated date atomically.
+
+It never creates or edits hub prose, never overwrites another parent, and skips
+a parentless child ranked by multiple hubs as ambiguous.
+
+  dotmd fix-membership                 every hub in the repo
+  dotmd fix-membership <hub>...        narrow to named hubs
+  dotmd fix-membership --dry-run       preview without writing
+  dotmd fix-membership --dry-run --json`,
 
   'fix-refs': `dotmd fix-refs — auto-fix broken reference paths
 
@@ -1806,6 +1823,7 @@ async function main() {
   if (command === 'rename') { const { runRename } = await import('../src/rename.mjs'); await runRename(restArgs, config, { dryRun }); return; }
   if (command === 'migrate') { const { runMigrate } = await import('../src/migrate.mjs'); runMigrate(restArgs, config, { dryRun }); return; }
   if (command === 'fix-refs') { const { runFixRefs } = await import('../src/fix-refs.mjs'); runFixRefs(restArgs, config, { dryRun }); return; }
+  if (command === 'fix-membership') { const { runFixMembership } = await import('../src/fix-membership.mjs'); await runFixMembership(restArgs, config, { dryRun }); return; }
   if (command === 'sync-status') { const { runSyncStatus } = await import('../src/sync-status.mjs'); await runSyncStatus(restArgs, config, { dryRun }); return; }
   if (command === 'self-check') {
     const { runDoctor } = await import('../src/doctor.mjs');
@@ -1917,11 +1935,14 @@ async function main() {
     }
 
     if (fix) {
-      // Auto-fix: broken refs, then lint, then rebuild index
+      // Auto-fix: broken refs, mechanical membership back-references, lint,
+      // hub status tokens, then rebuild the index.
       const { fixBrokenRefs } = await import('../src/fix-refs.mjs');
+      const { fixMembershipBackrefs } = await import('../src/fix-membership.mjs');
       const { runLint } = await import('../src/lint.mjs');
       const { syncHubStatuses } = await import('../src/sync-status.mjs');
       fixBrokenRefs(config, { dryRun, quiet: false });
+      fixMembershipBackrefs(config, { docs: buildIndex(config).docs, dryRun, quiet: false });
       runLint(['--fix'], config, { dryRun });
       // Rewrites drifted status TOKENS only. Adding markers is a content edit to
       // prose the user wrote, so it stays opt-in behind `sync-status --adopt`.

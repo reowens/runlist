@@ -136,6 +136,7 @@ const definitions = [
   command('rename', mutates('managed source, same-root destination, and rewrite sweep'), 'mutate', [form('<old> [new]', { args: positionals(1, 2), options: [flag('--show-files')] })]),
   command('migrate', mutates('managed source sweep'), 'mutate', [form('<field> <old> <new> [files...]', { args: positionals(3, Infinity), options: [flag('--show-files')] })]),
   command('fix-refs', mutates('managed source sweep'), 'mutate', [form('', { options: [flag('--show-files')] })]),
+  command('fix-membership', mutates('managed source sweep'), 'mutate', [form('[hubs...]', { args: positionals(0, Infinity), options: [flag('--json')] })]),
   command('sync-status', mutates('managed source sweep'), 'mutate', [form('[hubs...]', { args: positionals(0, Infinity), options: [flag('--adopt'), flag('--json')] })]),
   command('doctor', mutates('managed sweeps, repo index, and maintenance config paths by mode'), 'mutate', [form('[path]', { args: positionals(0, 1), options: [flag('--apply', '--yes'), flag('--statuses'), optionalValue('--migrate-template'), flag('--migrate-prompts'), flag('--frontmatter-fix'), flag('--project'), flag('--transactions'), flag('--claims'), flag('--session'), value('--older-than'), flag('--json'), flag('--include-archived')] })]),
   command('statuses', mutates('project config path; document scan is read-only'), 'mutate', [

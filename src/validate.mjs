@@ -453,6 +453,11 @@ export function checkRunlistBackPointers(docs, config) {
         path: child.path,
         level: 'warning',
         message: `appears in runlist of \`${hub.path}\` but \`parent_plan:\` does not point back at it. Add \`parent_plan: ${hub.path}\` so reverse-link tooling (pickup-card Related:, graph) stays consistent.`,
+        meta: {
+          kind: childParents.length === 0 ? 'hub-membership-backref' : 'hub-membership-conflict',
+          hub: hub.path,
+          source: 'frontmatter-runlist',
+        },
       });
     }
   }

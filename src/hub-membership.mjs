@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { extractFrontmatter } from './frontmatter.mjs';
-import { resolveRefPath, toRepoPath } from './util.mjs';
+import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
+import { asString, normalizeStringList, resolveRefPath, toRepoPath } from './util.mjs';
 import { detectBodyRunlistRefs, isHubDoc } from './hub.mjs';
 import { resolveBodyLinkTarget } from './body-link.mjs';
 
@@ -37,6 +37,153 @@ import { resolveBodyLinkTarget } from './body-link.mjs';
 
 const ORPHAN_KIND = 'hub-membership-orphan';
 const BACKREF_KIND = 'hub-membership-backref';
+
+function quietDoc(status, type, config) {
+  return (config.lifecycle?.isTerminal?.(status, type)
+      ?? config.lifecycle?.terminalStatuses?.has(status))
+    || config.lifecycle?.skipsWarnings(status, type);
+}
+
+function configuredRunlist(parsed, config) {
+  const fields = [
+    ...(config.referenceFields?.bidirectional ?? []),
+    ...(config.referenceFields?.unidirectional ?? []),
+  ];
+  if (!fields.includes('runlist')) return { paths: [], directions: [] };
+  const paths = [];
+  const directions = [];
+  for (const entry of normalizeStringList(parsed.runlist)) {
+    const oneWay = entry.match(/^>\s*(.+)$/);
+    paths.push(oneWay ? oneWay[1].trim() : entry);
+    directions.push(oneWay ? 'one-way' : 'two-way');
+  }
+  return { paths, directions };
+}
+
+// One shared definition of mechanically repairable membership evidence. It
+// reads the exact hub/child bytes it returns so callers can bind those snapshots
+// into an atomic mutation: frontmatter `runlist:` (except `>` one-way entries)
+// plus the body order read by `dotmd runlist next`. Ordinary body links remain
+// pointers, and an existing parent — same or different — is never a candidate.
+export function collectMembershipBackrefCandidates(docs, config, { hubPaths = null } = {}) {
+  const byPath = new Map(docs.map(doc => [doc.path, doc]));
+  const evidence = new Map();
+
+  const resolve = (ref, dir) => {
+    const abs = resolveRefPath(String(ref).replace(/#.*$/, ''), dir, config.repoRoot);
+    return abs ? byPath.get(toRepoPath(abs, config.repoRoot)) ?? null : null;
+  };
+
+  for (const indexedHub of docs) {
+    if (hubPaths && !hubPaths.has(indexedHub.path)) continue;
+    // The index is the discovery snapshot. Re-read only docs it identified as
+    // hubs; current bytes below can still demote one safely, while a doc that
+    // became a hub after indexing is simply discovered on the next run.
+    if (!isHubDoc(indexedHub)) continue;
+    const hubAbs = path.join(config.repoRoot, indexedHub.path);
+    let hubRaw;
+    let hubFrontmatter;
+    let body;
+    try {
+      hubRaw = readFileSync(hubAbs, 'utf8');
+      ({ frontmatter: hubFrontmatter, body } = extractFrontmatter(hubRaw));
+    } catch { continue; }
+    const parsedHub = parseSimpleFrontmatter(hubFrontmatter);
+    const runlist = configuredRunlist(parsedHub, config);
+    const currentHub = {
+      ...indexedHub,
+      type: asString(parsedHub.type) ?? null,
+      status: asString(parsedHub.status) ?? null,
+      executionMode: asString(parsedHub.execution_mode) ?? null,
+      refFields: { ...indexedHub.refFields, runlist: runlist.paths },
+      refFieldDirections: { ...indexedHub.refFieldDirections, runlist: runlist.directions },
+    };
+    if (!isHubDoc(currentHub) || quietDoc(currentHub.status, currentHub.type, config)) continue;
+
+    const hubDir = path.dirname(hubAbs);
+    const runlistTargets = new Map();
+    for (let index = 0; index < runlist.paths.length; index++) {
+      const child = resolve(runlist.paths[index], hubDir);
+      if (!child || child.path === currentHub.path) continue;
+      runlistTargets.set(child.path, runlist.directions[index]);
+      if (runlist.directions[index] === 'one-way') continue;
+      addEvidence(child, 'frontmatter-runlist', runlist.paths[index]);
+    }
+    for (const ref of detectBodyRunlistRefs(body)) {
+      const child = resolve(ref, hubDir);
+      if (!child || child.path === currentHub.path) continue;
+      // A frontmatter entry owns this pair. A `>` entry is an explicit opt-out;
+      // a normal entry was already recorded above. Either way, body order must
+      // not create a second or contradictory authorization.
+      if (runlistTargets.has(child.path)) continue;
+      addEvidence(child, 'body-order', ref);
+    }
+
+    function addEvidence(indexedChild, source, ref) {
+      const childAbs = path.join(config.repoRoot, indexedChild.path);
+      let childRaw;
+      let childFrontmatter;
+      try {
+        childRaw = readFileSync(childAbs, 'utf8');
+        ({ frontmatter: childFrontmatter } = extractFrontmatter(childRaw));
+      } catch { return; }
+      const parsedChild = parseSimpleFrontmatter(childFrontmatter);
+      const childType = asString(parsedChild.type) ?? null;
+      const childStatus = asString(parsedChild.status) ?? null;
+      if (quietDoc(childStatus, childType, config)) return;
+      // Preserve the validator's brownfield behavior: an untyped legacy doc is
+      // still plan-like enough to diagnose. The writer applies the stricter
+      // type: plan boundary before it mutates anything.
+      if (childType && childType !== 'plan') return;
+      const childRunlist = configuredRunlist(parsedChild, config);
+      const currentChild = {
+        ...indexedChild,
+        type: childType,
+        status: childStatus,
+        executionMode: asString(parsedChild.execution_mode) ?? null,
+        refFields: { ...indexedChild.refFields, runlist: childRunlist.paths },
+      };
+      if (isHubDoc(currentChild)) return;
+      if (normalizeStringList(parsedChild.parent_plan).length > 0) return;
+
+      const key = `${indexedChild.path}\0${currentHub.path}`;
+      const existing = evidence.get(key);
+      if (existing) {
+        if (!existing.sources.includes(source)) existing.sources.push(source);
+        if (!existing.refs.includes(ref)) existing.refs.push(ref);
+        return;
+      }
+      evidence.set(key, {
+        child: indexedChild,
+        hub: currentHub,
+        childPath: indexedChild.path,
+        hubPath: currentHub.path,
+        childAbs,
+        hubAbs,
+        childRaw,
+        childType,
+        hubRaw,
+        sources: [source],
+        refs: [ref],
+      });
+    }
+  }
+
+  const byChild = new Map();
+  for (const item of evidence.values()) {
+    if (!byChild.has(item.childPath)) byChild.set(item.childPath, []);
+    byChild.get(item.childPath).push(item);
+  }
+  const candidates = [];
+  const ambiguous = [];
+  for (const [childPath, items] of byChild) {
+    if (items.length === 1) candidates.push(items[0]);
+    else ambiguous.push({ childPath, hubPaths: items.map(item => item.hubPath).sort(), evidence: items });
+  }
+  candidates.sort((a, b) => a.childPath.localeCompare(b.childPath));
+  ambiguous.sort((a, b) => a.childPath.localeCompare(b.childPath));
+  return { candidates, ambiguous, evidence: [...evidence.values()] };
+}
 
 export function checkHubMembershipDrift(docs, config) {
   const warnings = [];
@@ -119,37 +266,16 @@ export function checkHubMembershipDrift(docs, config) {
   // it can't see; children already covered there are skipped, so one missing
   // back-ref is never reported twice. Warns on the CHILD, matching that check:
   // it's the file that needs the edit.
-  for (const hub of docs) {
-    if (!isHubDoc(hub) || quiet(hub)) continue;
-    let body;
-    try { ({ body } = extractFrontmatter(readFileSync(path.join(config.repoRoot, hub.path), 'utf8'))); }
-    catch { continue; }
-    const ranked = detectBodyRunlistRefs(body);
-    if (ranked.length === 0) continue;
-    const dir = dirOf(hub);
-    const inFrontmatterRunlist = new Set();
-    for (const ref of (hub.refFields?.runlist ?? [])) {
-      const target = resolve(ref, dir);
-      if (target) inFrontmatterRunlist.add(target.path);
-    }
-
-    const seen = new Set();
-    for (const ref of ranked) {
-      const child = resolve(ref, dir);
-      if (!child || child.path === hub.path || seen.has(child.path)) continue;
-      seen.add(child.path);
-      if (quiet(child)) continue;                 // closed work is normal history
-      if (inFrontmatterRunlist.has(child.path)) continue;    // checkRunlistBackPointers owns it
-      if (isHubDoc(child)) continue;                         // a hub under a hub is the roadmap tier
-      if (child.type && child.type !== 'plan') continue;     // `parent_plan` is a plan relationship
-      if ((child.refFields?.parent_plan ?? []).length > 0) continue;
-      warnings.push({
-        path: child.path,
-        level: 'warning',
-        message: `is ranked in the body order of \`${hub.path}\` (the list \`dotmd runlist next\` walks) but has no \`parent_plan:\`. Add \`parent_plan: ${hub.path}\` so reverse-link tooling (pickup-card Related:, graph) stays consistent.`,
-        meta: { kind: BACKREF_KIND, hub: hub.path },
-      });
-    }
+  const { evidence } = collectMembershipBackrefCandidates(docs, config);
+  for (const item of evidence) {
+    if (!item.sources.includes('body-order')) continue;
+    const { child, hub } = item;
+    warnings.push({
+      path: child.path,
+      level: 'warning',
+      message: `is ranked in the body order of \`${hub.path}\` (the list \`dotmd runlist next\` walks) but has no \`parent_plan:\`. Add \`parent_plan: ${hub.path}\` so reverse-link tooling (pickup-card Related:, graph) stays consistent.`,
+      meta: { kind: BACKREF_KIND, hub: hub.path, source: 'body-order' },
+    });
   }
 
   return warnings;

@@ -425,6 +425,15 @@ export function classifyIssueAction(issue) {
   if (issue?.meta?.kind === 'hub-status-unreadable') {
     return { action: `edit ${file}: lead the status cell with the status word, or wrap it in <!--s-->…<!--/s-->`, fixable: false, label: 'hub status rows' };
   }
+  if (issue?.meta?.kind === 'hub-membership-backref') {
+    return { action: 'dotmd fix-membership', fixable: true, label: 'membership back-references' };
+  }
+  if (issue?.meta?.kind === 'hub-membership-orphan') {
+    return { action: `edit ${file}: add the child to the hub's meaningful list, or correct the child's parent_plan`, fixable: false, label: 'orphan membership claims' };
+  }
+  if (issue?.meta?.kind === 'hub-membership-conflict') {
+    return { action: `edit ${file}: reconcile its existing parent_plan with ${issue.meta.hub}`, fixable: false, label: 'membership parent conflicts' };
+  }
 
   if (/Missing frontmatter `status`/.test(message)) {
     return { action: `dotmd bulk-tag ${file}`, fixable: false, label: 'missing status' };

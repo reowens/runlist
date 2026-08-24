@@ -95,7 +95,8 @@ describe('doctor command', () => {
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(result.stdout.includes('dotmd doctor'), 'shows heading');
     ok(result.stdout.includes('Fixing broken references'), 'step 1');
-    ok(result.stdout.includes('Fixing frontmatter issues'), 'step 2');
+    ok(result.stdout.includes('Fixing membership back-references'), 'step 2');
+    ok(result.stdout.includes('Fixing frontmatter issues'), 'step 3');
     ok(result.stdout.includes('Syncing dates from git'), 'step 3');
     ok(result.stdout.includes('Remaining issues'), 'step 5');
   });
@@ -283,7 +284,7 @@ describe('doctor command', () => {
     strictEqual(after, before, 'file must be untouched when --dry-run wins');
   });
 
-  it('numbered steps are contiguous (1 through 8)', () => {
+  it('numbered steps are contiguous (1 through 9)', () => {
     // Pre-fix: step 5's heading was conditional on having Claude command
     // changes to report. On a repo with no `.claude/` dir (or already-current
     // commands), `5.` was silently skipped — output went `1, 2, 3, 4, 6` and
@@ -301,16 +302,16 @@ describe('doctor command', () => {
 
     const result = run(['doctor']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-    // Verify all eight step headings appear in order.
-    const steps = ['1.', '2.', '3.', '4.', '5.', '6.', '7.', '8.'];
+    // Verify all nine step headings appear in order.
+    const steps = ['1.', '2.', '3.', '4.', '5.', '6.', '7.', '8.', '9.'];
     let lastIdx = -1;
     for (const step of steps) {
       const idx = result.stdout.indexOf(step);
       ok(idx > lastIdx, `step ${step} should appear in order; got: ${result.stdout}`);
       lastIdx = idx;
     }
-    ok(result.stdout.includes('7. Claude Code commands'),
-      `step 7 heading should print even with no .claude/ dir; got: ${result.stdout}`);
+    ok(result.stdout.includes('8. Claude Code commands'),
+      `step 8 heading should print even with no .claude/ dir; got: ${result.stdout}`);
   });
 
   it('briefing Errors line hints at `dotmd check` when errors exist', () => {
