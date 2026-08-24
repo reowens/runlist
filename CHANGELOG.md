@@ -2,6 +2,17 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- **`runlist` is now the canonical executable, with `dotmd` retained as a byte-compatible alias.** New help, shell completions, config examples and machine-readable error codes use the new name. Repositories prefer `runlist.config.*` and `RUNLIST_*` environment variables while continuing to accept every supported legacy config and environment spelling through the compatibility window. The existing Claude Code plugin identity remains `dotmd` for now, but its hook wrapper prefers `runlist` and falls back to `dotmd`.
+- **Existing local state migrates one way from `.dotmd/` to `.runlist/` on the first non-passive command.** Ownership leases, journals and terminal recovery evidence move without rekeying; new sidecar artifacts use `.runlist-*` while recovery readers accept both prefixes. Migration refuses live or unverifiable locks and nonterminal, missing or unreadable transaction manifests instead of guessing. HUD, guard, agent-context and dry-run commands never trigger the move.
+
+### Changed
+
+- **Release verification now requires both global executable names on every npm-managed Node prefix.** A current `dotmd` with a missing or stale `runlist` sibling is repaired and the release remains incomplete until both report the target version.
+
 ## 0.76.8 — 2026-08-24
 
 ### Fixed

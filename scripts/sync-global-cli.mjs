@@ -18,7 +18,7 @@ export function parseExecutablePaths(output) {
 export function buildSyncPlan(entries, targetVersion) {
   return entries.map(entry => ({
     ...entry,
-    needsInstall: entry.version !== targetVersion,
+    needsInstall: entry.version !== targetVersion || entry.runlistVersion !== targetVersion,
     canInstall: entry.managed !== false && Boolean(entry.npmPath && entry.prefix),
   }));
 }
@@ -38,6 +38,12 @@ function discoverDotmdPaths() {
 function readVersion(dotmdPath) {
   const result = spawnSync(dotmdPath, ['--version'], { encoding: 'utf8' });
   return result.status === 0 ? result.stdout.trim() : null;
+}
+
+function siblingRunlist(dotmdPath) {
+  const ext = process.platform === 'win32' ? path.extname(dotmdPath) : '';
+  const candidate = path.join(path.dirname(dotmdPath), `runlist${ext}`);
+  return existsSync(candidate) ? candidate : null;
 }
 
 function siblingNpm(dotmdPath) {
@@ -114,11 +120,14 @@ export function prefixForDotmd(dotmdPath) {
 export function inspectGlobalCliCopies() {
   return discoverDotmdPaths().map(dotmdPath => {
     const npmPath = siblingNpm(dotmdPath);
+    const runlistPath = siblingRunlist(dotmdPath);
     const prefix = npmGlobalPrefix(npmPath);
     const globalRoot = npmGlobalRoot(npmPath);
     return {
       dotmdPath,
       version: readVersion(dotmdPath),
+      runlistPath,
+      runlistVersion: runlistPath ? readVersion(runlistPath) : null,
       npmPath,
       prefix,
       globalRoot,
@@ -154,7 +163,7 @@ export function syncGlobalCliCopies(targetVersion, deps = {}) {
       continue;
     }
     if (!entry.needsInstall) {
-      write(`  ${entry.dotmdPath}: ${targetVersion}\n`);
+      write(`  ${entry.dotmdPath} + ${entry.runlistPath}: ${targetVersion}\n`);
       continue;
     }
     if (!entry.canInstall) {
@@ -163,7 +172,7 @@ export function syncGlobalCliCopies(targetVersion, deps = {}) {
       );
     }
 
-    write(`→ synchronizing shadowed CLI ${entry.dotmdPath} (${entry.version ?? 'unknown'} → ${targetVersion})\n`);
+    write(`→ synchronizing shadowed CLI ${entry.dotmdPath} (dotmd ${entry.version ?? 'unknown'}, runlist ${entry.runlistVersion ?? 'missing'} → ${targetVersion})\n`);
     const result = install(entry, targetVersion);
     if (result.status !== 0) {
       throw new Error(`Failed to update ${entry.dotmdPath} with ${entry.npmPath}.`);
@@ -171,14 +180,14 @@ export function syncGlobalCliCopies(targetVersion, deps = {}) {
   }
 
   const final = inspect();
-  const mismatches = final.filter(entry => entry.version !== targetVersion);
+  const mismatches = final.filter(entry => entry.version !== targetVersion || entry.runlistVersion !== targetVersion);
   if (mismatches.length > 0) {
-    throw new Error(`PATH still contains stale dotmd installations:\n${mismatches
-      .map(entry => `  ${entry.dotmdPath}: ${entry.version ?? 'unknown'} (wanted ${targetVersion})`)
+    throw new Error(`PATH still contains stale or incomplete runlist bridge installations:\n${mismatches
+      .map(entry => `  ${entry.dotmdPath}: dotmd=${entry.version ?? 'unknown'} runlist=${entry.runlistVersion ?? 'missing'} (wanted ${targetVersion})`)
       .join('\n')}`);
   }
 
-  write(`✓ all ${final.length} PATH-visible dotmd installation${final.length === 1 ? '' : 's'} report ${targetVersion}\n`);
+  write(`✓ all ${final.length} PATH-visible dotmd/runlist installation pair${final.length === 1 ? '' : 's'} report ${targetVersion}\n`);
   return final;
 }
 
