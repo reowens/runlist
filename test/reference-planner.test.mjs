@@ -61,6 +61,21 @@ describe('reference rewrite candidate prefilter', () => {
     ok(moved.includes('archived/my\\ plan.md'), `expected the escaped destination to move, got: ${moved}`);
   });
 
+  it('rewrites a code-labelled link but leaves a whole link inside code alone', () => {
+    const root = setup();
+    const target = path.join(root, 'docs', 'target.md');
+    const referrer = path.join(root, 'docs', 'a.md');
+    writeFileSync(target, doc('# Target'));
+    const content = doc([
+      'Example: ``[`target.md`](target.md)``.',
+      'Real: [`target.md`](target.md).',
+    ].join('\n'));
+    writeFileSync(referrer, content);
+    const moved = rewrite(root, referrer, content, target, path.join(root, 'docs', 'archived', 'target.md'), [target, referrer]);
+    ok(moved.includes('``[`target.md`](target.md)``'), `the code example changed: ${moved}`);
+    ok(moved.includes('[`target.md`](archived/target.md)'), `the real destination did not move: ${moved}`);
+  });
+
   it('rewrites a link whose case differs, where the filesystem folds case', () => {
     const root = setup();
     const target = path.join(root, 'docs', 'casing.md');

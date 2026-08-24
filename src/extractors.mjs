@@ -1,3 +1,5 @@
+import { maskInlineCodeSpans } from './markdown-code-spans.mjs';
+
 export function extractFirstHeading(body) {
   return body.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? null;
 }
@@ -49,9 +51,7 @@ export function extractBodyLinks(body) {
   // every one of them was also never checked for breakage. Masking to same-length
   // filler keeps the link matchable while still neutralizing a link that is
   // itself inside code (`[fake](x.md)` stays unmatched), and preserves offsets.
-  const stripped = body
-    .replace(/^```[\s\S]*?^```/gm, '')
-    .replace(/`[^`]+`/g, match => 'x'.repeat(match.length));
+  const stripped = maskInlineCodeSpans(body.replace(/^```[\s\S]*?^```/gm, ''));
   const links = [];
   // Supported inline destinations are a whitespace-free token (with Markdown
   // backslash escapes) or an angle-bracket destination, plus an optional

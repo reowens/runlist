@@ -2,6 +2,13 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- **Lifecycle moves now rewrite Markdown links whose labels are inline code.** The reference planner previously split prose around code spans before looking for links, so a common plan-hub link such as ``[`child.md`](child.md)`` was split across three fragments and its destination survived archive/rename unchanged. Rewriting now locates destinations against a same-length code mask and applies edits at offsets in the original line, preserving the code-formatted label while continuing to ignore links wholly inside code.
+- **Double-backtick examples no longer hide later body links from validation.** Body-link extraction used a single-backtick regular expression that could pair the inner backticks of a double-backtick span and mask the remainder of a document. Extraction and lifecycle rewriting now share run-length-aware inline-code masking, including conservative multiline state, so they agree about which Markdown is prose without changing source offsets.
+
 ## 0.76.7 — 2026-08-24
 
 ### Added

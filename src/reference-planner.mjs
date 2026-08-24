@@ -1,6 +1,7 @@
 import { realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter } from './frontmatter.mjs';
+import { maskInlineCodeLine } from './markdown-code-spans.mjs';
 
 function slash(value) { return value.split(path.sep).join('/'); }
 
@@ -233,29 +234,37 @@ function rewriteDestination(raw, args) {
   return parsed.angle ? `<${rendered}>` : rendered;
 }
 
-function rewriteMarkdownSegment(segment, args) {
-  // Inline links: angle destinations, escaped whitespace, optional titles.
-  let next = segment.replace(/(\[[^\]]*\]\(\s*)(<[^>\n]+>|(?:\\.|[^\s()])+)(\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?(\s*\))/g,
-    (match, prefix, destination, title = '', close, offset) => {
-      let escapes = 0;
-      for (let index = offset - 1; index >= 0 && segment[index] === '\\'; index--) escapes++;
-      if (escapes % 2 === 1) return match;
-      const rewritten = rewriteDestination(destination, args);
-      return rewritten === destination ? match : `${prefix}${rewritten}${title}${close}`;
-    });
+function rewriteMarkdownLine(line, masked, args) {
+  const edits = [];
+  const inline = /(\[[^\]]*\]\(\s*)(<[^>\n]+>|(?:\\.|[^\s()])+)(\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?(\s*\))/g;
+  let match;
+  while ((match = inline.exec(masked)) !== null) {
+    let escapes = 0;
+    for (let index = match.index - 1; index >= 0 && line[index] === '\\'; index--) escapes++;
+    if (escapes % 2 === 1) continue;
+    const start = match.index + match[1].length;
+    const destination = line.slice(start, start + match[2].length);
+    const rewritten = rewriteDestination(destination, args);
+    if (rewritten !== destination) edits.push({ start, end: start + destination.length, value: rewritten });
+  }
+
   // Reference definitions preserve labels, spacing, destinations, and titles.
-  next = next.replace(/^(\s{0,3}\[[^\]]+\]:\s*)(<[^>\n]+>|(?:\\.|[^\s])+)(.*)$/,
-    (match, prefix, destination, tail) => {
-      const rewritten = rewriteDestination(destination, args);
-      return rewritten === destination ? match : `${prefix}${rewritten}${tail}`;
-    });
-  return next;
+  const definition = /^(\s{0,3}\[[^\]]+\]:\s*)(<[^>\n]+>|(?:\\.|[^\s])+)(.*)$/.exec(masked);
+  if (definition) {
+    const start = definition[1].length;
+    const destination = line.slice(start, start + definition[2].length);
+    const rewritten = rewriteDestination(destination, args);
+    if (rewritten !== destination) edits.push({ start, end: start + destination.length, value: rewritten });
+  }
+
+  return edits.sort((left, right) => right.start - left.start)
+    .reduce((next, edit) => next.slice(0, edit.start) + edit.value + next.slice(edit.end), line);
 }
 
 function rewriteMarkdown(body, args) {
   const lines = body.split('\n');
   let fence = null;
-  let inlineRun = null;
+  const inlineState = { run: null };
   let indentedCode = false;
   let htmlBlock = null;
   const containerContext = line => {
@@ -317,36 +326,7 @@ function rewriteMarkdown(body, args) {
       fence = { char: opener[1][0], length: opener[1].length, prefixes: container.prefixes };
       return line;
     }
-    let output = '';
-    let cursor = 0;
-    const runs = [...line.matchAll(/`+/g)];
-    let index = 0;
-    if (inlineRun !== null) {
-      const closingIndex = runs.findIndex(candidate => candidate[0].length === inlineRun);
-      if (closingIndex === -1) return line;
-      const closing = runs[closingIndex];
-      output += line.slice(0, closing.index + closing[0].length);
-      cursor = closing.index + closing[0].length;
-      index = closingIndex + 1;
-      inlineRun = null;
-    }
-    for (; index < runs.length; index++) {
-      const opening = runs[index];
-      const closingIndex = runs.findIndex((candidate, candidateIndex) => candidateIndex > index && candidate[0].length === opening[0].length);
-      if (closingIndex === -1) {
-        output += rewriteMarkdownSegment(line.slice(cursor, opening.index), args);
-        output += line.slice(opening.index);
-        inlineRun = opening[0].length;
-        cursor = line.length;
-        break;
-      }
-      const closing = runs[closingIndex];
-      output += rewriteMarkdownSegment(line.slice(cursor, opening.index), args);
-      output += line.slice(opening.index, closing.index + closing[0].length);
-      cursor = closing.index + closing[0].length;
-      index = closingIndex;
-    }
-    return output + rewriteMarkdownSegment(line.slice(cursor), args);
+    return rewriteMarkdownLine(line, maskInlineCodeLine(line, inlineState), args);
   }).join('\n');
 }
 

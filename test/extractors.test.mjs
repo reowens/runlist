@@ -164,6 +164,17 @@ describe('extractBodyLinks', () => {
     strictEqual(links[0].href, 'plan-b.md');
   });
 
+  it('keeps extracting code-labelled links after a double-backtick example', () => {
+    const body = [
+      'Syntax: ``[`example.md`](example.md)`` is only an example.',
+      '',
+      'Real child: [`child.md`](child.md).',
+    ].join('\n');
+    const links = extractBodyLinks(body);
+    strictEqual(links.length, 1);
+    strictEqual(links[0].href, 'child.md');
+  });
+
   it('still ignores a link that is itself inside inline code', () => {
     const body = 'Write it as `[text](target.md)` in the body.';
     strictEqual(extractBodyLinks(body).length, 0);

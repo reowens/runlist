@@ -424,6 +424,23 @@ describe('archive updates references', () => {
     ok(!aContent.includes('[B](b.md)'), 'old body link should be gone');
   });
 
+  it('rewrites an inbound code-labelled link after a double-backtick example', () => {
+    const docsDir = setupArchiveScenario([
+      'Syntax example: ``[`B`](b.md)``.',
+      '',
+      'Tracked child: [`b.md`](b.md).',
+    ].join('\n'));
+    const result = run(['archive', path.join(docsDir, 'b.md')]);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    const aContent = readFileSync(path.join(docsDir, 'a.md'), 'utf8');
+    ok(aContent.includes('``[`B`](b.md)``'), `the code example changed:\n${aContent}`);
+    ok(aContent.includes('[`b.md`](archived/b.md)'), `the real inbound link was not rewritten:\n${aContent}`);
+
+    const check = run(['check', '--verbose']);
+    ok(!/does not resolve to an existing file/.test(check.stdout + check.stderr),
+      `the lifecycle move left a broken reference:\n${check.stdout}\n${check.stderr}`);
+  });
+
   it('rewrites body links with ./ prefix', () => {
     const docsDir = setupArchiveScenario('See [B](./b.md) for details.');
     const result = run(['archive', path.join(docsDir, 'b.md')]);
