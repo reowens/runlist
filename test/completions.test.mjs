@@ -29,14 +29,14 @@ describe('runlist completions', () => {
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(result.stdout.includes('complete -F'), 'has complete -F directive');
     ok(result.stdout.includes('_runlist'), 'has _runlist function');
-    ok(result.stdout.includes('runlist dotmd'), 'registers canonical and legacy binaries');
+    ok(result.stdout.includes('runlist rl dotmd'), 'registers canonical, short, and legacy binaries');
   });
 
   it('zsh output contains compdef', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-comp-'));
     const result = run(['completions', 'zsh']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-    ok(result.stdout.includes('compdef _runlist runlist dotmd'), 'has dual-name compdef directive');
+    ok(result.stdout.includes('compdef _runlist runlist rl dotmd'), 'has all-name compdef directive');
     ok(result.stdout.includes('_runlist'), 'has _runlist function');
   });
 

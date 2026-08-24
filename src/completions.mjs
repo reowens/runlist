@@ -39,7 +39,7 @@ ${Object.entries(COMMAND_WORDS).map(([command, words]) =>
     *) COMPREPLY=( $(compgen -W "${GLOBAL_FLAGS.join(' ')}" -- "$cur") ) ;;
   esac
 }
-complete -F _runlist runlist dotmd`;
+complete -F _runlist runlist rl dotmd`;
 }
 
 function zshCompletion() {
@@ -81,7 +81,7 @@ ${Object.entries(COMMAND_WORDS).map(([command, words]) =>
 
   _describe 'flag' global_flags
 }
-compdef _runlist runlist dotmd`;
+compdef _runlist runlist rl dotmd`;
 }
 
 export function runCompletions(argv) {

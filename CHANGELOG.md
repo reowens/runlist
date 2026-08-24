@@ -2,6 +2,12 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- **`rl` is a short, byte-compatible alias for the canonical `runlist` executable.** Shell completions register all three supported names (`runlist`, `rl`, and legacy `dotmd`), and release verification repairs or rejects any npm-managed global prefix missing the short alias.
+
 ## 0.77.0 — 2026-08-24
 
 ### Added

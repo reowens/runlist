@@ -18,7 +18,9 @@ export function parseExecutablePaths(output) {
 export function buildSyncPlan(entries, targetVersion) {
   return entries.map(entry => ({
     ...entry,
-    needsInstall: entry.version !== targetVersion || entry.runlistVersion !== targetVersion,
+    needsInstall: entry.version !== targetVersion
+      || entry.runlistVersion !== targetVersion
+      || entry.rlVersion !== targetVersion,
     canInstall: entry.managed !== false && Boolean(entry.npmPath && entry.prefix),
   }));
 }
@@ -40,9 +42,9 @@ function readVersion(dotmdPath) {
   return result.status === 0 ? result.stdout.trim() : null;
 }
 
-function siblingRunlist(dotmdPath) {
+function siblingExecutable(dotmdPath, name) {
   const ext = process.platform === 'win32' ? path.extname(dotmdPath) : '';
-  const candidate = path.join(path.dirname(dotmdPath), `runlist${ext}`);
+  const candidate = path.join(path.dirname(dotmdPath), `${name}${ext}`);
   return existsSync(candidate) ? candidate : null;
 }
 
@@ -120,7 +122,8 @@ export function prefixForDotmd(dotmdPath) {
 export function inspectGlobalCliCopies() {
   return discoverDotmdPaths().map(dotmdPath => {
     const npmPath = siblingNpm(dotmdPath);
-    const runlistPath = siblingRunlist(dotmdPath);
+    const runlistPath = siblingExecutable(dotmdPath, 'runlist');
+    const rlPath = siblingExecutable(dotmdPath, 'rl');
     const prefix = npmGlobalPrefix(npmPath);
     const globalRoot = npmGlobalRoot(npmPath);
     return {
@@ -128,6 +131,8 @@ export function inspectGlobalCliCopies() {
       version: readVersion(dotmdPath),
       runlistPath,
       runlistVersion: runlistPath ? readVersion(runlistPath) : null,
+      rlPath,
+      rlVersion: rlPath ? readVersion(rlPath) : null,
       npmPath,
       prefix,
       globalRoot,
@@ -163,7 +168,7 @@ export function syncGlobalCliCopies(targetVersion, deps = {}) {
       continue;
     }
     if (!entry.needsInstall) {
-      write(`  ${entry.dotmdPath} + ${entry.runlistPath}: ${targetVersion}\n`);
+      write(`  ${entry.dotmdPath} + ${entry.runlistPath} + ${entry.rlPath}: ${targetVersion}\n`);
       continue;
     }
     if (!entry.canInstall) {
@@ -172,7 +177,7 @@ export function syncGlobalCliCopies(targetVersion, deps = {}) {
       );
     }
 
-    write(`→ synchronizing shadowed CLI ${entry.dotmdPath} (dotmd ${entry.version ?? 'unknown'}, runlist ${entry.runlistVersion ?? 'missing'} → ${targetVersion})\n`);
+    write(`→ synchronizing shadowed CLI ${entry.dotmdPath} (dotmd ${entry.version ?? 'unknown'}, runlist ${entry.runlistVersion ?? 'missing'}, rl ${entry.rlVersion ?? 'missing'} → ${targetVersion})\n`);
     const result = install(entry, targetVersion);
     if (result.status !== 0) {
       throw new Error(`Failed to update ${entry.dotmdPath} with ${entry.npmPath}.`);
@@ -180,14 +185,16 @@ export function syncGlobalCliCopies(targetVersion, deps = {}) {
   }
 
   const final = inspect();
-  const mismatches = final.filter(entry => entry.version !== targetVersion || entry.runlistVersion !== targetVersion);
+  const mismatches = final.filter(entry => entry.version !== targetVersion
+    || entry.runlistVersion !== targetVersion
+    || entry.rlVersion !== targetVersion);
   if (mismatches.length > 0) {
     throw new Error(`PATH still contains stale or incomplete runlist bridge installations:\n${mismatches
-      .map(entry => `  ${entry.dotmdPath}: dotmd=${entry.version ?? 'unknown'} runlist=${entry.runlistVersion ?? 'missing'} (wanted ${targetVersion})`)
+      .map(entry => `  ${entry.dotmdPath}: dotmd=${entry.version ?? 'unknown'} runlist=${entry.runlistVersion ?? 'missing'} rl=${entry.rlVersion ?? 'missing'} (wanted ${targetVersion})`)
       .join('\n')}`);
   }
 
-  write(`✓ all ${final.length} PATH-visible dotmd/runlist installation pair${final.length === 1 ? '' : 's'} report ${targetVersion}\n`);
+  write(`✓ all ${final.length} PATH-visible dotmd/runlist/rl installation set${final.length === 1 ? '' : 's'} report ${targetVersion}\n`);
   return final;
 }
 

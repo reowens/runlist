@@ -18,9 +18,9 @@ test('parseExecutablePaths deduplicates PATH-visible binaries', () => {
 
 test('buildSyncPlan identifies stale global installations', () => {
   const plan = buildSyncPlan([
-    { dotmdPath: '/a/dotmd', version: '0.69.0', runlistVersion: '0.69.0', npmPath: '/a/npm', prefix: '/a' },
-    { dotmdPath: '/b/dotmd', version: '0.50.2', runlistVersion: null, npmPath: '/b/npm', prefix: '/b' },
-    { dotmdPath: '/c/dotmd', version: null, runlistVersion: null, npmPath: null },
+    { dotmdPath: '/a/dotmd', version: '0.69.0', runlistVersion: '0.69.0', rlVersion: '0.69.0', npmPath: '/a/npm', prefix: '/a' },
+    { dotmdPath: '/b/dotmd', version: '0.50.2', runlistVersion: null, rlVersion: null, npmPath: '/b/npm', prefix: '/b' },
+    { dotmdPath: '/c/dotmd', version: null, runlistVersion: null, rlVersion: null, npmPath: null },
   ], '0.69.0');
 
   assert.deepEqual(plan.map(entry => ({ needsInstall: entry.needsInstall, canInstall: entry.canInstall })), [
@@ -59,10 +59,17 @@ test('syncGlobalCliCopies updates each stale PATH-visible prefix and verifies ag
   const installed = [];
   let inspection = 0;
   const before = [
-    { dotmdPath: '/homebrew/bin/dotmd', runlistPath: '/homebrew/bin/runlist', version: '0.69.0', runlistVersion: '0.69.0', npmPath: '/homebrew/bin/npm', prefix: '/homebrew' },
-    { dotmdPath: '/nvm/bin/dotmd', runlistPath: null, version: '0.68.0', runlistVersion: null, npmPath: '/nvm/bin/npm', prefix: '/nvm' },
+    { dotmdPath: '/homebrew/bin/dotmd', runlistPath: '/homebrew/bin/runlist', rlPath: '/homebrew/bin/rl', version: '0.69.0', runlistVersion: '0.69.0', rlVersion: '0.69.0', npmPath: '/homebrew/bin/npm', prefix: '/homebrew' },
+    { dotmdPath: '/nvm/bin/dotmd', runlistPath: null, rlPath: null, version: '0.68.0', runlistVersion: null, rlVersion: null, npmPath: '/nvm/bin/npm', prefix: '/nvm' },
   ];
-  const after = before.map(entry => ({ ...entry, runlistPath: entry.dotmdPath.replace(/dotmd$/, 'runlist'), version: '0.69.0', runlistVersion: '0.69.0' }));
+  const after = before.map(entry => ({
+    ...entry,
+    runlistPath: entry.dotmdPath.replace(/dotmd$/, 'runlist'),
+    rlPath: entry.dotmdPath.replace(/dotmd$/, 'rl'),
+    version: '0.69.0',
+    runlistVersion: '0.69.0',
+    rlVersion: '0.69.0',
+  }));
 
   const result = syncGlobalCliCopies('0.69.0', {
     inspect: () => inspection++ === 0 ? before : after,
@@ -76,7 +83,7 @@ test('syncGlobalCliCopies updates each stale PATH-visible prefix and verifies ag
 
 test('syncGlobalCliCopies refuses an unrepairable stale binary', () => {
   assert.throws(() => syncGlobalCliCopies('0.69.0', {
-    inspect: () => [{ dotmdPath: '/orphan/dotmd', version: '0.50.2', runlistVersion: null, npmPath: null }],
+    inspect: () => [{ dotmdPath: '/orphan/dotmd', version: '0.50.2', runlistVersion: null, rlVersion: null, npmPath: null }],
     write: () => {},
   }), /no sibling npm/);
 });
@@ -84,8 +91,8 @@ test('syncGlobalCliCopies refuses an unrepairable stale binary', () => {
 test('syncGlobalCliCopies never overwrites but fails on a stale non-global shim', () => {
   const installed = [];
   const entries = [
-    { dotmdPath: '/homebrew/bin/dotmd', version: '0.69.0', runlistVersion: '0.69.0', npmPath: '/homebrew/bin/npm', prefix: '/homebrew', managed: true },
-    { dotmdPath: '/volta/bin/dotmd', version: '0.50.0', runlistVersion: null, npmPath: '/volta/bin/npm', prefix: '/volta/tools/node', managed: false },
+    { dotmdPath: '/homebrew/bin/dotmd', version: '0.69.0', runlistVersion: '0.69.0', rlVersion: '0.69.0', npmPath: '/homebrew/bin/npm', prefix: '/homebrew', managed: true },
+    { dotmdPath: '/volta/bin/dotmd', version: '0.50.0', runlistVersion: null, rlVersion: null, npmPath: '/volta/bin/npm', prefix: '/volta/tools/node', managed: false },
   ];
   const output = [];
   assert.throws(() => syncGlobalCliCopies('0.69.0', {
@@ -97,15 +104,17 @@ test('syncGlobalCliCopies never overwrites but fails on a stale non-global shim'
   assert.match(output.join(''), /skipping non-global or tool-managed executable/);
 });
 
-test('syncGlobalCliCopies repairs a current dotmd install that lacks runlist', () => {
+test('syncGlobalCliCopies repairs a current dotmd install that lacks runlist and rl', () => {
   let inspection = 0;
   const installed = [];
   const before = [{
     dotmdPath: '/nvm/bin/dotmd', version: '0.77.0', runlistPath: null, runlistVersion: null,
+    rlPath: null, rlVersion: null,
     npmPath: '/nvm/bin/npm', prefix: '/nvm', managed: true,
   }];
   const after = [{
     ...before[0], runlistPath: '/nvm/bin/runlist', runlistVersion: '0.77.0',
+    rlPath: '/nvm/bin/rl', rlVersion: '0.77.0',
   }];
   syncGlobalCliCopies('0.77.0', {
     inspect: () => inspection++ === 0 ? before : after,
@@ -113,6 +122,26 @@ test('syncGlobalCliCopies repairs a current dotmd install that lacks runlist', (
     write: () => {},
   });
   assert.deepEqual(installed, ['/nvm/bin/dotmd']);
+});
+
+test('syncGlobalCliCopies repairs a current bridge install that only lacks rl', () => {
+  let inspection = 0;
+  const installed = [];
+  const before = [{
+    dotmdPath: '/homebrew/bin/dotmd', version: '0.77.1',
+    runlistPath: '/homebrew/bin/runlist', runlistVersion: '0.77.1',
+    rlPath: null, rlVersion: null,
+    npmPath: '/homebrew/bin/npm', prefix: '/homebrew', managed: true,
+  }];
+  const after = [{
+    ...before[0], rlPath: '/homebrew/bin/rl', rlVersion: '0.77.1',
+  }];
+  syncGlobalCliCopies('0.77.1', {
+    inspect: () => inspection++ === 0 ? before : after,
+    install: entry => { installed.push(entry.dotmdPath); return { status: 0 }; },
+    write: () => {},
+  });
+  assert.deepEqual(installed, ['/homebrew/bin/dotmd']);
 });
 
 // Regression: `npm version`'s postversion lifecycle exports its resolved config

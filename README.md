@@ -20,6 +20,10 @@ npm install -D dotmd-cli    # project scripts via node_modules/.bin
 npx dotmd-cli init          # try it without installing
 ```
 
+`runlist` is the canonical executable, `rl` is its short convenience alias, and
+`dotmd` remains supported during the compatibility window. All three invoke the
+same CLI; examples below retain `dotmd` while the public package identity does.
+
 Maintainer release automation is POSIX-only because it uses Bash and POSIX
 command-line tools. The published Node.js CLI remains cross-platform.
 

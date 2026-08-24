@@ -6,6 +6,7 @@
   "license": "MIT",
   "bin": {
     "runlist": "bin/runlist.mjs",
+    "rl": "bin/runlist.mjs",
     "dotmd": "bin/dotmd.mjs"
   },
   "exports": {

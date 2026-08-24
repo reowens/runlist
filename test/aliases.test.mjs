@@ -1,6 +1,6 @@
 import { describe, it, afterEach } from 'node:test';
 import { strictEqual, ok } from 'node:assert';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -8,6 +8,8 @@ import { spawnSync } from 'node:child_process';
 let tmpDir;
 const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
 const runlistBin = path.resolve(import.meta.dirname, '..', 'bin', 'runlist.mjs');
+const packageManifest = JSON.parse(readFileSync(path.resolve(import.meta.dirname, '..', 'package.json'), 'utf8'));
+const shortBin = path.resolve(import.meta.dirname, '..', packageManifest.bin.rl);
 
 function setupProject() {
   tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-aliases-'));
@@ -42,11 +44,15 @@ afterEach(() => {
 });
 
 describe('command aliases (F20)', () => {
-  it('runlist is canonical while dotmd remains a byte-compatible executable alias', () => {
+  it('runlist is canonical while rl and dotmd remain byte-compatible executable aliases', () => {
     const current = spawnSync('node', [runlistBin, '--help'], { encoding: 'utf8' });
+    const short = spawnSync('node', [shortBin, '--help'], { encoding: 'utf8' });
     const legacy = spawnSync('node', [bin, '--help'], { encoding: 'utf8' });
+    strictEqual(packageManifest.bin.rl, 'bin/runlist.mjs');
     strictEqual(current.status, 0);
+    strictEqual(short.status, 0);
     strictEqual(legacy.status, 0);
+    strictEqual(current.stdout, short.stdout);
     strictEqual(current.stdout, legacy.stdout);
     ok(current.stdout.startsWith('runlist v'));
   });
