@@ -2,6 +2,12 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Changed
+
+- **Unresolved frontmatter references are now errors on every non-terminal document.** The 0.76.4 compatibility window exposed references previously hidden by quiet statuses as warnings; after the measured downstream baseline was corrected to zero, this release completes the ratchet. `skipWarnings` remains an editorial-noise policy, broken body links remain warnings, and terminal historical documents remain explicitly skipped. A missing configured reference on a quiet live doc, journey, research record, or plan now makes `dotmd check` exit nonzero with the existing `ref-resolution` metadata.
+
 ## 0.76.4 — 2026-08-24
 
 ### Fixed
