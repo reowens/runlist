@@ -4,7 +4,7 @@ import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { asString, toRepoPath, die, resolveDocPath, resolveRefPath, isArchivedPath } from './util.mjs';
 import { buildIndex, resolveDocArg } from './index.mjs';
 import { runQuery } from './query.mjs';
-import { completePlanClaim, regenIndex, renderLifecycleMutation, runArchive, runStatus } from './lifecycle.mjs';
+import { completePlanClaim, regenIndex, renderLifecycleMutation, runArchive } from './lifecycle.mjs';
 import { runNew } from './new.mjs';
 import { green, dim, yellow } from './color.mjs';
 import { authorizeManagedSource } from './managed-path.mjs';
@@ -21,10 +21,22 @@ import { LEGACY_STATE_DIR, STATE_DIR } from './naming.mjs';
 // `resume` is an alias for `use` — agents reach for "resume" when continuing a
 // session; `use` reads as internal mechanics. Both names stay valid; the
 // canonical output ("Consumed: …") is unchanged.
-const SUBCOMMANDS = new Set(['list', 'next', 'use', 'resume', 'show', 'peek', 'archive', 'new', 'hold', 'unhold', 'shelve', 'unshelve']);
+const SUBCOMMANDS = new Set(['list', 'next', 'use', 'resume', 'show', 'peek', 'archive', 'new']);
+
+// Removed 2026-08-30 with the `held`/`shelved` statuses. Named rather than left
+// to fall through to the list filter below, which would silently answer a
+// removed command with an empty list — the caller needs to be told the state is
+// gone and what replaced it.
+const REMOVED_SUBCOMMANDS = new Set(['hold', 'unhold', 'shelve', 'unshelve']);
 
 export async function runPrompts(argv, config, opts = {}) {
   const sub = argv[0];
+
+  if (sub && REMOVED_SUBCOMMANDS.has(sub)) {
+    die(`\`dotmd prompts ${sub}\` was removed — a prompt is pending or archived, and nothing else.\n`
+      + 'A prompt directs work, so parking one instead of archiving it leaves work state outside the\n'
+      + 'plan that owns it. Lift its content into that plan, then `dotmd prompts archive <file>`.');
+  }
 
   if (!sub || !SUBCOMMANDS.has(sub)) {
     return runPromptsList(argv, config, opts);
@@ -40,10 +52,6 @@ export async function runPrompts(argv, config, opts = {}) {
     case 'peek':     return runPromptsShow(rest, config);
     case 'archive':  return runPromptsArchive(rest, config, opts);
     case 'new':      return runPromptsNew(rest, config, opts);
-    case 'hold':     return runPromptsHold(rest, config, opts);
-    case 'unhold':   return runPromptsUnhold(rest, config, opts);
-    case 'shelve':   return runPromptsHold(rest, config, opts);
-    case 'unshelve': return runPromptsUnhold(rest, config, opts);
   }
 }
 
@@ -562,16 +570,3 @@ async function runPromptsNew(argv, config, opts = {}) {
   return runNew(['prompt', ...argv], config, opts);
 }
 
-async function runPromptsHold(argv, config, opts = {}) {
-  const input = argv.find(a => !a.startsWith('-'));
-  if (!input) die('Usage: dotmd prompts hold <file-or-slug>');
-  const filePath = resolvePromptInput(input, config);
-  return runStatus([filePath, 'held'], config, opts);
-}
-
-async function runPromptsUnhold(argv, config, opts = {}) {
-  const input = argv.find(a => !a.startsWith('-'));
-  if (!input) die('Usage: dotmd prompts unhold <file-or-slug>');
-  const filePath = resolvePromptInput(input, config);
-  return runStatus([filePath, 'pending'], config, opts);
-}

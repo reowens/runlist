@@ -163,7 +163,7 @@ readable for compatibility and can be migrated with `dotmd lint --fix`.
 |---|---|---|
 | `plan` | Executable work | `in-session`, `active`, `planned`, `blocked`, `partial`, `paused`, `awaiting`, `queued-after`, `archived` |
 | `doc` | Specs, ADRs, audits, and reference material | `draft`, `active`, `review`, `reference`, `deprecated`, `archived` |
-| `prompt` | Saved future-session instructions | `pending`, `held`, `shelved`, `claimed`, `archived` |
+| `prompt` | Saved future-session instructions | `pending`, `archived` |
 
 Status definitions can be customized per type. Rich status objects co-locate
 display, staleness, validation, terminal, and archive behavior in one place.

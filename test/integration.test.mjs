@@ -85,7 +85,7 @@ describe('CLI integration', () => {
     ok(result.stdout.includes('doc statuses'), 'mentions doc statuses');
     ok(result.stdout.includes('prompt statuses'), 'mentions prompt statuses');
     ok(result.stdout.includes('queued-after'), 'covers full plan vocab');
-    ok(result.stdout.includes('shelved'), 'covers full prompt vocab');
+    ok(result.stdout.includes('archived'), 'covers full prompt vocab');
     ok(result.stdout.includes('Canonical transitions'), 'shows transitions');
   });
 

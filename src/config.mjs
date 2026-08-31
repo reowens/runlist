@@ -37,9 +37,17 @@ const DEFAULTS = {
       context: { expanded: ['active'], listed: ['draft', 'review'], counted: ['reference', 'deprecated', 'archived'] },
       staleDays: { draft: 30, active: 14, review: 14 },
     },
+    // A prompt has two states and no third. It is pending — the next session
+    // should consume it — or it is archived, consumed, body kept under the
+    // archive directory. `held`, `shelved` and `claimed` were removed 2026-08-30:
+    // a prompt directs work, so parking one instead of archiving it leaves work
+    // state sitting outside the plan that owns it, where it fights with the
+    // plan's own status and neither one is the truth. If a prompt should not be
+    // consumed, its content belongs in the plan and the prompt should be
+    // archived. See lifecycle.filedStatuses — prompts file nowhere.
     prompt: {
-      statuses: ['pending', 'held', 'shelved', 'claimed', 'archived'],
-      context: { expanded: ['pending'], listed: ['held', 'shelved'], counted: ['claimed', 'archived'] },
+      statuses: ['pending', 'archived'],
+      context: { expanded: ['pending'], counted: ['archived'] },
       staleDays: { pending: 30 },
     },
   },
@@ -64,7 +72,11 @@ const DEFAULTS = {
     // F15: per-status filing buckets (status → dirName). Built-in held/paused
     // statuses file under the owning type folder; archive remains a separate
     // primitive untouched.
-    filedStatuses: { held: 'held', shelved: 'held', paused: 'held' },
+    // Plans only. A paused plan files under <plansDir>/held/ so the live plan
+    // list stays readable. Prompts were removed from this map 2026-08-30 along
+    // with their held/shelved statuses — `archived` is the only directory a
+    // prompt ever moves into.
+    filedStatuses: { paused: 'held' },
     // Types whose archive nests under their own type dir (<typeDir>/<archiveDir>,
     // e.g. docs/prompts/archived/) instead of the shared <root>/<archiveDir>.
     // Prompts are session-local churn — keeping their archive out of the shared

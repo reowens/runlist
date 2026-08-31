@@ -478,74 +478,57 @@ describe('dotmd prompts show', () => {
   });
 });
 
-describe('F14: held prompt status', () => {
+describe('a prompt is pending or archived, and nothing else', () => {
   beforeEach(setupProject);
 
-  it('`prompts list` shows held prompts alongside pending', () => {
-    writePrompt('parked', { status: 'held' });
+  // Removed 2026-08-30 with `held`/`shelved`/`claimed`: a prompt directs work,
+  // so parking one instead of archiving it left work state outside the plan
+  // that owned it, fighting with that plan's own status. These assert the
+  // states are gone rather than merely unused.
+
+  it('rejects `held` as a prompt status', () => {
+    const file = writePrompt('parked', { status: 'pending' });
+    const r = run(['set', 'held', file]);
+    ok(r.status !== 0, `held must not be settable on a prompt:\n${r.stdout}${r.stderr}`);
+  });
+
+  it('rejects `shelved` as a prompt status', () => {
+    const file = writePrompt('shelf', { status: 'pending' });
+    const r = run(['set', 'shelved', file]);
+    ok(r.status !== 0, `shelved must not be settable on a prompt:\n${r.stdout}${r.stderr}`);
+  });
+
+  it('`prompts hold` and its aliases no longer exist', () => {
+    writePrompt('todo-later', { status: 'pending' });
+    for (const sub of ['hold', 'unhold', 'shelve', 'unshelve']) {
+      const r = run(['prompts', sub, 'todo-later']);
+      ok(r.status !== 0, `prompts ${sub} should be gone, got exit 0`);
+    }
+    ok(!existsSync(path.join(promptsDir, 'held')), 'no prompts/held/ bucket should be created');
+  });
+
+  it('`prompts list` shows pending prompts and nothing is filed elsewhere', () => {
     writePrompt('active-one', { status: 'pending' });
-    const r = run(['prompts', 'list', '--include-archived']);
+    writePrompt('other-one', { status: 'pending' });
+    const r = run(['prompts', 'list']);
     strictEqual(r.status, 0, r.stderr);
-    ok(r.stdout.includes('parked'), `list should show held prompt:\n${r.stdout}`);
-    ok(r.stdout.includes('active-one'), `list should still show pending:\n${r.stdout}`);
+    ok(r.stdout.includes('active-one'), `list should show pending:\n${r.stdout}`);
+    ok(r.stdout.includes('other-one'), `list should show pending:\n${r.stdout}`);
+    ok(!existsSync(path.join(promptsDir, 'held')), 'archived is the only directory');
   });
 
-  it('`prompts next` skips held and only consumes pending', () => {
-    writePrompt('shelf', { status: 'held', created: '2025-01-01', body: 'shelf body' });
-    writePrompt('hot', { status: 'pending', created: '2025-06-01', body: 'hot body' });
-    const r = run(['prompts', 'next']);
+  it('archiving is the only way a prompt leaves the pending list', () => {
+    writePrompt('done-with', { status: 'pending' });
+    const r = run(['prompts', 'archive', 'done-with']);
     strictEqual(r.status, 0, r.stderr);
-    ok(r.stdout.includes('hot body'), `should consume the pending one:\n${r.stdout}`);
-    ok(!r.stdout.includes('shelf body'), `must not consume held:\n${r.stdout}`);
+    const listed = run(['prompts', 'list']);
+    ok(!listed.stdout.includes('done-with'), `archived prompt should leave the list:\n${listed.stdout}`);
   });
 
-  it('`prompts next` reports empty queue when only held prompts exist', () => {
-    writePrompt('only-held', { status: 'held' });
+  it('`prompts next` reports an empty queue when nothing is pending', () => {
     const r = run(['prompts', 'next']);
     ok(r.status !== 0, 'non-zero exit when no pending');
     ok(r.stderr.includes('No pending prompts'), `expected empty-queue error:\n${r.stderr}`);
-  });
-
-  it('`prompts hold` flips status pending → held and moves under prompts/held/', () => {
-    const file = writePrompt('todo-later', { status: 'pending' });
-    const r = run(['prompts', 'hold', 'todo-later']);
-    strictEqual(r.status, 0, r.stderr);
-    const held = path.join(promptsDir, 'held', 'todo-later.md');
-    ok(!existsSync(file), 'source prompt should move out of the pending folder');
-    ok(existsSync(held), 'held prompt should live under prompts/held/');
-    const after = readFileSync(held, 'utf8');
-    ok(after.includes('status: held'), `status should flip:\n${after}`);
-  });
-
-  it('`prompts unhold` flips status held → pending and moves back to prompts/', () => {
-    const file = writePrompt('back-on-deck', { status: 'pending' });
-    run(['prompts', 'hold', 'back-on-deck']);
-    const held = path.join(promptsDir, 'held', 'back-on-deck.md');
-    const r = run(['prompts', 'unhold', 'back-on-deck']);
-    strictEqual(r.status, 0, r.stderr);
-    const after = readFileSync(file, 'utf8');
-    ok(after.includes('status: pending'), `status should flip back:\n${after}`);
-    ok(!existsSync(held), 'held path should be empty after unhold');
-  });
-
-  it('legacy `prompts shelve` aliases to hold', () => {
-    const file = writePrompt('legacy-shelve', { status: 'pending' });
-    const r = run(['prompts', 'shelve', 'legacy-shelve']);
-    strictEqual(r.status, 0, r.stderr);
-    const held = path.join(promptsDir, 'held', 'legacy-shelve.md');
-    ok(!existsSync(file), 'source prompt should move');
-    ok(readFileSync(held, 'utf8').includes('status: held'), 'legacy alias writes canonical held status');
-  });
-
-  it('`dotmd use` skips held prompts when picking the oldest pending', () => {
-    // HUD no longer surfaces prompt counts; the load-bearing assertion moved
-    // to `dotmd use` (the canonical consumer): held prompts must not be
-    // returned as "oldest pending".
-    writePrompt('parked', { status: 'held' });
-    const r = run(['use']);
-    ok(r.status !== 0, 'should refuse with no pending prompts');
-    ok(/No pending prompts/.test(r.stderr ?? r.stdout),
-      `expected "No pending prompts"; got: ${r.stderr}\n${r.stdout}`);
   });
 });
 

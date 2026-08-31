@@ -103,7 +103,7 @@ const HELP = {
 
 Common commands:
   plans                 Live plans (excludes archived)
-  prompts               Prompt queue/admin (list, next, archive, new, hold)
+  prompts               Prompt queue/admin (list, next, archive, new)
   briefing              Full briefing with plan counts + next steps
   agent-context         Compact bounded JSON context for agents
   set <status> [file]   Transition status (start work, finish, archive — all via target status)
@@ -219,7 +219,7 @@ View & Query:
   plans                             Live plans (excludes archived; --include-archived for all)
   use [<file-or-slug>]              Open a doc by type: prompt → consume, plan → start, doc → read
   baton [<plan>|<slug>] <@<file>|->  Save a resume prompt; releases the plan + prints the commit when one is in-session
-  prompts [list|show|archive|new|hold] Prompt admin (list / peek / archive / save / hold). Use \`dotmd use\` to consume.
+  prompts [list|show|archive|new] Prompt admin (list / peek / archive / save). Use \`dotmd use\` to consume.
   stale                             Stale docs (preset)
   actionable                        Docs with next steps (preset)
 
@@ -359,21 +359,21 @@ doc statuses
 ────────────────────────────────────────────────────────────────────
 prompt statuses
 
+  A prompt has two states and no third.
+
   pending        Ready for the next session to consume.
                  \`dotmd prompts use <file>\` prints body + archives atomically.
                  \`dotmd prompts next\` does the same for the oldest pending.
 
-  held           Saved under prompts/held/ and hidden from \`hud\` /
-                 \`briefing\` / \`prompts next\`.
-                 Still listed by \`dotmd prompts list\`.
-                 \`dotmd prompts unhold <file>\` → pending.
+  archived       Consumed prompt; body preserved in the archive directory,
+                 which is the only directory a prompt ever moves into.
 
-  shelved        Legacy spelling for held prompts. \`dotmd prompts shelve\`
-                 now writes \`status: held\`.
-
-  claimed        Legacy intermediate state (atomic use → archived now).
-
-  archived       Consumed prompt; body preserved in archive directory.
+  \`held\`, \`shelved\` and \`claimed\` were removed 2026-08-30, along with
+  \`prompts hold\` / \`unhold\` / \`shelve\` / \`unshelve\` and the
+  prompts/held/ bucket. A prompt directs work, so parking one instead of
+  archiving it left work state outside the plan that owns it, fighting with
+  that plan's own status. If a prompt should not be consumed, lift its content
+  into the plan and archive the prompt.
 
 ────────────────────────────────────────────────────────────────────
 Related commands:
@@ -995,7 +995,7 @@ Other options:
 
 For plans, the default status vocabulary is: in-session, active, planned,
 blocked, partial, paused, awaiting, queued-after, archived.
-For prompts: pending (default), held, shelved, claimed, archived.
+For prompts: pending (default), archived.
 
 Use --dry-run (-n) to preview without creating the file.`,
 
@@ -1132,11 +1132,6 @@ Subcommands:
   show <file-or-slug>        Read-only peek: print the body WITHOUT consuming
                              (triage). \`peek\` is an alias.
   archive <file-or-slug>     Archive a prompt without printing its body
-  hold <file-or-slug>        Park a prompt (status → held) under prompts/held/:
-                             kept in list, hidden from hud/briefing pending
-                             surfaces, skipped by \`prompts next\`.
-  unhold <file-or-slug>      Move a held prompt back to pending.
-  shelve / unshelve          Legacy aliases for hold / unhold.
   new <slug> [body]          Create a new prompt (alias for
                              \`dotmd new prompt <slug> [body]\`)
 
@@ -1144,7 +1139,7 @@ Subcommands:
 slug matching a prompt basename, or a unique substring of a prompt
 path. Ambiguous substrings error with the candidate list.
 
-Default prompt statuses: pending, held, shelved, claimed, archived.
+Default prompt statuses: pending, archived.
 
 Examples:
   dotmd prompts                        # pending prompts (default)

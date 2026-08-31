@@ -33,7 +33,9 @@ describe('resolveConfig', () => {
     ok(config.validStatuses.has('draft'));      // doc-specific
     ok(config.validStatuses.has('review'));     // doc-specific
     ok(config.validStatuses.has('deprecated')); // doc-specific
-    ok(config.validStatuses.has('held'));       // prompt-specific
+    ok(!config.validStatuses.has('held'), 'held was removed from the prompt vocab 2026-08-30');
+    ok(!config.validStatuses.has('shelved'), 'shelved was removed from the prompt vocab 2026-08-30');
+    ok(!config.validStatuses.has('claimed'), 'claimed was removed from the prompt vocab 2026-08-30');
     ok(config.validTypes.has('plan'));
     ok(config.validTypes.has('doc'));
     ok(config.validTypes.has('prompt'));
@@ -92,11 +94,13 @@ describe('resolveConfig', () => {
     ok(!skipWarningsFor.has('done'));
   });
 
-  it('default filed statuses move held prompts and paused plans into held buckets', async () => {
+  it('paused plans file into a held bucket; prompts file nowhere', async () => {
     const config = await resolveConfig(tmpDir);
-    strictEqual(config.lifecycle.filedStatuses.get('held'), 'held');
-    strictEqual(config.lifecycle.filedStatuses.get('shelved'), 'held');
     strictEqual(config.lifecycle.filedStatuses.get('paused'), 'held');
+    // Prompts were removed from the filing map 2026-08-30 — `archived` is the
+    // only directory a prompt ever moves into.
+    strictEqual(config.lifecycle.filedStatuses.get('held'), undefined);
+    strictEqual(config.lifecycle.filedStatuses.get('shelved'), undefined);
   });
 
   it('user lifecycle.filedStatuses replaces defaults so projects can opt out', async () => {
