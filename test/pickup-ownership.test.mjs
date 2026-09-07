@@ -243,7 +243,7 @@ describe('durable lifecycle ownership', () => {
   it('DOTMD_SESSION_ID is an authoritative non-Claude override', () => {
     setup();
     const file = plan('host');
-    const env = { CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '', DOTMD_SESSION_ID: 'ci-worker-7' };
+    const env = { CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '', CODEX_THREAD_ID: '', CODEX_SESSION_ID: '', DOTMD_SESSION_ID: 'ci-worker-7' };
     strictEqual(run(['use', file], '', env).status, 0);
     strictEqual(JSON.parse(readFileSync(ownershipFile(), 'utf8')).sessionId, 'ci-worker-7');
   });
@@ -252,7 +252,7 @@ describe('durable lifecycle ownership', () => {
     setup();
     const file = plan('runlist-host');
     const env = {
-      CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '',
+      CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '', CODEX_THREAD_ID: '', CODEX_SESSION_ID: '',
       RUNLIST_SESSION_ID: 'current-worker', DOTMD_SESSION_ID: 'legacy-worker',
     };
     strictEqual(run(['use', file], '', env).status, 0);
@@ -263,7 +263,7 @@ describe('durable lifecycle ownership', () => {
     setup();
     const file = plan('host-id');
     const cleared = {
-      CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '', DOTMD_SESSION_ID: '', TERM_SESSION_ID: '',
+      CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '', CODEX_THREAD_ID: '', CODEX_SESSION_ID: '', DOTMD_SESSION_ID: '', TERM_SESSION_ID: '',
       OPENCODE_SESSION_ID: 'oc-42', OPENCODE_SESSION: '', OPENCODE_PID: '',
     };
     strictEqual(run(['use', file], '', cleared).status, 0);
@@ -275,6 +275,30 @@ describe('durable lifecycle ownership', () => {
     match(failed.stderr, /RUNLIST_SESSION_ID/);
   });
 
+  // Codex does export a per-thread id to its tool shells (verified by printing
+  // `env` inside a real `codex exec` session — see SESSION_ID_SOURCES). Before
+  // it was listed, every Codex session failed closed on `use` with the generic
+  // "set RUNLIST_SESSION_ID" advice. Note what this test can and cannot prove:
+  // it shows dotmd honors the variable, not that Codex sets it — the evidence
+  // for that lives in the source comment, per the rule in CLAUDE.md.
+  it('recognizes a Codex thread id as a per-session identity', () => {
+    setup();
+    const file = plan('codex-thread');
+    const cleared = {
+      CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '', DOTMD_SESSION_ID: '', TERM_SESSION_ID: '',
+      OPENCODE_SESSION_ID: '', OPENCODE_SESSION: '', OPENCODE_PID: '',
+      CODEX_THREAD_ID: '01a07e08-0000-7fc1-ac28-c81a72772b27', CODEX_SESSION_ID: '01a07e08-0000-7fc1-ac28-c81a72772b27',
+    };
+    strictEqual(run(['use', file], '', cleared).status, 0);
+    strictEqual(JSON.parse(readFileSync(ownershipFile(), 'utf8')).sessionId, '01a07e08-0000-7fc1-ac28-c81a72772b27');
+
+    // The older twin alone is enough too.
+    setup();
+    const twin = plan('codex-session');
+    strictEqual(run(['use', twin], '', { ...cleared, CODEX_THREAD_ID: '', CODEX_SESSION_ID: 'codex-twin' }).status, 0);
+    strictEqual(JSON.parse(readFileSync(ownershipFile(), 'utf8')).sessionId, 'codex-twin');
+  });
+
   // OpenCode sets no session-id variable at all — the names above were a guess,
   // and every OpenCode session failed closed on a verb as ordinary as `use`.
   // What it does set on the process every tool shell inherits is OPENCODE_PID.
@@ -282,7 +306,7 @@ describe('durable lifecycle ownership', () => {
     setup();
     const file = plan('oc-pid');
     const cleared = {
-      CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '', DOTMD_SESSION_ID: '', TERM_SESSION_ID: '',
+      CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '', CODEX_THREAD_ID: '', CODEX_SESSION_ID: '', DOTMD_SESSION_ID: '', TERM_SESSION_ID: '',
       OPENCODE_SESSION_ID: '', OPENCODE_SESSION: '', DOTMD_SESSION_PID: null, CLAUDE_PID: null,
       OPENCODE_PID: String(process.pid),
     };
@@ -299,7 +323,7 @@ describe('durable lifecycle ownership', () => {
     setup();
     const file = plan('oc-over-term');
     strictEqual(run(['use', file], '', {
-      CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '', DOTMD_SESSION_ID: '',
+      CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '', CODEX_THREAD_ID: '', CODEX_SESSION_ID: '', DOTMD_SESSION_ID: '',
       OPENCODE_SESSION_ID: '', OPENCODE_SESSION: '',
       OPENCODE_PID: '4242', TERM_SESSION_ID: 'w0t0p0',
     }).status, 0);

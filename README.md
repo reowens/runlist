@@ -40,6 +40,8 @@ dotmd doctor --session    # what identity dotmd sees here, and from where
 ```
 
 Both are one-time and global; `dotmd update` keeps them in step with the CLI.
+Codex needs no install for identity: it exports `CODEX_THREAD_ID` to every tool
+shell, and dotmd reads it as a per-session identity automatically.
 
 ### Claude Code Plugin
 

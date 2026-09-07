@@ -209,7 +209,7 @@ describe('packaging', () => {
 
 describe('session identity reporting', () => {
   const bare = {
-    CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '', RUNLIST_SESSION_ID: '', DOTMD_SESSION_ID: '',
+    CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '', CODEX_THREAD_ID: '', CODEX_SESSION_ID: '', RUNLIST_SESSION_ID: '', DOTMD_SESSION_ID: '',
     OPENCODE_SESSION_ID: '', OPENCODE_SESSION: '', OPENCODE_PID: '', TERM_SESSION_ID: '',
   };
 
@@ -224,6 +224,14 @@ describe('session identity reporting', () => {
     strictEqual(shared.id, 'opencode:42');
     match(shared.summary, /can release each other's plans/);
     match(shared.advice.join(' '), /dotmd install opencode/);
+
+    // Codex hands every tool shell its thread id, so it needs no install and
+    // no advice — and it must win over a surrounding terminal id.
+    const codex = describeSessionIdentity({ env: { ...bare, CODEX_THREAD_ID: 'thr-1', TERM_SESSION_ID: 'w0t0' }, homedir: home });
+    strictEqual(codex.scope, 'session');
+    strictEqual(codex.host, 'Codex');
+    strictEqual(codex.source, 'CODEX_THREAD_ID');
+    deepStrictEqual(codex.advice, []);
 
     // A terminal id is shared by every agent ever run in that window.
     const terminal = describeSessionIdentity({ env: { ...bare, TERM_SESSION_ID: 'w0t0' }, homedir: home });
@@ -257,7 +265,7 @@ describe('session identity reporting', () => {
 // all work, they just share an identity.
 describe('degraded-identity notice', () => {
   const opencodeEnv = pid => ({
-    CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '', DOTMD_SESSION_ID: '',
+    CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '', CODEX_THREAD_ID: '', CODEX_SESSION_ID: '', DOTMD_SESSION_ID: '',
     OPENCODE_SESSION_ID: '', OPENCODE_SESSION: '', TERM_SESSION_ID: '',
     OPENCODE: '1', OPENCODE_PID: String(pid),
   });
@@ -395,7 +403,7 @@ describe('dotmd install command', () => {
       encoding: 'utf8',
       env: {
         ...process.env, NO_COLOR: '1',
-        CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '', DOTMD_SESSION_ID: '', TERM_SESSION_ID: '',
+        CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '', CODEX_THREAD_ID: '', CODEX_SESSION_ID: '', DOTMD_SESSION_ID: '', TERM_SESSION_ID: '',
         OPENCODE_SESSION_ID: '', OPENCODE_SESSION: '', DOTMD_NO_HINTS: '',
         OPENCODE: '1', OPENCODE_PID: String(pid), OPENCODE_CONFIG_DIR: path.join(home, 'oc'),
       },

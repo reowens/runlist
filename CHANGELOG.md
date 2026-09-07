@@ -2,6 +2,12 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- **Codex sessions no longer fail closed on `use`, `set`, `baton` and `archive`.** Codex exports `CODEX_THREAD_ID` (and `CODEX_SESSION_ID`) to every tool shell — verified by printing the environment inside a real `codex exec` session — so dotmd now reads it as a per-session identity. Previously every Codex session hit "No authoritative session identity" because no Codex variable was in the recognized list.
+
 ## 0.77.1 — 2026-08-24
 
 ### Added

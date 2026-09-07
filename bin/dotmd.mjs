@@ -504,9 +504,10 @@ another session's work.
 a unique bare slug / basename across the doc roots (\`set paused auth-revamp\`).
 Ambiguous slugs error with the candidate list instead of guessing.
 When the path is omitted, exactly one plan must be owned by this session.
-Claude Code session IDs are recognized automatically, as is OpenCode (via
-OPENCODE_PID — per OpenCode process, not per session). Other hosts must set
-RUNLIST_SESSION_ID; anonymous ownership mutations fail closed.
+Claude Code and Codex session IDs are recognized automatically (Codex exports
+CODEX_THREAD_ID to every tool shell), as is OpenCode (via OPENCODE_PID — per
+OpenCode process, not per session). Other hosts must set RUNLIST_SESSION_ID;
+anonymous ownership mutations fail closed.
 Pickup hooks use at-least-once delivery with a stable operationId; hook side
 effects must deduplicate that ID.
 

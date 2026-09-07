@@ -26,6 +26,15 @@ const SESSION_ID_SOURCES = [
   { variable: 'DOTMD_SESSION_ID', prefix: null, scope: 'session', host: 'explicit override' },
   { variable: 'CLAUDE_CODE_SESSION_ID', prefix: null, scope: 'session', host: 'Claude Code' },
   { variable: 'CLAUDE_SESSION_ID', prefix: null, scope: 'session', host: 'Claude Code' },
+  // Verified against codex-cli 0.153.4 (2026-09-07): `codex exec` ran
+  // `env | grep ^CODEX` in a tool shell and printed both variables, each equal
+  // to the "session id:" line Codex prints in its own header, so they name one
+  // Codex thread (session), not the Codex process. THREAD_ID is what the exec
+  // path (core/src/exec.rs) sets first; SESSION_ID is its older twin. No
+  // CODEX_PID exists, so a Codex claim records no owning process and reads as
+  // 'unverifiable' — a takeover stays an explicit --force.
+  { variable: 'CODEX_THREAD_ID', prefix: null, scope: 'session', host: 'Codex' },
+  { variable: 'CODEX_SESSION_ID', prefix: null, scope: 'session', host: 'Codex' },
   { variable: 'OPENCODE_SESSION_ID', prefix: null, scope: 'session', host: 'OpenCode' },
   { variable: 'OPENCODE_SESSION', prefix: null, scope: 'session', host: 'OpenCode' },
   { variable: 'OPENCODE_PID', prefix: 'opencode', scope: 'process', host: 'OpenCode' },
