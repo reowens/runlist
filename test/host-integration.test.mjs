@@ -318,9 +318,27 @@ describe('claude code install planning', () => {
       `claude plugin install ${CLAUDE_PLUGIN_ID}`,
     ]);
 
-    const present = planClaudeInstall({ installed: { id: CLAUDE_PLUGIN_ID, version: '1.2.3' }, hasClaude: true });
+    const present = planClaudeInstall({ installed: { id: CLAUDE_PLUGIN_ID, version: '1.2.3', marketplace: 'dotmd', marketplaceRegistered: true }, hasClaude: true });
     strictEqual(present[0].kind, 'skip');
     match(present[0].reason, /already installed \(1\.2\.3\)/);
+  });
+
+  // "Installed" used to mean "has an install record", so a plugin Claude
+  // itself listed as failed-to-load was skipped as already installed — and no
+  // dotmd verb could repair it.
+  it('repairs an install record whose marketplace registration is gone instead of skipping it', () => {
+    const broken = { id: CLAUDE_PLUGIN_ID, version: '1.2.3', marketplace: 'dotmd', marketplaceRegistered: false };
+    const steps = planClaudeInstall({ installed: broken, hasClaude: true });
+    deepStrictEqual(steps.map(s => s.cmd.join(' ')), [
+      `claude plugin marketplace add ${CLAUDE_MARKETPLACE}`,
+      `claude plugin update ${CLAUDE_PLUGIN_ID}`,
+    ]);
+    ok(steps.every(s => s.kind === 'run'));
+    match(steps[0].reason, /not registered/);
+
+    const manual = planClaudeInstall({ installed: broken, hasClaude: false });
+    strictEqual(manual[0].kind, 'manual');
+    deepStrictEqual(manual[0].lines, [`/plugin marketplace add ${CLAUDE_MARKETPLACE}`, `/plugin update ${CLAUDE_PLUGIN_ID}`]);
   });
 
   // Without the claude CLI the work can still be done — from inside a session.

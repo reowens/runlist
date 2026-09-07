@@ -5,7 +5,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { green, dim, yellow } from './color.mjs';
 import { executableName, which } from './util.mjs';
-import { installOpencodePlugin, opencodeStatus } from './host-integration.mjs';
+import { CLAUDE_MARKETPLACE, claudeMarketplaceRefusalHint, installOpencodePlugin, opencodeStatus } from './host-integration.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
@@ -50,10 +50,54 @@ export function readInstalledPluginRecords(opts = {}) {
   }
 }
 
+// Claude Code's marketplace registry, keyed by marketplace name. A plugin id
+// is `<plugin>@<marketplace>`, and the plugin only loads while its marketplace
+// is registered here — an install record alone is not an installed plugin.
+export function readKnownMarketplaces(opts = {}) {
+  const home = opts.home || os.homedir();
+  const file = path.join(home, '.claude', 'plugins', 'known_marketplaces.json');
+  try {
+    const parsed = JSON.parse(readFileSync(file, 'utf8'));
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+// `marketplaceRegistered: false` is the state `claude plugin list` shows as
+// "failed to load: Marketplace dotmd not found": the install record survived,
+// the marketplace registration did not (a settings.json declaration that no
+// longer matches, a wiped registry). Reading only the install record called
+// that "installed", so `dotmd install claude` skipped the one repair it owns
+// and `dotmd update` ran a `plugin update` that could only fail.
 export function readInstalledPlugin(opts = {}) {
   const records = readInstalledPluginRecords(opts);
   if (!records) return null;
-  return { id: records.id, version: records.entries[0]?.version ?? null };
+  const marketplace = records.id.split('@')[1] || null;
+  const known = readKnownMarketplaces(opts);
+  return {
+    id: records.id,
+    version: records.entries[0]?.version ?? null,
+    marketplace,
+    marketplaceRegistered: Boolean(marketplace && known[marketplace]),
+  };
+}
+
+// The steps that put a plugin whose marketplace registration is gone back on
+// its feet. Only the marketplace dotmd publishes has a source dotmd knows; a
+// plugin installed from some other marketplace names a source we cannot guess.
+export function planMarketplaceRepair(plugin, { hasClaude, verb }) {
+  const reason = `marketplace "${plugin.marketplace}" is not registered, so the installed plugin cannot load`;
+  if (plugin.marketplace !== 'dotmd') {
+    return [{ kind: 'skip', reason: `${reason} — re-add that marketplace (dotmd does not know its source), then rerun` }];
+  }
+  if (!hasClaude) {
+    return [{ kind: 'manual', reason, lines: [`/plugin marketplace add ${CLAUDE_MARKETPLACE}`, `/plugin ${verb} ${plugin.id}`] }];
+  }
+  return [
+    { kind: 'marketplace', reason: `${reason} — re-adding it first`, cmd: ['claude', 'plugin', 'marketplace', 'add', CLAUDE_MARKETPLACE] },
+    { kind: 'plugin', needs: 'marketplace', cmd: ['claude', 'plugin', verb, plugin.id] },
+  ];
 }
 
 // Decide which steps `dotmd update` should run. Pure — no side effects — so the
@@ -69,6 +113,8 @@ export function planUpdate(opts, ctx) {
   if (!opts.cliOnly) {
     if (!ctx.plugin) {
       steps.push({ kind: 'skip', reason: 'dotmd plugin not installed — skipping plugin update' });
+    } else if (ctx.plugin.marketplaceRegistered === false) {
+      steps.push(...planMarketplaceRepair(ctx.plugin, { hasClaude: ctx.hasClaude, verb: 'update' }));
     } else if (!ctx.hasClaude) {
       steps.push({ kind: 'skip', reason: `claude CLI not found — run \`/plugin update ${ctx.plugin.id}\` from a session instead` });
     } else {
@@ -102,6 +148,9 @@ export function runUpdate(argv, _config, opts = {}) {
         : cmp < 0 ? yellow('behind — run `dotmd update`')
         : yellow('ahead — CLI is behind');
       process.stdout.write(`dotmd plugin: ${plugin.version ?? '?'} (${plugin.id}) ${tag}\n`);
+      if (plugin.marketplaceRegistered === false) {
+        process.stdout.write(yellow(`  marketplace "${plugin.marketplace}" is not registered — the plugin fails to load; run \`dotmd install claude\`\n`));
+      }
     } else {
       process.stdout.write(dim('dotmd plugin: not installed — `dotmd install claude`\n'));
     }
@@ -117,16 +166,32 @@ export function runUpdate(argv, _config, opts = {}) {
   if (opts.dryRun) {
     for (const step of steps) {
       if (step.kind === 'skip') process.stdout.write(dim(`[dry-run] skip: ${step.reason}\n`));
+      else if (step.kind === 'manual') for (const line of step.lines) process.stdout.write(dim(`[dry-run] Run from a session: ${line}\n`));
       else if (step.kind === 'opencode') process.stdout.write(dim(`[dry-run] Would refresh: ${step.path}\n`));
       else process.stdout.write(dim(`[dry-run] Would run: ${step.cmd.join(' ')}\n`));
     }
     return;
   }
+  // The hosts are independent: a failed `claude plugin update` says nothing
+  // about the OpenCode file, so every step runs and the failures are reported
+  // together at the end. Stopping at the first one left OpenCode stale behind a
+  // Claude registry problem — silently, since the abort said nothing about the
+  // steps it never reached.
   let ran = false;
-  let failed = false;
+  const failures = [];
+  const failedKinds = new Set();
   for (const s of steps) {
     if (s.kind === 'skip') {
       process.stdout.write(dim(`skip: ${s.reason}\n`));
+      continue;
+    }
+    if (s.kind === 'manual') {
+      process.stdout.write(`${yellow(s.reason)} — run these from a Claude Code session:\n`);
+      for (const line of s.lines) process.stdout.write(`  ${line}\n`);
+      continue;
+    }
+    if (s.needs && failedKinds.has(s.needs)) {
+      process.stdout.write(dim(`skip: ${s.cmd.join(' ')} — the ${s.needs} step it depends on failed\n`));
       continue;
     }
     if (s.kind === 'opencode') {
@@ -135,6 +200,7 @@ export function runUpdate(argv, _config, opts = {}) {
       ran = true;
       continue;
     }
+    if (s.reason) process.stdout.write(dim(`${s.reason}\n`));
     process.stdout.write(dim(`$ ${s.cmd.join(' ')}\n`));
     const r = spawnSync(executableName(s.cmd[0]), s.cmd.slice(1), {
       stdio: 'inherit',
@@ -142,13 +208,21 @@ export function runUpdate(argv, _config, opts = {}) {
     });
     ran = true;
     if (r.status !== 0) {
-      failed = true;
+      failedKinds.add(s.kind);
+      failures.push(s);
       process.stdout.write(yellow(`(${s.cmd[0]} exited ${r.status ?? '?'})\n`));
-      break;
+      if (s.kind === 'marketplace') for (const line of claudeMarketplaceRefusalHint(plugin?.marketplace)) process.stdout.write(yellow(`${line}\n`));
     }
   }
-  if (ran && !failed) {
+  if (failures.length) {
+    process.stdout.write(yellow(`\n${failures.length === 1 ? '1 step' : `${failures.length} steps`} failed: ${failures.map(s => s.cmd.join(' ')).join('; ')}\n`));
+    if (ran && failures.length < steps.filter(s => s.kind !== 'skip' && s.kind !== 'manual').length) {
+      process.stdout.write(dim('the other steps completed; restart your Claude Code session (or /reload-plugins) to apply them.\n'));
+    }
+    process.exitCode = 1;
+    return;
+  }
+  if (ran) {
     process.stdout.write(green('\n✓ restart your Claude Code session (or /reload-plugins) to apply.\n'));
   }
-  if (failed) process.exitCode = 1;
 }

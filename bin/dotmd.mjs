@@ -160,6 +160,12 @@ host gets that a different way:
             with "plugin not installed"), and the README's slash commands only
             work from inside a session. Without the \`claude\` CLI on PATH the
             two in-session commands are printed instead.
+            It also repairs a plugin Claude lists as "failed to load: Marketplace
+            dotmd not found" — an install record whose marketplace registration
+            is gone — by re-adding the marketplace and updating the plugin. If
+            Claude refuses the marketplace, ~/.claude/settings.json declares it
+            under extraKnownMarketplaces with a source that no longer matches;
+            dotmd names the field but never edits that file.
 
   opencode  Writes one auto-discovered plugin file. OpenCode has no plugin
             registry but globs \`{plugin,plugins}/*.{ts,js}\` under its global
@@ -190,7 +196,11 @@ reports a missing integration but never installs one.`,
 The plugin and CLI ship in lockstep; a release bumps both. Updating the plugin
 requires a session restart (or /reload-plugins) to apply. The plugin step needs
 the \`claude\` CLI on PATH — otherwise it prints the \`/plugin update\` command to
-run from a session instead.`,
+run from a session instead. The OpenCode file is refreshed in the same run when
+it is present and behind. The hosts are independent, so a failing step does not
+stop the others: every step runs, the failures are listed together, and the
+exit code is 1. A plugin whose marketplace registration is gone gets the
+marketplace re-added before the update (see \`dotmd install claude\`).`,
 
   misuse: `dotmd misuse — read the cross-repo guard log (~/.claude/logs/dotmd-misuse.log)
 

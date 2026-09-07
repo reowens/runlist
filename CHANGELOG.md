@@ -2,6 +2,13 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- **`dotmd install claude` repairs a plugin whose marketplace registration is gone, instead of skipping it as "already installed".** "Installed" now means the install record *and* its marketplace are both present in Claude's registries; a record alone is the state `claude plugin list` shows as "failed to load: Marketplace dotmd not found". `dotmd install` (status), `dotmd update --check` and `--json` name that state, and both `install claude` and `update` re-add the marketplace before touching the plugin. When Claude refuses the add, the output names the `extraKnownMarketplaces` declaration in `~/.claude/settings.json` whose source no longer matches — dotmd never edits that file.
+- **`dotmd update` no longer stops at the first failed step.** A failing `claude plugin update` left the OpenCode integration stale without saying so. The hosts are independent, so every step now runs, a step whose prerequisite failed is skipped with a reason, and the failures are listed together with exit code 1.
+
 ## 0.77.2 — 2026-09-07
 
 ### Fixed

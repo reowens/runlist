@@ -23,6 +23,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { hostSessionSource } from './util.mjs';
 import { readEnv, stateDir } from './naming.mjs';
+import { planMarketplaceRepair } from './update.mjs';
 
 export const GENERATED_MARKER = 'dotmd-generated:';
 const PLUGIN_FILENAME = 'dotmd.js';
@@ -233,6 +234,19 @@ export function degradedIdentityNotice(repoRoot, opts = {}) {
 export const CLAUDE_MARKETPLACE = 'reowens/dotmd';
 export const CLAUDE_PLUGIN_ID = 'dotmd@dotmd';
 
+// Why `claude plugin marketplace add` can refuse a marketplace that is not
+// even registered: settings.json may still DECLARE it (extraKnownMarketplaces),
+// and Claude rejects an add whose source differs from that declaration in any
+// fetch-shaping field. dotmd never writes that declaration and will not edit
+// it, so the most it can do is name the field.
+export function claudeMarketplaceRefusalHint(marketplace = 'dotmd') {
+  return [
+    `Claude refused to register marketplace "${marketplace}". If ~/.claude/settings.json declares it under`,
+    `extraKnownMarketplaces, its source must be exactly {"source":"github","repo":"${CLAUDE_MARKETPLACE}"} —`,
+    'a stray "path", "ref" or header there makes the add fail and the installed plugin fail to load.',
+  ];
+}
+
 // Pure planner, mirroring planUpdate: the orchestration is unit-testable and
 // the side effects stay in the caller.
 export function planClaudeInstall({ installed, hasClaude, remove = false } = {}) {
@@ -241,6 +255,13 @@ export function planClaudeInstall({ installed, hasClaude, remove = false } = {})
     return hasClaude
       ? [{ kind: 'run', cmd: ['claude', 'plugin', 'uninstall', installed.id] }]
       : [{ kind: 'manual', lines: [`/plugin uninstall ${installed.id}`] }];
+  }
+  // An install record whose marketplace registration is gone is not an
+  // installed plugin — Claude lists it as "failed to load". Skipping here with
+  // "already installed" left the user with no dotmd verb that could repair it.
+  if (installed?.marketplaceRegistered === false) {
+    return planMarketplaceRepair(installed, { hasClaude, verb: 'update' })
+      .map(step => (step.kind === 'marketplace' || step.kind === 'plugin' ? { ...step, kind: 'run', step: step.kind } : step));
   }
   if (installed) return [{ kind: 'skip', reason: `dotmd plugin already installed (${installed.version ?? 'unknown version'})` }];
   // The marketplace has to be registered before the plugin resolves; adding one

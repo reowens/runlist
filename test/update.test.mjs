@@ -4,7 +4,8 @@ import { chmodSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } 
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { compareVersions, readInstalledPlugin, planUpdate } from '../src/update.mjs';
+import { compareVersions, readInstalledPlugin, planMarketplaceRepair, planUpdate } from '../src/update.mjs';
+import { installOpencodePlugin, installedVersion } from '../src/host-integration.mjs';
 import { detectVersionDrift } from '../src/hud.mjs';
 import { verifyInstalledPluginVersion } from '../scripts/verify-installed-plugin.mjs';
 
@@ -22,24 +23,66 @@ function withHome(fn) {
   try { return fn(home); } finally { rmSync(home, { recursive: true, force: true }); }
 }
 
-function writeInstalled(home, plugins) {
+// Mirrors what `claude plugin install` leaves behind: the install record AND a
+// registration for each plugin's marketplace. Pass `marketplaces` to control
+// the registry directly (an empty array = the registration is gone).
+function writeInstalled(home, plugins, marketplaces) {
   const dir = path.join(home, '.claude', 'plugins');
   mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, 'installed_plugins.json'), JSON.stringify({ version: '1', plugins }));
+  const names = marketplaces ?? Object.keys(plugins).map(id => id.split('@')[1]);
+  const known = Object.fromEntries(names.map(name => [name, { source: { source: 'github', repo: `x/${name}` } }]));
+  writeFileSync(path.join(dir, 'known_marketplaces.json'), JSON.stringify(known));
 }
 
 test('readInstalledPlugin finds dotmd@dotmd', () => {
   withHome((home) => {
     writeInstalled(home, { 'dotmd@dotmd': [{ version: '0.54.0' }], 'grepmax@grepmax': [{ version: '0.17.17' }] });
-    assert.deepEqual(readInstalledPlugin({ home }), { id: 'dotmd@dotmd', version: '0.54.0' });
+    assert.deepEqual(readInstalledPlugin({ home }), { id: 'dotmd@dotmd', version: '0.54.0', marketplace: 'dotmd', marketplaceRegistered: true });
   });
 });
 
 test('readInstalledPlugin falls back to any dotmd@* marketplace', () => {
   withHome((home) => {
     writeInstalled(home, { 'dotmd@other': [{ version: '0.50.0' }] });
-    assert.deepEqual(readInstalledPlugin({ home }), { id: 'dotmd@other', version: '0.50.0' });
+    assert.deepEqual(readInstalledPlugin({ home }), { id: 'dotmd@other', version: '0.50.0', marketplace: 'other', marketplaceRegistered: true });
   });
+});
+
+// The state `claude plugin list` renders as "failed to load: Marketplace dotmd
+// not found": the install record survived, the registration did not. Calling
+// that "installed" is what made `dotmd install claude` skip the repair.
+test('readInstalledPlugin reports an install record whose marketplace is unregistered', () => {
+  withHome((home) => {
+    writeInstalled(home, { 'dotmd@dotmd': [{ version: '0.77.1' }] }, ['grepmax']);
+    assert.equal(readInstalledPlugin({ home }).marketplaceRegistered, false);
+    // No registry file at all reads the same way — nothing can load from it.
+    rmSync(path.join(home, '.claude', 'plugins', 'known_marketplaces.json'));
+    assert.equal(readInstalledPlugin({ home }).marketplaceRegistered, false);
+  });
+});
+
+test('planMarketplaceRepair re-adds the marketplace before the plugin verb, and only for a source it knows', () => {
+  const broken = { id: 'dotmd@dotmd', version: '0.77.1', marketplace: 'dotmd', marketplaceRegistered: false };
+  const steps = planMarketplaceRepair(broken, { hasClaude: true, verb: 'update' });
+  assert.deepEqual(steps.map(s => s.kind), ['marketplace', 'plugin']);
+  assert.deepEqual(steps[0].cmd, ['claude', 'plugin', 'marketplace', 'add', 'reowens/dotmd']);
+  assert.deepEqual(steps[1].cmd, ['claude', 'plugin', 'update', 'dotmd@dotmd']);
+  assert.equal(steps[1].needs, 'marketplace');
+
+  const manual = planMarketplaceRepair(broken, { hasClaude: false, verb: 'update' });
+  assert.equal(manual[0].kind, 'manual');
+  assert.deepEqual(manual[0].lines, ['/plugin marketplace add reowens/dotmd', '/plugin update dotmd@dotmd']);
+
+  const foreign = planMarketplaceRepair({ ...broken, id: 'dotmd@other', marketplace: 'other' }, { hasClaude: true, verb: 'update' });
+  assert.equal(foreign[0].kind, 'skip');
+  assert.match(foreign[0].reason, /does not know its source/);
+});
+
+test('planUpdate: unregistered marketplace → re-add it, then update', () => {
+  const plugin = { id: 'dotmd@dotmd', version: '0.77.1', marketplace: 'dotmd', marketplaceRegistered: false };
+  const steps = planUpdate({ pluginOnly: true }, { plugin, hasClaude: true, hasNpm: true });
+  assert.deepEqual(steps.map(s => s.kind), ['marketplace', 'plugin']);
 });
 
 test('readInstalledPlugin returns null when absent', () => {
@@ -132,6 +175,39 @@ test('update --dry-run previews global commands without executing them', () => {
     assert.match(result.stdout, /\[dry-run\] Would run: npm i -g/);
     assert.match(result.stdout, /\[dry-run\] Would run: claude plugin update/);
     assert.equal(existsSync(sentinel), false);
+  });
+});
+
+// A failed `claude plugin update` says nothing about the OpenCode file. The
+// loop used to stop at the first failure, so OpenCode stayed stale and the
+// output never said so.
+test('update runs every host step past a failed one, then exits 1 naming the failure', () => {
+  withHome((home) => {
+    writeInstalled(home, { 'dotmd@dotmd': [{ version: '0.1.0' }] });
+    const fakeBin = path.join(home, 'bin');
+    mkdirSync(fakeBin, { recursive: true });
+    const claude = path.join(fakeBin, process.platform === 'win32' ? 'claude.cmd' : 'claude');
+    if (process.platform === 'win32') writeFileSync(claude, '@exit /b 1\r\n');
+    else { writeFileSync(claude, '#!/bin/sh\nexit 1\n'); chmodSync(claude, 0o755); }
+
+    const ocDir = path.join(home, 'oc');
+    const stale = installOpencodePlugin({ version: '0.1.0', env: { OPENCODE_CONFIG_DIR: ocDir }, homedir: home });
+    assert.equal(installedVersion(stale.path), '0.1.0');
+
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+    const result = spawnSync('node', [bin, 'update', '--plugin-only'], {
+      cwd: home,
+      encoding: 'utf8',
+      env: {
+        ...process.env, NO_COLOR: '1', HOME: home, USERPROFILE: home, OPENCODE_CONFIG_DIR: ocDir,
+        PATH: `${fakeBin}${path.delimiter}${process.env.PATH}`,
+      },
+    });
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(result.stdout, /claude exited 1/);
+    assert.match(result.stdout, /refreshed opencode integration/);
+    assert.match(result.stdout, /1 step failed: claude plugin update dotmd@dotmd/);
+    assert.notEqual(installedVersion(stale.path), '0.1.0');
   });
 });
 

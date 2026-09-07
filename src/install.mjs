@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bold, dim, green, yellow } from './color.mjs';
 import {
-  CLAUDE_MARKETPLACE, CLAUDE_PLUGIN_ID, installOpencodePlugin, opencodeDetected,
+  CLAUDE_MARKETPLACE, CLAUDE_PLUGIN_ID, claudeMarketplaceRefusalHint, installOpencodePlugin, opencodeDetected,
   opencodeStatus, planClaudeInstall, removeOpencodePlugin,
 } from './host-integration.mjs';
 import { readInstalledPlugin } from './update.mjs';
@@ -24,7 +24,14 @@ function flagValue(argv, name) {
 function hostStates() {
   const plugin = readInstalledPlugin();
   return {
-    claude: { installed: Boolean(plugin), version: plugin?.version ?? null, id: plugin?.id ?? CLAUDE_PLUGIN_ID },
+    claude: {
+      installed: Boolean(plugin),
+      version: plugin?.version ?? null,
+      id: plugin?.id ?? CLAUDE_PLUGIN_ID,
+      marketplace: plugin?.marketplace ?? null,
+      // false = record present, marketplace gone: Claude shows "failed to load".
+      marketplaceRegistered: plugin ? plugin.marketplaceRegistered : null,
+    },
     opencode: { ...opencodeStatus({ version: pkg.version }), detected: opencodeDetected() },
   };
 }
@@ -38,7 +45,11 @@ function reportStatus(json) {
   const { claude, opencode } = states;
   process.stdout.write(`${bold('dotmd host integrations')}  ${dim(`CLI ${pkg.version}`)}\n\n`);
 
-  process.stdout.write(`  claude    ${claude.installed ? green(claude.version ?? 'installed') : yellow('not installed')}\n`);
+  const claudeBroken = claude.installed && claude.marketplaceRegistered === false;
+  const claudeState = !claude.installed ? yellow('not installed')
+    : claudeBroken ? yellow(`${claude.version ?? 'installed'} — marketplace "${claude.marketplace}" not registered, plugin fails to load`)
+    : green(claude.version ?? 'installed');
+  process.stdout.write(`  claude    ${claudeState}\n`);
   process.stdout.write(`            ${dim(claude.installed ? claude.id : 'plugin: SessionStart primer, PreToolUse guard, workflow skill')}\n`);
 
   const ocState = opencode.foreign ? yellow('unmanaged file present')
@@ -49,7 +60,7 @@ function reportStatus(json) {
   process.stdout.write(`            ${dim(opencode.path)}\n`);
 
   const todo = [];
-  if (!claude.installed) todo.push('dotmd install claude');
+  if (!claude.installed || claudeBroken) todo.push('dotmd install claude');
   if (!opencode.exists || opencode.stale) todo.push('dotmd install opencode');
   if (todo.length) {
     process.stdout.write('\n');
@@ -73,10 +84,11 @@ function installClaude(argv, dryRun, json) {
   for (const step of steps) {
     if (step.kind === 'skip') { process.stdout.write(`${dim('skip:')} ${step.reason}\n`); continue; }
     if (step.kind === 'manual') {
-      process.stdout.write(`${yellow('claude CLI not on PATH')} — run these from a Claude Code session:\n`);
+      process.stdout.write(`${yellow(step.reason ?? 'claude CLI not on PATH')} — run these from a Claude Code session:\n`);
       for (const line of step.lines) process.stdout.write(`  ${bold(line)}\n`);
       continue;
     }
+    if (step.reason) process.stdout.write(`${step.reason}\n`);
     if (dryRun) { process.stdout.write(dim(`[dry-run] Would run: ${step.cmd.join(' ')}\n`)); continue; }
     process.stdout.write(dim(`$ ${step.cmd.join(' ')}\n`));
     const result = spawnSync(executableName(step.cmd[0]), step.cmd.slice(1), {
@@ -85,6 +97,11 @@ function installClaude(argv, dryRun, json) {
     ran = true;
     if (result.status !== 0) {
       process.stdout.write(yellow(`(claude exited ${result.status ?? '?'})\n`));
+      // Each later step here depends on this one (the plugin resolves through
+      // the marketplace), so unlike `update` there is nothing independent left.
+      if (step.step === 'marketplace' || step.cmd.includes('marketplace')) {
+        for (const line of claudeMarketplaceRefusalHint(readInstalledPlugin()?.marketplace)) process.stdout.write(yellow(`${line}\n`));
+      }
       process.exitCode = 1;
       return;
     }
