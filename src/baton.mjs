@@ -161,6 +161,7 @@ export async function runBaton(argv, config, opts = {}) {
   let repoPath = null;
   let oldStatus = null;
   let ownershipPath = null;
+  let planGuard = null;
   if (planPath) {
     planPath = authorizeManagedSource(planPath, config, { kind: 'Baton plan source' }).path;
     repoPath = toRepoPath(planPath, config.repoRoot);
@@ -183,7 +184,29 @@ export async function runBaton(argv, config, opts = {}) {
     if (status === 'in-session') {
       die('`runlist baton --status in-session` contradicts baton release semantics. Choose active/paused/awaiting/partial/blocked.');
     }
-    assertPlanMutationAuthorized(repoPath, config, { sessionId: authoritativeSessionId(), force });
+    const sessionId = authoritativeSessionId();
+    const ownership = assertPlanMutationAuthorized(repoPath, config, { sessionId, force });
+    const ownedHere = ownership?.state === 'owned' && ownership.sessionId === sessionId;
+    // Baton's release only means something when there is a claim to release. A
+    // plan that is neither in-session nor owned here carries a status someone
+    // chose on purpose (`awaiting`, `blocked`, a repo's own `awaiting-testing`),
+    // and flipping it to the default `active` as a side effect of saving a
+    // prompt overwrites that reason — silently, since baton's headline is the
+    // prompt it saved. That is not hypothetical: a prompt-refresh pass named a
+    // plan slug, got a status flip it never asked for, and had to notice and
+    // undo it. So the prompt still lands with its `plan:` link, and the plan's
+    // status stays put unless the caller states the transition with --status.
+    const currentStatus = asString(fm.status);
+    if (!statusFlag && oldStatus !== 'in-session' && !ownedHere) {
+      if (!currentStatus || (validStatuses?.size > 0 && !validStatuses.has(currentStatus))) {
+        die(`${repoPath} is not in-session and its status (\`${oldStatus}\`) is not one baton can leave in place.\n`
+          + `Say what it should become: runlist baton ${repoPath} @<draft-file> --status <status>\n`
+          + `Or save the prompt without touching the plan: runlist baton ${path.basename(planPath, '.md')} @<draft-file>`);
+      }
+      status = currentStatus;
+      planGuard = { path: planPath, expectedContent: raw };
+      if (note) warn('--note ignored — the plan\'s status is unchanged, so there is no transition to record.');
+    }
     // Before the plan-completion step: a refusal must leave nothing changed.
     refuseIfPending();
     ownershipPath = readPlanOwnership(repoPath, config)?.recordPath ?? null;
@@ -221,7 +244,7 @@ export async function runBaton(argv, config, opts = {}) {
     const prepared = preparePromptDocument(slugBase, body, config, { plan: repoPath, dryRun });
     const setArgs = [status, planPath];
     if (force) setArgs.push('--force');
-    if (note) setArgs.push('--note', note);
+    if (note && !planGuard) setArgs.push('--note', note);
     try {
       if (dryRun) process.stdout.write(`${dim('[dry-run]')} Would create: ${prepared.repoPath}\n`);
       archiveResult = await runSet(setArgs, config, {
@@ -229,6 +252,7 @@ export async function runBaton(argv, config, opts = {}) {
         viaBaton: true,
         testHooks: opts.testHooks,
         creations: dryRun ? [] : [{ path: prepared.filePath, content: prepared.content }],
+        guards: planGuard && !dryRun ? [planGuard] : [],
         deferIndex: true,
       });
     } catch (err) {
@@ -297,6 +321,10 @@ export async function runBaton(argv, config, opts = {}) {
     return operationResult;
   }
   process.stderr.write(`\n${prefix}${green('✓ Baton passed')}: ${createdSlug} (the next session's hud surfaces it — nothing to paste into chat)\n`);
+  if (planGuard) {
+    process.stderr.write(dim(`${repoPath} left at \`${oldStatus}\` — it was not in-session, so there was no claim to release.\n`));
+    process.stderr.write(dim(`Meant to change it? runlist set <status> ${repoPath}\n`));
+  }
   if (statusChanged) {
     const pathspec = operationResult.repositoryFiles.join(' ');
     let gitignored = false;

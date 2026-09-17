@@ -2,6 +2,12 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- **`runlist baton <plan>` no longer flips the status of a plan that is not in-session.** Baton's release is a claim release, but it applied to any plan it was handed: a prompt-refresh pass named a plan slug to re-save its handoff and silently got `awaiting-testing` → `active`, which it then had to notice and undo by hand. When the named plan is neither `in-session` nor owned by this session, baton now saves the prompt — still stamped with its `plan:` link, so the handoff loop still closes itself — and leaves the status alone, saying so. `--status` still states a transition deliberately, and a plan that is in-session or owned here releases exactly as before.
+
 ## 0.80.0 — 2026-09-16
 
 ### Fixed

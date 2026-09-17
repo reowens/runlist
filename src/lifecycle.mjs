@@ -417,7 +417,15 @@ export async function runStatus(argv, config, opts = {}) {
 
   if (oldStatus === newStatus) {
     if (!dryRun && (opts.additionalUpdates?.length || opts.creations?.length)) {
-      mutateFileSet({ updates: opts.additionalUpdates ?? [], creations: opts.creations ?? [] }, {
+      // Guards belong here as much as on the mutating paths below: a caller that
+      // asked for the status it already has (baton's prompt-only handoff) decided
+      // that from this file's status and then writes only its creations, so the
+      // read and the write need something holding the gap.
+      mutateFileSet({
+        updates: opts.additionalUpdates ?? [],
+        creations: opts.creations ?? [],
+        guards: opts.guards ?? [],
+      }, {
         repoRoot: config.repoRoot,
         testHooks: opts.testHooks,
       });

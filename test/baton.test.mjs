@@ -93,6 +93,55 @@ describe('runlist baton', () => {
     ok(!r.stderr.includes('prompts/resume-auth-revamp.md --'), 'prompt not in pathspec');
   });
 
+  // Regression: a prompt-refresh pass named a plan slug to re-save its handoff
+  // and got a status flip it never asked for (`awaiting` → the default
+  // `active`), which it then had to notice and undo. Baton has no claim to
+  // release on a plan that is not in-session and not owned here, so the status
+  // someone chose stays chosen — the prompt (and its `plan:` link) still lands.
+  it('a plan that is not in-session keeps its status; the prompt still links it', () => {
+    writePlan('auth-revamp', { status: 'awaiting' });
+    const r = run(['baton', 'docs/plans/auth-revamp.md', '--message', 'next: chase the answer']);
+    strictEqual(r.status, 0, r.stderr);
+
+    const plan = readFileSync(path.join(plansDir, 'auth-revamp.md'), 'utf8');
+    ok(plan.includes('status: awaiting'), `status untouched:\n${plan}`);
+    ok(!plan.includes('status: active'), 'not released to active');
+
+    const promptRaw = readFileSync(path.join(docsDir, 'prompts', 'resume-auth-revamp.md'), 'utf8');
+    ok(promptRaw.includes('plan: docs/plans/auth-revamp.md'), `prompt keeps its plan link:\n${promptRaw}`);
+    match(r.stderr, /Baton passed/);
+    match(r.stderr, /left at `awaiting` — it was not in-session/);
+    ok(!/git commit -m "baton:/.test(r.stderr), `no release commit hint:\n${r.stderr}`);
+  });
+
+  // Same shape reached through the bare-slug form, which is how the real case
+  // arrived: the slug resolved to a plan, so baton took plan mode.
+  it('a bare slug that resolves to a parked plan does not flip it either', () => {
+    writePlan('auth-revamp', { status: 'blocked' });
+    const r = run(['baton', 'auth-revamp', '--message', 'next: vendor ships the hardware']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(readFileSync(path.join(plansDir, 'auth-revamp.md'), 'utf8').includes('status: blocked'));
+    ok(existsSync(path.join(docsDir, 'prompts', 'resume-auth-revamp.md')));
+  });
+
+  it('--status still flips a plan that is not in-session', () => {
+    writePlan('auth-revamp', { status: 'awaiting' });
+    const r = run(['baton', 'docs/plans/auth-revamp.md', '--status', 'planned', '--message', 'next: re-queue it']);
+    strictEqual(r.status, 0, r.stderr);
+    const plan = readFileSync(path.join(plansDir, 'auth-revamp.md'), 'utf8');
+    ok(plan.includes('status: planned'), `explicit status applied:\n${plan}`);
+    match(r.stderr, /git commit -m "baton: auth-revamp awaiting → planned"/);
+  });
+
+  it('refuses when a plan is not in-session and carries no status to leave in place', () => {
+    const file = path.join(plansDir, 'auth-revamp.md');
+    writeFileSync(file, '---\ntype: plan\ntitle: auth-revamp\n---\n# auth-revamp\n\nbody\n');
+    const r = run(['baton', 'docs/plans/auth-revamp.md', '--message', 'next: something']);
+    ok(r.status !== 0, 'refused');
+    match(r.stderr, /is not in-session and its status/);
+    ok(!existsSync(path.join(docsDir, 'prompts', 'resume-auth-revamp.md')), 'nothing saved');
+  });
+
   // The `@draft` metavariable ships in the hud primer, both help texts, and the
   // wrap-up nudge. Copied verbatim it used to die with a bare "Body file not
   // found: draft", which reads as a missing file rather than a placeholder.
