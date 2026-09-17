@@ -81,9 +81,9 @@ No plan involved? Same verb, slug mode — saves `resume-<slug>` and touches not
 dotmd baton <slug> @/tmp/draft.md
 ```
 
-Either way the prompt lands under `docs/prompts/<name>.md` with `status: pending`. The next session runs `dotmd hud` (the SessionStart hook), sees the pending prompt, and consumes it with `dotmd use <file>` (or `dotmd use` with no arg for the oldest). Consumption commits the archive/claim before writing the body to stdout, so output is at-most-once and the prompt cannot be double-consumed. If stdout fails, recover with `dotmd prompts show <archived-path>`.
+Either way the prompt lands under `docs/prompts/<name>.md` with `status: pending`. Baton saves nothing when a handoff for the same work is already pending (`resume-<name>.md`, or in plan mode any pending prompt whose `plan:` links that plan): it names the waiting prompt and says to consume or archive it first, so two prompts never sit side by side for one piece of work. A baton with no resume text is refused the same way — the session writes the resume. The next session runs `dotmd hud` (the SessionStart hook), sees the pending prompt, and consumes it with `dotmd use <file>` (or `dotmd use` with no arg for the oldest). Consumption commits the archive/claim before writing the body to stdout, so output is at-most-once and the prompt cannot be double-consumed. If stdout fails, recover with `dotmd prompts show <archived-path>`.
 
-**Consume = claim (the handoff loop closes itself).** When `dotmd baton` releases a plan, it stamps the resume prompt with a `plan:` link back to that plan. Consuming such a prompt with `dotmd use` doesn't just print the body — it also **claims the linked plan for this session** (flips it to `in-session` and records the ownership), printing `→ Claimed docs/plans/<x>.md`. So the picked-up work is already `in-session` and, crucially, *this* session's later `dotmd baton` (no arg) hands off that plan automatically — you don't re-run `dotmd use <plan>` first. Only a startable plan is claimed: an already-in-session plan (someone's on it) or an archived/renamed target (stale link) is left untouched.
+**Consume = claim (the handoff loop closes itself).** When `dotmd baton` releases a plan, it stamps the resume prompt with a `plan:` link back to that plan. Consuming such a prompt with `dotmd use` doesn't just print the body — it also **claims the linked plan for this session** (flips it to `in-session` and records the ownership), printing `→ Claimed docs/plans/<x>.md`. So the picked-up work is already `in-session` and, crucially, *this* session's later `dotmd baton` (no arg) hands off that plan automatically — you don't re-run `dotmd use <plan>` first. Only a startable plan is claimed: an already-in-session plan (someone's on it) or an archived/renamed target (stale link) is left untouched. Reading prompts without starting their plans (a cleanup or triage pass)? `dotmd use --no-claim` (also `prompts use`/`prompts next`) consumes the prompt and leaves the plan alone.
 
 Use this whenever you'd otherwise print a multi-line "here's how to resume" block.
 
@@ -183,7 +183,7 @@ Time horizons (now/next/later/icebox) are an *optional* body-section flavor, not
 Signature: `dotmd new <type> <name> [body]`. `<type>` is required (defaults to `doc` if omitted).
 
 ```bash
-dotmd new plan auth-revamp                       # type: plan → docs/plans/auth-revamp.md
+dotmd new plan auth-revamp                       # type: plan → docs/plans/auth-revamp.md (status: planned; `dotmd use` starts it)
 dotmd new doc token-refresh-design               # type: doc → docs/token-refresh-design.md
 dotmd new prompt cleanup-tomorrow "..."          # type: prompt → docs/prompts/cleanup-tomorrow.md
 dotmd new my-doc                                 # implicit type: doc

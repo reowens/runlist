@@ -125,8 +125,15 @@ operation:
 dotmd baton @/tmp/resume.md
 ```
 
+Baton refuses when a handoff for the same work is already pending, so one piece
+of work never has two resume prompts.
+
 Saved prompts are local session state. Consume them with `dotmd use`; inspect
-without consuming via `dotmd prompts show`.
+without consuming via `dotmd prompts show`. Consuming a baton prompt also claims
+its plan; `dotmd use --no-claim` reads and archives it without starting the plan.
+
+New plans are created `planned`; `dotmd use` starts one, and
+`dotmd new plan <name> --status <status>` sets a different starting status.
 
 ## Document Format
 

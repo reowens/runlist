@@ -44,7 +44,7 @@ Valid statuses are type-aware and project-specific — the SessionStart primer l
 ## Creating documents
 
 `dotmd new <type> <name> [body]` — types: `plan`, `doc`, `prompt` (default `doc`).
-- `dotmd new plan auth-revamp` → `docs/plans/auth-revamp.md`
+- `dotmd new plan auth-revamp` → `docs/plans/auth-revamp.md`, created `planned` (`--status <s>` to override; `dotmd use` starts it)
 - `dotmd new doc token-refresh-design` → `docs/token-refresh-design.md`
 - Body input modes (all types): `@path` (preferred for multi-line), `-` (stdin), `--message "…"`, or inline (one-liners only).
 - Plan body variants (plans only, mutually exclusive with each other and `--runlist`/`--coordination`): `--lite`/`--minimal` (Problem → Phases → Version History) and `--audit`/`--findings` (Problem → Findings (ranked) → Suggested order → Open Questions).
@@ -55,12 +55,12 @@ Valid statuses are type-aware and project-specific — the SessionStart primer l
 
 Saved prompts (`docs/prompts/*.md`) are **session-local handoff artifacts**, not source code:
 
-- **Consume, don't read.** If the user references a prompt — "resume via docs/prompts/foo.md", "use this prompt", "load that one" — run `dotmd use <file>` (no arg = oldest pending). It commits archive/claim before stdout, so body output is at-most-once and the prompt can't be double-consumed; an output failure is recoverable with `dotmd prompts show <archived-path>`. **Do NOT `cat` it, Read it, or copy its body into chat.** If the prompt was made by `dotmd baton`, consuming it also **claims its plan** (`→ Claimed …`, flips it `in-session`) — so your later `dotmd baton` hands that plan off automatically; no need to `dotmd use <plan>` first.
+- **Consume, don't read.** If the user references a prompt — "resume via docs/prompts/foo.md", "use this prompt", "load that one" — run `dotmd use <file>` (no arg = oldest pending). It commits archive/claim before stdout, so body output is at-most-once and the prompt can't be double-consumed; an output failure is recoverable with `dotmd prompts show <archived-path>`. **Do NOT `cat` it, Read it, or copy its body into chat.** If the prompt was made by `dotmd baton`, consuming it also **claims its plan** (`→ Claimed …`, flips it `in-session`) — so your later `dotmd baton` hands that plan off automatically; no need to `dotmd use <plan>` first. Only triaging or cleaning up prompts? `dotmd use --no-claim <file>` consumes without starting the plan.
 - **Ownership is durable and session-local.** Claims live under gitignored `.dotmd/`; no-target `set`/`baton` never guesses from journal entries or global in-session counts. Pickup hooks are at-least-once with stable `operationId` values, and a live delivery lease blocks release/takeover.
 - **Peek without consuming.** Triaging or surveying pending prompts (not acting on one)? `dotmd prompts show <file>` prints the body read-only — no archive, safe to repeat. Never `dotmd use` a prompt you only meant to look at, and never `use` a prompt you just saved (that destroys the handoff).
 - **Survey the whole queue in ONE call.** `dotmd prompts show --all` peeks every pending prompt (`--limit N` to cap, or pass several names: `dotmd prompts show a b c`). Reaching for Read once per file is the single most common wrong-move in the guard log — the bulk verb exists so you never need to.
 - **Don't commit them.** The prompts dir is often gitignored; committing a pending prompt is wrong and may fail. No `git add` / `git commit` of `docs/prompts/*.md`.
-- **"Save a resume prompt" = `dotmd baton`**, any time, plan or no plan — never paste a "here's how to resume" block into chat. With a plan in-session, `dotmd baton @/tmp/draft.md` saves the prompt AND releases the plan; with no plan, `dotmd baton <slug> @/tmp/draft.md` just saves `resume-<slug>` and touches nothing else (reference the relevant plans/docs in the draft body). The next session sees it at SessionStart.
+- **"Save a resume prompt" = `dotmd baton`**, any time, plan or no plan — never paste a "here's how to resume" block into chat. With a plan in-session, `dotmd baton @/tmp/draft.md` saves the prompt AND releases the plan; with no plan, `dotmd baton <slug> @/tmp/draft.md` just saves `resume-<slug>` and touches nothing else (reference the relevant plans/docs in the draft body). The next session sees it at SessionStart. Baton refuses, saving nothing, when a handoff for that work is already pending: consume or archive the waiting prompt first, then re-run.
 
 ## Guardrails (the guard hook enforces these)
 

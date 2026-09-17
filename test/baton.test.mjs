@@ -156,7 +156,7 @@ describe('dotmd baton', () => {
     writePlan('auth-revamp');
     const r = run(['baton', 'docs/plans/auth-revamp.md']);
     ok(r.status !== 0);
-    match(r.stderr, /needs the resume draft/);
+    match(r.stderr, /^Nothing saved: baton needs the resume you wrote, passed as @<file> or - \(stdin\)\.$/m);
     ok(!existsSync(path.join(docsDir, 'prompts', 'resume-auth-revamp.md')), 'no prompt created');
     const plan = readFileSync(path.join(plansDir, 'auth-revamp.md'), 'utf8');
     ok(plan.includes('status: in-session'), 'plan untouched');
@@ -253,6 +253,41 @@ describe('dotmd baton', () => {
     match(b2.stderr, /Baton passed/);
     ok(readFileSync(path.join(plansDir, 'kinetic.md'), 'utf8').includes('status: active'),
       'B released the claimed plan to active');
+  });
+
+  it('--no-claim consumes a plan-linked prompt without starting the plan', () => {
+    writePlan('kinetic', { status: 'active' });
+    const prompt = path.join(docsDir, 'prompts', 'resume-kinetic.md');
+    writeFileSync(prompt, '---\ntype: prompt\nstatus: pending\nplan: docs/plans/kinetic.md\n---\n# Resume\n\ncontinue\n');
+    const r = run(['use', 'resume-kinetic', '--no-claim']);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stdout, /continue/, 'body delivered');
+    match(r.stderr, /Not claimed.*--no-claim/);
+    ok(!/→ Claimed/.test(r.stderr), 'no claim reported');
+    ok(!existsSync(prompt), 'prompt archived');
+    ok(readFileSync(path.join(plansDir, 'kinetic.md'), 'utf8').includes('status: active'), 'plan left active');
+  });
+
+  it('--no-claim works for prompts next and prompts use', () => {
+    writePlan('kinetic', { status: 'active' });
+    writeFileSync(path.join(docsDir, 'prompts', 'resume-kinetic.md'),
+      '---\ntype: prompt\nstatus: pending\nplan: docs/plans/kinetic.md\n---\nfirst\n');
+    const next = run(['prompts', 'next', '--no-claim']);
+    strictEqual(next.status, 0, next.stderr);
+    ok(readFileSync(path.join(plansDir, 'kinetic.md'), 'utf8').includes('status: active'), 'next left plan active');
+    writeFileSync(path.join(docsDir, 'prompts', 'resume-kinetic-b.md'),
+      '---\ntype: prompt\nstatus: pending\nplan: docs/plans/kinetic.md\n---\nsecond\n');
+    const use = run(['prompts', 'use', 'resume-kinetic-b', '--no-claim']);
+    strictEqual(use.status, 0, use.stderr);
+    ok(readFileSync(path.join(plansDir, 'kinetic.md'), 'utf8').includes('status: active'), 'prompts use left plan active');
+  });
+
+  it('--no-claim on a plan is refused rather than ignored', () => {
+    writePlan('kinetic', { status: 'active' });
+    const r = run(['use', 'docs/plans/kinetic.md', '--no-claim']);
+    ok(r.status !== 0);
+    match(r.stderr, /--no-claim applies to prompts only/);
+    ok(readFileSync(path.join(plansDir, 'kinetic.md'), 'utf8').includes('status: active'), 'plan untouched');
   });
 
   it('consume claim is independent of journal records for later baton ownership', () => {
@@ -411,15 +446,49 @@ describe('dotmd baton', () => {
     ok(!existsSync(path.join(docsDir, 'prompts', 'resume-no-such-plan.md')), 'no prompt created from a typo');
   });
 
-  it('collision-safe slug: a pending resume prompt does not block the handoff', () => {
+  it('refuses a plan handoff when its prompt is already pending — nothing mutates', () => {
     writePlan('auth-revamp');
-    writeFileSync(path.join(docsDir, 'prompts', 'resume-auth-revamp.md'),
-      '---\ntype: prompt\nstatus: pending\n---\nolder handoff\n');
+    const older = path.join(docsDir, 'prompts', 'resume-auth-revamp.md');
+    writeFileSync(older, '---\ntype: prompt\nstatus: pending\n---\nolder handoff\n');
+    const r = run(['baton', 'docs/plans/auth-revamp.md', '--message', 'newer handoff']);
+    ok(r.status !== 0, 'refused');
+    match(r.stderr, /already pending:\n  docs\/prompts\/resume-auth-revamp\.md/);
+    match(r.stderr, /dotmd use resume-auth-revamp/);
+    match(r.stderr, /dotmd prompts archive docs\/prompts\/resume-auth-revamp\.md/);
+    ok(!existsSync(path.join(docsDir, 'prompts', 'resume-auth-revamp-2.md')), 'no -2 copy');
+    ok(readFileSync(older, 'utf8').includes('older handoff'), 'older prompt untouched');
+    ok(readFileSync(path.join(plansDir, 'auth-revamp.md'), 'utf8').includes('status: in-session'), 'plan untouched');
+  });
+
+  it('refuses a plan handoff when a differently named pending prompt links the same plan', () => {
+    writePlan('auth-revamp');
+    writeFileSync(path.join(docsDir, 'prompts', 'resume-auth-revamp-5.md'),
+      '---\ntype: prompt\nstatus: pending\nplan: ../plans/auth-revamp.md\n---\nolder handoff\n');
+    const r = run(['baton', 'docs/plans/auth-revamp.md', '--message', 'newer handoff']);
+    ok(r.status !== 0, 'refused');
+    match(r.stderr, /docs\/prompts\/resume-auth-revamp-5\.md/);
+    ok(!existsSync(path.join(docsDir, 'prompts', 'resume-auth-revamp.md')), 'nothing saved');
+    ok(readFileSync(path.join(plansDir, 'auth-revamp.md'), 'utf8').includes('status: in-session'), 'plan untouched');
+  });
+
+  it('an archived prompt for the same plan does not block a new handoff', () => {
+    writePlan('auth-revamp');
+    mkdirSync(path.join(docsDir, 'prompts', 'archived'), { recursive: true });
+    writeFileSync(path.join(docsDir, 'prompts', 'archived', 'resume-auth-revamp.md'),
+      '---\ntype: prompt\nstatus: archived\nplan: docs/plans/auth-revamp.md\n---\nold\n');
     const r = run(['baton', 'docs/plans/auth-revamp.md', '--message', 'newer handoff']);
     strictEqual(r.status, 0, r.stderr);
-    const second = path.join(docsDir, 'prompts', 'resume-auth-revamp-2.md');
-    ok(existsSync(second), 'suffixed slug used');
-    ok(readFileSync(second, 'utf8').includes('newer handoff'));
+    ok(readFileSync(path.join(docsDir, 'prompts', 'resume-auth-revamp.md'), 'utf8').includes('newer handoff'));
+  });
+
+  it('slug mode refuses when resume-<slug> is already pending', () => {
+    const older = path.join(docsDir, 'prompts', 'resume-side-quest.md');
+    writeFileSync(older, '---\ntype: prompt\nstatus: pending\n---\nolder handoff\n');
+    const r = run(['baton', 'side-quest', '--message', 'newer handoff']);
+    ok(r.status !== 0, 'refused');
+    match(r.stderr, /already pending:\n  docs\/prompts\/resume-side-quest\.md/);
+    ok(!existsSync(path.join(docsDir, 'prompts', 'resume-side-quest-2.md')), 'no -2 copy');
+    ok(readFileSync(older, 'utf8').includes('older handoff'), 'older prompt untouched');
   });
 
   it('--status overrides the release status and --note lands in Version History', () => {

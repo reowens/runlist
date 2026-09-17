@@ -223,8 +223,11 @@ function editStatusResult(target, config, detail) {
     rule: 'edit-status',
     detail,
     reason:
-      `Looks like a hand-edit of the \`status:\` field in ${target}. Use \`dotmd set <status> ${target}\` instead — ` +
-      `it validates the status against this doc's type, runs lifecycle hooks, fixes refs, and keeps the index in sync. Direct edits skip all of that.`,
+      // Names the canonical executable: a session that follows this message
+      // should land on the current name, not the legacy alias.
+      `Looks like a hand-edit of the \`status:\` field in ${target}. Use \`runlist set <status> ${target}\` instead — ` +
+      `it validates the status against this doc's type, runs lifecycle hooks, fixes refs, and keeps the index in sync. Direct edits skip all of that. ` +
+      `Creating a doc? \`runlist new <type> <name> --status <status>\` writes the status in the same step.`,
   };
 }
 

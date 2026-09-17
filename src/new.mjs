@@ -132,7 +132,10 @@ ${ctx?.bodyInput?.trim() ?? ''}
     description: 'Execution plan — build-up shape (Problem → Phases → Closeout) with phase status markers and Version History',
     dir: 'plans',
     targetRoot: 'plans',
-    defaultStatus: 'active',
+    // A scaffolded plan is scoped, not being worked; `dotmd use` starts it.
+    // Defaulting to `active` forced a second, guarded status write for every
+    // plan that was only being written down.
+    defaultStatus: 'planned',
     // Body input lands in the Problem section. Plans don't have an Overview;
     // Problem is the established opening section in the build-up shape.
     acceptsBody: true,

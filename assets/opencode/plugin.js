@@ -32,7 +32,9 @@ function cliExecutables() {
   return process.platform === 'win32' ? ['runlist.cmd', 'dotmd.cmd'] : ['runlist', 'dotmd'];
 }
 
-function runHud(directory) {
+// Runs the CLI and resolves its trimmed stdout, or '' on any failure. `input`,
+// when given, is written to the child's stdin.
+function runCli(directory, args, input = null) {
   return new Promise(resolve => {
     let settled = false;
     const done = value => { if (!settled) { settled = true; resolve(value); } };
@@ -40,7 +42,7 @@ function runHud(directory) {
     const attempt = index => {
       if (index >= candidates.length) { done(''); return; }
       try {
-        execFile(candidates[index], ['hud'], {
+        const child = execFile(candidates[index], args, {
           cwd: directory,
           timeout: PRIMER_TIMEOUT_MS,
           windowsHide: true,
@@ -49,10 +51,31 @@ function runHud(directory) {
           if (error?.code === 'ENOENT') attempt(index + 1);
           else done(error ? '' : (stdout ?? '').trim());
         });
+        child.stdin?.on('error', () => {});
+        if (input !== null) child.stdin?.end(input);
+        else child.stdin?.end();
       } catch { attempt(index + 1); }
     };
     attempt(0);
   });
+}
+
+// OpenCode runs no Claude Code hooks, so `dotmd guard` never sees its tool
+// calls, and sessions opened pending prompts with the read tool, which prints a
+// prompt without archiving it. The guard's answer for a prompt read is a
+// warning, not a block, so it is applied after the call: the teaching text is
+// appended to what the agent sees. Only calls that name a prompt file reach
+// the CLI; everything else costs a regex.
+const PROMPT_FILE = /(^|[\\/])prompts[\\/]\S*\.md\b/;
+
+function guardPayload(tool, args) {
+  if (tool === 'read' && typeof args?.filePath === 'string' && PROMPT_FILE.test(args.filePath)) {
+    return { tool_name: 'Read', tool_input: { file_path: args.filePath } };
+  }
+  if (tool === 'bash' && typeof args?.command === 'string' && PROMPT_FILE.test(args.command)) {
+    return { tool_name: 'Bash', tool_input: { command: args.command } };
+  }
+  return null;
 }
 
 export default async function dotmdOpencodePlugin({ directory }) {
@@ -68,7 +91,7 @@ export default async function dotmdOpencodePlugin({ directory }) {
     // only the first request — and a never-refreshed one would keep announcing
     // a pending prompt this session already consumed.
     if (cached && Date.now() - cached.at < PRIMER_TTL_MS) return cached.text;
-    const text = await runHud(directory);
+    const text = await runCli(directory, ['hud']);
     primers.set(key, { text, at: Date.now() });
     return text;
   }
@@ -91,6 +114,19 @@ export default async function dotmdOpencodePlugin({ directory }) {
         output.env.RUNLIST_SESSION_PID = String(process.pid);
         output.env.DOTMD_SESSION_PID = String(process.pid);
       } catch { /* never break a shell over this */ }
+    },
+
+    // The guard's warnings, appended after the call ran. A `deny` from the
+    // guard is ignored here: the call has already happened, so there is
+    // nothing left to refuse.
+    'tool.execute.after': async (input, output) => {
+      try {
+        const payload = guardPayload(input?.tool, input?.args);
+        if (!payload || typeof output?.output !== 'string') return;
+        const raw = await runCli(directory, ['guard'], JSON.stringify(payload));
+        const note = raw ? JSON.parse(raw)?.hookSpecificOutput?.additionalContext : null;
+        if (typeof note === 'string' && note) output.output += `\n\n${note}`;
+      } catch { /* a guard failure never touches the tool result */ }
     },
 
     // Session priming — the equivalent of the SessionStart hook that runs

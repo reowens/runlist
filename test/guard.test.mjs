@@ -127,7 +127,7 @@ test('Edit changing a status: line in a managed doc is denied by default', () =>
   );
   assert.equal(r.decision, 'deny');
   assert.equal(r.rule, 'edit-status');
-  assert.match(r.reason, /dotmd set/);
+  assert.match(r.reason, /runlist set/);
 });
 
 test('guard.deny: false drops the status-edit rule back to warn', () => {
@@ -221,7 +221,8 @@ test('sed -i mutating status: in a managed doc is denied', () => {
   );
   assert.equal(r.decision, 'deny');
   assert.equal(r.rule, 'edit-status');
-  assert.match(r.reason, /dotmd set <status> docs\/plans\/x\.md/);
+  assert.match(r.reason, /runlist set <status> docs\/plans\/x\.md/);
+  assert.match(r.reason, /runlist new <type> <name> --status <status>/);
 });
 
 test('perl -pi mutating status: in a managed doc fires', () => {

@@ -2,6 +2,19 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Changed
+
+- **`dotmd baton` refuses a second handoff instead of saving a `-2` copy.** When `resume-<name>.md` is already pending — or, in plan mode, any pending prompt links the same plan — baton saves nothing, leaves the plan's status alone, names the waiting prompt, and says to consume or archive it first. Previously it wrote `resume-<name>-2.md` beside the first, and the next session picked whichever sorted first.
+- **A baton with no resume text says so in one line.** `Nothing saved: baton needs the resume you wrote, passed as @<file> or - (stdin).` replaces the multi-line usage block.
+- **New plans are created `planned`, not `active`.** A plan being written down is not yet being worked; `dotmd use` starts it and `--status` still sets any other starting status. The status guard's refusal now names `runlist set` and `runlist new --status`.
+
+### Added
+
+- **`--no-claim` on `use`, `next`, `prompts use` and `prompts next`** consumes a baton prompt without starting the plan it links, for triage and cleanup passes. `use --no-claim <plan>` is refused rather than ignored.
+- **The OpenCode plugin warns when a session opens a pending prompt directly.** OpenCode runs no Claude Code hooks, so reading `docs/prompts/*.md` with its read tool (or `cat` in its shell) printed a prompt without archiving it. The plugin now passes those calls to `dotmd guard` and appends its warning to the tool output. Archived prompts and unrelated calls are untouched, and no process is started for calls that name no prompt file. Run `dotmd update` to refresh the installed plugin.
+
 ## 0.77.3 — 2026-09-07
 
 ### Fixed

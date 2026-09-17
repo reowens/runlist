@@ -1,7 +1,7 @@
-import { readFileSync, existsSync, writeFileSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
-import { asString, toRepoPath, die, warn } from './util.mjs';
+import { asString, toRepoPath, die, warn, isArchivedPath, resolveRefPath } from './util.mjs';
 import { buildIndex, resolveDocArg } from './index.mjs';
 import { preparePromptDocument, runNew, readBodyInput, readPipedBodyInput } from './new.mjs';
 import { ensurePlanCompletionBeforeRelease, planHasPendingCompletion, runSet } from './lifecycle.mjs';
@@ -26,11 +26,42 @@ export function findOwnedPlan(config, index = null) {
   return { plan: clean && owned.length === 1 ? owned[0] : null, via: clean && owned.length === 1 ? 'ownership' : null, inSession, owned, diagnostics: records.diagnostics ?? [] };
 }
 
-const BODY_USAGE = `dotmd baton needs the resume draft as its body. Write 10–20 lines first — the next concrete decision plus any gotchas, NOT a recap of the plan — then:
-  dotmd baton @/tmp/draft.md             # body from file (preferred)
-  cat /tmp/draft.md | dotmd baton        # body from stdin
-  dotmd baton --message "..."            # one-liner
-No plan in-session? Name the handoff instead: dotmd baton <slug> @/tmp/draft.md`;
+// One line that says what is missing, then one example. Baton never drafts the
+// resume itself: the session that did the work is the only one that knows the
+// next decision, and a prompt assembled from frontmatter reads like a handoff
+// while carrying nothing the plan doesn't already say.
+const BODY_USAGE = `Nothing saved: baton needs the resume you wrote, passed as @<file> or - (stdin).
+  dotmd baton [<plan-or-slug>] @/tmp/draft.md`;
+
+// A handoff that lands beside a pending one leaves two prompts for the same
+// work, and the next session picks whichever sorts first. Baton used to step to
+// `resume-<x>-2` silently; it now refuses and names what is waiting, so the
+// older prompt is consumed or archived on purpose. Plan mode also catches a
+// pending prompt under a different name that links the same plan.
+function pendingHandoffs(promptPath, planPath, config) {
+  const found = new Set();
+  if (existsSync(promptPath)) found.add(toRepoPath(promptPath, config.repoRoot));
+  if (planPath) {
+    const planReal = realpathSync(planPath);
+    const index = buildIndex(config, { fast: true, invokeHooks: false });
+    for (const doc of index.docs) {
+      if (doc.type !== 'prompt' || doc.status === 'archived' || isArchivedPath(doc.path, config)) continue;
+      const abs = path.resolve(config.repoRoot, doc.path);
+      let planRef;
+      try { planRef = asString(parseSimpleFrontmatter(extractFrontmatter(readFileSync(abs, 'utf8')).frontmatter).plan); }
+      catch { continue; }
+      const linked = planRef ? resolveRefPath(planRef, path.dirname(abs), config.repoRoot) : null;
+      if (linked && realpathSync(linked) === planReal) found.add(doc.path);
+    }
+  }
+  return [...found];
+}
+
+function refusePendingHandoff(pending) {
+  const lines = pending.map(p => `  ${p}`).join('\n');
+  const slug = path.basename(pending[0], '.md');
+  die(`Nothing saved: a handoff for this is already pending:\n${lines}\nUse it (\`dotmd use ${slug}\`) or archive it (\`dotmd prompts archive ${pending[0]}\`), then run baton again.`);
+}
 
 // Is this positional a filesystem reference (must resolve, typos die) or a
 // bare word (may be a plan slug, may be a brand-new handoff name)?
@@ -114,6 +145,14 @@ export async function runBaton(argv, config, opts = {}) {
     }
   }
 
+  const nameBase = planPath ? path.basename(planPath, '.md') : promptSlug;
+  const slugBase = nameBase.startsWith('resume-') ? nameBase : `resume-${nameBase}`;
+  const refuseIfPending = () => {
+    const target = preparePromptDocument(slugBase, body, config, { dryRun: true });
+    const pending = pendingHandoffs(target.filePath, planPath, config);
+    if (pending.length) refusePendingHandoff(pending);
+  };
+
   let repoPath = null;
   let oldStatus = null;
   let ownershipPath = null;
@@ -140,18 +179,19 @@ export async function runBaton(argv, config, opts = {}) {
       die('`dotmd baton --status in-session` contradicts baton release semantics. Choose active/paused/awaiting/partial/blocked.');
     }
     assertPlanMutationAuthorized(repoPath, config, { sessionId: authoritativeSessionId(), force });
+    // Before the plan-completion step: a refusal must leave nothing changed.
+    refuseIfPending();
     ownershipPath = readPlanOwnership(repoPath, config)?.recordPath ?? null;
     if (!dryRun) ensurePlanCompletionBeforeRelease(repoPath, config, { testHooks: opts.testHooks });
     else if (planHasPendingCompletion(repoPath, config)) process.stderr.write(`${dim('[dry-run]')} Pending claim completion would block this release.\n`);
   } else {
+    refuseIfPending();
     if (statusFlag) warn(`--status ignored — no plan involved in this handoff (saving the prompt only).`);
     if (note) warn(`--note ignored — no plan involved in this handoff (notes land in a plan's Version History).`);
   }
 
   // Plan mode publishes the already-stamped prompt, status/history update, and
   // ownership release in one transaction. Slug mode has no plan transaction.
-  const nameBase = planPath ? path.basename(planPath, '.md') : promptSlug;
-  const slugBase = nameBase.startsWith('resume-') ? nameBase : `resume-${nameBase}`;
   let createdSlug = null;
   let archiveResult = null;
   let statusChanged = false;
@@ -162,49 +202,45 @@ export async function runBaton(argv, config, opts = {}) {
   if (json) process.stdout.write = chunk => { muted.push(String(chunk)); return true; };
   try {
   if (!planPath) {
-    for (let n = 1; n <= 9 && !createdSlug; n++) {
-      const slug = n === 1 ? slugBase : `${slugBase}-${n}`;
-      try {
-        const prepared = preparePromptDocument(slug, body, config, { dryRun });
-        newResult = await runNew(['prompt', slug, '--body', body], config, { dryRun, deferIndex: true });
-        createdSlug = slug;
-        promptRepoPath = prepared.repoPath;
-      }
-      catch (err) { if (!/File already exists/.test(String(err?.message))) throw err; }
+    const prepared = preparePromptDocument(slugBase, body, config, { dryRun });
+    try {
+      newResult = await runNew(['prompt', slugBase, '--body', body], config, { dryRun, deferIndex: true });
+    } catch (err) {
+      // Lost a race with another baton between the pending check and the write.
+      if (/File already exists/.test(String(err?.message))) refusePendingHandoff([prepared.repoPath]);
+      throw err;
     }
+    createdSlug = slugBase;
+    promptRepoPath = prepared.repoPath;
   } else {
-    for (let n = 1; n <= 9 && !createdSlug; n++) {
-      const candidate = n === 1 ? slugBase : `${slugBase}-${n}`;
-      const prepared = preparePromptDocument(candidate, body, config, { plan: repoPath, dryRun });
-      if (existsSync(prepared.filePath)) continue;
-      const setArgs = [status, planPath];
-      if (force) setArgs.push('--force');
-      if (note) setArgs.push('--note', note);
-      try {
-        if (dryRun) process.stdout.write(`${dim('[dry-run]')} Would create: ${prepared.repoPath}\n`);
-        archiveResult = await runSet(setArgs, config, {
-          dryRun,
-          viaBaton: true,
-          testHooks: opts.testHooks,
-          creations: dryRun ? [] : [{ path: prepared.filePath, content: prepared.content }],
-          deferIndex: true,
-        });
-        createdSlug = prepared.slug;
-        promptRepoPath = prepared.repoPath;
-        statusChanged = oldStatus !== status;
-        if (!dryRun) {
-          try { config.hooks.onNew?.({ path: prepared.repoPath, status: 'pending', title: prepared.slug, type: 'prompt' }); }
-          catch (err) { warn(`Hook 'onNew' threw: ${err.message}`); }
-        }
-      } catch (err) {
-        if (!/Destination already exists|File already exists/.test(String(err?.message))) throw err;
-      }
+    const prepared = preparePromptDocument(slugBase, body, config, { plan: repoPath, dryRun });
+    const setArgs = [status, planPath];
+    if (force) setArgs.push('--force');
+    if (note) setArgs.push('--note', note);
+    try {
+      if (dryRun) process.stdout.write(`${dim('[dry-run]')} Would create: ${prepared.repoPath}\n`);
+      archiveResult = await runSet(setArgs, config, {
+        dryRun,
+        viaBaton: true,
+        testHooks: opts.testHooks,
+        creations: dryRun ? [] : [{ path: prepared.filePath, content: prepared.content }],
+        deferIndex: true,
+      });
+    } catch (err) {
+      if (/Destination already exists|File already exists/.test(String(err?.message))) refusePendingHandoff([prepared.repoPath]);
+      throw err;
+    }
+    createdSlug = prepared.slug;
+    promptRepoPath = prepared.repoPath;
+    statusChanged = oldStatus !== status;
+    if (!dryRun) {
+      try { config.hooks.onNew?.({ path: prepared.repoPath, status: 'pending', title: prepared.slug, type: 'prompt' }); }
+      catch (err) { warn(`Hook 'onNew' threw: ${err.message}`); }
     }
   }
   } finally {
     if (json) process.stdout.write = originalStdoutWrite;
   }
-  if (!createdSlug) die(`Could not find a free prompt slug for ${slugBase} (tried ${slugBase}-2 … ${slugBase}-9).`);
 
   // A release status can FILE the plan into a bucket (`lifecycle.filedStatuses`,
   // e.g. paused → docs/plans/held/). The prompt is created inside the same

@@ -1150,6 +1150,10 @@ Subcommands:
 slug matching a prompt basename, or a unique substring of a prompt
 path. Ambiguous substrings error with the candidate list.
 
+A prompt saved by \`dotmd baton\` links its plan; consuming it (\`use\`,
+\`next\`, or top-level \`dotmd use\`) also claims that plan for this session.
+Pass \`--no-claim\` to read and archive the prompt without starting the plan.
+
 Default prompt statuses: pending, archived.
 
 Examples:

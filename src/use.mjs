@@ -15,13 +15,16 @@ import { resolveDocArg } from './index.mjs';
 // With no argument, consumes the oldest pending prompt.
 export async function runUse(argv, config, opts = {}) {
   const positional = argv.find(a => !a.startsWith('-'));
+  // `--no-claim` reads and archives a prompt without starting the plan it links.
+  const noClaim = argv.includes('--no-claim');
+  const promptOpts = { ...opts, noClaim };
 
   if (!positional) {
     const queue = pendingPromptsOldestFirst(config);
     if (queue.length === 0) die('No pending prompts. Pass a file to use a plan or doc.');
     const head = queue[0];
     if (!head.abs) die(`Could not resolve path: ${head.doc.path}`);
-    return consumePrompt(head.abs, config, opts);
+    return consumePrompt(head.abs, config, promptOpts);
   }
 
   // Exact path first, then prompt slugs (they keep precedence on a slug
@@ -39,8 +42,9 @@ export async function runUse(argv, config, opts = {}) {
   const type = asString(parsed.type);
 
   if (type === 'prompt') {
-    return consumePrompt(filePath, config, opts);
+    return consumePrompt(filePath, config, promptOpts);
   }
+  if (noClaim) die('--no-claim applies to prompts only; a plan opened with `use` is always claimed.');
   if (type === 'plan') {
     // Mark in-session (pure frontmatter) and print the plan card.
     return startPlan([filePath, ...argv.filter(a => a !== positional)], config, opts);

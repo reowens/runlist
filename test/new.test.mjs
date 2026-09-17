@@ -75,7 +75,16 @@ describe('dotmd new — type-first CLI', () => {
       ok(existsSync(planPath), 'saved under docs/plans/');
       const content = readFileSync(planPath, 'utf8');
       ok(content.includes('type: plan'));
-      ok(content.includes('status: active'), 'defaults to active (not in-session)');
+      ok(content.includes('status: planned'), 'defaults to planned — `dotmd use` starts it');
+    });
+
+    it('`--status` still overrides the planned default', () => {
+      const docsDir = setupProject();
+      const r = run(['new', 'plan', 'hot-fix', '--status', 'active']);
+      strictEqual(r.status, 0, `stderr: ${r.stderr}`);
+      const content = readFileSync(path.join(docsDir, 'plans', 'hot-fix.md'), 'utf8');
+      ok(content.includes('status: active'));
+      ok(!content.includes('status: planned'));
       ok(content.includes('## Phases'));
       ok(content.includes('## Version History'));
       ok(/created: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/.test(content), 'ISO timestamp');
@@ -938,7 +947,7 @@ describe('dotmd new — type-first CLI', () => {
       strictEqual(r.status, 0, `stderr: ${r.stderr}`);
       const content = readFileSync(path.join(docsDir, 'plans', 'plain-body.md'), 'utf8');
       // Default scaffold frontmatter still in place (status defaulted)
-      ok(content.includes('status: active'), 'status defaulted');
+      ok(content.includes('status: planned'), 'status defaulted');
       // Inline body still slots into Problem
       ok(content.includes('Just a problem statement.'), 'body preserved');
     });

@@ -196,7 +196,7 @@ async function runPromptsNext(argv, config, opts = {}) {
   }
   const head = queue[0];
   if (!head.abs) die(`Could not resolve path: ${head.doc.path}`);
-  return consumePrompt(head.abs, config, opts);
+  return consumePrompt(head.abs, config, { ...opts, noClaim: argv.includes('--no-claim') });
 }
 
 // Resolve user input to a prompt path. Tries (in order): exact path,
@@ -245,8 +245,9 @@ async function runPromptsUse(argv, config, opts = {}) {
   if (!input) die('Usage: dotmd prompts use <file-or-slug>');
   const noIndex = argv.includes('--no-index') || opts.noIndex;
   const showFiles = argv.includes('--show-files') || opts.showFiles;
+  const noClaim = argv.includes('--no-claim');
   const filePath = resolvePromptInput(input, config);
-  return consumePrompt(filePath, config, { ...opts, noIndex, showFiles });
+  return consumePrompt(filePath, config, { ...opts, noIndex, showFiles, noClaim });
 }
 
 export async function consumePrompt(filePath, config, opts) {
@@ -269,7 +270,9 @@ export async function consumePrompt(filePath, config, opts) {
   const planRef = asString(parsed.plan);
   let linkedClaim = null;
   let claimSkipReason = null;
-  if (planRef) {
+  if (planRef && opts.noClaim) {
+    claimSkipReason = `--no-claim, ${planRef} left as it is`;
+  } else if (planRef) {
     const outcome = prepareLinkedPromptClaim(planRef, config, path.dirname(filePath));
     if (outcome?.skipped) claimSkipReason = outcome.reason;
     else linkedClaim = outcome;

@@ -194,6 +194,72 @@ describe('the generated opencode plugin module', () => {
   });
 });
 
+describe('the opencode plugin read-prompt warning', () => {
+  // A stand-in `runlist` that runs this checkout's CLI, so the plugin talks to
+  // the real guard instead of whatever version is installed globally.
+  function withRepo(fn) {
+    return async () => {
+      const home = setup();
+      const repo = path.join(home, 'repo');
+      mkdirSync(path.join(repo, 'docs', 'prompts', 'archived'), { recursive: true });
+      writeFileSync(path.join(repo, 'dotmd.config.mjs'), "export const root = 'docs';\n");
+      writeFileSync(path.join(repo, 'docs', 'prompts', 'resume-x.md'), '---\ntype: prompt\nstatus: pending\n---\nbody\n');
+      spawnSync('git', ['init', '-q'], { cwd: repo });
+      const fakeBin = path.join(home, 'bin');
+      mkdirSync(fakeBin, { recursive: true });
+      const stub = path.join(fakeBin, 'runlist');
+      writeFileSync(stub, `#!/bin/sh\nexec "${process.execPath}" "${bin}" "$@"\n`);
+      chmodSync(stub, 0o755);
+      const { path: file } = installOpencodePlugin({ version: '9.9.9', dir: path.join(home, 'plugin') });
+      // The guard logs every warning; keep the test's out of the real log.
+      const restore = { PATH: process.env.PATH, logs: process.env.RUNLIST_ERROR_LOG_DIR };
+      process.env.PATH = `${fakeBin}${path.delimiter}${process.env.PATH}`;
+      process.env.RUNLIST_ERROR_LOG_DIR = path.join(home, 'logs');
+      try {
+        const hooks = await (await import(pathToFileURL(file).href)).default({ directory: repo });
+        await fn(hooks, repo);
+      } finally {
+        process.env.PATH = restore.PATH;
+        if (restore.logs === undefined) delete process.env.RUNLIST_ERROR_LOG_DIR;
+        else process.env.RUNLIST_ERROR_LOG_DIR = restore.logs;
+      }
+    };
+  }
+
+  const after = async (hooks, tool, args, text = 'file contents') => {
+    const output = { title: '', output: text, metadata: {} };
+    await hooks['tool.execute.after']({ tool, sessionID: 's', callID: 'c', args }, output);
+    return output.output;
+  };
+
+  it('appends the guard warning when the read tool opens a pending prompt', withRepo(async (hooks, repo) => {
+    const out = await after(hooks, 'read', { filePath: path.join(repo, 'docs', 'prompts', 'resume-x.md') });
+    ok(out.startsWith('file contents\n\n[dotmd] '), out);
+    match(out, /saved dotmd prompt/);
+    match(out, /dotmd use /);
+  }));
+
+  it('appends the warning when a shell command cats a pending prompt', withRepo(async (hooks) => {
+    const out = await after(hooks, 'bash', { command: 'cat docs/prompts/resume-x.md' });
+    match(out, /\[dotmd\] .*dotmd use docs\/prompts\/resume-x\.md/);
+  }));
+
+  it('leaves archived prompts and unrelated reads untouched', withRepo(async (hooks, repo) => {
+    strictEqual(await after(hooks, 'read', { filePath: path.join(repo, 'docs', 'prompts', 'archived', 'resume-x.md') }), 'file contents');
+    strictEqual(await after(hooks, 'read', { filePath: path.join(repo, 'README.md') }), 'file contents');
+    strictEqual(await after(hooks, 'bash', { command: 'ls docs' }), 'file contents');
+    strictEqual(await after(hooks, 'edit', { filePath: path.join(repo, 'docs', 'prompts', 'resume-x.md') }), 'file contents');
+  }));
+
+  it('never throws, whatever it is handed', async () => {
+    const { path: file } = installOpencodePlugin({ version: '9.9.9', dir: path.join(setup(), 'plugin') });
+    const hooks = await (await import(pathToFileURL(file).href)).default({ directory: tmp });
+    await hooks['tool.execute.after'](undefined, undefined);
+    await hooks['tool.execute.after']({ tool: 'read', args: { filePath: 'docs/prompts/a.md' } }, {});
+    await hooks['tool.execute.after']({ tool: 'read', args: null }, { output: 'x' });
+  });
+});
+
 // The plugin source lives outside src/, so a `files` list that forgets it would
 // publish a CLI whose `install opencode` throws ENOENT — visible to every npm
 // user and to nobody working from a clone. Exactly the "works here, not there"
