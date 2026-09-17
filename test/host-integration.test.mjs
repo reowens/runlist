@@ -20,6 +20,15 @@ function setup() {
   return tmp;
 }
 
+// A stand-in `runlist` on PATH. The plugin runs `runlist` on POSIX and
+// `runlist.cmd` (through a shell) on Windows, so both forms are written.
+function writeCliStub(dir, posixBody, cmdBody) {
+  const stub = path.join(dir, 'runlist');
+  writeFileSync(stub, `#!/bin/sh\n${posixBody}\n`);
+  chmodSync(stub, 0o755);
+  writeFileSync(`${stub}.cmd`, `${cmdBody}\r\n`);
+}
+
 afterEach(() => {
   if (tmp) rmSync(tmp, { recursive: true, force: true });
   tmp = undefined;
@@ -31,7 +40,7 @@ describe('opencode config directory resolution', () => {
       opencodeConfigDir({ OPENCODE_CONFIG_DIR: '/opt/oc', XDG_CONFIG_HOME: '/xdg' }, '/home/u'),
       path.resolve('/opt/oc'),
     );
-    strictEqual(opencodeConfigDir({ XDG_CONFIG_HOME: '/xdg' }, '/home/u'), path.join('/xdg', 'opencode'));
+    strictEqual(opencodeConfigDir({ XDG_CONFIG_HOME: '/xdg' }, '/home/u'), path.join(path.resolve('/xdg'), 'opencode'));
     strictEqual(opencodeConfigDir({}, '/home/u'), path.join('/home/u', '.config', 'opencode'));
   });
 
@@ -232,9 +241,7 @@ describe('the generated opencode plugin module', () => {
     // this keeps the test off whatever version happens to be installed.
     const fakeBin = path.join(home, 'bin');
     mkdirSync(fakeBin, { recursive: true });
-    const stub = path.join(fakeBin, 'runlist');
-    writeFileSync(stub, '#!/bin/sh\ncat "$DOTMD_TEST_HUD_FILE"\n');
-    chmodSync(stub, 0o755);
+    writeCliStub(fakeBin, 'cat "$DOTMD_TEST_HUD_FILE"', '@type "%DOTMD_TEST_HUD_FILE%"');
     const hudFile = path.join(home, 'hud.txt');
     writeFileSync(hudFile, 'dotmd: plans|briefing\n');
 
@@ -280,9 +287,7 @@ describe('the opencode plugin read-prompt warning', () => {
       spawnSync('git', ['init', '-q'], { cwd: repo });
       const fakeBin = path.join(home, 'bin');
       mkdirSync(fakeBin, { recursive: true });
-      const stub = path.join(fakeBin, 'runlist');
-      writeFileSync(stub, `#!/bin/sh\nexec "${process.execPath}" "${bin}" "$@"\n`);
-      chmodSync(stub, 0o755);
+      writeCliStub(fakeBin, `exec "${process.execPath}" "${bin}" "$@"`, `@"${process.execPath}" "${bin}" %*`);
       const { path: file } = installOpencodePlugin({ version: '9.9.9', dir: path.join(home, 'plugin') });
       // The guard logs every warning; keep the test's out of the real log.
       const restore = { PATH: process.env.PATH, logs: process.env.RUNLIST_ERROR_LOG_DIR };

@@ -2,6 +2,13 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- **`runlist doctor` and `runlist fix-membership` work on Node 20 again.** Both crashed with `guardByPath.values(...).map is not a function`: the membership repair used an iterator helper that only exists from Node 22, while the package supports Node 20. A new test scans the shipped sources for APIs newer than Node 20.
+- **The OpenCode plugin now runs the CLI on Windows.** Node refuses to start a `.cmd` file without a shell, so on Windows the plugin never primed sessions with `hud` and never showed the prompt-read warning. It now uses a shell there; its arguments are fixed strings. Run `runlist update` to refresh the installed plugin.
+
 ## 0.79.0 — 2026-09-16
 
 ### Changed

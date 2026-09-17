@@ -73,7 +73,9 @@ export function fixMembershipBackrefs(config, {
   const ambiguous = planned.ambiguous.map(item => ({ path: item.childPath, hubs: item.hubPaths }));
   const managed = [
     ...updates.map(update => update.path),
-    ...guardByPath.values().map(guard => guard.path),
+    // Array.from, not `.values().map`: iterator helpers are Node 22+, and the
+    // package supports Node 20.
+    ...Array.from(guardByPath.values(), guard => guard.path),
   ];
   if (managed.length) authorizeManagedSweep(managed, config, { kind: 'Membership repair source' });
 

@@ -46,6 +46,10 @@ function runCli(directory, args, input = null) {
           cwd: directory,
           timeout: PRIMER_TIMEOUT_MS,
           windowsHide: true,
+          // Node refuses to execFile a `.cmd` without a shell (EINVAL since the
+          // 2024 batch-file fix), and npm installs the CLI on Windows as one.
+          // The arguments are fixed strings, never user input.
+          shell: process.platform === 'win32',
           env: { ...process.env, NO_COLOR: '1' },
         }, (error, stdout) => {
           if (error?.code === 'ENOENT') attempt(index + 1);
