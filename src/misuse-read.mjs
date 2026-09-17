@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { readMisuseEntries, globalMisuseLogPath } from './journal.mjs';
+import { readMisuseEntries, globalMisuseLogPaths } from './journal.mjs';
 import { dim, red, yellow } from './color.mjs';
 
 // `dotmd misuse` — read the cross-repo guard log. Every wrong-move the
@@ -19,11 +19,10 @@ function parseArgs(argv) {
 }
 
 export function runMisuse(argv, _config) {
-  const file = globalMisuseLogPath();
-  if (!existsSync(file)) {
+  if (!globalMisuseLogPaths().some(file => existsSync(file))) {
     process.stderr.write(
-      'No misuse log yet. The PreToolUse guard (`dotmd guard`) writes here when it intercepts a wrong move.\n' +
-      'Wire it up: add a PreToolUse hook that runs `dotmd guard` (see `dotmd help guard`).\n',
+      'No misuse log yet. The PreToolUse guard (`runlist guard`) writes here when it intercepts a wrong move.\n' +
+      'Wire it up: add a PreToolUse hook that runs `runlist guard` (see `runlist help guard`).\n',
     );
     return;
   }

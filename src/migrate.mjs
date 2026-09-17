@@ -23,7 +23,7 @@ export function runMigrate(argv, config, opts = {}) {
   const fileArgs = positional.slice(3);
 
   if (!field || !oldValue || !newValue) {
-    die('Usage: dotmd migrate <field> <old-value> <new-value> [files...]');
+    die('Usage: runlist migrate <field> <old-value> <new-value> [files...]');
   }
 
   const allFiles = collectDocFiles(config);

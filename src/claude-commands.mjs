@@ -16,7 +16,10 @@ import path from 'node:path';
 // NEVER touched. Every dotmd-stamped file is fair game, including legacy ones
 // dotmd no longer generates (e.g. the old baton.md).
 
-const GENERATED_MARKER = '<!-- dotmd-generated:';
+// Nothing writes these files any more, so only the legacy banner can exist in
+// the wild; the current spelling is accepted too so a banner-gated teardown
+// never depends on which name stamped the file.
+const GENERATED_MARKERS = ['<!-- runlist-generated:', '<!-- dotmd-generated:'];
 
 // The marker sits just below the YAML frontmatter Claude Code surfaces as the
 // command description. That description can be long (the retired plans.md baked
@@ -25,7 +28,8 @@ const GENERATED_MARKER = '<!-- dotmd-generated:';
 // are tiny command files, so reading them in full is cheap.
 function isGeneratedCommandFile(filePath) {
   try {
-    return readFileSync(filePath, 'utf8').includes(GENERATED_MARKER);
+    const contents = readFileSync(filePath, 'utf8');
+    return GENERATED_MARKERS.some(marker => contents.includes(marker));
   } catch {
     return false;
   }

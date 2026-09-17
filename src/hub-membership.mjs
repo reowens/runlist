@@ -273,7 +273,7 @@ export function checkHubMembershipDrift(docs, config) {
     warnings.push({
       path: child.path,
       level: 'warning',
-      message: `is ranked in the body order of \`${hub.path}\` (the list \`dotmd runlist next\` walks) but has no \`parent_plan:\`. Add \`parent_plan: ${hub.path}\` so reverse-link tooling (pickup-card Related:, graph) stays consistent.`,
+      message: `is ranked in the body order of \`${hub.path}\` (the list \`runlist runlist next\` walks) but has no \`parent_plan:\`. Add \`parent_plan: ${hub.path}\` so reverse-link tooling (pickup-card Related:, graph) stays consistent.`,
       meta: { kind: BACKREF_KIND, hub: hub.path, source: 'body-order' },
     });
   }

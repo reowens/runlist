@@ -440,7 +440,7 @@ describe('grep alias', () => {
     setupBodyProject();
     const r = spawnDotmd(['grep']);
     strictEqual(r.status, 1);
-    ok(r.stderr.includes('Usage: dotmd grep <term>'), `expected usage, got: ${r.stderr}`);
+    ok(r.stderr.includes('Usage: runlist grep <term>'), `expected usage, got: ${r.stderr}`);
   });
 });
 

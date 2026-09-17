@@ -22,7 +22,7 @@ export function runSummary(argv, config) {
   }
 
   const input = positional[0];
-  if (!input) { die('Usage: dotmd summary <file> [--model <name>] [--json]'); }
+  if (!input) { die('Usage: runlist summary <file> [--model <name>] [--json]'); }
 
   const filePath = resolveDocArg(input, config);
 

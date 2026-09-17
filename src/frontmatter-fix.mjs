@@ -61,7 +61,7 @@ export function runFrontmatterFix(config, opts = {}) {
 
   const prefix = dryRun ? dim('[dry-run] ') : '';
   const banner = dryRun ? dim(' [preview — run without --dry-run to write]') : '';
-  out.write(bold('dotmd doctor --frontmatter-fix') + banner + '\n\n');
+  out.write(bold('runlist doctor --frontmatter-fix') + banner + '\n\n');
 
   if (results.length === 0) {
     out.write(green('No over-cap fields found.') + '\n');

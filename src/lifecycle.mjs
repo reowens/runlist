@@ -35,7 +35,7 @@ import {
 
 export function renderLifecycleMutation(raw, updates, historyEntry, { createSection = false, bodyTransform = null } = {}) {
   raw = normalizeEol(raw);
-  if (!raw.startsWith('---\n')) throw new Error('Document has no frontmatter block. Retrofit it with `dotmd bulk-tag` first.');
+  if (!raw.startsWith('---\n')) throw new Error('Document has no frontmatter block. Retrofit it with `runlist bulk-tag` first.');
   const endMarker = raw.indexOf('\n---\n', 4);
   if (endMarker === -1) throw new Error('Document has an unclosed frontmatter block.');
   let frontmatter = raw.slice(4, endMarker);
@@ -192,7 +192,7 @@ export function regenIndex(config, options = {}) {
     return true;
   } catch (err) {
     if (options.throwOnError) throw err;
-    warn(`Could not regenerate index (run \`dotmd index\`): ${err.message}`);
+    warn(`Could not regenerate index (run \`runlist index\`): ${err.message}`);
     return false;
   }
 }
@@ -360,10 +360,10 @@ export async function runStatus(argv, config, opts = {}) {
   let newStatus = argv[1];
 
   if (!opts.suppressDeprecation) {
-    process.stderr.write(dim('`dotmd status <file> <status>` is deprecated; prefer `dotmd set <status> [<file>]` (note: <status> first; <file> optional when a plan is in-session). Removed in a future major.\n'));
+    process.stderr.write(dim('`runlist status <file> <status>` is deprecated; prefer `runlist set <status> [<file>]` (note: <status> first; <file> optional when a plan is in-session). Removed in a future major.\n'));
   }
 
-  if (!input) { die('Usage: dotmd status <file> <new-status>'); }
+  if (!input) { die('Usage: runlist status <file> <new-status>'); }
 
   let filePath = resolveDocArg(input, config);
   const sourceAuthorization = authorizeManagedSource(filePath, config, { kind: 'Status source' });
@@ -394,7 +394,7 @@ export async function runStatus(argv, config, opts = {}) {
       newStatus = await promptChoice('Which status?', effectiveOrder);
       if (!newStatus) die('No status selected.');
     } else {
-      die('Usage: dotmd status <file> <new-status>');
+      die('Usage: runlist status <file> <new-status>');
     }
   }
 
@@ -526,7 +526,7 @@ export async function runStatus(argv, config, opts = {}) {
   // this so concurrent agents can do path-limited commits without pulling
   // each other's uncommitted index changes into the staging area.
   if (noIndex) {
-    process.stderr.write(dim('(index not regenerated — run `dotmd index` to refresh)\n'));
+    process.stderr.write(dim('(index not regenerated — run `runlist index` to refresh)\n'));
   } else if (!opts.deferIndex) {
     regenIndex(config);
   }
@@ -568,7 +568,7 @@ export async function startPlan(argv, config, opts = {}) {
 
   // Interactive: pick from active/planned plans
   if (!input) {
-    if (!isInteractive()) die('Usage: dotmd use <plan>');
+    if (!isInteractive()) die('Usage: runlist use <plan>');
     const index = buildIndex(config);
     const sessionId = authoritativeSessionId();
     const candidates = pickupCandidates(index, config, sessionId);
@@ -672,7 +672,7 @@ export async function startPlan(argv, config, opts = {}) {
   } else {
     process.stderr.write(`${green('▶ Started')}: ${repoPath} (${oldStatus ?? 'unset'} → in-session)\n\n`);
     if (fullBody) {
-      const header = `[dotmd] in-session: ${repoPath} — close with: dotmd set <status> ${repoPath}\n---\n`;
+      const header = `[runlist] in-session: ${repoPath} — close with: runlist set <status> ${repoPath}\n---\n`;
       process.stdout.write(header);
       const content = (body ?? '').trim();
       if (content) process.stdout.write(content + '\n');
@@ -707,7 +707,7 @@ export function runArchive(argv, config, opts = {}) {
   }
   const input = argv[0];
 
-  if (!input) { die('Usage: dotmd archive <file>'); }
+  if (!input) { die('Usage: runlist archive <file>'); }
 
   let filePath = resolveDocArg(input, config);
   const sourceAuthorization = authorizeManagedSource(filePath, config, { kind: 'Archive source' });
@@ -861,7 +861,7 @@ export function runArchive(argv, config, opts = {}) {
   if (selfRefsFixed) out.write('Updated references in archived file.\n');
   if (updatedRefCount > 0) out.write(`Updated references in ${updatedRefCount} file(s).\n`);
   if (config.indexPath && indexRegenerated) out.write('Index regenerated.\n');
-  if (config.indexPath && noIndex) out.write(dim('(index not regenerated — run `dotmd index` to refresh)\n'));
+  if (config.indexPath && noIndex) out.write(dim('(index not regenerated — run `runlist index` to refresh)\n'));
 
   const touched = [oldRepoPath, newRepoPath, ...refTouchedPaths];
   if (config.indexPath && indexRegenerated) touched.push(config.indexPath);
@@ -931,7 +931,7 @@ export async function runSet(argv, config, opts = {}) {
   const newStatus = argv[0];
   let input = argv[1];
 
-  if (!newStatus) die('Usage: dotmd set <status> [<path>]');
+  if (!newStatus) die('Usage: runlist set <status> [<path>]');
   let sessionId = null;
   if (!input) {
     sessionId = authoritativeSessionId();
@@ -1051,7 +1051,7 @@ export async function runSet(argv, config, opts = {}) {
       // `@<draft-file>` stays an obvious metavariable: the old `@draft` read as
       // a runnable path and got copied verbatim into failing batons. If it is
       // copied anyway, readBodyInput recognizes the <…> form and says so.
-      warn(`wrapping up? leave a baton so the next session picks up cleanly — write your resume notes to a file, then \`dotmd baton ${path.basename(filePath, '.md')} @<draft-file>\` saves a resume prompt (no copy-paste into chat).`);
+      warn(`wrapping up? leave a baton so the next session picks up cleanly — write your resume notes to a file, then \`runlist baton ${path.basename(filePath, '.md')} @<draft-file>\` saves a resume prompt (no copy-paste into chat).`);
     }
   }
   return result;
@@ -1063,7 +1063,7 @@ export function runBulkArchive(argv, config, opts = {}) {
   const noIndex = argv.includes('--no-index') || opts.noIndex;
   const showFiles = argv.includes('--show-files') || opts.showFiles;
   const inputs = argv.filter(a => !a.startsWith('-'));
-  if (inputs.length === 0) die('Usage: dotmd bulk archive <file1> <file2> ... or <glob>');
+  if (inputs.length === 0) die('Usage: runlist bulk archive <file1> <file2> ... or <glob>');
 
   const allFiles = collectDocFiles(config);
   const matched = [];
@@ -1124,7 +1124,7 @@ export function runBulkArchive(argv, config, opts = {}) {
     catch (err) { indexError = err.message; }
     if (config.indexPath && indexRegenerated) process.stdout.write('Index regenerated.\n');
   } else if (config.indexPath) {
-    process.stdout.write(dim('(index not regenerated — run `dotmd index` to refresh)\n'));
+    process.stdout.write(dim('(index not regenerated — run `runlist index` to refresh)\n'));
   }
   if (showFiles) {
     const all = [...bulkTouched];
@@ -1248,8 +1248,8 @@ export function runTouch(argv, config, opts = {}) {
     return;
   }
 
-  if (inputs.length > 1) die('Multiple files require `dotmd touch --git <file...>`.');
-  if (!input) { die('Usage: dotmd touch <file>\n       dotmd touch --git          Bulk-sync dates from git history'); }
+  if (inputs.length > 1) die('Multiple files require `runlist touch --git <file...>`.');
+  if (!input) { die('Usage: runlist touch <file>\n       runlist touch --git          Bulk-sync dates from git history'); }
 
   let filePath = resolveDocArg(input, config);
   filePath = authorizeManagedSource(filePath, config, { kind: 'Touch source' }).path;
@@ -1358,7 +1358,7 @@ export function updateFrontmatter(filePath, updates) {
   // Name the remedy in the error: this is where every status verb lands when a
   // doc was created outside dotmd, and "no frontmatter block" alone left
   // sessions retrying other verbs instead of fixing the doc.
-  if (!raw.startsWith('---\n')) throw new Error(`${filePath} has no frontmatter block. Retrofit it first: dotmd bulk-tag ${filePath} --type <type> --status <status>`);
+  if (!raw.startsWith('---\n')) throw new Error(`${filePath} has no frontmatter block. Retrofit it first: runlist bulk-tag ${filePath} --type <type> --status <status>`);
 
   const endMarker = raw.indexOf('\n---\n', 4);
   if (endMarker === -1) throw new Error(`${filePath} has unclosed frontmatter block.`);

@@ -16,7 +16,7 @@ afterEach(() => {
 
 describe('watch command', () => {
   it('resolves the CLI from decoded file URLs with spaces and reserved characters', () => {
-    const modulePath = path.join(os.tmpdir(), 'dotmd watch # percent%', 'src', 'watch.mjs');
+    const modulePath = path.join(os.tmpdir(), 'runlist watch # percent%', 'src', 'watch.mjs');
     strictEqual(
       watchCliPath(pathToFileURL(modulePath)),
       path.resolve(path.dirname(modulePath), '..', 'bin', 'runlist.mjs'),
@@ -65,7 +65,7 @@ describe('watch command', () => {
     // The initial run should have produced list output
     // stderr should mention "Watching" and show the timestamp
     ok(output.stderr.includes('Watching'), `stderr should mention Watching, got: ${output.stderr}`);
-    ok(output.stderr.includes('dotmd list'), `stderr should show command, got: ${output.stderr}`);
+    ok(output.stderr.includes('runlist list'), `stderr should show command, got: ${output.stderr}`);
   });
 
   it('--help shows watch help', () => {

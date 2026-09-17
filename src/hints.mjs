@@ -17,32 +17,32 @@ const TEMPLATES = [
   {
     match: /Too many arguments|Usage:/i,
     hint: ({ count, argv }) =>
-      `${count}× the same shape on \`${argv[0]} ${argv[1] ?? ''}\` in this session. Run \`dotmd ${argv[0]} --help\` for the expected positional args.`,
+      `${count}× the same shape on \`${argv[0]} ${argv[1] ?? ''}\` in this session. Run \`runlist ${argv[0]} --help\` for the expected positional args.`,
   },
   {
     match: /Already (consumed|archived)/i,
     hint: ({ count, argv }) =>
-      `${count}× attempts to use a path that is already archived. Use \`dotmd prompts list\` to see what is actually pending, or \`dotmd next\` for the oldest live prompt.`,
+      `${count}× attempts to use a path that is already archived. Use \`runlist prompts list\` to see what is actually pending, or \`runlist next\` for the oldest live prompt.`,
   },
   {
     match: /No pending prompts/i,
     hint: ({ count }) =>
-      `${count}× \`dotmd next\` with no pending prompts in the queue. Either queue one with \`dotmd new prompt <slug> "..."\` or pass an explicit prompt file to \`dotmd use\`.`,
+      `${count}× \`runlist next\` with no pending prompts in the queue. Either queue one with \`runlist new prompt <slug> "..."\` or pass an explicit prompt file to \`runlist use\`.`,
   },
   {
     match: /Unknown command/i,
     hint: ({ count }) =>
-      `${count}× the same unknown command. Run \`dotmd --help\` to list available commands; the dispatch already prints a did-you-mean for close misses.`,
+      `${count}× the same unknown command. Run \`runlist --help\` to list available commands; the dispatch already prints a did-you-mean for close misses.`,
   },
   {
     match: /File not found|does not resolve/i,
     hint: ({ count, argv }) =>
-      `${count}× pointing at a path that doesn't exist. Confirm the file with \`dotmd query\` or \`dotmd plans\` — paths resolve relative to repo root or doc roots, not the cwd.`,
+      `${count}× pointing at a path that doesn't exist. Confirm the file with \`runlist query\` or \`runlist plans\` — paths resolve relative to repo root or doc roots, not the cwd.`,
   },
   {
     match: /Unknown status|Unknown surface/i,
     hint: ({ count }) =>
-      `${count}× rejected by the taxonomy validator. Run \`dotmd statuses list\` or \`dotmd surfaces\` to print the valid values for this project.`,
+      `${count}× rejected by the taxonomy validator. Run \`runlist statuses list\` or \`runlist surfaces\` to print the valid values for this project.`,
   },
 ];
 
@@ -122,7 +122,7 @@ export function findRepeatFailureHint(failingArgv, config) {
       }
     }
 
-    return `${count}× the same failing shape on \`${failingArgv[0]}\` in this session (last attempt ${ageMin}m ago). Check the args — \`dotmd ${failingArgv[0]} --help\` shows what's expected.`;
+    return `${count}× the same failing shape on \`${failingArgv[0]}\` in this session (last attempt ${ageMin}m ago). Check the args — \`runlist ${failingArgv[0]} --help\` shows what's expected.`;
   } catch {
     return null;
   }

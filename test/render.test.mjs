@@ -126,7 +126,7 @@ describe('renderContext stale tail', () => {
     const docs = Array.from({ length: 12 }, (_, i) => staleDoc(i));
     const result = renderContext({ docs }, makeConfig());
     ok(result.includes('…and 4 more'), `expected overflow marker, got: ${result}`);
-    ok(result.includes('dotmd stale'), `expected "dotmd stale" hint, got: ${result}`);
+    ok(result.includes('runlist stale'), `expected "runlist stale" hint, got: ${result}`);
   });
 
   it('does not emit overflow marker when stale count fits cap', () => {
@@ -297,7 +297,7 @@ describe('renderCheck', () => {
     };
     const result = renderCheck(index, makeConfig());
     ok(result.includes('Manual fixes remaining'), result);
-    ok(result.includes('dotmd bulk-tag docs/bad.md'), result);
+    ok(result.includes('runlist bulk-tag docs/bad.md'), result);
     ok(result.includes('Missing frontmatter `status`'), result);
   });
 
@@ -340,7 +340,7 @@ describe('renderCheck', () => {
     ok(result.includes('doctor'), 'points at doctor for auto-fix');
     // M1: bare `dotmd doctor` previews by default (F4/0.37.0), so the
     // prescription must name `--apply` or it sends agents into a no-op loop.
-    ok(result.includes('dotmd doctor --apply'), 'prescribes doctor --apply, not bare doctor (M1 — A1 recurrence)');
+    ok(result.includes('runlist doctor --apply'), 'prescribes doctor --apply, not bare doctor (M1 — A1 recurrence)');
     ok(result.includes('Check passed with warnings'), 'still shows pass-with-warnings status');
   });
 

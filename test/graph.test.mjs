@@ -274,7 +274,7 @@ describe('renderGraphDot', () => {
     ]);
     const graph = buildGraph(index, config);
     const dot = renderGraphDot(graph, config);
-    ok(dot.startsWith('digraph dotmd {'), 'starts with digraph');
+    ok(dot.startsWith('digraph runlist {'), 'starts with digraph');
     ok(dot.includes('"docs/a.md"'), 'includes full node a identity');
     ok(dot.includes('"docs/b.md"'), 'includes full node b identity');
     ok(dot.includes('->'), 'includes edge');

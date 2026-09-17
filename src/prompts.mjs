@@ -33,9 +33,9 @@ export async function runPrompts(argv, config, opts = {}) {
   const sub = argv[0];
 
   if (sub && REMOVED_SUBCOMMANDS.has(sub)) {
-    die(`\`dotmd prompts ${sub}\` was removed — a prompt is pending or archived, and nothing else.\n`
+    die(`\`runlist prompts ${sub}\` was removed — a prompt is pending or archived, and nothing else.\n`
       + 'A prompt directs work, so parking one instead of archiving it leaves work state outside the\n'
-      + 'plan that owns it. Lift its content into that plan, then `dotmd prompts archive <file>`.');
+      + 'plan that owns it. Lift its content into that plan, then `runlist prompts archive <file>`.');
   }
 
   if (!sub || !SUBCOMMANDS.has(sub)) {
@@ -242,7 +242,7 @@ export function resolvePromptInput(input, config, options = {}) {
 
 async function runPromptsUse(argv, config, opts = {}) {
   const input = argv.find(a => !a.startsWith('-'));
-  if (!input) die('Usage: dotmd prompts use <file-or-slug>');
+  if (!input) die('Usage: runlist prompts use <file-or-slug>');
   const noIndex = argv.includes('--no-index') || opts.noIndex;
   const showFiles = argv.includes('--show-files') || opts.showFiles;
   const noClaim = argv.includes('--no-claim');
@@ -374,8 +374,8 @@ export async function writeConsumedBody(body, archivedPath, write = null, linked
     }
   }
   catch (err) {
-    const completion = linkedPlan ? ` Then complete the linked claim with \`dotmd use ${linkedPlan}\`.` : '';
-    throw new Error(`Prompt was consumed but body output failed (${err.code ?? err.message}). It will not be emitted again; recover it with \`dotmd prompts show ${archivedPath}\`.${completion}`);
+    const completion = linkedPlan ? ` Then complete the linked claim with \`runlist use ${linkedPlan}\`.` : '';
+    throw new Error(`Prompt was consumed but body output failed (${err.code ?? err.message}). It will not be emitted again; recover it with \`runlist prompts show ${archivedPath}\`.${completion}`);
   }
 }
 
@@ -395,7 +395,7 @@ export async function writeConsumedBody(body, archivedPath, write = null, linked
 function explainUnclaimablePlan(disposition, repoPath, status, startable) {
   switch (disposition.kind) {
     case 'parked':
-      return `${repoPath} is ${status} — \`dotmd set ${startable} ${repoPath}\` to unpark it, then \`dotmd use ${repoPath}\``;
+      return `${repoPath} is ${status} — \`runlist set ${startable} ${repoPath}\` to unpark it, then \`runlist use ${repoPath}\``;
     case 'busy':
       return `${repoPath} is claimed by another session (${disposition.owner})`;
     case 'terminal':
@@ -406,7 +406,7 @@ function explainUnclaimablePlan(disposition, repoPath, status, startable) {
     case 'unconfigured-status':
       return `${repoPath} has a status this repo does not configure (${status ?? 'none'})`;
     case 'ownership-corrupt':
-      return `${repoPath} has an unreadable ownership record — \`dotmd doctor --claims\``;
+      return `${repoPath} has an unreadable ownership record — \`runlist doctor --claims\``;
     default:
       return `${repoPath} cannot be claimed (${disposition.kind})`;
   }
@@ -504,7 +504,7 @@ function runPromptsShow(argv, config) {
   const inputs = argv.filter((a, i) => !a.startsWith('-') && i !== limitValueIdx);
 
   if (!inputs.length && !all) {
-    die('Usage: dotmd prompts show <file-or-slug>...\n       dotmd prompts show --all [--limit N]   # peek the whole pending queue');
+    die('Usage: runlist prompts show <file-or-slug>...\n       runlist prompts show --all [--limit N]   # peek the whole pending queue');
   }
   if (inputs.length && all) die('Pass either prompt names or --all, not both.');
 
@@ -532,7 +532,7 @@ function runPromptsShow(argv, config) {
       if (shown > 0) process.stdout.write('\n');
       process.stdout.write(dim(`──── ${repoPath} [${status}] ────\n`));
     } else {
-      process.stderr.write(dim(`${repoPath} [${status}] — read-only peek; \`dotmd use ${repoPath}\` to consume\n`));
+      process.stderr.write(dim(`${repoPath} [${status}] — read-only peek; \`runlist use ${repoPath}\` to consume\n`));
     }
     process.stdout.write(body);
     if (!body.endsWith('\n')) process.stdout.write('\n');
@@ -545,13 +545,13 @@ function runPromptsShow(argv, config) {
   const truncated = total > targets.length;
   if (multi || truncated) {
     const suffix = truncated ? ` of ${total} (use --limit to change)` : '';
-    process.stderr.write(dim(`\n${shown} prompt${shown === 1 ? '' : 's'}${suffix} — read-only peek; \`dotmd use <file>\` to consume one\n`));
+    process.stderr.write(dim(`\n${shown} prompt${shown === 1 ? '' : 's'}${suffix} — read-only peek; \`runlist use <file>\` to consume one\n`));
   }
 }
 
 function runPromptsArchive(argv, config, opts = {}) {
   const input = argv.find(a => !a.startsWith('-'));
-  if (!input) die('Usage: dotmd prompts archive <file-or-slug>');
+  if (!input) die('Usage: runlist prompts archive <file-or-slug>');
   const noIndex = argv.includes('--no-index') || opts.noIndex;
   const showFiles = argv.includes('--show-files') || opts.showFiles;
   const filePath = resolvePromptInput(input, config);
@@ -568,7 +568,7 @@ function runPromptsArchive(argv, config, opts = {}) {
 
 async function runPromptsNew(argv, config, opts = {}) {
   if (!argv[0] || argv[0].startsWith('-')) {
-    die('Usage: dotmd prompts new <slug> [body]\n       body: inline text | piped stdin (auto) | "@path" (file) | --body "..."');
+    die('Usage: runlist prompts new <slug> [body]\n       body: inline text | piped stdin (auto) | "@path" (file) | --body "..."');
   }
   return runNew(['prompt', ...argv], config, opts);
 }

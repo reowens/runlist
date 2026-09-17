@@ -4,13 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-dotmd is a CLI (`dotmd-cli` on npm) for managing markdown documents with YAML frontmatter. It indexes, queries, validates, graphs, exports, and lifecycle-manages collections of `.md` files (plans, ADRs, RFCs, design docs). Built as ESM using Node.js builtins with zero runtime dependencies.
+runlist (formerly dotmd) is a CLI for managing markdown documents with YAML frontmatter. It indexes, queries, validates, graphs, exports, and lifecycle-manages collections of `.md` files (plans, ADRs, RFCs, design docs). Built as ESM using Node.js builtins with zero runtime dependencies. It still publishes as `dotmd-cli` on npm, from the `reowens/dotmd` repo, with the Claude Code plugin `dotmd@dotmd`; the executables are `runlist`, `rl` and the legacy `dotmd` alias.
 
-**Claude Code plugin.** dotmd also ships as a Claude Code plugin under `plugins/dotmd/` (marketplace manifest at `.claude-plugin/marketplace.json`). The plugin bundles the hooks (`SessionStart`/`SubagentStart` priming via `dotmd hud`, a `PreToolUse` guard via `dotmd guard`) and the canonical agent-facing workflow in `plugins/dotmd/skills/dotmd/SKILL.md`. That SKILL.md is the source of truth for how *other* repos' sessions learn the workflow — keep it in sync with the "Working with plans" guidance below. The irreducible verb contract lives in a marked `dotmd:canonical-workflow` block duplicated in both surfaces; `dotmd check` fails (via `src/skill-drift.mjs`) the moment the two copies drift, so that lockstep is mechanical, not manual. The user-typed slash commands (`/plans`, `/docs`, `/prompts`, `/baton`) ship from `plugins/dotmd/commands/`. The legacy per-repo `.claude/commands` scaffolding has been **retired** (see `docs/plans/package-dotmd-as-plugin.md`, Phase 4): `src/claude-commands.mjs` no longer generates anything — it only *removes* stale dotmd-generated command files (banner-gated, so hand-authored ones survive). Explicit `dotmd doctor`/`init` maintenance removes them; passive `dotmd hud` does not mutate repository state.
+**Claude Code plugin.** runlist also ships as a Claude Code plugin under `plugins/dotmd/` (marketplace manifest at `.claude-plugin/marketplace.json`). The plugin bundles the hooks (`SessionStart`/`SubagentStart` priming via `runlist hud`, a `PreToolUse` guard via `runlist guard`) and the canonical agent-facing workflow in `plugins/dotmd/skills/dotmd/SKILL.md`. That SKILL.md is the source of truth for how *other* repos' sessions learn the workflow — keep it in sync with the "Working with plans" guidance below. The irreducible verb contract lives in a marked `runlist:canonical-workflow` block duplicated in both surfaces (the checker still reads the legacy `dotmd:canonical-workflow` spelling); `runlist check` fails (via `src/skill-drift.mjs`) the moment the two copies drift, so that lockstep is mechanical, not manual. The user-typed slash commands (`/plans`, `/docs`, `/prompts`, `/baton`) ship from `plugins/dotmd/commands/`. The legacy per-repo `.claude/commands` scaffolding has been **retired** (see `docs/plans/package-dotmd-as-plugin.md`, Phase 4): `src/claude-commands.mjs` no longer generates anything — it only *removes* stale generated command files (gated on a `runlist-generated:` or legacy `dotmd-generated:` banner, so hand-authored ones survive). Explicit `runlist doctor`/`init` maintenance removes them; passive `runlist hud` does not mutate repository state.
 
-**Other agent hosts.** `dotmd install [claude|opencode]` owns first-install for every host; `dotmd update` keeps them in lockstep with the CLI; `dotmd doctor --session` reports what session identity dotmd resolved and from which variable. Codex needs no install for identity: it exports `CODEX_THREAD_ID` (and its twin `CODEX_SESSION_ID`) to every tool shell, verified by running `env` inside a real `codex exec` session, so `SESSION_ID_SOURCES` reads it as session-scoped. OpenCode has no plugin registry, so its integration is one generated file (`assets/opencode/plugin.js` → the OpenCode global config dir, auto-discovered via its `{plugin,plugins}/*.{ts,js}` glob), written by `src/host-integration.mjs`. It exists because OpenCode exports **no session id** to a tool shell — without it dotmd falls back to `OPENCODE_PID`, which names the OpenCode *process*, so sessions sharing it can release each other's plans — and because OpenCode's Claude Code compatibility covers skills and the system prompt but **not hooks**, so nothing else runs `dotmd hud`. Two rules hold across host surfaces: only explicit verbs write outside the repo (`doctor` reports, never installs), and a generated file without the `dotmd-generated:` banner is hand-authored and is never overwritten or removed.
+**Other agent hosts.** `runlist install [claude|opencode]` owns first-install for every host; `runlist update` keeps them in lockstep with the CLI; `runlist doctor --session` reports what session identity runlist resolved and from which variable. Codex needs no install for identity: it exports `CODEX_THREAD_ID` (and its twin `CODEX_SESSION_ID`) to every tool shell, verified by running `env` inside a real `codex exec` session, so `SESSION_ID_SOURCES` reads it as session-scoped. OpenCode has no plugin registry, so its integration is one generated file (`assets/opencode/plugin.js` → the OpenCode global config dir, auto-discovered via its `{plugin,plugins}/*.{ts,js}` glob), written by `src/host-integration.mjs`. It exists because OpenCode exports **no session id** to a tool shell — without it runlist falls back to `OPENCODE_PID`, which names the OpenCode *process*, so sessions sharing it can release each other's plans — and because OpenCode's Claude Code compatibility covers skills and the system prompt but **not hooks**, so nothing else runs `runlist hud`. Two rules hold across host surfaces: only explicit verbs write outside the repo (`doctor` reports, never installs), and a generated file without a `runlist-generated:` (or legacy `dotmd-generated:`) banner is hand-authored and is never overwritten or removed.
 
-**Never add a host's environment variable to `SESSION_ID_SOURCES` without verifying the host sets it.** The OpenCode entries were plausible-looking guesses (`OPENCODE_SESSION_ID`, `OPENCODE_SESSION`) that nothing sets, so every OpenCode session failed closed on `dotmd use` — and the test could not catch it, because "dotmd honors `OPENCODE_SESSION_ID` when set" stays true whether or not anything sets it. Verify against the host itself (its binary, its docs, or `env` inside a real session) and record the evidence in the source comment, then encode the *scope* (`session` / `process` / `terminal`) honestly: a process- or terminal-scoped id is shared by sibling sessions, and calling it per-session is what turns a coarse fallback into a silent ownership bug.
+**Never add a host's environment variable to `SESSION_ID_SOURCES` without verifying the host sets it.** The OpenCode entries were plausible-looking guesses (`OPENCODE_SESSION_ID`, `OPENCODE_SESSION`) that nothing sets, so every OpenCode session failed closed on `runlist use` — and the test could not catch it, because "dotmd honors `OPENCODE_SESSION_ID` when set" stays true whether or not anything sets it. Verify against the host itself (its binary, its docs, or `env` inside a real session) and record the evidence in the source comment, then encode the *scope* (`session` / `process` / `terminal`) honestly: a process- or terminal-scoped id is shared by sibling sessions, and calling it per-session is what turns a coarse fallback into a silent ownership bug.
 
 ## Document Types
 
@@ -26,7 +26,7 @@ Every document has a `type:` field in its frontmatter. Types determine which sta
 
 Each stop-status maps to a distinct **unstuck-action** — that's the test for whether the status earns its keep.
 
-- **`in-session`** — An agent session is actively working on this plan right now. `dotmd use` writes the status plus a local, gitignored ownership record; another session cannot resume/release it without an explicit `--force` recovery.
+- **`in-session`** — An agent session is actively working on this plan right now. `runlist use` writes the status plus a local, gitignored ownership record; another session cannot resume/release it without an explicit `--force` recovery.
 - **`active`** — Ready for a Claude session to pick up and work on.
 - **`planned`** — Queued for future work, not yet ready to execute.
 - **`blocked`** — *Unstuck-action: monitor.* External arrival on its own schedule (hardware, vendor delivery, third-party rollout). You can't speed it up.
@@ -36,54 +36,54 @@ Each stop-status maps to a distinct **unstuck-action** — that's the test for w
 - **`queued-after`** — *Unstuck-action: check predecessor.* Sequenced behind another plan; can start once that one ships. Quiet.
 - **`archived`** — No longer relevant, moved to archive directory.
 
-To finish work, archive directly: `dotmd archive <plan-file>`. The legacy `done` status was dropped from defaults — `archived` is the closure state.
+To finish work, archive directly: `runlist archive <plan-file>`. The legacy `done` status was dropped from defaults — `archived` is the closure state.
 
 ### Working with plans (for Claude instances)
 
-**Workflow contract.** The bullets between the markers below are kept byte-identical across this `CLAUDE.md` and the plugin `SKILL.md`; `dotmd check` guards the lockstep (`src/skill-drift.mjs`). Edit them in one surface and you must mirror them in the other — only the marked block is compared, so this framing line can differ per file.
+**Workflow contract.** The bullets between the markers below are kept byte-identical across this `CLAUDE.md` and the plugin `SKILL.md`; `runlist check` guards the lockstep (`src/skill-drift.mjs`). Edit them in one surface and you must mirror them in the other — only the marked block is compared, so this framing line can differ per file.
 
-<!-- dotmd:canonical-workflow:start -->
-- **Orient:** `dotmd briefing` — active / paused / ready work, with ages and next steps.
-- **Start a plan:** `dotmd use <plan-file>` — marks it `in-session` and prints the plan card.
-- **Single status verb:** `dotmd set <status> [<file>]` writes the status, validates it against the doc's type, runs lifecycle hooks, fixes refs, and syncs the index. **Never hand-edit a `status:` line.** Add `--note "why"` to record the reason in `## Version History` in the same call.
+<!-- runlist:canonical-workflow:start -->
+- **Orient:** `runlist briefing` — active / paused / ready work, with ages and next steps.
+- **Start a plan:** `runlist use <plan-file>` — marks it `in-session` and prints the plan card.
+- **Single status verb:** `runlist set <status> [<file>]` writes the status, validates it against the doc's type, runs lifecycle hooks, fixes refs, and syncs the index. **Never hand-edit a `status:` line.** Add `--note "why"` to record the reason in `## Version History` in the same call.
 - **Close to match reality:** `archived` (shipped) · `partial` (tail deferred — link the successor) · `active` (more work later) · `awaiting` (needs a human decision) · `blocked` (external arrival you can't speed up). Parking a plan with a known next step? Leave a baton in the same breath — never narrate the next pickup into chat.
-- **Hand off / save a resume prompt:** `dotmd baton [<slug>] <@<file>|->` — saves the resume prompt and releases the in-session plan. Never paste a "here's how to resume" block into chat.
-- **Saved prompts are session-local:** consume with `dotmd use` (no arg = oldest pending), peek with `dotmd prompts show` (`--all` surveys the whole queue in one call). Never read them with file tools, never commit `docs/prompts/*.md`.
-<!-- dotmd:canonical-workflow:end -->
+- **Hand off / save a resume prompt:** `runlist baton [<slug>] <@<file>|->` — saves the resume prompt and releases the in-session plan. Never paste a "here's how to resume" block into chat.
+- **Saved prompts are session-local:** consume with `runlist use` (no arg = oldest pending), peek with `runlist prompts show` (`--all` surveys the whole queue in one call). Never read them with file tools, never commit `docs/prompts/*.md`.
+<!-- runlist:canonical-workflow:end -->
 
-`dotmd set <status> [<file>]` is the single status verb. It handles starting, transitioning, and closing a plan based on the target status.
+`runlist set <status> [<file>]` is the single status verb. It handles starting, transitioning, and closing a plan based on the target status.
 
-1. Get oriented: `dotmd briefing`
-2. Start work on a plan: `dotmd use <plan-file>` (marks in-session + prints the plan card). To set the status without printing, `dotmd set in-session <plan-file>`.
+1. Get oriented: `runlist briefing`
+2. Start work on a plan: `runlist use <plan-file>` (marks in-session + prints the plan card). To set the status without printing, `runlist set in-session <plan-file>`.
 3. When done — pick the closure status that matches reality:
-   - Fully shipped → `dotmd set archived <plan-file>` (also: `dotmd archive <plan-file>`)
-   - Shipped + tail deferred → `dotmd set partial <plan-file>` (reference the successor plan in the body)
-   - Need more work later → `dotmd set active <plan-file>`
-   - Stuck on a human decision → `dotmd set awaiting <plan-file>`
+   - Fully shipped → `runlist set archived <plan-file>` (also: `runlist archive <plan-file>`)
+   - Shipped + tail deferred → `runlist set partial <plan-file>` (reference the successor plan in the body)
+   - Need more work later → `runlist set active <plan-file>`
+   - Stuck on a human decision → `runlist set awaiting <plan-file>`
    `set <status> <file>` writes frontmatter and atomically releases local ownership when leaving `in-session`.
    Add `--note "why"` to any `set`/`archive` to append the reason to `## Version History` in the same call (creates the section if missing) — prefer it over a separate body edit. `set partial` without a note or successor link prints a reminder.
-4. To see plans: `dotmd plans` (live), `dotmd plans --status active`, `dotmd plans --status in-session`
+4. To see plans: `runlist plans` (live), `runlist plans --status active`, `runlist plans --status in-session`
 
 ### Resume prompts (saved for future sessions)
 
 When the user asks for a resume prompt — or when context is getting tight and you're about to stop mid-work — DO NOT print the resume text into chat for them to copy-paste. If a plan is in-session, hand it off with the single verb:
 
 ```bash
-dotmd baton @/tmp/draft.md        # saves resume-<plan-slug>, flips the plan
+runlist baton @/tmp/draft.md        # saves resume-<plan-slug>, flips the plan
                                   # in-session → active, prints the exact git commit
 ```
 
-`--status paused|awaiting|partial|blocked` overrides the release status; `--note "why"` records the reason. Baton resolves *your* plan from its local, gitignored ownership record (or takes it explicitly: `dotmd baton <plan-file> @<draft-file>`); journal entries and global in-session counts never grant ownership. It is the whole closeout — prompt creation, status/history, and ownership release commit together, with no extra status changes or repo triage on the way out.
+`--status paused|awaiting|partial|blocked` overrides the release status; `--note "why"` records the reason. Baton resolves *your* plan from its local, gitignored ownership record (or takes it explicitly: `runlist baton <plan-file> @<draft-file>`); journal entries and global in-session counts never grant ownership. It is the whole closeout — prompt creation, status/history, and ownership release commit together, with no extra status changes or repo triage on the way out.
 
 No plan involved? Same verb, slug mode — saves `resume-<slug>` and touches nothing else:
 
 ```bash
-dotmd baton <slug> @/tmp/draft.md
+runlist baton <slug> @/tmp/draft.md
 ```
 
-Either way the prompt lands under `docs/prompts/<name>.md` with `status: pending`. Baton saves nothing when a handoff for the same work is already pending (`resume-<name>.md`, or in plan mode any pending prompt whose `plan:` links that plan): it names the waiting prompt and says to consume or archive it first, so two prompts never sit side by side for one piece of work. A baton with no resume text is refused the same way — the session writes the resume. The next session runs `dotmd hud` (the SessionStart hook), sees the pending prompt, and consumes it with `dotmd use <file>` (or `dotmd use` with no arg for the oldest). Consumption commits the archive/claim before writing the body to stdout, so output is at-most-once and the prompt cannot be double-consumed. If stdout fails, recover with `dotmd prompts show <archived-path>`.
+Either way the prompt lands under `docs/prompts/<name>.md` with `status: pending`. Baton saves nothing when a handoff for the same work is already pending (`resume-<name>.md`, or in plan mode any pending prompt whose `plan:` links that plan): it names the waiting prompt and says to consume or archive it first, so two prompts never sit side by side for one piece of work. A baton with no resume text is refused the same way — the session writes the resume. The next session runs `runlist hud` (the SessionStart hook), sees the pending prompt, and consumes it with `runlist use <file>` (or `runlist use` with no arg for the oldest). Consumption commits the archive/claim before writing the body to stdout, so output is at-most-once and the prompt cannot be double-consumed. If stdout fails, recover with `runlist prompts show <archived-path>`.
 
-**Consume = claim (the handoff loop closes itself).** When `dotmd baton` releases a plan, it stamps the resume prompt with a `plan:` link back to that plan. Consuming such a prompt with `dotmd use` doesn't just print the body — it also **claims the linked plan for this session** (flips it to `in-session` and records the ownership), printing `→ Claimed docs/plans/<x>.md`. So the picked-up work is already `in-session` and, crucially, *this* session's later `dotmd baton` (no arg) hands off that plan automatically — you don't re-run `dotmd use <plan>` first. Only a startable plan is claimed: an already-in-session plan (someone's on it) or an archived/renamed target (stale link) is left untouched. Reading prompts without starting their plans (a cleanup or triage pass)? `dotmd use --no-claim` (also `prompts use`/`prompts next`) consumes the prompt and leaves the plan alone.
+**Consume = claim (the handoff loop closes itself).** When `runlist baton` releases a plan, it stamps the resume prompt with a `plan:` link back to that plan. Consuming such a prompt with `runlist use` doesn't just print the body — it also **claims the linked plan for this session** (flips it to `in-session` and records the ownership), printing `→ Claimed docs/plans/<x>.md`. So the picked-up work is already `in-session` and, crucially, *this* session's later `runlist baton` (no arg) hands off that plan automatically — you don't re-run `runlist use <plan>` first. Only a startable plan is claimed: an already-in-session plan (someone's on it) or an archived/renamed target (stale link) is left untouched. Reading prompts without starting their plans (a cleanup or triage pass)? `runlist use --no-claim` (also `prompts use`/`prompts next`) consumes the prompt and leaves the plan alone.
 
 Use this whenever you'd otherwise print a multi-line "here's how to resume" block.
 
@@ -106,69 +106,69 @@ runlist:
 Scaffold the whole sprint in one command instead of hand-writing the hub + children:
 
 ```bash
-dotmd new plan auth-revamp --runlist extract,rewrite,cleanup
+runlist new plan auth-revamp --runlist extract,rewrite,cleanup
 # → hub with the runlist: array above + an `## Order of operations` list,
 #   plus auth-revamp-0{1,2,3}-*.md child stubs (status planned, parent_plan back-ref)
-dotmd new plan platform --coordination   # coordination hub: execution_mode + `## Ranked queue` skeleton
+runlist new plan platform --coordination   # coordination hub: execution_mode + `## Ranked queue` skeleton
 ```
 
 Then:
 
-- `dotmd runlist <hub>` — show the children + their statuses in order. The first **pickup-able** child (`active` / `planned` / `in-session`) is marked `→` (the next pickup target). Archived children are done; **parked** children (`blocked` / `partial` / `paused` / `awaiting` / `queued-after`) are skipped — the `→` advances past them, since each needs its own unstuck action before work resumes. Skipping ≠ done: a parked child never counts toward the `done/total` progress (that tracks archived only).
-- `dotmd runlist next <hub>` — pick up the first pickup-able child, advancing past archived and parked children alike. If *every* remaining child is parked, the command stops with a runlist-aware error that lists them with their statuses + the unstick verbs (`dotmd set active <child>`), so you resolve a blocker before continuing.
-- In `dotmd plans`, a hub is tagged `[RUNLIST]` rather than `[ACTIVE]` and its children fold underneath it (with `done/total` progress and the next-pickup `→` on the hub row), so a sprint reads as one runlist instead of N loose plans. A child whose hub is filtered out of the current view still renders standalone.
+- `runlist runlist <hub>` — show the children + their statuses in order. The first **pickup-able** child (`active` / `planned` / `in-session`) is marked `→` (the next pickup target). Archived children are done; **parked** children (`blocked` / `partial` / `paused` / `awaiting` / `queued-after`) are skipped — the `→` advances past them, since each needs its own unstuck action before work resumes. Skipping ≠ done: a parked child never counts toward the `done/total` progress (that tracks archived only).
+- `runlist runlist next <hub>` — pick up the first pickup-able child, advancing past archived and parked children alike. If *every* remaining child is parked, the command stops with a runlist-aware error that lists them with their statuses + the unstick verbs (`runlist set active <child>`), so you resolve a blocker before continuing.
+- In `runlist plans`, a hub is tagged `[RUNLIST]` rather than `[ACTIVE]` and its children fold underneath it (with `done/total` progress and the next-pickup `→` on the hub row), so a sprint reads as one runlist instead of N loose plans. A child whose hub is filtered out of the current view still renders standalone.
 
 **Mutate the runlist through the CLI — never hand-edit the `runlist:` YAML.** Three verbs keep the frontmatter array, each child's `parent_plan:` back-ref, and any body `## Order of operations` link list (incl. per-item ⬜/✅ markers) in sync:
 
-- `dotmd runlist add <hub> <child...>` — append children. A bare slug (`cleanup`) scaffolds a `planned` stub `<hub>-NN-<slug>.md` next to the hub (mirrors `new plan --runlist`); a path/slug of an existing plan wires it in by a hub-relative ref and sets its `parent_plan:`. A plain plan with no `runlist:` becomes a hub. (Coordination/body-order hubs aren't handled by `add` — keep their `## Ranked queue` order by hand.)
-- `dotmd runlist remove <hub> <child...>` — drop children (match by full path or short slug). `--clear-parent` also blanks each removed child's back-ref.
-- `dotmd runlist reorder <hub> <child> --before|--after <other>` — move one child; or `dotmd runlist reorder <hub> <c1> <c2> <c3...>` to set a full new order (a permutation of the children).
+- `runlist runlist add <hub> <child...>` — append children. A bare slug (`cleanup`) scaffolds a `planned` stub `<hub>-NN-<slug>.md` next to the hub (mirrors `new plan --runlist`); a path/slug of an existing plan wires it in by a hub-relative ref and sets its `parent_plan:`. A plain plan with no `runlist:` becomes a hub. (Coordination/body-order hubs aren't handled by `add` — keep their `## Ranked queue` order by hand.)
+- `runlist runlist remove <hub> <child...>` — drop children (match by full path or short slug). `--clear-parent` also blanks each removed child's back-ref.
+- `runlist runlist reorder <hub> <child> --before|--after <other>` — move one child; or `runlist runlist reorder <hub> <c1> <c2> <c3...>` to set a full new order (a permutation of the children).
 
 All three take `--dry-run` / `--json`.
 
-Each child should set `parent_plan:` pointing back at the hub — `dotmd doctor` warns when it doesn't (the mutation verbs set it for you). Order is authoritative from `runlist:`; `parent_plan` keeps the existing reverse-link semantics (pickup-card Related:, graph).
+Each child should set `parent_plan:` pointing back at the hub — `runlist doctor` warns when it doesn't (the mutation verbs set it for you). Order is authoritative from `runlist:`; `parent_plan` keeps the existing reverse-link semantics (pickup-card Related:, graph).
 
 #### Coordination runlists (prose-first domain maps)
 
-A `runlist:` array suits a small, strictly-ordered *sprint*. For a large, prose-first *coordination map* — a domain hub that points at many plans, carries gating/sequence rationale, and is sometimes unordered — set `execution_mode: coordination` instead (a `*-runlist` slug is the fallback signal). These hubs aren't folded: in `dotmd plans` they're lifted out of the leaf-plan flow into a pinned `Runlists` section and pulled out of the active count (so they read as runlists, not active plans). `dotmd briefing` and `dotmd health` apply the same reclassification — coordination hubs are pulled out of the live/active count into a `runlists` bucket (briefing) or a held-out `Runlists:` tally + section (health), so they never inflate the actionable-plan numbers or aging stats. `dotmd runlists` shows that dashboard on its own (`--json`, `--limit N`, `--sort age|recent|related|title|status` — default `age` = most stale first). The per-hub **`done/total` rollup** counts archived vs. resolved `related_plans:` children — the same progress signal sprint `runlist:` hubs show, now extended to coordination hubs (a hint, not a contract: `related_plans` is a *related* cluster that can include peer/parent runlists). `--json` also carries `doneCount`/`total`/`parkedCount`. When a hub encodes its order as **markdown links** — a `## Ranked queue` table or a `## Order of operations` link list — `dotmd runlists`/`dotmd health` surface a `next → <child>` (first **pickup-able** ranked plan — archived and parked ranks are skipped, resolved to its live status), and `dotmd runlist <hub>`/`runlist next <hub>` work on it like a sprint hub. Order encoded only as prose (backtick slugs, narrative priorities) is deliberately *not* guessed at — those hubs show no arrow, like a blank rollup. `dotmd check` nudges a `*-runlist` hub that's missing `execution_mode: coordination`.
+A `runlist:` array suits a small, strictly-ordered *sprint*. For a large, prose-first *coordination map* — a domain hub that points at many plans, carries gating/sequence rationale, and is sometimes unordered — set `execution_mode: coordination` instead (a `*-runlist` slug is the fallback signal). These hubs aren't folded: in `runlist plans` they're lifted out of the leaf-plan flow into a pinned `Runlists` section and pulled out of the active count (so they read as runlists, not active plans). `runlist briefing` and `runlist health` apply the same reclassification — coordination hubs are pulled out of the live/active count into a `runlists` bucket (briefing) or a held-out `Runlists:` tally + section (health), so they never inflate the actionable-plan numbers or aging stats. `runlist runlists` shows that dashboard on its own (`--json`, `--limit N`, `--sort age|recent|related|title|status` — default `age` = most stale first). The per-hub **`done/total` rollup** counts archived vs. resolved `related_plans:` children — the same progress signal sprint `runlist:` hubs show, now extended to coordination hubs (a hint, not a contract: `related_plans` is a *related* cluster that can include peer/parent runlists). `--json` also carries `doneCount`/`total`/`parkedCount`. When a hub encodes its order as **markdown links** — a `## Ranked queue` table or a `## Order of operations` link list — `runlist runlists`/`runlist health` surface a `next → <child>` (first **pickup-able** ranked plan — archived and parked ranks are skipped, resolved to its live status), and `runlist runlist <hub>`/`runlist next <hub>` work on it like a sprint hub. Order encoded only as prose (backtick slugs, narrative priorities) is deliberately *not* guessed at — those hubs show no arrow, like a blank rollup. `runlist check` nudges a `*-runlist` hub that's missing `execution_mode: coordination`.
 
 #### Keeping a hub's printed statuses honest
 
-A hub that rows its children in a table almost always prints each child's status by hand (`| [auth-extract](auth-extract.md) | active — next up |`). Nothing keeps that word honest: the child goes `archived`, the hub still says `active`, and every later reader plans against a status that stopped being true. `dotmd check` reads the status beside each row's link and compares it to the child's real status — the vocabulary comes from `types.<type>.statuses` resolved against the **child's own type**, the link through `resolveRefPath`, the status from the index, and a child living under the archive dir counts as archived whatever its frontmatter says.
+A hub that rows its children in a table almost always prints each child's status by hand (`| [auth-extract](auth-extract.md) | active — next up |`). Nothing keeps that word honest: the child goes `archived`, the hub still says `active`, and every later reader plans against a status that stopped being true. `runlist check` reads the status beside each row's link and compares it to the child's real status — the vocabulary comes from `types.<type>.statuses` resolved against the **child's own type**, the link through `resolveRefPath`, the status from the index, and a child living under the archive dir counts as archived whatever its frontmatter says.
 
-Detection is **positional**: strip HTML comments, take the cell's leading token, match the vocabulary. No marker needed, so it works on tables that already exist. A `<!--s-->active<!--/s-->` marker pins the span for the rows position can't read (a status sitting behind a bolded headline). That difference sets the severity, instead of a config knob: a positional match is dotmd *inferring* from prose → **warning**; a marked span is the author saying dotmd owns that word → **error**.
+Detection is **positional**: strip HTML comments, take the cell's leading token, match the vocabulary. No marker needed, so it works on tables that already exist. A `<!--s-->active<!--/s-->` marker pins the span for the rows position can't read (a status sitting behind a bolded headline). That difference sets the severity, instead of a config knob: a positional match is runlist *inferring* from prose → **warning**; a marked span is the author saying runlist owns that word → **error**.
 
 A row with no readable status is three different things, and they are deliberately not collapsed: a table with **no status column** is a pointer row (silent — plenty of hubs row a child just to say "related"); a row under a `Status`/`State` column whose cell holds no readable status **warns** (that row opts out of the invariant invisibly, and that is exactly where real drift hides); a readable token is compared.
 
 ```bash
-dotmd sync-status                     # rewrite every drifted row in the repo
-dotmd sync-status <hub>... [--dry-run] [--json]
-dotmd sync-status --adopt             # also wrap managed status words in <!--s-->…<!--/s-->
+runlist sync-status                     # rewrite every drifted row in the repo
+runlist sync-status <hub>... [--dry-run] [--json]
+runlist sync-status --adopt             # also wrap managed status words in <!--s-->…<!--/s-->
 ```
 
-Case is preserved (`Active` stays capitalized) and nothing else in the cell is touched — the prose beside the status is why the row exists. `check --fix` and `doctor` rewrite status **tokens** too; only `--adopt` **adds** markers, since wrapping a word is a content edit to prose the user wrote. **Never hand-edit a status word in a hub table** — run `sync-status`, or change the child's status with `dotmd set`.
+Case is preserved (`Active` stays capitalized) and nothing else in the cell is touched — the prose beside the status is why the row exists. `check --fix` and `doctor` rewrite status **tokens** too; only `--adopt` **adds** markers, since wrapping a word is a content edit to prose the user wrote. **Never hand-edit a status word in a hub table** — run `sync-status`, or change the child's status with `runlist set`.
 
-**Membership drift, both directions.** A hub's children and the plans that claim it via `parent_plan:` are two halves of one relationship, and either half can go stale alone. `dotmd check` warns on the **hub** when a plan claims `parent_plan: <hub>` and the hub references it nowhere (a membership only one side records is invisible to every hub view — fold, rollup, next-pickup all read the hub's half), and on the **child** when a hub's body order (`## Ranked queue` / `## Order of operations`, the list `dotmd runlist next` walks) ranks a plan carrying no `parent_plan:` at all. The membership row is never generated — same constraint as the status guard.
+**Membership drift, both directions.** A hub's children and the plans that claim it via `parent_plan:` are two halves of one relationship, and either half can go stale alone. `runlist check` warns on the **hub** when a plan claims `parent_plan: <hub>` and the hub references it nowhere (a membership only one side records is invisible to every hub view — fold, rollup, next-pickup all read the hub's half), and on the **child** when a hub's body order (`## Ranked queue` / `## Order of operations`, the list `runlist runlist next` walks) ranks a plan carrying no `parent_plan:` at all. The membership row is never generated — same constraint as the status guard.
 
 Two silences are deliberate: an ordinary body table is not a membership claim (rowing a plan says "related", not "this hub owns you"), and a ranked plan whose `parent_plan:` names a *different* hub is fine — aggregator hubs legitimately rank plans owned by other programs.
 
 ```bash
-dotmd fix-membership                    # repair every unambiguous missing child back-ref
-dotmd fix-membership <hub>...           # narrow to named hubs
-dotmd fix-membership --dry-run --json   # preview the exact child writes
+runlist fix-membership                    # repair every unambiguous missing child back-ref
+runlist fix-membership <hub>...           # narrow to named hubs
+runlist fix-membership --dry-run --json   # preview the exact child writes
 ```
 
 The fixer handles only the safe arrow: one live hub already states the relationship and the live child has no parent. It never generates or edits a hub row, overwrites another parent, or chooses between multiple hubs. `check --fix` and `doctor --apply` include it; bare `doctor` previews it.
 
 #### Roadmaps (tier-3: composing runlists)
 
-A roadmap is the tier *above* runlists: `execution_mode: roadmap` on a hub whose `related_plans:` point at other hubs (runlists / coordination hubs). It exists for the one thing a coordination hub can't do — **roll progress up across runlists**. Where a runlist shows its own `done/total`, a roadmap *sums* its children into a grand total (`master 280/520`), recursively (a child runlist contributes its own rollup; a leaf-plan child counts as one unit). Scaffold with `dotmd new plan <hub> --roadmap`.
+A roadmap is the tier *above* runlists: `execution_mode: roadmap` on a hub whose `related_plans:` point at other hubs (runlists / coordination hubs). It exists for the one thing a coordination hub can't do — **roll progress up across runlists**. Where a runlist shows its own `done/total`, a roadmap *sums* its children into a grand total (`master 280/520`), recursively (a child runlist contributes its own rollup; a leaf-plan child counts as one unit). Scaffold with `runlist new plan <hub> --roadmap`.
 
-- `dotmd roadmap [<hub>]` — one roadmap: each child runlist's `done/total` + that runlist's next-pickup `→`, with the recursive grand total in the header. No arg shows the sole roadmap (or the dashboard when there are several).
-- `dotmd roadmaps` — the dashboard over all roadmap hubs (mirrors `dotmd runlists`).
-- `dotmd roadmap [<hub>] next` — the cross-runlist next-pickup: walks the child runlists in `related_plans` (priority) order and opens the FIRST startable plan found in any of them — "what do I do next across the whole roadmap?". Skips a child runlist whose only candidates are parked/done, the same pickup gate `runlist next` uses.
+- `runlist roadmap [<hub>]` — one roadmap: each child runlist's `done/total` + that runlist's next-pickup `→`, with the recursive grand total in the header. No arg shows the sole roadmap (or the dashboard when there are several).
+- `runlist roadmaps` — the dashboard over all roadmap hubs (mirrors `runlist runlists`).
+- `runlist roadmap [<hub>] next` — the cross-runlist next-pickup: walks the child runlists in `related_plans` (priority) order and opens the FIRST startable plan found in any of them — "what do I do next across the whole roadmap?". Skips a child runlist whose only candidates are parked/done, the same pickup gate `runlist next` uses.
 
-Roadmaps are held out of the active-plan count like coordination hubs, and lifted into their own pinned tier ABOVE the Runlists section in `dotmd plans` / `briefing` / `health` (so they never double-count their own child runlists). `dotmd check` nudges a coordination hub whose `related_plans:` children are themselves runlists to set `execution_mode: roadmap`. The three-tier picture:
+Roadmaps are held out of the active-plan count like coordination hubs, and lifted into their own pinned tier ABOVE the Runlists section in `runlist plans` / `briefing` / `health` (so they never double-count their own child runlists). `runlist check` nudges a coordination hub whose `related_plans:` children are themselves runlists to set `execution_mode: roadmap`. The three-tier picture:
 
 ```
 roadmap   → runlists, progress rolled up         ← execution_mode: roadmap
@@ -176,19 +176,19 @@ roadmap   → runlists, progress rolled up         ← execution_mode: roadmap
     plan  → unit of work
 ```
 
-Time horizons (now/next/later/icebox) are an *optional* body-section flavor, not the organizing axis — the tier composes by domain. (A horizon-grouped `dotmd roadmap` view is deliberately deferred until a horizon-organized roadmap actually exists; building it speculatively would repeat the prematurity the roadmap-layer plan's Phase 0 ruled against.)
+Time horizons (now/next/later/icebox) are an *optional* body-section flavor, not the organizing axis — the tier composes by domain. (A horizon-grouped `runlist roadmap` view is deliberately deferred until a horizon-organized roadmap actually exists; building it speculatively would repeat the prematurity the roadmap-layer plan's Phase 0 ruled against.)
 
 ### Creating documents
 
-Signature: `dotmd new <type> <name> [body]`. `<type>` is required (defaults to `doc` if omitted).
+Signature: `runlist new <type> <name> [body]`. `<type>` is required (defaults to `doc` if omitted).
 
 ```bash
-dotmd new plan auth-revamp                       # type: plan → docs/plans/auth-revamp.md (status: planned; `dotmd use` starts it)
-dotmd new doc token-refresh-design               # type: doc → docs/token-refresh-design.md
-dotmd new prompt cleanup-tomorrow "..."          # type: prompt → docs/prompts/cleanup-tomorrow.md
-dotmd new my-doc                                 # implicit type: doc
-dotmd new plan quick-fix --lite                  # trimmed plan: Problem → Phases → Version History
-dotmd new plan perf-audit --audit                # findings plan: Problem → Findings (ranked) → Suggested order → Open Questions
+runlist new plan auth-revamp                       # type: plan → docs/plans/auth-revamp.md (status: planned; `runlist use` starts it)
+runlist new doc token-refresh-design               # type: doc → docs/token-refresh-design.md
+runlist new prompt cleanup-tomorrow "..."          # type: prompt → docs/prompts/cleanup-tomorrow.md
+runlist new my-doc                                 # implicit type: doc
+runlist new plan quick-fix --lite                  # trimmed plan: Problem → Phases → Version History
+runlist new plan perf-audit --audit                # findings plan: Problem → Findings (ranked) → Suggested order → Open Questions
 ```
 
 Built-in types: `plan`, `doc`, `prompt`. Add more via `templates` in config.
@@ -197,56 +197,56 @@ Built-in types: `plan`, `doc`, `prompt`. Add more via `templates` in config.
 
 ### Queuing prompts for future sessions
 
-When you want to leave a self-addressed reminder ("look at X tomorrow," "resume payments refactor"), write a saved prompt instead of dropping a note in chat. `dotmd hud` surfaces pending prompts at session start, so the next session sees it without copy-paste:
+When you want to leave a self-addressed reminder ("look at X tomorrow," "resume payments refactor"), write a saved prompt instead of dropping a note in chat. `runlist hud` surfaces pending prompts at session start, so the next session sees it without copy-paste:
 
 ```bash
-dotmd new prompt resume-foo @/tmp/draft.md                   # @path reads from file (preferred for multi-line)
-dotmd new prompt resume-foo - <<'EOF'                        # `-` reads stdin
+runlist new prompt resume-foo @/tmp/draft.md                   # @path reads from file (preferred for multi-line)
+runlist new prompt resume-foo - <<'EOF'                        # `-` reads stdin
 multi-line body
 EOF
-dotmd new prompt cleanup --message "look at remaining lint warnings"  # --message flag
-dotmd new prompt cleanup "look at remaining lint warnings"   # inline body (one-liners only)
+runlist new prompt cleanup --message "look at remaining lint warnings"  # --message flag
+runlist new prompt cleanup "look at remaining lint warnings"   # inline body (one-liners only)
 ```
 
 All four body-input modes (`@path`, stdin, `--message`, inline) work for every body-accepting type (`plan`, `doc`, `prompt`). **Default to `@path` or `-` for multi-line bodies.** Inline puts the entire body on the bash command line — heredoc is brittle for content with backticks, and PreToolUse hooks that scan commands for forbidden literals (e.g. destructive-git patterns) will fire on prose that just *describes* the rule. `@/tmp/foo.md` sidesteps both.
 
-Saved prompts have their own status vocab (`pending`, `held`, `shelved`, `claimed`, `archived`). Consume one with `dotmd use [<file-or-slug>]` (no arg = oldest pending). Admin verbs live under `dotmd prompts list|archive|hold|unhold`. `held` is the "saved but not next" bucket: visible in `dotmd prompts list`, but hidden from `hud`/`briefing` and skipped by no-arg `dotmd use`. Use `dotmd prompts hold <file>` / `unhold <file>` to flip; `shelve` / `unshelve` remain legacy aliases.
+Saved prompts have their own status vocab (`pending`, `held`, `shelved`, `claimed`, `archived`). Consume one with `runlist use [<file-or-slug>]` (no arg = oldest pending). Admin verbs live under `runlist prompts list|archive|hold|unhold`. `held` is the "saved but not next" bucket: visible in `runlist prompts list`, but hidden from `hud`/`briefing` and skipped by no-arg `runlist use`. Use `runlist prompts hold <file>` / `unhold <file>` to flip; `shelve` / `unshelve` remain legacy aliases.
 
 ### Querying by type
 
 ```bash
-dotmd plans                                # all plans
-dotmd plans --status active                # plans ready to pick up
-dotmd stale                                # stale docs across all types
-dotmd actionable                           # docs with next steps
-dotmd health                               # plan pipeline and aging
-dotmd unblocks docs/plan-a.md              # impact analysis
-dotmd glossary "term"                      # domain term lookup
-dotmd bulk archive <files>                 # archive multiple at once
-dotmd query --type doc --status active     # active docs
-dotmd query --type prompt                  # all saved prompts
-dotmd grep "term"                          # "which doc discussed X?" — searches frontmatter
+runlist plans                                # all plans
+runlist plans --status active                # plans ready to pick up
+runlist stale                                # stale docs across all types
+runlist actionable                           # docs with next steps
+runlist health                               # plan pipeline and aging
+runlist unblocks docs/plan-a.md              # impact analysis
+runlist glossary "term"                      # domain term lookup
+runlist bulk archive <files>                 # archive multiple at once
+runlist query --type doc --status active     # active docs
+runlist query --type prompt                  # all saved prompts
+runlist grep "term"                          # "which doc discussed X?" — searches frontmatter
                                            #   AND bodies, doc cards + line-numbered excerpts
-dotmd query --keyword x --body             # same body scan composed with other query filters
-dotmd context --type plan                  # briefing filtered to plans
+runlist query --keyword x --body             # same body scan composed with other query filters
+runlist context --type plan                  # briefing filtered to plans
 ```
 
 The `--type` flag works as a global filter on most commands: `list`, `json`, `check`, `context`, `focus`, `query`, `coverage`, `stats`, `graph`, `index`, `export`.
 
-When `dotmd query` / `dotmd plans` truncates to the default `--limit`, the output now shows `results: N of M (use --all to see all)` (since 0.36.2). The "N more plans" footer also renders for grouped views (`--sort status`, `--group module/surface/owner`), not just the flat triage view.
+When `runlist query` / `runlist plans` truncates to the default `--limit`, the output now shows `results: N of M (use --all to see all)` (since 0.36.2). The "N more plans" footer also renders for grouped views (`--sort status`, `--group module/surface/owner`), not just the flat triage view.
 
 ### Triaging plans at scale (>50 plans)
 
-When a flat `dotmd plans` list stops being useful, use the module dashboard to triage systematically (shipped 0.36.0):
+When a flat `runlist plans` list stops being useful, use the module dashboard to triage systematically (shipped 0.36.0):
 
 ```bash
-dotmd modules                              # one row per module, dynamic status columns
-dotmd modules --sort cleanup               # rank by (stale × avgAge) / total — "rotting hardest"
-dotmd module <name>                        # deep view of one module, plans grouped by status
-dotmd stale --group module                 # same staleness, bucketed by module
+runlist modules                              # one row per module, dynamic status columns
+runlist modules --sort cleanup               # rank by (stale × avgAge) / total — "rotting hardest"
+runlist module <name>                        # deep view of one module, plans grouped by status
+runlist stale --group module                 # same staleness, bucketed by module
 ```
 
-Workflow: `dotmd modules --sort cleanup` → pick the top row → `dotmd module <name>` → archive or update the rotting plans → move on. The dashboard composes existing primitives — no new config knobs to set up.
+Workflow: `runlist modules --sort cleanup` → pick the top row → `runlist module <name>` → archive or update the rotting plans → move on. The dashboard composes existing primitives — no new config knobs to set up.
 
 ## Commands
 
@@ -257,7 +257,7 @@ node bin/dotmd.mjs <command>       # run CLI locally without installing
 npm version patch                  # release: test → bump → tag → push → publish
 ```
 
-Run `dotmd --help` or `dotmd <command> --help` for the full command list and options.
+Run `runlist --help` or `runlist <command> --help` for the full command list and options.
 
 ## Releasing
 
@@ -276,7 +276,7 @@ Everything is automated — do NOT manually `git push`, `git tag`, `npm publish`
 3. Pushes to `origin main --tags`
 4. Creates GitHub Release with auto-generated notes
 5. Waits for GitHub Actions `publish.yml` to `npm publish`
-6. Installs the new version locally via `npm install -g`, then synchronizes and verifies every PATH-visible `dotmd` copy (for example Homebrew + NVM prefixes)
+6. Installs the new version locally via `npm install -g`, then synchronizes and verifies every PATH-visible `runlist`/`rl`/`dotmd` copy (for example Homebrew + NVM prefixes)
 7. Refreshes the Claude Code plugin (`claude plugin update dotmd@dotmd`) — restart the session (or `/reload-plugins`) to apply
 
 Write changelog entries under `## Unreleased` as you go — the version commit promotes that heading to the released version, and `test/changelog.test.mjs` requires a heading matching `package.json`. If there is neither an `## Unreleased` section nor a heading for the target version, the version commit fails and rolls back *before* cutting the tag; the same mismatch discovered later fails `publish.yml` against a tag that is already pushed.
@@ -305,7 +305,7 @@ Release preflight requires a clean `main` that descends from `origin/main`; `--f
 - **Rich status definitions.** `types.<type>.statuses` accepts an object form where each status co-locates all behavior (`context`, `staleDays`, `requiresModule`, `terminal`, `archive`, `skipStale`, `skipWarnings`). This eliminates the need for separate `lifecycle`, `statuses.staleDays`, `taxonomy.moduleRequiredFor`, and `context` sections. Array form remains backwards compatible.
 - **A per-type status property must not be read through a flat set of status names.** `skipWarnings` is declared per type, but the derived `lifecycle.skipWarningsFor` was a union of names, so `journey.active: { skipWarnings: true }` silenced every `active` *plan* in the repo — invisibly, since nothing in either type's config mentions the other. Read it through `config.lifecycle.skipsWarnings(status, type)`, which lets a type that declared rich statuses answer for its own (including "not quiet" for a name another type marked quiet) and falls back to the flat set for array-form types, untyped docs, and an explicit repo-wide `lifecycle.skipWarningsFor`. The sibling buckets — `skipStaleFor`, `terminalStatuses`, `archiveStatuses`, `startableStatuses`, `moduleRequiredFor`, `filedStatuses` — are still flat unions with the same latent leak; type-scope them the same way before trusting one per-type.
 - **`applyDerivedConfig` writes into an object it may not own.** `deepMerge` shallow-copies each level, so a user config with no `lifecycle` key leaves `config.lifecycle` pointing at the module-level `DEFAULTS.lifecycle` — and every `config.lifecycle.x = …` there mutates the defaults for the rest of the process. One `resolveConfig` call per process hides it; tests and any long-lived process see one repo's config leak into the next. Assign such fields on every branch rather than conditionally, so a stale value from a previous call can't survive.
-- **Hook pattern.** Config functions are automatically detected as hooks. See `dotmd.config.example.mjs` for the full hook API.
+- **Hook pattern.** Config functions are automatically detected as hooks. See `runlist.config.example.mjs` for the full hook API.
 - **`--dry-run` / `-n`** is supported by all mutation commands. Pass `{ dryRun }` options object to `runX()` functions.
 - **`--json`** is supported by most read commands.
 - **Multi-root.** `config.root` accepts string or array. Each doc is tagged with its `root`.
@@ -315,12 +315,13 @@ Release preflight requires a clean `main` that descends from `origin/main`; `--f
 - **Every retry budget spent under a path lock shares one ceiling.** `commitRename`'s ~450ms and `GIT_INDEX_STAGE_ATTEMPTS`' re-stage backoff both run while participant paths are locked, and peers only wait `MUTATION_LOCK_TIMEOUT_MS` (2s). Adding a third retry loop in that region means budgeting all of them together, not just the new one.
 - **A mutation decided from a file it does not write must guard that file.** `mutateFileSet`/`moveFileAtomic` take `guards` — read-only participants that join the locking and the compare-and-swap but are never written. Without one, the read that justifies a mutation and the write itself are two steps with nothing holding the gap: a claim that adopts an already-`in-session` plan writes only the ownership record, so a concurrent `set` releasing that plan won the status write while the claim still took ownership, leaving a record owning a plan the file called `active`. Don't fake this with a no-op update — it rewrites bytes and makes every "which files changed" reader lie.
 - **Path locks are deliberately not flushed per lock.** `withPathLocks` flushes the lock root once for the whole set and never flushes an individual lock directory. Exclusion comes from `mkdir` being atomic, which is in-memory and needs no flush; a lock that doesn't survive a crash is the *correct* post-crash state, since no process holds it. Restoring per-lock durability costs a real disk flush each (~6ms on APFS) — a reference sweep that locks every doc in a large repo spent minutes there, long enough that concurrent Git activity routinely failed the move's index CAS. A directory fsync also orders the entry, not the file's bytes, so per-lock flushing could only ever make a lock entry outlive the `owner.json` it names, and an ownerless lock is never auto-reclaimed.
-- **Taking someone's claim needs proof they're gone, never an inference that they probably are.** A plan claim records the process that owns the *session* (`sessionOwner`, from `CLAUDE_PID`/`DOTMD_SESSION_PID`) — not the `dotmd` process, which exits within the second and is always dead a moment later, so it can say nothing about whether the session outlived it. `processOwnerLiveness` then answers `dead` only for an `ESRCH` probe on this host or a mismatched process start-identity; a reused pid reads `live`, another machine's claim and any record written before the field existed read `unverifiable`. Only `dead` auto-reclaims. Everything else keeps refusing and leaves the takeover to an explicit `--force`, or to `dotmd doctor --claims --apply --older-than <duration>` where the *user* supplies the judgement as a stated policy. An age threshold is not evidence: it cannot tell a three-day-dead session from a three-day-long one. Note `sessionOwner` was added without bumping `OWNERSHIP_SCHEMA` on purpose — `parseOwnership` accepts exactly that constant, so a bump would turn every record already on disk corrupt, which is a worse wedge than the one it fixes.
-- **A rollback must prove what it did or didn't publish.** `moveFileAtomic` retains a transaction as `failed-manual` when it cannot complete a rollback, and a retained transaction refuses **every** later mutation in the repo until `dotmd doctor --transactions --apply` clears it. That is the right response to real damage and a repo-wide brick otherwise, so failures that provably never reached `.git/index` are tagged (`gitIndexProvablyUnpublished`) and roll back clean. When adding a failure path near publication, decide which side it's on — "the index differs from our snapshot" is not evidence that *we* changed it.
+- **Taking someone's claim needs proof they're gone, never an inference that they probably are.** A plan claim records the process that owns the *session* (`sessionOwner`, from `CLAUDE_PID`/`DOTMD_SESSION_PID`) — not the `dotmd` process, which exits within the second and is always dead a moment later, so it can say nothing about whether the session outlived it. `processOwnerLiveness` then answers `dead` only for an `ESRCH` probe on this host or a mismatched process start-identity; a reused pid reads `live`, another machine's claim and any record written before the field existed read `unverifiable`. Only `dead` auto-reclaims. Everything else keeps refusing and leaves the takeover to an explicit `--force`, or to `runlist doctor --claims --apply --older-than <duration>` where the *user* supplies the judgement as a stated policy. An age threshold is not evidence: it cannot tell a three-day-dead session from a three-day-long one. Note `sessionOwner` was added without bumping `OWNERSHIP_SCHEMA` on purpose — `parseOwnership` accepts exactly that constant, so a bump would turn every record already on disk corrupt, which is a worse wedge than the one it fixes.
+- **A rollback must prove what it did or didn't publish.** `moveFileAtomic` retains a transaction as `failed-manual` when it cannot complete a rollback, and a retained transaction refuses **every** later mutation in the repo until `runlist doctor --transactions --apply` clears it. That is the right response to real damage and a repo-wide brick otherwise, so failures that provably never reached `.git/index` are tagged (`gitIndexProvablyUnpublished`) and roll back clean. When adding a failure path near publication, decide which side it's on — "the index differs from our snapshot" is not evidence that *we* changed it.
 - **The reference prefilter must track the resolver.** `rewriteDocumentReferences` skips its CommonMark walk for documents that can't name the moved file (`mayReferenceIdentity`), so anything that widens what a reference may look like — a new escape, percent-decoding, bare slugs without `.md` — has to widen that check in the same commit or moves start silently missing rewrites. Reference identity is compared by inode, not by string, so a case-folding filesystem matches `CASING.MD` to `casing.md` while a case-sensitive one keeps them apart.
-- **`docs/` is gitignored and that is deliberate — do not "fix" it.** The planning tree stays on disk and out of the index, because dotmd is developed against a large private corpus and this repo is public. So plan edits will never appear in `git status`, `git log` on a plan returns nothing, and `dotmd baton` prints `<plan> is gitignored — no commit needed` rather than a commit command. None of that is broken. Every dotmd verb still works, since the files never left disk. Content is not unbacked: each plan carries its own `## Version History` and the estate-wide backup script snapshots the tree. Anything that genuinely should be public goes outside `docs/` rather than being carved out as an ignore-rule exception. Rationale and the rejected alternatives are in `.gitignore` itself.
+- **`docs/` is gitignored and that is deliberate — do not "fix" it.** The planning tree stays on disk and out of the index, because dotmd is developed against a large private corpus and this repo is public. So plan edits will never appear in `git status`, `git log` on a plan returns nothing, and `runlist baton` prints `<plan> is gitignored — no commit needed` rather than a commit command. None of that is broken. Every runlist verb still works, since the files never left disk. Content is not unbacked: each plan carries its own `## Version History` and the estate-wide backup script snapshots the tree. Anything that genuinely should be public goes outside `docs/` rather than being carved out as an ignore-rule exception. Rationale and the rejected alternatives are in `.gitignore` itself.
 - **This is a public repo. Fixtures and source comments are synthetic; measurement output is evidence, never fixture material.** dotmd is developed by running it against a large private corpus, so measuring it produces real headings, real plan filenames, real module names, real per-plan statistics. Using that output *as* a test fixture or a worked example in a comment publishes it. The step from "measure the corpus" to "write the test from what you just measured" is invisible — it feels like using real data, which is exactly what made the measurement good — so the rule has to be mechanical rather than a judgement call: **preserve the shape, replace the words.** A fixture exists to exercise a shape (marker-before-the-word, qualifier-inverting-a-done-word, commentary-vs-phase), and a neutral vocabulary exercises it identically. What survives contact with the corpus is *aggregates* — "93 of 482 plans", "13 contradictions of 198" — which are ordinary engineering evidence. What does not is anything identifying a single plan, module, product, vendor, or repository. This applies to commit messages and plan documents as much as to code; in one 2026-08-17 pass the same mistake was made in a source comment, a test fixture, and a plan document *about the leak* that reproduced the whole name mapping it was written to remove.
 - **Test fixture filenames must be legal on NTFS.** No `*`, `?`, `:`, `"`, `<`, `>`, `|` — a fixture that can't exist on Windows fails the whole Windows leg. `[a-z]` is still real wildmatch pathspec magic and *is* legal on NTFS, so prefer it when a test needs a magic pathspec.
 - **Help text** in `bin/dotmd.mjs` HELP object must stay in sync with command capabilities.
+- **Output says `runlist`; identities that still exist keep `dotmd`.** Every message, hint, help line and newly written artifact names the product `runlist`. What stays `dotmd` is what still exists under that name — the `dotmd-cli` package, `reowens/dotmd`, the `dotmd@dotmd` plugin and its `plugins/dotmd/` tree, the `dotmd` executable alias, the OpenCode `dotmd.js` file — plus every legacy *reader*: `dotmd.config.*`, `DOTMD_*`, `.dotmd/`, `.dotmd-` artifacts, `dotmd-generated:` banners, `dotmd-misuse.log`, `__dotmd`, the `dotmd:canonical-workflow` marker. `test/product-name.test.mjs` fails on any `dotmd` in a `src/`/`bin/` string literal that its commented allowlist does not name; extend the allowlist only for one of those two reasons.
 - **Global arg stripping** happens in the CLI dispatcher — `--config <path>`, `--type <t>`, `--root <name>`, `--dry-run`, `-n`, `--verbose` are removed from `restArgs` before passing to commands.
 - Preset aliases in config expand to query filter args and are dispatched as if they were built-in commands.

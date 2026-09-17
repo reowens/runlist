@@ -87,40 +87,40 @@ status: planned
 created: ${today}
 updated: ${today}
 title: Example Plan
-summary: A scaffolded sample showing what a dotmd plan looks like — safe to delete.
-current_state: "Scaffolded by \`dotmd init\` as a shape reference. Nothing here is real work."
+summary: A scaffolded sample showing what a runlist plan looks like — safe to delete.
+current_state: "Scaffolded by \`runlist init\` as a shape reference. Nothing here is real work."
 next_step: "Delete this file, or edit it into your first real plan."
 ---
 
 # Example Plan
 
-> A scaffolded sample showing what a dotmd plan looks like — safe to delete.
+> A scaffolded sample showing what a runlist plan looks like — safe to delete.
 
 ## Problem
 
-\`dotmd init\` leaves this file behind so \`docs/plans/\` survives a clone (git cannot
+\`runlist init\` leaves this file behind so \`docs/plans/\` survives a clone (git cannot
 track an empty directory) and so the frontmatter above has something to point at.
 
 The fields that matter: \`status\` drives every listing, \`current_state\` and
-\`next_step\` are what \`dotmd briefing\` reads out, and \`updated\` drives staleness.
-Never hand-edit \`status:\` — \`dotmd set <status> <file>\` writes it, validates it
+\`next_step\` are what \`runlist briefing\` reads out, and \`updated\` drives staleness.
+Never hand-edit \`status:\` — \`runlist set <status> <file>\` writes it, validates it
 against the type, and runs the lifecycle hooks.
 
 ## Phases
 
-- [ ] Delete this file: \`dotmd archive docs/plans/${SAMPLE_PLAN_NAME}\`
-- [ ] Write a real one: \`dotmd new plan <name>\`
+- [ ] Delete this file: \`runlist archive docs/plans/${SAMPLE_PLAN_NAME}\`
+- [ ] Write a real one: \`runlist new plan <name>\`
 
 ## Version History
 
-- Scaffolded by \`dotmd init\`.
+- Scaffolded by \`runlist init\`.
 `;
 
 const STARTER_INDEX = `# Docs
 
 <!-- GENERATED:dotmd:start -->
 
-_No docs yet. Run \`dotmd list\` after creating your first document._
+_No docs yet. Run \`runlist list\` after creating your first document._
 
 <!-- GENERATED:dotmd:end -->
 `;
@@ -332,7 +332,7 @@ export async function runInit(cwd, config, opts = {}) {
     }
     if (existsSync(subPath)) {
       const detail = total > 0
-        ? ` (${counts.withFrontmatter} dotmd-tracked, ${counts.withoutFrontmatter} plain .md)`
+        ? ` (${counts.withFrontmatter} runlist-tracked, ${counts.withoutFrontmatter} plain .md)`
         : '';
       process.stdout.write(`  ${dryTag}${dim('exists')}  docs/${sub}/${detail}\n`);
     } else {
@@ -373,7 +373,7 @@ export async function runInit(cwd, config, opts = {}) {
     for (const sub of subs) {
       process.stdout.write(`             • move into docs/: mv ./${sub}/* docs/${sub}/ && rmdir ./${sub}\n`);
     }
-    process.stdout.write(`             • or use a flat layout — set in dotmd.config.mjs:\n`);
+    process.stdout.write(`             • or use a flat layout — set in runlist.config.mjs:\n`);
     process.stdout.write(`                 export const root = [${subs.map(s => `'${s}'`).join(', ')}];\n`);
   }
 
@@ -425,7 +425,7 @@ export async function runInit(cwd, config, opts = {}) {
     });
     // Exit 0 → ignored. Exit 1 → not ignored. Exit 128 → not in repo / git error.
     if (probe.status === 0) {
-      process.stdout.write(`\n  ${yellow('notice')}  docs/ is gitignored — files dotmd manages will NOT be tracked.\n`);
+      process.stdout.write(`\n  ${yellow('notice')}  docs/ is gitignored — files runlist manages will NOT be tracked.\n`);
       process.stdout.write(`           Add an exception to .gitignore so docs/ is tracked:\n`);
       process.stdout.write(`             !docs/\n`);
       process.stdout.write(`           Or run: echo '!docs/' >> .gitignore\n`);
@@ -438,7 +438,7 @@ export async function runInit(cwd, config, opts = {}) {
   if (scan?.untaggedCount > 0) {
     const n = scan.untaggedCount;
     const noun = n === 1 ? 'file' : 'files';
-    process.stdout.write(`\n  ${yellow('hint')}    ${n} untagged .md ${noun} found — run \`dotmd bulk-tag --dry-run\` to preview tagging.\n`);
+    process.stdout.write(`\n  ${yellow('hint')}    ${n} untagged .md ${noun} found — run \`runlist bulk-tag --dry-run\` to preview tagging.\n`);
   }
 
   // Claude Code integration. dotmd no longer scaffolds per-repo
@@ -457,25 +457,25 @@ export async function runInit(cwd, config, opts = {}) {
     const removed = removeGeneratedSlashCommands(cwd, { dryRun });
     for (const r of removed) {
       const verb = dryRun ? 'would remove' : 'removed';
-      process.stdout.write(`  ${dryTag}${yellow('clean')}   .claude/commands/${r.name} (retired — ${verb}; guidance ships via the dotmd plugin)\n`);
+      process.stdout.write(`  ${dryTag}${yellow('clean')}   .claude/commands/${r.name} (retired — ${verb}; guidance ships via the runlist plugin)\n`);
     }
   }
 
   if (likelyClaudeUser) {
     const sessionStart = detectSessionStartHook(cwd);
     if (sessionStart.wired) {
-      process.stdout.write(`  ${dim('exists')}  ${sessionStart.file} (SessionStart hook for \`dotmd hud\` already wired)\n`);
+      process.stdout.write(`  ${dim('exists')}  ${sessionStart.file} (SessionStart hook for \`runlist hud\` already wired)\n`);
     } else {
-      process.stdout.write(`\n  ${yellow('hint')}    install the dotmd Claude Code plugin so its hooks + workflow skill\n`);
+      process.stdout.write(`\n  ${yellow('hint')}    install the runlist Claude Code plugin so its hooks + workflow skill\n`);
       process.stdout.write(`            travel to every session and subagent automatically:\n\n`);
       process.stdout.write(`              /plugin marketplace add reowens/dotmd\n`);
       process.stdout.write(`              /plugin install dotmd@dotmd\n\n`);
-      process.stdout.write(`            The plugin's hooks call \`dotmd\` on your PATH, so install the CLI\n`);
+      process.stdout.write(`            The plugin's hooks call \`runlist\` on your PATH, so install the CLI\n`);
       process.stdout.write(`            globally too — ${green('npm i -g dotmd-cli')} (a project devDependency won't power them).\n\n`);
-      process.stdout.write(`            Or, without the plugin, wire \`dotmd hud\` at SessionStart by hand —\n`);
+      process.stdout.write(`            Or, without the plugin, wire \`runlist hud\` at SessionStart by hand —\n`);
       process.stdout.write(`            add to .claude/settings.json (merge into any existing hooks):\n\n`);
       process.stdout.write(`              "hooks": { "SessionStart": [\n`);
-      process.stdout.write(`                { "hooks": [{ "type": "command", "command": "dotmd hud" }] }\n`);
+      process.stdout.write(`                { "hooks": [{ "type": "command", "command": "runlist hud" }] }\n`);
       process.stdout.write(`              ] }\n`);
     }
   }
@@ -505,8 +505,8 @@ export async function runInit(cwd, config, opts = {}) {
   }
 
   process.stdout.write(`\nReady. A few starting points:\n`);
-  process.stdout.write(`  dotmd new doc my-doc            # scaffold a reference doc\n`);
-  process.stdout.write(`  dotmd new plan my-plan          # scaffold an execution plan\n`);
-  process.stdout.write(`  dotmd list                      # see what you've got\n`);
-  process.stdout.write(`  dotmd hud                       # session-start triage\n\n`);
+  process.stdout.write(`  runlist new doc my-doc            # scaffold a reference doc\n`);
+  process.stdout.write(`  runlist new plan my-plan          # scaffold an execution plan\n`);
+  process.stdout.write(`  runlist list                      # see what you've got\n`);
+  process.stdout.write(`  runlist hud                       # session-start triage\n\n`);
 }

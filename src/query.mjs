@@ -83,7 +83,7 @@ export function runQuery(index, argv, config, opts = {}) {
   if (opts.type && !filters.types) filters.types = opts.type.split(',').map(v => v.trim()).filter(Boolean);
   if (opts.root && !filters.root) filters.root = opts.root;
   if (filters.body && !filters.keyword) {
-    die('`--body` extends a keyword search into document bodies — pass `--keyword <term>` (or use `dotmd grep <term>`).');
+    die('`--body` extends a keyword search into document bodies — pass `--keyword <term>` (or use `runlist grep <term>`).');
   }
   const docs = filterDocs(index.docs, filters, config, opts.gitMetadataOptions);
   const summaryPreviewSkipped = filters.summarize && config._execution?.suppressSideEffects;
@@ -193,7 +193,7 @@ export function runRunlists(index, argv, config) {
   }
 
   const roadmapPointer = roadmapCount > 0
-    ? dim(`  ${roadmapCount} roadmap${roadmapCount === 1 ? '' : 's'}  ·  dotmd roadmaps\n`)
+    ? dim(`  ${roadmapCount} roadmap${roadmapCount === 1 ? '' : 's'}  ·  runlist roadmaps\n`)
     : '';
 
   if (hubs.length === 0) {
@@ -206,7 +206,7 @@ export function runRunlists(index, argv, config) {
   const shown = hubs.slice(0, limit);
   renderCoordinationSection(shown, coordination, maxWidth, hubs.length);
   const hidden = hubs.length - shown.length;
-  if (hidden > 0) process.stdout.write(dim(`  ${hidden} more  ·  dotmd runlists --limit ${hubs.length}\n`));
+  if (hidden > 0) process.stdout.write(dim(`  ${hidden} more  ·  runlist runlists --limit ${hubs.length}\n`));
   if (roadmapPointer) process.stdout.write(roadmapPointer);
   process.stdout.write('\n');
 }
@@ -651,7 +651,7 @@ function renderPlansOutput(docs, filters, config, opts = {}) {
     const mainHidden = mainAll.length - mainShown.length;
     if (mainHidden > 0) {
       process.stdout.write('\n');
-      process.stdout.write(dim(`  ${mainHidden} more ${noun}  ·  dotmd ${noun} --all  ·  dotmd ${noun} status\n`));
+      process.stdout.write(dim(`  ${mainHidden} more ${noun}  ·  runlist ${noun} --all  ·  runlist ${noun} status\n`));
     }
 
     // Roadmaps tier — pinned above Runlists, with the recursive grand total.
@@ -659,7 +659,7 @@ function renderPlansOutput(docs, filters, config, opts = {}) {
       renderRoadmapsSection(roadmapShown, roadmap, maxWidth, roadmapAll.length);
       const roadmapHidden = roadmapAll.length - roadmapShown.length;
       if (roadmapHidden > 0) {
-        process.stdout.write(dim(`  ${roadmapHidden} more roadmaps  ·  dotmd roadmaps\n`));
+        process.stdout.write(dim(`  ${roadmapHidden} more roadmaps  ·  runlist roadmaps\n`));
       }
     }
 
@@ -667,7 +667,7 @@ function renderPlansOutput(docs, filters, config, opts = {}) {
       renderCoordinationSection(coordShown, coordination, maxWidth, coordAll.length);
       const coordHidden = coordAll.length - coordShown.length;
       if (coordHidden > 0) {
-        process.stdout.write(dim(`  ${coordHidden} more runlists  ·  dotmd ${noun} --all\n`));
+        process.stdout.write(dim(`  ${coordHidden} more runlists  ·  runlist ${noun} --all\n`));
       }
     }
 
@@ -684,7 +684,7 @@ function renderPlansOutput(docs, filters, config, opts = {}) {
         && !archiveStatuses.has(v.doc.status)
         && !isArchivedPath(v.doc.path, config)).length;
       if (filterHidden > 0) {
-        process.stdout.write(dim(`  ${filterHidden} runlist${filterHidden === 1 ? '' : 's'} hidden by filter  ·  dotmd runlists\n`));
+        process.stdout.write(dim(`  ${filterHidden} runlist${filterHidden === 1 ? '' : 's'} hidden by filter  ·  runlist runlists\n`));
       }
     }
 
@@ -696,7 +696,7 @@ function renderPlansOutput(docs, filters, config, opts = {}) {
   const hidden = totalAll - totalShown;
   if (hidden > 0) {
     process.stdout.write('\n');
-    process.stdout.write(dim(`  ${hidden} more ${noun}  ·  dotmd ${noun} --all  ·  dotmd ${noun} status\n`));
+    process.stdout.write(dim(`  ${hidden} more ${noun}  ·  runlist ${noun} --all  ·  runlist ${noun} status\n`));
   }
 
   process.stdout.write('\n');
@@ -876,7 +876,7 @@ function renderHubBlock(hub, info, children, maxWidth, topMaxSlug) {
 // bird's-eye), distinct from the Runlists section's per-hub rollup. `dotmd
 // roadmap <hub>` expands one into its child rows.
 function renderRoadmapsSection(roadmapDocs, roadmap, maxWidth, total) {
-  process.stdout.write(`\n${bold(`Roadmaps (${total ?? roadmapDocs.length})`)} ${dim('· dotmd roadmap')}\n`);
+  process.stdout.write(`\n${bold(`Roadmaps (${total ?? roadmapDocs.length})`)} ${dim('· runlist roadmap')}\n`);
   const maxSlug = Math.min(34, Math.max(...roadmapDocs.map(d => hubLabel(d).length)));
   for (const doc of roadmapDocs) {
     const info = roadmap?.get(doc.path);

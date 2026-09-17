@@ -43,7 +43,7 @@ function reportStatus(json) {
     return;
   }
   const { claude, opencode } = states;
-  process.stdout.write(`${bold('dotmd host integrations')}  ${dim(`CLI ${pkg.version}`)}\n\n`);
+  process.stdout.write(`${bold('runlist host integrations')}  ${dim(`CLI ${pkg.version}`)}\n\n`);
 
   const claudeBroken = claude.installed && claude.marketplaceRegistered === false;
   const claudeState = !claude.installed ? yellow('not installed')
@@ -60,8 +60,8 @@ function reportStatus(json) {
   process.stdout.write(`            ${dim(opencode.path)}\n`);
 
   const todo = [];
-  if (!claude.installed || claudeBroken) todo.push('dotmd install claude');
-  if (!opencode.exists || opencode.stale) todo.push('dotmd install opencode');
+  if (!claude.installed || claudeBroken) todo.push('runlist install claude');
+  if (!opencode.exists || opencode.stale) todo.push('runlist install opencode');
   if (todo.length) {
     process.stdout.write('\n');
     for (const cmd of todo) process.stdout.write(`Run ${bold(cmd)}\n`);
@@ -143,7 +143,7 @@ function installOpencode(argv, dryRun, json) {
       if (dryRun) return result;
       process.stdout.write('\nRestart OpenCode to apply. New sessions then get:\n');
       process.stdout.write(`  ${dim('·')} a per-session ownership identity (one session can no longer release another's plan)\n`);
-      process.stdout.write(`  ${dim('·')} the ${bold('dotmd hud')} primer at session start, like Claude Code's SessionStart hook\n`);
+      process.stdout.write(`  ${dim('·')} the ${bold('runlist hud')} primer at session start, like Claude Code's SessionStart hook\n`);
       process.stdout.write(dim('\nPlans already in-session were claimed under the old process-scoped identity;\n'));
       process.stdout.write(dim('close them before restarting, or reclaim with --force afterwards.\n'));
       return result;

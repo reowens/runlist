@@ -150,8 +150,8 @@ status: active
     const filtered = run(['export', '--format', 'html', '--status', 'active', '--output', filteredDir]);
     strictEqual(filtered.status, 0, `stderr: ${filtered.stderr}`);
 
-    const fullFallbacks = readdirSync(path.join(fullDir, '__dotmd')).sort();
-    const filteredFallbacks = readdirSync(path.join(filteredDir, '__dotmd')).sort();
+    const fullFallbacks = readdirSync(path.join(fullDir, '__runlist')).sort();
+    const filteredFallbacks = readdirSync(path.join(filteredDir, '__runlist')).sort();
     strictEqual(filteredFallbacks.length, 1);
     ok(fullFallbacks.includes(filteredFallbacks[0]), 'filtered page keeps its full-export allocation');
     ok(!existsSync(path.join(filteredDir, 'a.html')), 'does not reclaim the preferred path after filtering');
@@ -164,7 +164,7 @@ status: active
     const result = run(['export', '--format', 'html', '--output', outDir]);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(readFileSync(path.join(outDir, 'index.html'), 'utf8').includes('<h1>Docs Export</h1>'));
-    ok(readdirSync(path.join(outDir, '__dotmd')).some(file => file.endsWith('.html')), 'source index uses fallback page');
+    ok(readdirSync(path.join(outDir, '__runlist')).some(file => file.endsWith('.html')), 'source index uses fallback page');
   });
 
   it('rejects descendant output symlinks before writing and validates them in dry-run', () => {

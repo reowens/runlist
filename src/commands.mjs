@@ -244,7 +244,7 @@ export function commandCompletionWords(name) {
 export function commandUsage(name) {
   const definition = commandDefinition(name);
   if (!definition) return null;
-  return definition.forms.map(commandForm => `dotmd ${definition.name}${commandForm.syntax ? ` ${commandForm.syntax}` : ''}`).join('\n');
+  return definition.forms.map(commandForm => `runlist ${definition.name}${commandForm.syntax ? ` ${commandForm.syntax}` : ''}`).join('\n');
 }
 
 function optionMap(forms) {
@@ -267,12 +267,12 @@ function scanArgs(name, argv, options, passthrough = false, dashPositionalsAfter
     if (!option) {
       if (passthrough) continue;
       if (positional.length >= dashPositionalsAfter) { positional.push(arg); continue; }
-      throw new Error(`Unknown flag for \`dotmd ${name}\`: ${arg}`);
+      throw new Error(`Unknown flag for \`runlist ${name}\`: ${arg}`);
     }
     if (option.arity === 1) {
       const next = argv[i + 1];
       if (next === undefined || options.has(next)) {
-        throw new Error(`Missing value for \`${arg}\` in \`dotmd ${name}\`.`);
+        throw new Error(`Missing value for \`${arg}\` in \`runlist ${name}\`.`);
       }
       i += 1;
     } else if (option.arity === 'optional' && argv[i + 1] !== undefined && !argv[i + 1].startsWith('-')) {
@@ -317,7 +317,7 @@ export function validateCommandArgs(name, argv, { preset = false } = {}) {
   const preliminary = scanArgs(canonical, normalized, allOptions, allPassthrough, dashPositionalsAfter);
   const selected = definition.forms.find(commandForm => commandForm.subcommands.includes(preliminary[0]))
     ?? definition.forms.find(commandForm => commandForm.subcommands.length === 0);
-  if (!selected) throw new Error(`Unknown subcommand for \`dotmd ${canonical}\`: ${preliminary[0] ?? '(missing)'}`);
+  if (!selected) throw new Error(`Unknown subcommand for \`runlist ${canonical}\`: ${preliminary[0] ?? '(missing)'}`);
   const selectedOptions = optionMap([selected]);
   const positional = scanArgs(canonical, normalized, selectedOptions, selected.passthrough, selected.dashPositionalsAfter);
   const args = selected.subcommands.includes(positional[0]) ? positional.slice(1) : positional;

@@ -76,7 +76,7 @@ export async function runShip(argv, config, opts = {}) {
   const positional = argv.filter(a => !a.startsWith('-'));
   const bump = positional[0] ?? 'patch';
   if (!['patch', 'minor', 'major'].includes(bump)) {
-    die(`Invalid bump: ${bump}. Usage: dotmd ship [patch|minor|major]`);
+    die(`Invalid bump: ${bump}. Usage: runlist ship [patch|minor|major]`);
   }
 
   const pkgPath = path.join(config.repoRoot, 'package.json');
@@ -140,7 +140,7 @@ export async function runShip(argv, config, opts = {}) {
     }
 
     const subject = `chore: release ${target}`;
-    const body = `Auto-staged by \`dotmd ship\`:\n${allToStage.map(p => `- ${p}`).join('\n')}`;
+    const body = `Auto-staged by \`runlist ship\`:\n${allToStage.map(p => `- ${p}`).join('\n')}`;
     const commitMsg = `${subject}\n\n${body}`;
     const commit = spawnSync('git', ['commit', '-m', commitMsg], { cwd: config.repoRoot, encoding: 'utf8' });
     if (commit.status !== 0) die(`git commit failed: ${commit.stderr || commit.stdout}`);

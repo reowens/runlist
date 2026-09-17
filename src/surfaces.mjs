@@ -20,7 +20,7 @@ export function runSurfaces(argv, config) {
 
   if (!surfaces || surfaces.length === 0) {
     process.stdout.write(dim('No surface taxonomy configured. Any surface value is accepted.\n'));
-    process.stdout.write(dim('To restrict, set `taxonomy.surfaces` in dotmd.config.mjs.\n'));
+    process.stdout.write(dim('To restrict, set `taxonomy.surfaces` in runlist.config.mjs.\n'));
     return;
   }
 

@@ -209,7 +209,7 @@ describe('multi-root: graph', () => {
     const outDir = path.join(tmpDir, 'site');
     const html = run(['export', '--format', 'html', '--output', outDir]);
     strictEqual(html.status, 0, `stderr: ${html.stderr}`);
-    const fallbackFiles = readFileSync(path.join(outDir, 'index.html'), 'utf8').match(/__dotmd\/[a-f0-9]{64}\.html/g) ?? [];
+    const fallbackFiles = readFileSync(path.join(outDir, 'index.html'), 'utf8').match(/__runlist\/[a-f0-9]{64}\.html/g) ?? [];
     strictEqual(new Set(fallbackFiles).size, 2, 'allocates distinct stable pages');
     for (const href of fallbackFiles) ok(existsSync(path.join(outDir, ...href.split('/'))), `emits ${href}`);
 

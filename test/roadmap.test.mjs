@@ -131,7 +131,7 @@ describe('buildRoadmapIndex (recursive rollup)', () => {
   });
 });
 
-describe('dotmd new plan --roadmap', () => {
+describe('runlist new plan --roadmap', () => {
   it('scaffolds an execution_mode:roadmap hub with a ## Runlists body', () => {
     setupProject();
     const r = runNew(['plan', 'q3', '--roadmap']);
@@ -140,7 +140,7 @@ describe('dotmd new plan --roadmap', () => {
     const body = readFileSync(path.join(tmpDir, 'docs', 'plans', 'q3.md'), 'utf8');
     match(body, /execution_mode: roadmap/);
     match(body, /## Runlists/);
-    match(body, /dotmd roadmap q3/);
+    match(body, /runlist roadmap q3/);
   });
 
   it('rejects combining --roadmap with another body shape', () => {
@@ -223,7 +223,7 @@ next_step: x`);
 });
 
 describe('roadmap views + integration (CLI)', () => {
-  it('dotmd roadmaps lists the roadmap with its recursive grand total', () => {
+  it('runlist roadmaps lists the roadmap with its recursive grand total', () => {
     setupRoadmap();
     const r = runCmd(['roadmaps']);
     strictEqual(r.status, 0, r.stderr);
@@ -231,7 +231,7 @@ describe('roadmap views + integration (CLI)', () => {
     match(r.stdout, /master-roadmap\s+.*2\/5/); // billing 1/2 + auth 1/2 + loose 0/1
   });
 
-  it('dotmd roadmap shows each child runlist row + grand total', () => {
+  it('runlist roadmap shows each child runlist row + grand total', () => {
     setupRoadmap();
     const r = runCmd(['roadmap']);
     strictEqual(r.status, 0, r.stderr);
@@ -240,7 +240,7 @@ describe('roadmap views + integration (CLI)', () => {
     match(r.stdout, /auth-revamp\s+.*1\/2/);
   });
 
-  it('dotmd roadmap next picks up the first startable plan across runlists', () => {
+  it('runlist roadmap next picks up the first startable plan across runlists', () => {
     setupRoadmap();
     // Walks in related_plans order: billing-runlist (coordination, no body order
     // → no next) is skipped; auth-revamp (sprint) is skipped too because its only
@@ -252,7 +252,7 @@ describe('roadmap views + integration (CLI)', () => {
     match(r.stdout, /in-session/);
   });
 
-  it('dotmd roadmap <hub> next normalizes to the same mutating form', () => {
+  it('runlist roadmap <hub> next normalizes to the same mutating form', () => {
     setupRoadmap();
     const r = runCmd(['roadmap', 'master-roadmap', 'next']);
     strictEqual(r.status, 0, r.stderr);
@@ -270,7 +270,7 @@ describe('roadmap views + integration (CLI)', () => {
     match(extra.stderr, /Usage:/);
   });
 
-  it('dotmd roadmap next skips a leaf busy in another session', () => {
+  it('runlist roadmap next skips a leaf busy in another session', () => {
     const plans = setupRoadmap();
     const master = path.join(plans, 'master-roadmap.md');
     writeFileSync(master, readFileSync(master, 'utf8').replace('  - ./loose-plan.md', '  - ./loose-plan.md\n  - ./free-plan.md'));
@@ -284,7 +284,7 @@ describe('roadmap views + integration (CLI)', () => {
     match(result.stdout, /free-plan/);
   });
 
-  it('dotmd plans counts roadmaps separately and gives them a section', () => {
+  it('runlist plans counts roadmaps separately and gives them a section', () => {
     setupRoadmap();
     const r = runCmd(['plans']);
     strictEqual(r.status, 0, r.stderr);
@@ -292,11 +292,11 @@ describe('roadmap views + integration (CLI)', () => {
     match(r.stdout, /Roadmaps \(1\)/);
   });
 
-  it('dotmd runlists excludes the roadmap and points at it', () => {
+  it('runlist runlists excludes the roadmap and points at it', () => {
     setupRoadmap();
     const r = runCmd(['runlists']);
     strictEqual(r.status, 0, r.stderr);
-    match(r.stdout, /1 roadmap\s+·\s+dotmd roadmaps/);
+    match(r.stdout, /1 roadmap\s+·\s+runlist roadmaps/);
     ok(!/master-roadmap/.test(r.stdout), 'roadmap must not appear in the runlists list');
   });
 });

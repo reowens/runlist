@@ -32,9 +32,9 @@ function requireCommandPolicy(command, policy) {
     .map(cmd => ({ cmd, dist: levenshtein(command, cmd) }))
     .sort((a, b) => a.dist - b.dist);
   if (matches[0] && matches[0].dist <= 3) {
-    die(`Unknown command: ${command}\n\nDid you mean \`dotmd ${matches[0].cmd}\`?`);
+    die(`Unknown command: ${command}\n\nDid you mean \`runlist ${matches[0].cmd}\`?`);
   }
-  die(`Unknown command: ${command}\n\nRun \`dotmd --help\` for available commands.`);
+  die(`Unknown command: ${command}\n\nRun \`runlist --help\` for available commands.`);
 }
 
 function resolveExistingPath(input, config) {
@@ -71,7 +71,7 @@ function applyPathScopeToIndex(index, config, inputs) {
         if (abs === dir || abs.startsWith(dir + path.sep)) selected.add(doc.path);
       }
       if (selected.size === before) {
-        die(`No dotmd documents found under check path: ${toRepoPath(dir, config.repoRoot)}`);
+        die(`No runlist documents found under check path: ${toRepoPath(dir, config.repoRoot)}`);
       }
       continue;
     }
@@ -99,7 +99,7 @@ function applyPathScopeToIndex(index, config, inputs) {
 }
 
 const HELP = {
-  _main: `dotmd v${pkg.version} — frontmatter markdown document manager
+  _main: `runlist v${pkg.version} — frontmatter markdown document manager
 
 Common commands:
   plans                 Live plans (excludes archived)
@@ -114,58 +114,58 @@ Common commands:
   archive <file>        Close out a plan (status → archived, move, update refs)
 
 More help:
-  dotmd help all        Full command list
-  dotmd help statuses   Status vocabulary + transitions
-  dotmd <cmd> --help    Per-command details
+  runlist help all        Full command list
+  runlist help statuses   Status vocabulary + transitions
+  runlist <cmd> --help    Per-command details
 
 Global flags: --config <path>  --root <name>  --type <t,…>  --dry-run/-n  --verbose  --version`,
 
-  guard: `dotmd guard — PreToolUse hook handler (reads the tool-call JSON on stdin)
+  guard: `runlist guard — PreToolUse hook handler (reads the tool-call JSON on stdin)
 
 Wire it into Claude Code as a PreToolUse hook to intercept the wrong-moves
 sessions keep making, and to log every one for audit:
 
-  {"matcher":"Bash|Read|Edit|Write","hooks":[{"type":"command","command":"dotmd guard"}]}
+  {"matcher":"Bash|Read|Edit|Write","hooks":[{"type":"command","command":"runlist guard"}]}
 
 Rules:
   commit-prompt  deny  git add/commit of a (often gitignored) saved prompt
-  cat-prompt     warn  cat/less/head of a docs/prompts/*.md (use \`dotmd use\`)
-  read-prompt    warn  Read tool on a saved prompt (use \`dotmd use\`)
+  cat-prompt     warn  cat/less/head of a docs/prompts/*.md (use \`runlist use\`)
+  read-prompt    warn  Read tool on a saved prompt (use \`runlist use\`)
   edit-status    deny  CHANGING a \`status:\` line — via Edit/Write or in-place
                        stream editors (sed -i, perl -pi, awk -i inplace).
-                       Use \`dotmd set <status> <file>\`. Edits that merely
+                       Use \`runlist set <status> <file>\`. Edits that merely
                        carry an unchanged status: line as context don't fire.
 
-\`guard: { deny: false }\` in dotmd.config.mjs drops edit-status back to
+\`guard: { deny: false }\` in runlist.config.mjs drops edit-status back to
 warn-only. Every catch is appended to the cross-repo misuse log. Disable the
-guard entirely with RUNLIST_GUARD=0. Read the log with \`dotmd misuse\`; when one
-rule trips ≥3× in 7 days in a repo, \`dotmd hud\` opens the next session there
+guard entirely with RUNLIST_GUARD=0. Read the log with \`runlist misuse\`; when one
+rule trips ≥3× in 7 days in a repo, \`runlist hud\` opens the next session there
 with a one-line recap naming the habit to break.`,
 
-  install: `dotmd install [<host>] — install dotmd's integration into an agent host
+  install: `runlist install [<host>] — install runlist's integration into an agent host
 
-  dotmd install                report what is installed for each known host
-  dotmd install claude         install the Claude Code plugin (marketplace + plugin)
-  dotmd install opencode       install/refresh the OpenCode plugin (global config dir)
-  dotmd install <host> --remove
-  dotmd install opencode --path <dir>   write to a specific plugin directory
-  dotmd install opencode --force        overwrite a dotmd.js dotmd did not write
+  runlist install                report what is installed for each known host
+  runlist install claude         install the Claude Code plugin (marketplace + plugin)
+  runlist install opencode       install/refresh the OpenCode plugin (global config dir)
+  runlist install <host> --remove
+  runlist install opencode --path <dir>   write to a specific plugin directory
+  runlist install opencode --force        overwrite a runlist.js runlist did not write
 
 The CLI on its own gives an agent no orientation and no session identity. Each
 host gets that a different way:
 
   claude    Drives \`claude plugin marketplace add ${'reowens/dotmd'}\` +
             \`claude plugin install dotmd@dotmd\`. This is the FIRST install;
-            \`dotmd update\` only refreshes a plugin already present (it skips
+            \`runlist update\` only refreshes a plugin already present (it skips
             with "plugin not installed"), and the README's slash commands only
             work from inside a session. Without the \`claude\` CLI on PATH the
             two in-session commands are printed instead.
             It also repairs a plugin Claude lists as "failed to load: Marketplace
-            dotmd not found" — an install record whose marketplace registration
+            runlist not found" — an install record whose marketplace registration
             is gone — by re-adding the marketplace and updating the plugin. If
             Claude refuses the marketplace, ~/.claude/settings.json declares it
             under extraKnownMarketplaces with a source that no longer matches;
-            dotmd names the field but never edits that file.
+            runlist names the field but never edits that file.
 
   opencode  Writes one auto-discovered plugin file. OpenCode has no plugin
             registry but globs \`{plugin,plugins}/*.{ts,js}\` under its global
@@ -175,23 +175,23 @@ host gets that a different way:
                 to a tool shell, so without it every session in one OpenCode
                 process shares one identity and can release the others'
                 in-session plans.
-              - The \`dotmd hud\` primer at session start, the equivalent of
+              - The \`runlist hud\` primer at session start, the equivalent of
                 Claude Code's SessionStart hook. OpenCode's Claude Code
                 compatibility covers skills and the system prompt — not hooks —
                 so nothing else runs it.
-            The file is version-stamped and refreshed by \`dotmd update\`. A
-            \`dotmd.js\` without that stamp is treated as hand-authored and is
+            The file is version-stamped and refreshed by \`runlist update\`. A
+            \`runlist.js\` without that stamp is treated as hand-authored and is
             never overwritten or removed without --force.
 
-Writing outside the repo is why this is an explicit verb: \`dotmd doctor\`
+Writing outside the repo is why this is an explicit verb: \`runlist doctor\`
 reports a missing integration but never installs one.`,
 
-  update: `dotmd update — update the dotmd CLI and the Claude Code plugin together
+  update: `runlist update — update the runlist CLI and the Claude Code plugin together
 
-  dotmd update                 npm i -g dotmd-cli  +  claude plugin update dotmd@dotmd
-  dotmd update --check         report CLI vs plugin versions, do nothing (network-free)
-  dotmd update --cli-only      only the npm CLI
-  dotmd update --plugin-only   only the plugin
+  runlist update                 npm i -g dotmd-cli  +  claude plugin update dotmd@dotmd
+  runlist update --check         report CLI vs plugin versions, do nothing (network-free)
+  runlist update --cli-only      only the npm CLI
+  runlist update --plugin-only   only the plugin
 
 The plugin and CLI ship in lockstep; a release bumps both. Updating the plugin
 requires a session restart (or /reload-plugins) to apply. The plugin step needs
@@ -200,22 +200,23 @@ run from a session instead. The OpenCode file is refreshed in the same run when
 it is present and behind. The hosts are independent, so a failing step does not
 stop the others: every step runs, the failures are listed together, and the
 exit code is 1. A plugin whose marketplace registration is gone gets the
-marketplace re-added before the update (see \`dotmd install claude\`).`,
+marketplace re-added before the update (see \`runlist install claude\`).`,
 
-  misuse: `dotmd misuse — read the cross-repo guard log (~/.claude/logs/dotmd-misuse.log)
+  misuse: `runlist misuse — read the cross-repo guard log (~/.claude/logs/runlist-misuse.log,
+merged by time with the legacy dotmd-misuse.log that older CLIs wrote)
 
-  dotmd misuse                last 20 intercepted wrong-moves
-  dotmd misuse --tail 50      last N
-  dotmd misuse --by-rule      counts per rule (deny/warn split)
-  dotmd misuse --repo <name>  filter by repo
-  dotmd misuse --json         machine-readable
+  runlist misuse                last 20 intercepted wrong-moves
+  runlist misuse --tail 50      last N
+  runlist misuse --by-rule      counts per rule (deny/warn split)
+  runlist misuse --repo <name>  filter by repo
+  runlist misuse --json         machine-readable
 
-Populated by the \`dotmd guard\` PreToolUse hook — see \`dotmd help guard\`.`,
+Populated by the \`runlist guard\` PreToolUse hook — see \`runlist help guard\`.`,
 
   // Full command list — opt-in via \`dotmd help all\`. Kept exhaustive so the
   // top-level \`--help\` can stay terse without losing discoverability. When you
   // add a new command, add it here too.
-  'help:all': `dotmd v${pkg.version} — full command list
+  'help:all': `runlist v${pkg.version} — full command list
 
 View & Query:
   hud [--json]                      Command primer + pending-prompt triage — silent when clean
@@ -229,7 +230,7 @@ View & Query:
   plans                             Live plans (excludes archived; --include-archived for all)
   use [<file-or-slug>]              Open a doc by type: prompt → consume, plan → start, doc → read
   baton [<plan>|<slug>] <@<file>|->  Save a resume prompt; releases the plan + prints the commit when one is in-session
-  prompts [list|show|archive|new] Prompt admin (list / peek / archive / save). Use \`dotmd use\` to consume.
+  prompts [list|show|archive|new] Prompt admin (list / peek / archive / save). Use \`runlist use\` to consume.
   stale                             Stale docs (preset)
   actionable                        Docs with next steps (preset)
 
@@ -260,7 +261,7 @@ Validate & Fix:
 Lifecycle:
   use <file>                        Open a plan (mark in-session + print it) or consume a prompt
   set <status> <file>               Change a document's status (frontmatter write; archive also moves the file)
-  runlist <hub> [next|add|remove|reorder]   Show, walk, or mutate an ordered group of plans (see \`dotmd help runlist\`)
+  runlist <hub> [next|add|remove|reorder]   Show, walk, or mutate an ordered group of plans (see \`runlist help runlist\`)
   runlists                          List coordination-hub runlists (the Runlists dashboard)
   roadmap [<hub>] [next]            Tier-3: show a roadmap (runlists + rolled-up progress), or pick up its next action
   roadmaps                          List roadmap hubs (the Roadmaps dashboard)
@@ -296,16 +297,16 @@ Global Options:
   --type <t1,t2>         Filter by document type (plan, doc, prompt)
   --dry-run, -n          Preview changes without writing anything
   --verbose              Show config details and doc count
-  --help, -h             Show help (per-command: dotmd <cmd> --help)
+  --help, -h             Show help (per-command: runlist <cmd> --help)
   --version, -v          Show version`,
 
-  list: `dotmd list — list docs grouped by status
+  list: `runlist list — list docs grouped by status
 
 Options:
   --verbose              Show full details per doc
-  --json                 Output full index as JSON (same as dotmd json)`,
+  --json                 Output full index as JSON (same as runlist json)`,
 
-  json: `dotmd json — full index as JSON
+  json: `runlist json — full index as JSON
 
 Outputs the complete document index as JSON to stdout.`,
 
@@ -313,20 +314,20 @@ Outputs the complete document index as JSON to stdout.`,
   // below). Single-source-of-truth for the built-in status vocabulary across all
   // three doc types. User-defined types/statuses live in config; introspect them
   // with \`dotmd statuses list\`.
-  'help:statuses': `dotmd help statuses — status vocabulary, unstuck-actions, and transitions
+  'help:statuses': `runlist help statuses — status vocabulary, unstuck-actions, and transitions
 
 Every document has a \`type:\` field; each type has its own valid statuses.
 Status validation is type-aware (type > root > global). To inspect or edit
-the status taxonomy in a specific project, use \`dotmd statuses list\`.
+the status taxonomy in a specific project, use \`runlist statuses list\`.
 
 ────────────────────────────────────────────────────────────────────
 plan statuses (each maps to a distinct unstuck-action)
 
   in-session     A Claude session is working on it now.
-                 \`dotmd use <file>\` marks it in-session and prints the plan.
+                 \`runlist use <file>\` marks it in-session and prints the plan.
 
   active         Ready to be worked on.
-                 \`dotmd use <file>\` → in-session.
+                 \`runlist use <file>\` → in-session.
 
   planned        Queued for future work, not yet ready to execute.
                  Transition to active when ready to start.
@@ -350,11 +351,11 @@ plan statuses (each maps to a distinct unstuck-action)
   archived       No longer relevant; auto-moved to archive directory.
 
 Canonical transitions:
-  active → in-session              \`dotmd use <file>\` (or \`dotmd set in-session <file>\`)
-  in-session → active              \`dotmd set active <file>\`
-  in-session → partial             \`dotmd set partial <file>\`
-  in-session → awaiting            \`dotmd set awaiting <file>\`
-  any → archived                   \`dotmd set archived <file>\` (or \`dotmd archive\`)
+  active → in-session              \`runlist use <file>\` (or \`runlist set in-session <file>\`)
+  in-session → active              \`runlist set active <file>\`
+  in-session → partial             \`runlist set partial <file>\`
+  in-session → awaiting            \`runlist set awaiting <file>\`
+  any → archived                   \`runlist set archived <file>\` (or \`runlist archive\`)
 
 ────────────────────────────────────────────────────────────────────
 doc statuses
@@ -372,8 +373,8 @@ prompt statuses
   A prompt has two states and no third.
 
   pending        Ready for the next session to consume.
-                 \`dotmd prompts use <file>\` prints body + archives atomically.
-                 \`dotmd prompts next\` does the same for the oldest pending.
+                 \`runlist prompts use <file>\` prints body + archives atomically.
+                 \`runlist prompts next\` does the same for the oldest pending.
 
   archived       Consumed prompt; body preserved in the archive directory,
                  which is the only directory a prompt ever moves into.
@@ -387,31 +388,31 @@ prompt statuses
 
 ────────────────────────────────────────────────────────────────────
 Related commands:
-  dotmd statuses              Inspect/manage per-project status taxonomy
-  dotmd status <f> <new>      Transition a document's status
-  dotmd briefing              See plans grouped by status
-  dotmd plans --status <s>    Filter live plans by status
-  dotmd hud                   Command primer + pending-prompt triage
+  runlist statuses              Inspect/manage per-project status taxonomy
+  runlist status <f> <new>      Transition a document's status
+  runlist briefing              See plans grouped by status
+  runlist plans --status <s>    Filter live plans by status
+  runlist hud                   Command primer + pending-prompt triage
 
-Run \`dotmd statuses list --type plan\` to see the full set (including any
+Run \`runlist statuses list --type plan\` to see the full set (including any
 project-specific custom statuses) with their flags.`,
 
-  completions: `dotmd completions <bash|zsh> — output shell completion script
+  completions: `runlist completions <bash|zsh> — output shell completion script
 
 Add to your shell config:
-  bash: eval "$(dotmd completions bash)"
-  zsh:  eval "$(dotmd completions zsh)"`,
+  bash: eval "$(runlist completions bash)"
+  zsh:  eval "$(runlist completions zsh)"`,
 
-  journal: `dotmd journal — view opt-in command-usage journal
+  journal: `runlist journal — view opt-in command-usage journal
 
-dotmd's primary user is an agent (per docs/audit-example-project.md F17),
+runlist's primary user is an agent (per docs/audit-example-project.md F17),
 but the CLI gives no usage signal by default. Turn on the journal and every
-invocation appends one JSONL line to .dotmd/journal.jsonl with argv, exit
+invocation appends one JSONL line to .runlist/journal.jsonl with argv, exit
 code, elapsed ms, session id, and (on error) a single-line err message.
 
 Enable:
   - env:    RUNLIST_JOURNAL=1
-  - config: \`export const journal = true;\` in dotmd.config.mjs
+  - config: \`export const journal = true;\` in runlist.config.mjs
 
 The env var beats config (RUNLIST_JOURNAL=0 forces off). The journal is
 default-off so non-agent users don't pay the size/PII cost.
@@ -425,19 +426,19 @@ Reader options:
   --json              Emit selected entries as a JSON array
 
 Storage:
-  Rotates to .dotmd/journal.jsonl.1 on dotmd version change, at >5MB,
+  Rotates to .runlist/journal.jsonl.1 on runlist version change, at >5MB,
   or when the oldest entry is >30 days.
   Single backup retained for up to 30 days; older history is dropped on
   rotation or pruned after the retention window.
 
 Examples:
-  RUNLIST_JOURNAL=1 dotmd plans
-  dotmd journal --tail 5
-  dotmd journal --errors
-  dotmd journal --by-command
-  dotmd journal --since 2025-01-01 --json`,
+  RUNLIST_JOURNAL=1 runlist plans
+  runlist journal --tail 5
+  runlist journal --errors
+  runlist journal --by-command
+  runlist journal --since 2025-01-01 --json`,
 
-  query: `dotmd query — filtered document search
+  query: `runlist query — filtered document search
 
 Filters:
   --type <t1,t2>         Filter by type (plan, doc, prompt)
@@ -463,9 +464,9 @@ Filters:
   --summarize-limit <n>  Max docs to summarize (default: 5)
   --model <name>         Model for AI summaries`,
 
-  grep: `dotmd grep <term> — keyword search across frontmatter AND document bodies
+  grep: `runlist grep <term> — keyword search across frontmatter AND document bodies
 
-Alias for \`dotmd query --keyword <term> --body --all\`. Answers "which doc
+Alias for \`runlist query --keyword <term> --body --all\`. Answers "which doc
 discussed X?" with full doc cards (type, status, updated, path) plus 1-2
 matching-line excerpts per body hit — instead of raw-grep's bare paths.
 
@@ -473,25 +474,25 @@ Bodies are read lazily: frontmatter filters run first, only surviving
 candidates are opened. Archived docs are included but clearly labeled.
 
 Composes with the usual query flags:
-  dotmd grep skipStale                     everything mentioning skipStale
-  dotmd grep retries --type plan           only plans
-  dotmd grep retries --status active       only active docs
-  dotmd grep retries --limit 5             cap results (default: unlimited)
-  dotmd grep retries --json                machine-readable (bodyMatches per doc)`,
+  runlist grep skipStale                     everything mentioning skipStale
+  runlist grep retries --type plan           only plans
+  runlist grep retries --status active       only active docs
+  runlist grep retries --limit 5             cap results (default: unlimited)
+  runlist grep retries --json                machine-readable (bodyMatches per doc)`,
 
-  ship: `dotmd ship [patch|minor|major] — commit + bump in one step
+  ship: `runlist ship [patch|minor|major] — commit + bump in one step
 
 Bundles the release steps into a single command:
   1. Auto-stage every dirty file matching the release allowlist
      (src/, test/, bin/, docs/, plugins/, .claude-plugin/,
-     .claude/commands/, package*.json, dotmd.config*.mjs, README.md,
+     .claude/commands/, package*.json, runlist.config*.mjs, README.md,
      CLAUDE.md, .gitignore). A real ship refuses while anything outside
      the allowlist is dirty; dry-run reports those files without changing them.
   2. Commit with an auto-generated \`chore: release <version>\` message.
   3. Run \`npm version <bump>\` to bump package.json, tag, push, run
      the publish workflow, and reinstall locally.
 
-(Per-repo \`.claude/commands\` scaffolding is retired — the dotmd plugin's
+(Per-repo \`.claude/commands\` scaffolding is retired — the runlist plugin's
 SKILL.md is canonical now — so ship no longer regenerates anything.)
 
 Options:
@@ -502,15 +503,15 @@ Defaults to patch. Pass \`minor\` or \`major\` to bump those instead.
 Network failures after the version tag exists are resumed with
 \`npm run release:resume\`. Never push tags or publish manually.`,
 
-  set: `dotmd set <status> [<file-or-slug>] — change a document's status
+  set: `runlist set <status> [<file-or-slug>] — change a document's status
 
 Writes the new status into the file's frontmatter. In-session plans carry a
-local, gitignored ownership record under .dotmd/ so one session cannot release
+local, gitignored ownership record under .runlist/ so one session cannot release
 another session's work.
   - target is an archive status → archive the file (move + ref update)
   - everything else             → plain frontmatter status bump
 
-<file-or-slug> resolves like \`dotmd use\`/\`archive\`: exact path first, then
+<file-or-slug> resolves like \`runlist use\`/\`archive\`: exact path first, then
 a unique bare slug / basename across the doc roots (\`set paused auth-revamp\`).
 Ambiguous slugs error with the candidate list instead of guessing.
 When the path is omitted, exactly one plan must be owned by this session.
@@ -525,20 +526,20 @@ Options:
   --note "<text>"        Append the reason to \`## Version History\` in the
                          same call (creates the section if missing). Saves
                          the status-change + worklog-edit round-trip.
-  --no-index             Skip index regen (see \`dotmd archive --help\`).
+  --no-index             Skip index regen (see \`runlist archive --help\`).
   --show-files           Append \`files: …\` footer.
   --force                Recover another session's plan (explicit path required).
   --dry-run, -n          Preview without writing.
 
 Examples:
-  dotmd set in-session docs/plans/x  # mark a plan in-session
-  dotmd set partial docs/plans/x --note "tail tracked in y.md"
-  dotmd set archived docs/plans/x    # archive a specific plan
-  dotmd set active                   # release this session's sole owned plan
+  runlist set in-session docs/plans/x  # mark a plan in-session
+  runlist set partial docs/plans/x --note "tail tracked in y.md"
+  runlist set archived docs/plans/x    # archive a specific plan
+  runlist set active                   # release this session's sole owned plan
 
-To open a plan (mark in-session AND print its body), use \`dotmd use <file>\`.`,
+To open a plan (mark in-session AND print its body), use \`runlist use <file>\`.`,
 
-  status: `dotmd status <file> <new-status> — transition document status
+  status: `runlist status <file> <new-status> — transition document status
 
 Moves the document to the new status. If transitioning to an archive
 status, automatically moves the file to the archive directory and
@@ -546,8 +547,8 @@ regenerates the index (if configured).
 
 Options:
   --no-index             Skip index regen (useful in concurrent-session repos
-                         doing path-limited commits — see \`dotmd archive --help\`).
-  --show-files           Append \`files: …\` line to stderr (see \`dotmd archive --help\`).
+                         doing path-limited commits — see \`runlist archive --help\`).
+  --show-files           Append \`files: …\` line to stderr (see \`runlist archive --help\`).
 
 Default plan statuses (each maps to a distinct unstuck-action):
   in-session     A Claude session is working on it now
@@ -560,15 +561,15 @@ Default plan statuses (each maps to a distinct unstuck-action):
   queued-after   Sequenced behind another plan — check predecessor
   archived       No longer relevant; auto-moved to archive directory
 
-Run \`dotmd help statuses\` for the full vocabulary across all doc types
+Run \`runlist help statuses\` for the full vocabulary across all doc types
 (plan, doc, prompt) plus canonical transitions and related commands.
 
 Use --dry-run (-n) to preview changes without writing anything.`,
 
-  check: `dotmd check — validate frontmatter and references
+  check: `runlist check — validate frontmatter and references
 
 By default the warning list is suppressed: you see counts plus a one-line
-pointer to \`dotmd doctor\` (auto-fix) or \`dotmd check --verbose\`
+pointer to \`runlist doctor\` (auto-fix) or \`runlist check --verbose\`
 (per-doc detail). Errors are always shown in full.
 
 Options:
@@ -586,12 +587,12 @@ Options:
                          skipped when checking specific paths.
   --dry-run, -n          Preview fixes without writing (with --fix)`,
 
-  archive: `dotmd archive <file-or-slug> — archive a document
+  archive: `runlist archive <file-or-slug> — archive a document
 
 Sets status to 'archived', moves to the archive directory, auto-updates
 references in other docs, and regenerates the index.
 
-<file-or-slug> resolves like \`dotmd use\`: an exact path wins, but a bare
+<file-or-slug> resolves like \`runlist use\`: an exact path wins, but a bare
 slug / basename (e.g. \`archive resume-foo\`) falls back to a recursive
 basename match under the doc roots. An ambiguous basename (the same name in
 two places) errors with the candidate list instead of guessing.
@@ -602,7 +603,7 @@ Options:
   --no-index             Skip index regen. Use when multiple sessions are
                          working concurrently and you want a path-limited
                          commit that doesn't pull other agents' uncommitted
-                         index changes into your staging area. Run \`dotmd index\`
+                         index changes into your staging area. Run \`runlist index\`
                          later (or wire it into a commit hook) to refresh.
   --show-files           Append a final \`files: a b c …\` line to stderr
                          listing every doc/index path the command touched
@@ -618,43 +619,43 @@ Options:
                          file is still editable).
   --dry-run, -n          Preview changes without writing anything.`,
 
-  coverage: `dotmd coverage — metadata coverage report
+  coverage: `runlist coverage — metadata coverage report
 
 Shows which docs are missing surface, module, or audit metadata.
 
 Options:
   --json                 Machine-readable JSON output`,
 
-  focus: `dotmd focus [status] — detailed view for one status group
+  focus: `runlist focus [status] — detailed view for one status group
 
 Shows detailed info for all docs matching the given status (default: active).
 
 Options:
   --json                 Output as JSON`,
 
-  hud: `dotmd hud — actionable triage for session start
+  hud: `runlist hud — actionable triage for session start
 
-Prints the dotmd command primer (the verb cheat-sheet) plus, in --json mode,
+Prints the runlist command primer (the verb cheat-sheet) plus, in --json mode,
 pending prompts and the check-error count for programmatic callers.
 
 Silent when there's nothing actionable — designed for SessionStart hooks where
-zero noise is the right default. Distinct from \`dotmd briefing\`, which
+zero noise is the right default. Distinct from \`runlist briefing\`, which
 dumps the full plan-status pipeline and per-plan next_step bodies (kilobytes
 on large repos). Use hud for ergonomic session boot; use briefing for
 explicit "give me the full picture."
 
 The pending-prompts line tells Claude to consume them via
-\`dotmd prompts use <file>\` rather than reading/cat'ing — that atomically
+\`runlist prompts use <file>\` rather than reading/cat'ing — that atomically
 prints the body and archives the prompt so it cannot be double-consumed.
 
 Recommended SessionStart hook (in ~/.claude/settings.json):
-  "SessionStart": [{ "hooks": [{ "type": "command", "command": "dotmd hud", "timeout": 5 }] }]
+  "SessionStart": [{ "hooks": [{ "type": "command", "command": "runlist hud", "timeout": 5 }] }]
 
 Options:
   --json                 Output as JSON ({ owned, prompts, errors, previousSelf,
                          fleet, recentRejections, misuseRecap, drift })`,
 
-  briefing: `dotmd briefing — compact summary for session start
+  briefing: `runlist briefing — compact summary for session start
 
 Shows plan statuses with next steps, doc/research counts, and health
 in 5-10 lines. Designed for LLM context injection.
@@ -662,7 +663,7 @@ in 5-10 lines. Designed for LLM context injection.
 Options:
   --json                 Output as JSON`,
 
-  context: `dotmd context — full briefing (LLM-oriented)
+  context: `runlist context — full briefing (LLM-oriented)
 
 Generates a status briefing designed for AI/LLM consumption. The default
 JSON form is the full index grouped by type/status; use --compact for bounded
@@ -674,12 +675,12 @@ Options:
   --summarize            Add AI summaries for expanded docs
   --model <name>         Model for AI summaries`,
 
-  'agent-context': `dotmd agent-context — compact bounded JSON for agents
+  'agent-context': `runlist agent-context — compact bounded JSON for agents
 
-Equivalent to \`dotmd context --json --compact\`. Returns counts,
+Equivalent to \`runlist context --json --compact\`. Returns counts,
 validation totals, pending prompt next item, and bounded plan action lists.`,
 
-  stats: `dotmd stats — doc health dashboard
+  stats: `runlist stats — doc health dashboard
 
 Shows aggregated metrics: status counts, staleness, errors/warnings,
 freshness, completeness, checklist progress, and audit coverage.
@@ -687,7 +688,7 @@ freshness, completeness, checklist progress, and audit coverage.
 Options:
   --json                 Machine-readable JSON output`,
 
-  graph: `dotmd graph — visualize document relationships
+  graph: `runlist graph — visualize document relationships
 
 Output formats:
   (default)              Text adjacency list
@@ -699,7 +700,7 @@ Filters:
   --module <name>        Show only docs with this module
   --surface <name>       Show only docs with this surface`,
 
-  deps: `dotmd deps [file] — dependency tree or overview
+  deps: `runlist deps [file] — dependency tree or overview
 
 Without a file, shows a flat overview: most blocking docs, most blocked
 docs, docs with blockers, and orphans.
@@ -711,7 +712,7 @@ Options:
   --depth <n>            Max tree depth (default: 5)
   --json                 Machine-readable JSON output`,
 
-  modules: `dotmd modules — module dashboard (plans grouped by module)
+  modules: `runlist modules — module dashboard (plans grouped by module)
 
 One row per module discovered in plan frontmatter. Dynamic status columns
 (only statuses with ≥1 plan render). Defaults to --type plan; pass --type
@@ -734,7 +735,7 @@ A plan with \`modules: [a, b]\` counts in both rows — intentional, so
 multi-module plans surface in every relevant triage view. \`(none)\` is a
 literal row for plans with no module tag.`,
 
-  module: `dotmd module <name> — plans for one module, grouped by status
+  module: `runlist module <name> — plans for one module, grouped by status
 
 Status groups follow config.statusOrder. Stale plans are flagged inline.
 
@@ -748,10 +749,10 @@ Options:
 
 Unknown module name suggests close matches (or lists what's available).`,
 
-  surfaces: `dotmd surfaces — list configured surface taxonomy
+  surfaces: `runlist surfaces — list configured surface taxonomy
 
 Prints the values accepted in \`surfaces:\` frontmatter, one per line.
-Source: \`config.taxonomy.surfaces\` in dotmd.config.mjs.
+Source: \`config.taxonomy.surfaces\` in runlist.config.mjs.
 
 Options:
   --json                 Machine-readable shape: { surfaces: [...] }
@@ -759,7 +760,7 @@ Options:
 When the project has no taxonomy configured, any surface value is accepted —
 the command says so instead of printing an empty list.`,
 
-  doctor: `dotmd doctor — auto-fix everything in one pass
+  doctor: `runlist doctor — auto-fix everything in one pass
 
 Runs in sequence: fix broken references, repair unambiguous membership
 back-references, lint --fix, move over-cap frontmatter prose into body sections,
@@ -791,19 +792,19 @@ Modes:
                          the claims whose owning process is provably gone
                          (their plans return to \`active\`).
   --claims --apply --older-than <24h|3d>
-                         Also release claims dotmd cannot judge — ones written
+                         Also release claims runlist cannot judge — ones written
                          before it recorded the owning process, or held on
                          another machine — that are older than the duration.
-                         That threshold is your judgement, not dotmd's: it
+                         That threshold is your judgement, not runlist's: it
                          cannot tell a dead session from a slow one.
-  --session              Read-only: what session identity dotmd resolved, from
+  --session              Read-only: what session identity runlist resolved, from
                          which environment variable, and whether it names THIS
                          session or something coarser that its siblings share
                          (a host process, a terminal) — sessions sharing an id
                          can release each other's plans. Also reports whether
                          the current host's integration is installed. Run this
                          when a verb says "No authoritative session identity",
-                         or on any host dotmd has never been tried on.
+                         or on any host runlist has never been tried on.
   --session --json       Machine-readable identity + host-integration state.
   --statuses             Read-only diagnostic: detect overloaded status
                          buckets where one status holds plans pursuing
@@ -836,7 +837,7 @@ Modes:
                          in their Version History would be misleading).
   --migrate-template --json  Machine-readable result.
   --frontmatter-fix      Auto-fix the long-frontmatter warnings that
-                         \`dotmd check\` flags: \`current_state\` >1500 chars
+                         \`runlist check\` flags: \`current_state\` >1500 chars
                          or \`next_step\` >800 chars. Truncates the
                          frontmatter field at the nearest sentence
                          boundary under the target (1200 / 600) and
@@ -851,30 +852,30 @@ Modes:
 Sub-modes (--statuses, --migrate-*, --frontmatter-fix, --project) keep their
 existing contracts: they write by default and honor --dry-run.`,
 
-  'sync-status': `dotmd sync-status — rewrite hub rows whose printed status drifted
+  'sync-status': `runlist sync-status — rewrite hub rows whose printed status drifted
 
 A runlist / coordination / roadmap hub rows its children in a table and prints
 each child's status by hand. This sweeps every hub, compares each row's status
 word against the plan it links to, and rewrites the ones that drifted. Case is
 preserved (\`Active\` stays capitalized), and nothing else in the cell is touched.
 
-  dotmd sync-status                  every hub in the repo (the normal case)
-  dotmd sync-status <hub>...         narrow to named hubs
-  dotmd sync-status --adopt          also wrap managed status words in <!--s-->…<!--/s-->
-  dotmd sync-status --dry-run --json
+  runlist sync-status                  every hub in the repo (the normal case)
+  runlist sync-status <hub>...         narrow to named hubs
+  runlist sync-status --adopt          also wrap managed status words in <!--s-->…<!--/s-->
+  runlist sync-status --dry-run --json
 
 The status word is found positionally — comments stripped, cell's leading token,
 matched against the vocabulary the CHILD's type declares — so no marker is
 needed. A marker pins the span for the rows position can't read (a status sitting
-behind a bolded headline). \`dotmd check\` warns on positional drift and ERRORS on
-marked drift: the marker is the author saying dotmd owns that word.
+behind a bolded headline). \`runlist check\` warns on positional drift and ERRORS on
+marked drift: the marker is the author saying runlist owns that word.
 
 Rows under a status column with no readable status word are reported by
-\`dotmd check\` and left alone here; rows in a table with no status column at all
-are not findings. Not to be confused with \`dotmd set <status>\`, which changes a
+\`runlist check\` and left alone here; rows in a table with no status column at all
+are not findings. Not to be confused with \`runlist set <status>\`, which changes a
 document's OWN status — this only rewrites what a hub prints about others.`,
 
-  'fix-membership': `dotmd fix-membership — repair unambiguous missing parent_plan back-references
+  'fix-membership': `runlist fix-membership — repair unambiguous missing parent_plan back-references
 
 A repair is safe only when one live hub has already declared the relationship
 in its frontmatter runlist or body execution order and the live child plan has
@@ -884,12 +885,12 @@ updated date atomically.
 It never creates or edits hub prose, never overwrites another parent, and skips
 a parentless child ranked by multiple hubs as ambiguous.
 
-  dotmd fix-membership                 every hub in the repo
-  dotmd fix-membership <hub>...        narrow to named hubs
-  dotmd fix-membership --dry-run       preview without writing
-  dotmd fix-membership --dry-run --json`,
+  runlist fix-membership                 every hub in the repo
+  runlist fix-membership <hub>...        narrow to named hubs
+  runlist fix-membership --dry-run       preview without writing
+  runlist fix-membership --dry-run --json`,
 
-  'fix-refs': `dotmd fix-refs — auto-fix broken reference paths
+  'fix-refs': `runlist fix-refs — auto-fix broken reference paths
 
 Scans all docs for reference fields that point to non-existent files,
 then attempts to resolve them by matching the basename against all known
@@ -897,8 +898,8 @@ docs. Fixes are applied by rewriting the frontmatter path.
 
 Use --dry-run (-n) to preview changes without writing anything.`,
 
-  touch: `dotmd touch <file> — bump updated date
-       dotmd touch --git [<file>...]  — sync dates from git history
+  touch: `runlist touch <file> — bump updated date
+       runlist touch --git [<file>...]  — sync dates from git history
 
 Without --git, updates a single file's frontmatter updated date to today.
 With --git, scans all docs (or the specified files) and syncs their updated
@@ -907,14 +908,14 @@ Commits that only changed the updated line are ignored so the fix converges.
 
 Use --dry-run (-n) to preview changes without writing anything.`,
 
-  index: `dotmd index [--print] — generate/update docs.md index
+  index: `runlist index [--print] — generate/update docs.md index
 
 Updates the configured index file in place (writes by default as of 0.34.0).
 Use --print to dump the regenerated content to stdout without writing.
 
 Use --dry-run (-n) to preview without writing.`,
 
-  new: `dotmd new <type> <name> [body] — create a new document
+  new: `runlist new <type> <name> [body] — create a new document
 
 Types and their default destinations:
   plan        docs/plans/<slug>.md     (build-up template: Problem → Phases → Closeout)
@@ -935,7 +936,7 @@ Tip for agents: prefer piped stdin or \`@path\` for multi-line bodies. Inline
 bodies put the entire content on the bash command line, which (a) breaks
 under shell quoting for backticks/dollar-signs and (b) trips PreToolUse hooks
 that scan command strings for forbidden literals (destructive-git patterns,
-etc.). \`cat /tmp/foo.md | dotmd new …\` and \`@/tmp/foo.md\` both sidestep both.
+etc.). \`cat /tmp/foo.md | runlist new …\` and \`@/tmp/foo.md\` both sidestep both.
 
 For plan/doc, a single-section body lands under the type's first scaffolded
 section (e.g. \`## Problem\` for plans). If the body already authors
@@ -944,21 +945,21 @@ the title + your body is emitted — no duplicated empty outline below
 (since 0.36.1).
 
 Examples:
-  dotmd new plan auth-revamp
-  dotmd new prompt resume-foo @/tmp/draft.md
-  cat /tmp/draft.md | dotmd new prompt resume-foo
-  dotmd new prompt resume-foo <<'EOF'
+  runlist new plan auth-revamp
+  runlist new prompt resume-foo @/tmp/draft.md
+  cat /tmp/draft.md | runlist new prompt resume-foo
+  runlist new prompt resume-foo <<'EOF'
   multi-line
   prompt body
   EOF
-  dotmd new prompt cleanup-tomorrow "look at remaining lint warnings"
-  dotmd new plan full-spec <<'EOF'
+  runlist new prompt cleanup-tomorrow "look at remaining lint warnings"
+  runlist new plan full-spec <<'EOF'
   ## Problem
   …
   ## Phases
   …
   EOF
-  dotmd new plan auth-revamp "Investigation findings before scoping…"
+  runlist new plan auth-revamp "Investigation findings before scoping…"
 
 Scaffolding runlists (plans only):
   --runlist <a,b,c>    Create a sprint runlist hub plus one child plan per slug.
@@ -968,16 +969,16 @@ Scaffolding runlists (plans only):
                        are named by the documented \`<hub>-NN-<slug>\` convention.
   --coordination       Create a prose-first coordination hub: \`execution_mode:
                        coordination\` + a \`## Ranked queue\` skeleton (no children).
-                       Surfaces in \`dotmd runlists\`, held out of the active count.
+                       Surfaces in \`runlist runlists\`, held out of the active count.
   --roadmap            Create a tier-3 roadmap hub: \`execution_mode: roadmap\` + a
                        \`## Runlists\` skeleton. A roadmap composes *runlists* (not
                        leaf plans) and rolls their done/total up — see
-                       \`dotmd roadmap\`. Wire child runlists via \`related_plans:\`.
+                       \`runlist roadmap\`. Wire child runlists via \`related_plans:\`.
   (\`--runlist\`, \`--coordination\`, \`--roadmap\` are mutually exclusive.)
 
-  dotmd new plan auth-revamp --runlist extract,rewrite,cleanup
-  dotmd new plan platform --coordination
-  dotmd new plan q3 --roadmap
+  runlist new plan auth-revamp --runlist extract,rewrite,cleanup
+  runlist new plan platform --coordination
+  runlist new plan q3 --roadmap
 
 Plan body variants (plans only — pick one body shape):
   --lite / --minimal   Trimmed plan: Problem → Phases → Version History. Drops
@@ -990,8 +991,8 @@ Plan body variants (plans only — pick one body shape):
   (The body variants and \`--runlist\`/\`--coordination\`/\`--roadmap\` are all
   mutually exclusive — a plan has exactly one body shape.)
 
-  dotmd new plan quick-fix --lite
-  dotmd new plan perf-audit --audit
+  runlist new plan quick-fix --lite
+  runlist new plan perf-audit --audit
 
 Other options:
   --status <s>         Set initial status (defaults to first valid status for the type)
@@ -1001,7 +1002,7 @@ Other options:
                        docs/prospects/kim.md. Without it, a name containing a
                        \`/\` is read relative to the repo.
   --show-files         Append \`files: …\` line to stderr listing what was touched
-                       (the new doc + the index file). See \`dotmd archive --help\`.
+                       (the new doc + the index file). See \`runlist archive --help\`.
   --list-types         Show registered types (alias: --list-templates)
 
 For plans, the default status vocabulary is: in-session, active, planned,
@@ -1010,17 +1011,17 @@ For prompts: pending (default), archived.
 
 Use --dry-run (-n) to preview without creating the file.`,
 
-  watch: `dotmd watch [command] — re-run a command on file changes
+  watch: `runlist watch [command] — re-run a command on file changes
 
 Watches the docs root for .md file changes and re-runs the specified
 command. Defaults to 'list' if no command given.
 
 Examples:
-  dotmd watch              # re-run list on changes
-  dotmd watch check        # re-run check on changes
-  dotmd watch context      # live briefing`,
+  runlist watch              # re-run list on changes
+  runlist watch check        # re-run check on changes
+  runlist watch context      # live briefing`,
 
-  export: `dotmd export — export docs as markdown, HTML, or JSON
+  export: `runlist export — export docs as markdown, HTML, or JSON
 
 Without a file, exports all docs (with optional filters).
 With a file, exports that doc plus all its dependencies.
@@ -1034,7 +1035,7 @@ Options:
   --root <name>            Filter by root
   --dry-run, -n            Preview without writing`,
 
-  summary: `dotmd summary <file> — AI summary of a document
+  summary: `runlist summary <file> — AI summary of a document
 
 Generates an AI-powered summary using a local model.
 
@@ -1043,7 +1044,7 @@ Options:
   --max-tokens <n>       Max tokens for generation (default: 200)
   --json                 Output as JSON`,
 
-  diff: `dotmd diff [file] — show changes since last updated date
+  diff: `runlist diff [file] — show changes since last updated date
 
 Shows git diffs for docs that changed after their frontmatter updated date.
 Without a file argument, shows all drifted docs.
@@ -1054,7 +1055,7 @@ Options:
   --summarize            Generate AI summary using local model
   --model <name>         Model to use (default: mlx-community/Llama-3.2-3B-Instruct-4bit)`,
 
-  lint: `dotmd lint [--fix] — check and auto-fix frontmatter issues
+  lint: `runlist lint [--fix] — check and auto-fix frontmatter issues
 
 Scans all docs for fixable problems:
   - Missing status (inferred via local AI model when available)
@@ -1068,7 +1069,7 @@ Scans all docs for fixable problems:
 Without --fix, reports all issues. With --fix, applies fixes in place.
 Use --dry-run (-n) with --fix to preview without writing anything.`,
 
-  rename: `dotmd rename <old> <new> — rename doc and update references
+  rename: `runlist rename <old> <new> — rename doc and update references
 
 Renames a document using git mv and updates all frontmatter references
 in other docs that point to the old filename.
@@ -1076,7 +1077,7 @@ in other docs that point to the old filename.
 Body markdown links are warned about but not auto-fixed.
 Use --dry-run (-n) to preview changes without writing anything.`,
 
-  migrate: `dotmd migrate <field> <old-value> <new-value> [files...] — batch update a frontmatter field
+  migrate: `runlist migrate <field> <old-value> <new-value> [files...] — batch update a frontmatter field
 
 Finds all docs where the given field equals old-value and updates it
 to new-value. With no file args, every matching doc in the project is
@@ -1089,47 +1090,47 @@ several distinct ones (e.g. moving some \`backlog\` plans to
 as \`bulk archive\`: exact path, then substring fallback.
 
 Examples:
-  dotmd migrate status research scoping
-  dotmd migrate module auth identity
-  dotmd migrate status backlog paused docs/plans/foo.md docs/plans/bar.md
+  runlist migrate status research scoping
+  runlist migrate module auth identity
+  runlist migrate status backlog paused docs/plans/foo.md docs/plans/bar.md
 
 Use --dry-run (-n) to preview changes without writing anything.`,
 
-  init: `dotmd init — create starter config and docs directory
+  init: `runlist init — create starter config and docs directory
 
-Creates dotmd.config.mjs, docs/, and docs/docs.md in the current
+Creates runlist.config.mjs, docs/, and docs/docs.md in the current
 directory. Skips any files that already exist.
 
 If docs/ already contains .md files, auto-detects statuses, surfaces,
 modules, and reference fields to pre-populate the config.`,
 
-  plans: `dotmd plans — list live plans (excludes archived by default)
+  plans: `runlist plans — list live plans (excludes archived by default)
 
 Shows documents with type: plan, excluding terminal/archive statuses,
 sorted by status. Supports all query flags (--status, --module, --json,
 --sort, --group, etc.).
 
 Default plan statuses: in-session, active, planned, blocked, partial,
-paused, awaiting, queued-after, archived. Run \`dotmd help statuses\` for
+paused, awaiting, queued-after, archived. Run \`runlist help statuses\` for
 the unstuck-action behind each one and canonical transitions.
 
 Examples:
-  dotmd plans                          # live plans (default)
-  dotmd plans --include-archived       # all plans including archived
-  dotmd plans --status active          # active plans only
-  dotmd plans --status awaiting        # plans waiting on a human decision
-  dotmd plans --status partial,paused  # shipped-tail and parked plans
-  dotmd plans --module auth            # plans for the auth module
-  dotmd plans --group module           # plans grouped by module
-  dotmd plans --json                   # JSON output`,
+  runlist plans                          # live plans (default)
+  runlist plans --include-archived       # all plans including archived
+  runlist plans --status active          # active plans only
+  runlist plans --status awaiting        # plans waiting on a human decision
+  runlist plans --status partial,paused  # shipped-tail and parked plans
+  runlist plans --module auth            # plans for the auth module
+  runlist plans --group module           # plans grouped by module
+  runlist plans --json                   # JSON output`,
 
-  prompts: `dotmd prompts — manage saved prompts (subcommand namespace)
+  prompts: `runlist prompts — manage saved prompts (subcommand namespace)
 
 Prompts are documents with \`type: prompt\`, typically saved under
 docs/prompts/. They seed future Claude sessions; consuming a prompt
 prints its body to stdout and atomically archives it (one-shot).
 
-\`dotmd prompt\` (singular) is an alias for \`dotmd prompts\` — every
+\`runlist prompt\` (singular) is an alias for \`runlist prompts\` — every
 subcommand below works under either spelling.
 
 Subcommands:
@@ -1144,49 +1145,49 @@ Subcommands:
                              (triage). \`peek\` is an alias.
   archive <file-or-slug>     Archive a prompt without printing its body
   new <slug> [body]          Create a new prompt (alias for
-                             \`dotmd new prompt <slug> [body]\`)
+                             \`runlist new prompt <slug> [body]\`)
 
 \`<file-or-slug>\` accepts: an exact path (with or without .md), a bare
 slug matching a prompt basename, or a unique substring of a prompt
 path. Ambiguous substrings error with the candidate list.
 
-A prompt saved by \`dotmd baton\` links its plan; consuming it (\`use\`,
-\`next\`, or top-level \`dotmd use\`) also claims that plan for this session.
+A prompt saved by \`runlist baton\` links its plan; consuming it (\`use\`,
+\`next\`, or top-level \`runlist use\`) also claims that plan for this session.
 Pass \`--no-claim\` to read and archive the prompt without starting the plan.
 
 Default prompt statuses: pending, archived.
 
 Examples:
-  dotmd prompts                        # pending prompts (default)
-  dotmd prompts list --verbose         # one row per prompt + target plan ref
+  runlist prompts                        # pending prompts (default)
+  runlist prompts list --verbose         # one row per prompt + target plan ref
                                        # (from related_plans, parent_plan,
                                        #  or the first body .md link)
-  dotmd prompts list --include-archived # all prompts including archived
-  dotmd prompts list --status claimed   # already-consumed prompts
-  dotmd prompts --json                 # JSON output
+  runlist prompts list --include-archived # all prompts including archived
+  runlist prompts list --status claimed   # already-consumed prompts
+  runlist prompts --json                 # JSON output
 
-  claude "$(dotmd prompts next)"       # consume oldest pending + run claude
-  claude "$(dotmd prompts use resume-foo)"           # by slug
-  claude "$(dotmd prompts use docs/prompts/foo.md)"  # by path
-  claude "$(dotmd prompts resume resume-foo)"        # \`resume\` is an alias for \`use\`
-  dotmd prompt list                    # singular alias for \`dotmd prompts list\`
+  claude "$(runlist prompts next)"       # consume oldest pending + run claude
+  claude "$(runlist prompts use resume-foo)"           # by slug
+  claude "$(runlist prompts use docs/prompts/foo.md)"  # by path
+  claude "$(runlist prompts resume resume-foo)"        # \`resume\` is an alias for \`use\`
+  runlist prompt list                    # singular alias for \`runlist prompts list\`
 
-  dotmd prompts show resume-foo        # peek without consuming (triage)
-  dotmd prompts show --all             # peek the WHOLE pending queue in one call
-  dotmd prompts show --all --limit 10  # ...capped
-  dotmd prompts show a b c             # peek several by name
-  dotmd prompts next --dry-run         # preview without consuming
-  dotmd prompts archive old-thing
-  dotmd prompts new my-prompt "Body text here"`,
+  runlist prompts show resume-foo        # peek without consuming (triage)
+  runlist prompts show --all             # peek the WHOLE pending queue in one call
+  runlist prompts show --all --limit 10  # ...capped
+  runlist prompts show a b c             # peek several by name
+  runlist prompts next --dry-run         # preview without consuming
+  runlist prompts archive old-thing
+  runlist prompts new my-prompt "Body text here"`,
 
-  baton: `dotmd baton — save a resume prompt for whatever you're doing (and release the plan, if there is one)
+  baton: `runlist baton — save a resume prompt for whatever you're doing (and release the plan, if there is one)
 
 The "save a resume prompt" verb. Works mid-anything:
 
 Plan mode (a plan is in-session, or you pass one):
   The following publish in one atomic cooperating transaction:
   1. A resume prompt named resume-<plan-slug> (collision-safe: -2, -3, …),
-     stamped with a plan: link so consuming it re-claims the plan (see \`dotmd
+     stamped with a plan: link so consuming it re-claims the plan (see \`runlist
      use\`). The prompt is session-local — the next session's hud surfaces it;
      never paste resume text into chat.
   2. Releases the plan: one status flip, in-session → active by default
@@ -1200,12 +1201,12 @@ Plan mode (a plan is in-session, or you pass one):
   takeover; hooks are at-least-once and deduplicate the stable operationId.
 
 Slug mode (no plan involved — "save a resume prompt for this"):
-  dotmd baton <slug> @/tmp/draft.md   →  saves resume-<slug>, touches NOTHING
+  runlist baton <slug> @/tmp/draft.md   →  saves resume-<slug>, touches NOTHING
   else: no status changes, no commit, no plan required. Reference any relevant
   plans/docs inside the draft body.
 
 Usage:
-  dotmd baton [<plan-file> | <slug>] [@<draft-file> | - | --message "..."]
+  runlist baton [<plan-file> | <slug>] [@<draft-file> | - | --message "..."]
 
 Options:
   --status <s>           Target status for the plan (default: active; plan mode only)
@@ -1216,29 +1217,29 @@ Options:
   --dry-run, -n          Preview without writing
 
 Examples:
-  dotmd baton @/tmp/draft.md                       # owned plan, body from file
-  dotmd baton checkout-fixes @/tmp/draft.md        # no plan: just save resume-checkout-fixes
-  cat /tmp/draft.md | dotmd baton                  # body from stdin
-  dotmd baton docs/plans/auth.md @/tmp/draft.md    # explicit plan
-  dotmd baton --status paused --note "blocked on review" @/tmp/d.md
+  runlist baton @/tmp/draft.md                       # owned plan, body from file
+  runlist baton checkout-fixes @/tmp/draft.md        # no plan: just save resume-checkout-fixes
+  cat /tmp/draft.md | runlist baton                  # body from stdin
+  runlist baton docs/plans/auth.md @/tmp/draft.md    # explicit plan
+  runlist baton --status paused --note "blocked on review" @/tmp/d.md
 
 Write the draft FIRST (10–20 lines): the next concrete decision plus any
 gotchas — not a recap of the plan body.`,
 
-  stale: `dotmd stale — list stale documents
+  stale: `runlist stale — list stale documents
 
 Shows docs that haven't been updated within their staleness threshold.
 Supports all query flags (--status, --json, --sort, etc.)
 
 Examples:
-  dotmd stale --group module       Stale plans grouped by module (triage view)`,
+  runlist stale --group module       Stale plans grouped by module (triage view)`,
 
-  actionable: `dotmd actionable — list docs with next steps
+  actionable: `runlist actionable — list docs with next steps
 
 Shows active/ready docs that have a next_step defined.
 Supports all query flags (--status, --json, --sort, etc.)`,
 
-  unblocks: `dotmd unblocks <file> — show what completes when this doc ships
+  unblocks: `runlist unblocks <file> — show what completes when this doc ships
 
 Shows documents that reference or depend on the given file.
 Useful for impact analysis before archiving or changing a plan.
@@ -1261,7 +1262,7 @@ Frontmatter shape:
 Options:
   --json                 Output as JSON`,
 
-  health: `dotmd health — plan velocity, aging, and pipeline health
+  health: `runlist health — plan velocity, aging, and pipeline health
 
 Shows plan pipeline status, active plan aging, recently archived
 plans, and checklist progress. Plans-only view.
@@ -1269,7 +1270,7 @@ plans, and checklist progress. Plans-only view.
 Options:
   --json                 Output as JSON`,
 
-  glossary: `dotmd glossary <term> — look up domain terms and related docs
+  glossary: `runlist glossary <term> — look up domain terms and related docs
 
 Searches the glossary table in your docs for matching terms.
 Shows definition, related docs, and see-also entries.
@@ -1278,7 +1279,7 @@ Options:
   --list                 List all glossary terms
   --json                 Output as JSON`,
 
-  statuses: `dotmd statuses — manage per-project status taxonomy
+  statuses: `runlist statuses — manage per-project status taxonomy
 
 Subcommands:
   list [--type <t>] [--json]            Default. Table view of every status × type with all flags.
@@ -1291,7 +1292,7 @@ Subcommands:
   set <name> --type <t> <flags...>      Edit flags on an existing status. Refuses if status doesn't
                                         exist. Flags overwrite individually.
   remove <name> --type <t>              Delete a status entry. Refuses if any docs use the status
-                                        (lists offenders, suggests \`dotmd migrate\`). Warns if an
+                                        (lists offenders, suggests \`runlist migrate\`). Warns if an
                                         explicit lifecycle export references the name.
   migrate <type>                        One-shot conversion of array-form types.<t>.statuses to
                                         rich form, pulling in peer staleDays/context and per-status
@@ -1314,18 +1315,18 @@ Workflow flags:
                                         would silently mask the per-status flags
 
 Examples:
-  dotmd statuses                                                  # list everything
-  dotmd statuses add paused --type plan --like blocked --quiet
-  dotmd statuses set archived --type plan --no-quiet
-  dotmd statuses remove obsolete --type plan
-  dotmd statuses migrate plan                                     # array → rich
+  runlist statuses                                                  # list everything
+  runlist statuses add paused --type plan --like blocked --quiet
+  runlist statuses set archived --type plan --no-quiet
+  runlist statuses remove obsolete --type plan
+  runlist statuses migrate plan                                     # array → rich
 
 Lifecycle-override gotcha: if your config has both rich-form types and an explicit
 \`export const lifecycle\`, the runtime ignores per-status flags. The CLI refuses
 to write in that case unless you pass --ignore-lifecycle-override; the recommended
 fix is to delete the explicit \`lifecycle\` block so flags take effect.`,
 
-  bulk: `dotmd bulk archive <f1> <f2> ... — archive multiple files at once
+  bulk: `runlist bulk archive <f1> <f2> ... — archive multiple files at once
 
 Archives each file in an independent per-item transaction: sets status to
 archived, moves to archive directory, and updates references. This is explicitly
@@ -1334,14 +1335,14 @@ regenerated once after all item attempts.
 
 Use --dry-run (-n) to preview changes without writing anything.`,
 
-  runlist: `dotmd runlist <hub> [next|add|remove|reorder] — work with an ordered group of plans
+  runlist: `runlist runlist <hub> [next|add|remove|reorder] — work with an ordered group of plans
 
 A "runlist" is just a plan with a \`runlist:\` array of child plan paths in its
 frontmatter — there is no separate doc type. The hub plan can have any status;
 the order of the children comes from the array.
 
 Usage:
-  dotmd runlist <hub>          Show children + their statuses, in order. The
+  runlist runlist <hub>          Show children + their statuses, in order. The
                                first pickup-able child (active / planned /
                                in-session) is marked \`→\`. Archived (done) and
                                parked children (blocked / partial / paused /
@@ -1349,12 +1350,12 @@ Usage:
                                advances to the first child you can actually
                                start. Parked ≠ done: they don't count toward
                                done/total.
-  dotmd runlist next <hub>     Open the first pickup-able child (marks it
+  runlist runlist next <hub>     Open the first pickup-able child (marks it
                                in-session + prints it), advancing past archived
                                and parked children. If every remaining child is
                                parked, stops and lists them + the unstick verbs
                                so you resolve a blocker first.
-  dotmd runlist add <hub> <child...>
+  runlist runlist add <hub> <child...>
                                Append children to the hub's \`runlist:\` array
                                (no more hand-editing the YAML). Each child can be:
                                  • a bare slug (\`cleanup\`) → scaffolds a
@@ -1365,13 +1366,13 @@ Usage:
                                    back at the hub.
                                A plain plan gains a \`runlist:\` (becomes a hub).
                                Coordination hubs (body-order) aren't handled here.
-  dotmd runlist remove <hub> <child...>
+  runlist runlist remove <hub> <child...>
                                Drop children from the \`runlist:\` array. Children
                                match by full path or short slug (\`cleanup\` finds
                                \`<hub>-03-cleanup.md\`). \`--clear-parent\` also blanks
                                each removed child's \`parent_plan:\` back-ref.
-  dotmd runlist reorder <hub> <child> --before|--after <other>
-  dotmd runlist reorder <hub> <c1> <c2> <c3...>
+  runlist runlist reorder <hub> <child> --before|--after <other>
+  runlist runlist reorder <hub> <c1> <c2> <c3...>
                                Move one child relative to another, or pass every
                                child to set a full new order.
                                All three mutators take \`--dry-run\` / \`--json\` and
@@ -1394,10 +1395,10 @@ Common shape:
     - auth-revamp-03-cleanup.md
   ---
 
-Child plans should set \`parent_plan:\` back at the hub — \`dotmd check\` warns
+Child plans should set \`parent_plan:\` back at the hub — \`runlist check\` warns
 when they don't.
 
-In \`dotmd plans\`, a hub is tagged \`[RUNLIST]\` (not \`[ACTIVE]\`) and its
+In \`runlist plans\`, a hub is tagged \`[RUNLIST]\` (not \`[ACTIVE]\`) and its
 children fold underneath it — progress (\`done/total\`) and the next pickup
 \`→\` show on the hub row, so a sprint reads as one runlist instead of N loose
 plans. Children whose hub is filtered out of the view (e.g. \`--status active\`
@@ -1405,13 +1406,13 @@ when the hub is \`planned\`) still render on their own.
 
 Larger, prose-first "coordination" runlists (a domain map pointing at many
 plans, marked \`execution_mode: coordination\` or named \`*-runlist\`) aren't
-folded — they're lifted into a separate \`Runlists\` section in \`dotmd plans\`
-and out of the active count. \`dotmd runlists\` shows that dashboard on its own.
+folded — they're lifted into a separate \`Runlists\` section in \`runlist plans\`
+and out of the active count. \`runlist runlists\` shows that dashboard on its own.
 For these, \`runlist\`/\`runlist next\` also read order from the body when there's
 no \`runlist:\` array — a \`## Ranked queue\` table or \`## Order of operations\`
 list of markdown links (the first \`.md\` link per row/item, in order).`,
 
-  runlists: `dotmd runlists — the coordination-hub dashboard
+  runlists: `runlist runlists — the coordination-hub dashboard
 
 Lists every *coordination runlist*: a prose-first plan that sits above a
 cluster of others (a domain map), detected by \`execution_mode: coordination\`
@@ -1420,19 +1421,19 @@ size of its \`related_plans:\` cluster, a \`next → <child>\` when the hub's bo
 encodes order as markdown links (\`## Ranked queue\` table / \`## Order of
 operations\` list), and a one-line descriptor.
 
-This is the standalone form of the \`Runlists\` section that \`dotmd plans\`
+This is the standalone form of the \`Runlists\` section that \`runlist plans\`
 pins beneath the leaf-plan triage list.
 
-  dotmd runlists               All runlists (a small bounded set), most stale first.
-  dotmd runlists --sort recent Order by recency instead (age|recent|related|title|status).
-  dotmd runlists --limit N     Cap the list at N.
-  dotmd runlists --json        Structured rows (path, status, childCount, nextPickup, …).`,
+  runlist runlists               All runlists (a small bounded set), most stale first.
+  runlist runlists --sort recent Order by recency instead (age|recent|related|title|status).
+  runlist runlists --limit N     Cap the list at N.
+  runlist runlists --json        Structured rows (path, status, childCount, nextPickup, …).`,
 
-  'bulk-tag': `dotmd bulk-tag [files...] — fill in type/status frontmatter on pre-existing markdown
+  'bulk-tag': `runlist bulk-tag [files...] — fill in type/status frontmatter on pre-existing markdown
 
 Scans the docs tree for files that are missing either \`type:\` or \`status:\`
 (or have no frontmatter block at all) and writes minimal frontmatter so they
-appear in \`dotmd list\`, \`query\`, and \`briefing\`.
+appear in \`runlist list\`, \`query\`, and \`briefing\`.
 
 Type is inferred from the file's subdir under docsRoot:
   docs/plans/foo.md    → type: plan,   status: planned
@@ -1451,20 +1452,6 @@ Flags:
 Pass file paths as positional args to scope to those files only; otherwise
 the whole docs tree is scanned.`,
 };
-
-// Help presents the new product name while the compatibility package and
-// plugin still use their old registry identities. Protect those identifiers
-// from the display-only command-name rewrite until the package cutover.
-function canonicalHelp(text) {
-  return String(text)
-    .replaceAll('dotmd-cli', '\u0000PACKAGE\u0000')
-    .replaceAll('dotmd@dotmd', '\u0000PLUGIN\u0000')
-    .replaceAll('reowens/dotmd', '\u0000REPOSITORY\u0000')
-    .replace(/\bdotmd\b/g, 'runlist')
-    .replaceAll('\u0000PACKAGE\u0000', 'dotmd-cli')
-    .replaceAll('\u0000PLUGIN\u0000', 'dotmd@dotmd')
-    .replaceAll('\u0000REPOSITORY\u0000', 'reowens/dotmd');
-}
 
 const GLOBAL_VALUE_OPTIONS = new Set(['--config', '--root', '--type']);
 const GLOBAL_BOOLEAN_OPTIONS = new Set(['--dry-run', '-n', '--verbose']);
@@ -1583,12 +1570,12 @@ async function main() {
     const topic = restArgs[0];
     if (topic) {
       const key = `help:${topic}`;
-      if (HELP[key]) { process.stdout.write(`${canonicalHelp(HELP[key])}\n`); return; }
-      if (HELP[topic]) { process.stdout.write(`${canonicalHelp(HELP[topic])}\n`); return; }
-      process.stderr.write(`Unknown help topic: ${topic}\n\nAvailable topics: all, statuses\nPer-command help: dotmd <cmd> --help\n`);
+      if (HELP[key]) { process.stdout.write(`${HELP[key]}\n`); return; }
+      if (HELP[topic]) { process.stdout.write(`${HELP[topic]}\n`); return; }
+      process.stderr.write(`Unknown help topic: ${topic}\n\nAvailable topics: all, statuses\nPer-command help: runlist <cmd> --help\n`);
       process.exit(1);
     }
-    process.stdout.write(`${canonicalHelp(HELP._main)}\n`);
+    process.stdout.write(`${HELP._main}\n`);
     return;
   }
 
@@ -1612,7 +1599,7 @@ async function main() {
   // Per-command help
   if (args.includes('--help') || args.includes('-h')) {
     requireCommandPolicy(command, dispatchPolicy);
-    process.stdout.write(`${canonicalHelp(HELP[command] ?? commandUsage(command))}\n`);
+    process.stdout.write(`${HELP[command] ?? commandUsage(command)}\n`);
     return;
   }
 
@@ -1691,7 +1678,7 @@ async function main() {
   // cleanly on their own). The warning is still useful for interactive commands.
   const HOOK_COMMANDS = new Set(['hud', 'guard']);
   if (!config.configFound && command !== 'init' && !HOOK_COMMANDS.has(command)) {
-    warn('No dotmd config found — using defaults. Run `dotmd init` to create one.');
+    warn('No runlist config found — using defaults. Run `runlist init` to create one.');
   }
 
   if (config.configWarnings && config.configWarnings.length > 0) {
@@ -1840,10 +1827,10 @@ async function main() {
   if (command === 'misuse') { const { runMisuse } = await import('../src/misuse-read.mjs'); runMisuse(restArgs, config); return; }
   if (command === 'journal') { const { runJournal } = await import('../src/journal-read.mjs'); runJournal(restArgs, config); return; }
   if (command === 'pickup' || command === 'unpickup' || command === 'release' || command === 'finish') {
-    die(`\`dotmd ${command}\` was removed — use the ownership-aware lifecycle verbs:\n  dotmd use <file>          # atomically claim + mark in-session + print the plan\n  dotmd set <status> <file> # transition and release ownership when leaving in-session\n  dotmd archive <file>      # close out atomically`);
+    die(`\`runlist ${command}\` was removed — use the ownership-aware lifecycle verbs:\n  runlist use <file>          # atomically claim + mark in-session + print the plan\n  runlist set <status> <file> # transition and release ownership when leaving in-session\n  runlist archive <file>      # close out atomically`);
   }
   if (command === 'runlist') { const { runRunlist } = await import('../src/runlist.mjs'); await runRunlist(restArgs, config, { dryRun }); return; }
-  if (command === 'handoff') { die('`dotmd handoff` was removed in 0.31.0. Use `dotmd prompts new <name>` to create a saved prompt instead. The .dotmd/handoffs/ sidecar mechanism no longer exists; see CHANGELOG.'); }
+  if (command === 'handoff') { die('`runlist handoff` was removed in 0.31.0. Use `runlist prompts new <name>` to create a saved prompt instead. The .dotmd/handoffs/ sidecar mechanism no longer exists; see CHANGELOG.'); }
   if (command === 'status') { const { runStatus } = await import('../src/lifecycle.mjs'); await runStatus(restArgs, config, { dryRun }); return; }
   if (command === 'set') { const { runSet } = await import('../src/lifecycle.mjs'); await runSet(restArgs, config, { dryRun }); return; }
   if (command === 'ship') { const { runShip } = await import('../src/ship.mjs'); await runShip(restArgs, config, { dryRun }); return; }
@@ -1929,7 +1916,7 @@ async function main() {
     const minDocsFlagIdx = restArgs.indexOf('--min-docs');
     const minDocsRaw = minDocsFlagIdx === -1 ? null : restArgs[minDocsFlagIdx + 1];
     if (minDocsFlagIdx !== -1 && !/^\d+$/.test(minDocsRaw ?? '')) {
-      die('`--min-docs` needs a positive integer, e.g. `dotmd check --min-docs 500`.');
+      die('`--min-docs` needs a positive integer, e.g. `runlist check --min-docs 500`.');
     }
     const minDocsOverride = minDocsRaw == null ? null : Number(minDocsRaw);
     const minDocsValueIdx = minDocsFlagIdx === -1 ? -1 : minDocsFlagIdx + 1;
@@ -1965,7 +1952,7 @@ async function main() {
     };
 
     if (fix && checkTargets.length > 0) {
-      die('`dotmd check --fix` does not support path-scoped checks yet. Run `dotmd check <path>` to validate a subset, or `dotmd check --fix` to fix the whole docs tree.');
+      die('`runlist check --fix` does not support path-scoped checks yet. Run `runlist check <path>` to validate a subset, or `runlist check --fix` to fix the whole docs tree.');
     }
 
     if (fix) {
@@ -2042,7 +2029,7 @@ async function main() {
 
   if (command === 'index') {
     if (!config.indexPath) {
-      die('Index generation is not configured. Add an `index` section to your dotmd.config.mjs.');
+      die('Index generation is not configured. Add an `index` section to your runlist.config.mjs.');
     }
     const print = args.includes('--print');
     const { renderIndexFile, writeRenderedIndex } = await import('../src/index-file.mjs');
@@ -2075,7 +2062,7 @@ async function main() {
       if (arg.startsWith('-') || term !== null) { passthrough.push(arg); continue; }
       term = arg;
     }
-    if (!term) die('Usage: dotmd grep <term> [query flags]\n\nSearches frontmatter fields AND document bodies; alias for `dotmd query --keyword <term> --body --all`.');
+    if (!term) die('Usage: runlist grep <term> [query flags]\n\nSearches frontmatter fields AND document bodies; alias for `runlist query --keyword <term> --body --all`.');
     const defaults = ['--keyword', term, '--body'];
     if (!passthrough.includes('--limit') && !passthrough.includes('--all')) defaults.push('--all');
     runQuery(index, [...defaults, ...passthrough], config);

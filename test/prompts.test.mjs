@@ -52,7 +52,7 @@ afterEach(() => {
   if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
 });
 
-describe('dotmd prompts list', () => {
+describe('runlist prompts list', () => {
   beforeEach(setupProject);
 
   it('bare `prompts` lists pending prompts (default)', () => {
@@ -115,7 +115,7 @@ describe('dotmd prompts list', () => {
   });
 });
 
-describe('dotmd prompts next', () => {
+describe('runlist prompts next', () => {
   beforeEach(setupProject);
 
   it('picks oldest pending by created date', () => {
@@ -213,7 +213,7 @@ describe('dotmd prompts next', () => {
   });
 });
 
-describe('dotmd prompts use', () => {
+describe('runlist prompts use', () => {
   beforeEach(setupProject);
 
   it('consumes specific file regardless of queue order', () => {
@@ -229,7 +229,7 @@ describe('dotmd prompts use', () => {
       `consume confirmation should name the nested archived path, not the stale source path:\n${r.stderr}`);
   });
 
-  it('top-level `dotmd use <slug>` resolves prompt basenames and consumes atomically', () => {
+  it('top-level `runlist use <slug>` resolves prompt basenames and consumes atomically', () => {
     writePrompt('resume-from-slug', { body: 'slug body' });
     const r = run(['use', 'resume-from-slug']);
     strictEqual(r.status, 0, r.stderr);
@@ -239,7 +239,7 @@ describe('dotmd prompts use', () => {
     ok(r.stderr.includes('Consumed: docs/prompts/archived/resume-from-slug.md'), r.stderr);
   });
 
-  it('top-level `dotmd use <slug>.md` resolves prompt basenames and consumes atomically', () => {
+  it('top-level `runlist use <slug>.md` resolves prompt basenames and consumes atomically', () => {
     writePrompt('resume-with-ext', { body: 'ext body' });
     const r = run(['use', 'resume-with-ext.md']);
     strictEqual(r.status, 0, r.stderr);
@@ -364,7 +364,7 @@ describe('dotmd prompts use', () => {
   });
 });
 
-describe('dotmd prompts archive', () => {
+describe('runlist prompts archive', () => {
   beforeEach(setupProject);
 
   it('archives without emitting body to stdout', () => {
@@ -394,7 +394,7 @@ describe('dotmd prompts archive', () => {
   });
 });
 
-describe('dotmd prompts show', () => {
+describe('runlist prompts show', () => {
   beforeEach(setupProject);
 
   it('prints the body WITHOUT consuming', () => {
@@ -411,7 +411,7 @@ describe('dotmd prompts show', () => {
     writePrompt('peek-me');
     const r = run(['prompts', 'show', 'peek-me']);
     match(r.stderr, /read-only peek/);
-    match(r.stderr, /dotmd use/);
+    match(r.stderr, /runlist use/);
   });
 
   it('`peek` is an alias', () => {
@@ -532,7 +532,7 @@ describe('a prompt is pending or archived, and nothing else', () => {
   });
 });
 
-describe('dotmd prompts new', () => {
+describe('runlist prompts new', () => {
   beforeEach(setupProject);
 
   it('creates a new prompt with given body', () => {

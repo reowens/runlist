@@ -123,7 +123,7 @@ export function runHealth(argv, config) {
 
   // Roadmaps (tier-3) — pinned above Runlists with the recursive grand total.
   if (roadmapHubs.length > 0) {
-    process.stdout.write(`${bold('Roadmaps:')} ${roadmapHubs.length}  ${dim('· dotmd roadmap')}\n`);
+    process.stdout.write(`${bold('Roadmaps:')} ${roadmapHubs.length}  ${dim('· runlist roadmap')}\n`);
     for (const doc of roadmapHubs.slice(0, 8)) {
       const slug = hubLabel(doc).padEnd(28);
       const age = doc.daysSinceUpdate != null ? `${doc.daysSinceUpdate}d` : '?d';
@@ -142,7 +142,7 @@ export function runHealth(argv, config) {
   // surfaced as their own tally so they don't inflate the active count. Newest
   // first, mirroring `dotmd runlists`; capped with a "more" footer.
   if (runlistHubs.length > 0) {
-    process.stdout.write(`${bold('Runlists:')} ${runlistHubs.length}  ${dim('· dotmd runlists')}\n`);
+    process.stdout.write(`${bold('Runlists:')} ${runlistHubs.length}  ${dim('· runlist runlists')}\n`);
     for (const doc of runlistHubs.slice(0, 8)) {
       const slug = hubLabel(doc).padEnd(28);
       const age = doc.daysSinceUpdate != null ? `${doc.daysSinceUpdate}d` : '?d';

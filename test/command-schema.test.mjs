@@ -24,7 +24,7 @@ describe('command schema', () => {
     deepStrictEqual(KNOWN_COMMANDS, Object.keys(COMMAND_POLICIES));
     for (const command of KNOWN_COMMANDS) {
       ok(COMMAND_SCHEMA[command].group, `${command} has a help group`);
-      ok(commandUsage(command)?.startsWith(`dotmd ${command}`), `${command} has generated usage`);
+      ok(commandUsage(command)?.startsWith(`runlist ${command}`), `${command} has generated usage`);
     }
   });
 

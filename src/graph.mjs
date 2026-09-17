@@ -208,7 +208,7 @@ function _renderGraphText(graph, config) {
 export function renderGraphDot(graph, config) {
   const { nodes, edges } = graph;
   const lines = [];
-  lines.push('digraph dotmd {');
+  lines.push('digraph runlist {');
   lines.push('  rankdir=LR;');
   lines.push('  node [shape=box, style="rounded,filled", fontname="Helvetica"];');
   lines.push('');

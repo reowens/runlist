@@ -102,7 +102,7 @@ describe('membership repair candidate boundary', () => {
       && item.meta?.source === 'frontmatter-runlist');
     strictEqual(warning.meta.kind, 'hub-membership-backref');
     deepStrictEqual(classifyIssueAction(warning), {
-      action: 'dotmd fix-membership', fixable: true, label: 'membership back-references',
+      action: 'runlist fix-membership', fixable: true, label: 'membership back-references',
     });
 
     const result = fixMembershipBackrefs(config, { docs, quiet: true });
@@ -303,7 +303,7 @@ describe('membership repair mutation safety', () => {
   });
 });
 
-describe('dotmd fix-membership command and compositions', () => {
+describe('runlist fix-membership command and compositions', () => {
   it('--dry-run --json reports stable changes and apply converges to zero', () => {
     const plans = setupProject();
     hub(plans, 'billing-runlist.md', ranked('child.md'));

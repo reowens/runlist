@@ -61,7 +61,7 @@ function renderRoadmap(info, maxWidth) {
   return lines.join('\n') + '\n';
 }
 
-const NO_ROADMAPS = 'No roadmaps found. A roadmap is a plan with `execution_mode: roadmap` that composes runlists.\nScaffold one: dotmd new plan <name> --roadmap\n';
+const NO_ROADMAPS = 'No roadmaps found. A roadmap is a plan with `execution_mode: roadmap` that composes runlists.\nScaffold one: runlist new plan <name> --roadmap\n';
 
 // `dotmd roadmaps` — the dashboard over every roadmap hub (mirrors `dotmd
 // runlists`): one row per roadmap with its recursive grand total + child count.
@@ -106,7 +106,7 @@ export function runRoadmap(index, argv, config) {
     const info = roadmaps.get(repoPath);
     if (!info) {
       die(`${repoPath} is not a roadmap hub (needs \`execution_mode: roadmap\`).\n` +
-        `See \`dotmd roadmaps\` for roadmaps, or \`dotmd runlist ${hubArg}\` if it's a runlist.`);
+        `See \`runlist roadmaps\` for roadmaps, or \`runlist runlist ${hubArg}\` if it's a runlist.`);
     }
     if (json) { process.stdout.write(JSON.stringify(roadmapJson(info), null, 2) + '\n'); return; }
     process.stdout.write('\n' + renderRoadmap(info, process.stdout.columns || 100) + '\n');
@@ -139,10 +139,10 @@ function resolveRoadmapTarget(roadmaps, hubArg, config) {
     if (!info) die(`${hubArg} is not a roadmap hub (needs \`execution_mode: roadmap\`).`);
     return info;
   }
-  if (roadmaps.size === 0) die('No roadmaps found. Scaffold one: dotmd new plan <name> --roadmap');
+  if (roadmaps.size === 0) die('No roadmaps found. Scaffold one: runlist new plan <name> --roadmap');
   if (roadmaps.size > 1) {
     const listed = [...roadmaps.values()].map(r => `  ${hubLabel(r.doc)}`).join('\n');
-    die(`Multiple roadmaps — name one: dotmd roadmap next <hub>\n${listed}`);
+    die(`Multiple roadmaps — name one: runlist roadmap next <hub>\n${listed}`);
   }
   return [...roadmaps.values()][0];
 }
@@ -169,7 +169,7 @@ export async function runRoadmapNext(index, argv, config, opts = {}) {
       return `  ${hubLabel(c.doc)} (${c.doneCount}/${c.total} · ${state})`;
     }).join('\n');
     die(`No pickup-able plan across roadmap ${hubLabel(info.doc)} — every child runlist is done or parked:\n${lines}\n` +
-      `Unstick one (e.g. \`dotmd set active <child>\`), or inspect a runlist: \`dotmd runlist <hub>\`.`);
+      `Unstick one (e.g. \`runlist set active <child>\`), or inspect a runlist: \`runlist runlist <hub>\`.`);
   }
 
   if (!json) {

@@ -2,6 +2,24 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Changed
+
+- **The CLI now calls itself `runlist` everywhere.** Errors, warnings, hints, usage lines, `--help`, `hud`, `guard`, `init`, `doctor`, `update`, `install` and the npm postinstall notice all name `runlist` commands (for example `Run \`runlist --help\``, `No runlist config found`, `[runlist]`). Help text is now written that way in the source, so the display-time rewrite that produced it before is gone. Nothing was renamed: the package is still `dotmd-cli`, the repository is still `reowens/dotmd`, the Claude Code plugin is still `dotmd@dotmd` (so the skill `dotmd:dotmd` and commands `/dotmd:plans` etc. keep their names), and `dotmd` still runs the CLI alongside `runlist` and `rl`.
+- **Global logs are written under new names: `runlist-misuse.log` and `runlist-errors.log`** (same directory, `~/.claude/logs`, or `RUNLIST_ERROR_LOG_DIR`; `DOTMD_ERROR_LOG_DIR` is still honored). Rotation backups follow (`runlist-misuse.log.1`, `runlist-errors.log.1`). The old `dotmd-misuse.log` is not renamed or deleted: `runlist misuse` and the `hud` repeat-offense recap read both files and merge them by time, so an older CLI still writing the old name stays visible.
+- **Generated files carry a `runlist-generated:` banner.** The OpenCode plugin file (still `dotmd.js`) is written with it. Files stamped `dotmd-generated:` by 0.78.0 and earlier are still recognized as generated: `install opencode`, `update` and `install opencode --remove` refresh or remove them as before, their version is still read, and a same-version file with the old banner is restamped in place rather than duplicated. Retired `.claude/commands` teardown accepts either banner. The OpenCode plugin keeps setting both `RUNLIST_SESSION_*` and `DOTMD_SESSION_*` and still tries `runlist` before `dotmd`.
+- **HTML export puts hash-named fallback pages under `__runlist/`.** `__dotmd/` stays reserved, so a document path inside an old export's fallback directory still gets a fallback name.
+- **The canonical-workflow marker is `runlist:canonical-workflow`** in CLAUDE.md and the plugin skill. `check` still reads a block marked with the old `dotmd:canonical-workflow` spelling, as long as it opens and closes with the same spelling.
+- **The plugin skill and commands teach `runlist` verbs** and allow `Bash(runlist:*)` and `Bash(rl:*)` in addition to `Bash(dotmd:*)`. README and CLAUDE.md use `runlist` for commands.
+- **`doctor` also flags retired `runlist status` / `rl status` (and `pickup`/`release`/`finish`) mentions in docs**, not only the `dotmd` spelling.
+
+Unchanged on purpose: `dotmd.config.*` files, `DOTMD_*` variables, the `.dotmd/` state directory and `.dotmd-` artifacts are still read; the `<!-- GENERATED:dotmd:start/end -->` index markers, the `dotmd_version` prompt key, the `dotmd.agent-context` schema name and the default `dotmd-export` directory keep their names, since existing files and scripts depend on them.
+
+### Fixed
+
+- **`npm test` no longer writes to the real `~/.claude/logs`.** A preloaded setup module points every test process at a temporary log directory.
+
 ## 0.78.0 — 2026-09-16
 
 ### Changed

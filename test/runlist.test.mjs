@@ -50,7 +50,7 @@ afterEach(() => {
   if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
 });
 
-describe('dotmd runlist <hub> (show)', () => {
+describe('runlist runlist <hub> (show)', () => {
   it('renders children in order with statuses and marks the first non-archived with →', () => {
     const plans = setupProject();
     writeDoc(plans, 'hub.md', `type: plan
@@ -199,7 +199,7 @@ updated: 2026-05-26`);
   });
 });
 
-describe('dotmd runlist <hub> slug resolution', () => {
+describe('runlist runlist <hub> slug resolution', () => {
   it('accepts a bare slug (no path, no .md) for a plan under docs/plans/', () => {
     const plans = setupProject();
     writeDoc(plans, 'hub.md', `type: plan
@@ -237,7 +237,7 @@ updated: 2026-05-26`);
   });
 });
 
-describe('dotmd runlist next <hub>', () => {
+describe('runlist runlist next <hub>', () => {
   it('picks up the first non-archived child', () => {
     const plans = setupProject();
     writeDoc(plans, 'hub.md', `type: plan
@@ -347,7 +347,7 @@ updated: 2026-05-26`);
     match(r.stderr, /every remaining child is parked/);
     match(r.stderr, /status: awaiting/);
     // Surfaces the unstick verbs so the agent has a path forward.
-    match(r.stderr, /dotmd set active <child>/);
+    match(r.stderr, /runlist set active <child>/);
   });
 
   it('reports when all children are archived', () => {
@@ -604,7 +604,7 @@ updated: ${daysAgoDate(4)}`);
   });
 });
 
-describe('dotmd plans (runlist folding)', () => {
+describe('runlist plans (runlist folding)', () => {
   it('tags the hub [RUNLIST], folds children under it, and counts it as a runlist', () => {
     setupSprint();
     const r = runPlans([]);
@@ -787,7 +787,7 @@ next_step: x`);
   });
 });
 
-describe('dotmd plans (coordination-hub section)', () => {
+describe('runlist plans (coordination-hub section)', () => {
   it('lifts hubs into a Runlists section and out of the active count', () => {
     setupCoordination();
     const r = runPlans([]);
@@ -947,7 +947,7 @@ updated: 2026-06-23`);
     strictEqual(hubs.get('docs/plans/billing-runlist.md').nextPickup, null);
   });
 
-  it('dotmd runlists renders → <label> for a hub with a ranked queue', () => {
+  it('runlist runlists renders → <label> for a hub with a ranked queue', () => {
     setupRankedQueue();
     const r = runRunlistsCmd([]);
     strictEqual(r.status, 0, `stderr: ${r.stderr}`);
@@ -959,7 +959,7 @@ updated: 2026-06-23`);
     strictEqual(hub.nextPickup.label, 'brand-conflicts');
   });
 
-  it('dotmd health Runlists section shows the next pickup', () => {
+  it('runlist health Runlists section shows the next pickup', () => {
     setupRankedQueue();
     const r = runCmd('health', []);
     strictEqual(r.status, 0, `stderr: ${r.stderr}`);
@@ -969,7 +969,7 @@ updated: 2026-06-23`);
     strictEqual(hub.nextPickup.label, 'brand-conflicts');
   });
 
-  it('dotmd runlist <hub> (singular) reads the ranked-queue table, marking the first non-archived', () => {
+  it('runlist runlist <hub> (singular) reads the ranked-queue table, marking the first non-archived', () => {
     setupRankedQueue();
     const r = run(['docs/plans/founder-runlist.md']);
     strictEqual(r.status, 0, `stderr: ${r.stderr}`);
@@ -978,7 +978,7 @@ updated: 2026-06-23`);
   });
 });
 
-describe('dotmd runlists (dashboard)', () => {
+describe('runlist runlists (dashboard)', () => {
   it('lists every coordination hub, most stale first, with --json support', () => {
     setupCoordination();
     const r = runRunlistsCmd([]);
@@ -1031,7 +1031,7 @@ updated: 2026-06-26`);
   });
 });
 
-describe('coordination-hub execution_mode nudge (dotmd check)', () => {
+describe('coordination-hub execution_mode nudge (runlist check)', () => {
   it('warns when a *-runlist plan lacks execution_mode: coordination', () => {
     const plans = setupProject();
     // slug-only hub → should be nudged
@@ -1081,7 +1081,7 @@ function runCmd(cmd, args, opts = {}) {
   });
 }
 
-describe('dotmd briefing (coordination-hub awareness)', () => {
+describe('runlist briefing (coordination-hub awareness)', () => {
   it('lifts coordination hubs into a runlists bucket and out of the active work list', () => {
     setupCoordination();
     const r = runCmd('briefing', []);
@@ -1096,7 +1096,7 @@ describe('dotmd briefing (coordination-hub awareness)', () => {
     ok(!/> master-runlist /.test(r.stdout), 'coordination hub must not appear as a work item');
     ok(!/> billing-runlist /.test(r.stdout), 'slug-convention hub must not appear as a work item');
     // discoverability pointer.
-    match(r.stdout, /2 runlists · dotmd runlists/);
+    match(r.stdout, /2 runlists · runlist runlists/);
   });
 
   it('emits a runlists array in --json, split out of active/inSession', () => {
@@ -1125,7 +1125,7 @@ next_step: do it`);
   });
 });
 
-describe('dotmd health (coordination-hub awareness)', () => {
+describe('runlist health (coordination-hub awareness)', () => {
   it('holds coordination hubs out of the pipeline/active aging into a Runlists section', () => {
     setupCoordination();
     const r = runCmd('health', []);
@@ -1133,7 +1133,7 @@ describe('dotmd health (coordination-hub awareness)', () => {
     // Pipeline active counts the 2 leaves, not the 2 hubs.
     match(r.stdout, /active\s+2\s/);
     // Dedicated runlists tally with the done/total rollup over related_plans.
-    match(r.stdout, /Runlists: 2\s+· dotmd runlists/);
+    match(r.stdout, /Runlists: 2\s+· runlist runlists/);
     match(r.stdout, /master-runlist\s+.*0\/2/);
     // Active aging lists leaves; hubs are absent from it.
     match(r.stdout, /Active plans:[\s\S]*stripe-testing/);
@@ -1170,7 +1170,7 @@ updated: 2026-06-25`);
   });
 });
 
-describe('dotmd health (pipeline derived from status vocab)', () => {
+describe('runlist health (pipeline derived from status vocab)', () => {
   it('shows live statuses the old hardcoded list hid (in-session, partial)', () => {
     const plans = setupProject();
     writeDoc(plans, 'a.md', `type: plan
@@ -1194,7 +1194,7 @@ updated: 2026-06-26`);
   });
 });
 
-describe('dotmd runlist add <hub> <child...>', () => {
+describe('runlist runlist add <hub> <child...>', () => {
   it('rolls back every child and hub write when a cross-file commit fails', async () => {
     const plans = setupProject();
     writeDoc(plans, 'hub.md', `type: plan\nstatus: active\ntitle: Hub\nupdated: 2026-01-01`);
@@ -1402,7 +1402,7 @@ updated: 2026-05-26`);
   });
 });
 
-describe('dotmd runlist remove / reorder', () => {
+describe('runlist runlist remove / reorder', () => {
   // A sprint hub with a body `## Order of operations` list (the `--runlist`
   // scaffold shape) + child files, so body-sync and slug matching are exercised.
   function sprintWithBody(plans) {
@@ -1421,7 +1421,7 @@ runlist:
 2. [B](sprint-02-b.md) ✅
 3. [C](sprint-03-c.md) ⬜
 
-Pick up the next child with \`dotmd runlist next sprint\`.
+Pick up the next child with \`runlist runlist next sprint\`.
 
 ## Version History
 `);
@@ -1526,7 +1526,7 @@ updated: 2026-05-26`);
   });
 });
 
-describe('dotmd plans --status (Runlists nav discoverability)', () => {
+describe('runlist plans --status (Runlists nav discoverability)', () => {
   it('shows a "hidden by filter" pointer when a status filter hides a live coordination hub', () => {
     const plans = setupProject();
     writeDoc(plans, 'master-runlist.md', `type: plan
@@ -1542,7 +1542,7 @@ updated: ${daysAgoDate(2)}`);
 
     const r = runCmd('plans', ['--status', 'blocked']);
     strictEqual(r.status, 0, `stderr: ${r.stderr}`);
-    match(r.stdout, /1 runlist hidden by filter\s+·\s+dotmd runlists/);
+    match(r.stdout, /1 runlist hidden by filter\s+·\s+runlist runlists/);
   });
 
   it('does not show the pointer when the filter matches the hub (no filter case)', () => {

@@ -346,7 +346,7 @@ describe('init type subdirs', () => {
     const result = run(['init']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(result.stdout.includes('docs/plans/'));
-    ok(result.stdout.includes('1 dotmd-tracked'), `expected count summary in stdout: ${result.stdout}`);
+    ok(result.stdout.includes('1 runlist-tracked'), `expected count summary in stdout: ${result.stdout}`);
     ok(result.stdout.includes('1 plain .md'), `expected plain-md count: ${result.stdout}`);
   });
 });
@@ -424,7 +424,7 @@ describe('init bulk-tag hint', () => {
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(result.stdout.includes('2 untagged .md files found'),
       `expected count + plural; got: ${result.stdout}`);
-    ok(result.stdout.includes('dotmd bulk-tag --dry-run'),
+    ok(result.stdout.includes('runlist bulk-tag --dry-run'),
       `expected command reference in hint; got: ${result.stdout}`);
   });
 
@@ -536,7 +536,7 @@ describe('init Claude integration', () => {
       `expected plugin-install recommendation; got: ${result.stdout}`);
     ok(result.stdout.includes('SessionStart'),
       `expected SessionStart fallback snippet; got: ${result.stdout}`);
-    ok(result.stdout.includes('"command": "dotmd hud"'),
+    ok(result.stdout.includes('"command": "runlist hud"'),
       `expected paste-ready hook command; got: ${result.stdout}`);
   });
 
@@ -549,11 +549,11 @@ describe('init Claude integration', () => {
     mkdirSync(path.join(tmpDir, '.claude'));
     writeFileSync(
       path.join(tmpDir, '.claude', 'settings.json'),
-      JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'dotmd hud' }] }] } }),
+      JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'runlist hud' }] }] } }),
     );
     const result = run(['init']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-    ok(!result.stdout.includes('"command": "dotmd hud"'),
+    ok(!result.stdout.includes('"command": "runlist hud"'),
       `should not print snippet when hook already wired; got: ${result.stdout}`);
     ok(result.stdout.includes('already wired'),
       `expected confirmation that hook is wired; got: ${result.stdout}`);
@@ -567,7 +567,7 @@ describe('init Claude integration', () => {
     mkdirSync(path.join(tmpDir, '.claude'));
     writeFileSync(
       path.join(tmpDir, '.claude', 'settings.local.json'),
-      JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'dotmd hud' }] }] } }),
+      JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'runlist hud' }] }] } }),
     );
     const result = run(['init']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
@@ -590,7 +590,7 @@ describe('init Claude integration', () => {
       mkdirSync(path.join(fakeHome, '.claude'));
       writeFileSync(
         path.join(fakeHome, '.claude', 'settings.json'),
-        JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'dotmd hud' }] }] } }),
+        JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'runlist hud' }] }] } }),
       );
       const result = run(['init'], undefined, { home: fakeHome });
       strictEqual(result.status, 0, `stderr: ${result.stderr}`);

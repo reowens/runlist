@@ -1,8 +1,8 @@
-# dotmd
+# runlist
 
 CLI for managing Markdown documents with YAML frontmatter.
 
-dotmd indexes, queries, validates, graphs, exports, and lifecycle-manages plans,
+runlist (formerly dotmd) indexes, queries, validates, graphs, exports, and lifecycle-manages plans,
 ADRs, RFCs, design docs, and other structured Markdown. It is built for
 AI-assisted development workflows where documents need to remain current and
 safe to mutate.
@@ -22,7 +22,9 @@ npx dotmd-cli init          # try it without installing
 
 `runlist` is the canonical executable, `rl` is its short convenience alias, and
 `dotmd` remains supported during the compatibility window. All three invoke the
-same CLI; examples below retain `dotmd` while the public package identity does.
+same CLI. The package is still published as `dotmd-cli`, and the Claude Code
+plugin is still `dotmd@dotmd`; those names change in a later release. Legacy
+`dotmd.config.*` files, `DOTMD_*` variables and `.dotmd/` state keep working.
 
 Maintainer release automation is POSIX-only because it uses Bash and POSIX
 command-line tools. The published Node.js CLI remains cross-platform.
@@ -33,19 +35,19 @@ The CLI alone gives an agent no orientation and no session identity. Install the
 integration for whichever host you run:
 
 ```bash
-dotmd install             # what's installed for each host
-dotmd install claude      # Claude Code plugin (marketplace + plugin)
-dotmd install opencode    # OpenCode plugin (one auto-discovered file)
-dotmd doctor --session    # what identity dotmd sees here, and from where
+runlist install             # what's installed for each host
+runlist install claude      # Claude Code plugin (marketplace + plugin)
+runlist install opencode    # OpenCode plugin (one auto-discovered file)
+runlist doctor --session    # what identity runlist sees here, and from where
 ```
 
-Both are one-time and global; `dotmd update` keeps them in step with the CLI.
+Both are one-time and global; `runlist update` keeps them in step with the CLI.
 Codex needs no install for identity: it exports `CODEX_THREAD_ID` to every tool
-shell, and dotmd reads it as a per-session identity automatically.
+shell, and runlist reads it as a per-session identity automatically.
 
 ### Claude Code Plugin
 
-`dotmd install claude` runs the two steps below for you. From inside a session:
+`runlist install claude` runs the two steps below for you. From inside a session:
 
 ```text
 /plugin marketplace add reowens/dotmd
@@ -58,32 +60,33 @@ guard, the canonical workflow skill, and `/plans`, `/docs`, `/prompts`, and
 
 ### OpenCode Plugin
 
-`dotmd install opencode` writes one plugin file into OpenCode's global config
+`runlist install opencode` writes one plugin file into OpenCode's global config
 directory, where OpenCode auto-discovers it — no `opencode.json` edit. It
 supplies the two things the CLI cannot get on its own:
 
 - **Per-session plan ownership.** OpenCode exports no session id to a tool
-  shell. Without the plugin, dotmd falls back to `OPENCODE_PID`, which names the
+  shell. Without the plugin, runlist falls back to `OPENCODE_PID`, which names the
   OpenCode *process* — so every session in one OpenCode instance shares an
   identity and can release the others' in-session plans.
 - **A session-start briefing**, the equivalent of Claude Code's SessionStart
   hook. OpenCode's Claude Code compatibility covers skills and the system
-  prompt, not hooks, so nothing else runs `dotmd hud`.
+  prompt, not hooks, so nothing else runs `runlist hud`.
 
-Restart OpenCode after installing. The file is version-stamped; a `dotmd.js`
-without that stamp is treated as hand-authored and is never overwritten.
+Restart OpenCode after installing. The file is version-stamped (`runlist-generated:`, or
+`dotmd-generated:` from older releases); a `dotmd.js` without either stamp is
+treated as hand-authored and is never overwritten.
 
-The plugin requires a global CLI install because its hooks resolve `dotmd` from
+The plugin requires a global CLI install because its hooks resolve `runlist` (or `dotmd`) from
 `PATH`. A project devDependency is useful for npm scripts but does not put the
 CLI on the hook's `PATH`.
 
 Keep the CLI and plugin aligned with:
 
 ```bash
-dotmd update
-dotmd update --check
-dotmd update --cli-only
-dotmd update --plugin-only
+runlist update
+runlist update --check
+runlist update --cli-only
+runlist update --plugin-only
 ```
 
 Restart Claude Code, or run `/reload-plugins`, after a plugin update.
@@ -91,29 +94,29 @@ Restart Claude Code, or run `/reload-plugins`, after a plugin update.
 ## Quick Start
 
 ```bash
-dotmd init                    # create config, docs/, and the generated index
-dotmd new plan auth-refresh  # scaffold a typed document
-dotmd briefing               # compact active-work orientation
-dotmd plans                  # live plan dashboard
-dotmd check                  # validate schema, references, and lifecycle shape
-dotmd doctor                 # preview repairs; add --apply to write
+runlist init                    # create config, docs/, and the generated index
+runlist new plan auth-refresh  # scaffold a typed document
+runlist briefing               # compact active-work orientation
+runlist plans                  # live plan dashboard
+runlist check                  # validate schema, references, and lifecycle shape
+runlist doctor                 # preview repairs; add --apply to write
 ```
 
-`dotmd briefing` is the compact orientation view. `dotmd context` is the fuller
-human/LLM briefing, while `dotmd agent-context` emits bounded structured JSON for
+`runlist briefing` is the compact orientation view. `runlist context` is the fuller
+human/LLM briefing, while `runlist agent-context` emits bounded structured JSON for
 agent integrations.
 
 ## Core Workflow
 
 ```bash
-dotmd briefing
-dotmd use docs/plans/auth-refresh.md
-dotmd set awaiting docs/plans/auth-refresh.md --note "Need API owner decision"
-dotmd set active docs/plans/auth-refresh.md --note "Decision received"
-dotmd archive docs/plans/auth-refresh.md --note "Shipped and verified"
+runlist briefing
+runlist use docs/plans/auth-refresh.md
+runlist set awaiting docs/plans/auth-refresh.md --note "Need API owner decision"
+runlist set active docs/plans/auth-refresh.md --note "Decision received"
+runlist archive docs/plans/auth-refresh.md --note "Shipped and verified"
 ```
 
-Use `dotmd set <status> [<file>]` for lifecycle changes rather than editing a
+Use `runlist set <status> [<file>]` for lifecycle changes rather than editing a
 `status:` line. It validates the status for the document type, updates history,
 runs lifecycle hooks, repairs references after moves, and synchronizes the
 index.
@@ -122,18 +125,18 @@ For unfinished session work, save the handoff and release the owned plan in one
 operation:
 
 ```bash
-dotmd baton @/tmp/resume.md
+runlist baton @/tmp/resume.md
 ```
 
 Baton refuses when a handoff for the same work is already pending, so one piece
 of work never has two resume prompts.
 
-Saved prompts are local session state. Consume them with `dotmd use`; inspect
-without consuming via `dotmd prompts show`. Consuming a baton prompt also claims
-its plan; `dotmd use --no-claim` reads and archives it without starting the plan.
+Saved prompts are local session state. Consume them with `runlist use`; inspect
+without consuming via `runlist prompts show`. Consuming a baton prompt also claims
+its plan; `runlist use --no-claim` reads and archives it without starting the plan.
 
-New plans are created `planned`; `dotmd use` starts one, and
-`dotmd new plan <name> --status <status>` sets a different starting status.
+New plans are created `planned`; `runlist use` starts one, and
+`runlist new plan <name> --status <status>` sets a different starting status.
 
 ## Document Format
 
@@ -160,11 +163,11 @@ related_docs:
 
 `status` is the only universally required field. A `type` enables type-specific
 statuses, validation, templates, and briefing behavior. Explicit frontmatter
-wins, but dotmd can also derive titles, summaries, state, next steps, checklist
+wins, but runlist can also derive titles, summaries, state, next steps, checklist
 progress, and Markdown links from the body.
 
 Use plural `modules:` and `surfaces:` arrays. The old singular keys remain
-readable for compatibility and can be migrated with `dotmd lint --fix`.
+readable for compatibility and can be migrated with `runlist lint --fix`.
 
 ### Built-In Types
 
@@ -183,19 +186,19 @@ A sprint runlist is an ordered `runlist:` array on a hub plan. Scaffold a hub
 and children together:
 
 ```bash
-dotmd new plan auth-revamp --runlist extract,rewrite,cleanup
-dotmd runlist auth-revamp
-dotmd runlist next auth-revamp
+runlist new plan auth-revamp --runlist extract,rewrite,cleanup
+runlist runlist auth-revamp
+runlist runlist next auth-revamp
 ```
 
 Mutate the structure through the CLI so the array, child `parent_plan` refs, and
 body order list remain synchronized:
 
 ```bash
-dotmd runlist add auth-revamp docs/plans/existing-plan.md
-dotmd runlist add auth-revamp follow-up
-dotmd runlist reorder auth-revamp follow-up --before cleanup
-dotmd runlist remove auth-revamp extract --clear-parent
+runlist runlist add auth-revamp docs/plans/existing-plan.md
+runlist runlist add auth-revamp follow-up
+runlist runlist reorder auth-revamp follow-up --before cleanup
+runlist runlist remove auth-revamp extract --clear-parent
 ```
 
 Archived children count as complete. Parked children (`blocked`, `partial`,
@@ -205,16 +208,16 @@ pickup but do not count as done.
 For a larger prose-first domain map, create a coordination runlist:
 
 ```bash
-dotmd new plan platform-work --coordination
-dotmd runlists
+runlist new plan platform-work --coordination
+runlist runlists
 ```
 
 For progress across several runlists, create a roadmap:
 
 ```bash
-dotmd new plan platform-roadmap --roadmap
-dotmd roadmap platform-roadmap
-dotmd roadmap platform-roadmap next
+runlist new plan platform-roadmap --roadmap
+runlist roadmap platform-roadmap
+runlist roadmap platform-roadmap next
 ```
 
 Roadmaps roll up progress recursively and choose the first startable plan across
@@ -236,17 +239,17 @@ counts so dashboards do not double-count their children.
 The CLI is the source of truth for command syntax and options:
 
 ```bash
-dotmd --help
-dotmd help all
-dotmd help statuses
-dotmd <command> --help
+runlist --help
+runlist help all
+runlist help statuses
+runlist <command> --help
 ```
 
 Shell completion is generated from the same command registry:
 
 ```bash
-eval "$(dotmd completions bash)"
-eval "$(dotmd completions zsh)"
+eval "$(runlist completions bash)"
+eval "$(runlist completions zsh)"
 ```
 
 This README intentionally documents onboarding and concepts instead of
@@ -254,7 +257,7 @@ duplicating the complete command catalog.
 
 ## Configuration
 
-Run `dotmd init` to create `dotmd.config.mjs`. A minimal typed configuration:
+Run `runlist init` to create `runlist.config.mjs` (a legacy `dotmd.config.mjs` is still read). A minimal typed configuration:
 
 ```js
 export const root = 'docs';
@@ -280,12 +283,12 @@ export const types = {
 
 Configuration supports multiple roots, custom types and templates, taxonomy,
 reference fields, presets, rendering, lifecycle hooks, validation hooks, and
-AI summarization hooks. See [`dotmd.config.example.mjs`](dotmd.config.example.mjs)
+AI summarization hooks. See [`runlist.config.example.mjs`](runlist.config.example.mjs)
 for the complete annotated reference.
 
 ## Hooks
 
-Functions exported from `dotmd.config.mjs` are detected as hooks. They can add
+Functions exported from `runlist.config.mjs` are detected as hooks. They can add
 validation, customize rendering and summaries, or react to lifecycle events.
 Hooks receive the resolved config and command context; mutation hooks participate
 in the command's dry-run and failure contracts.

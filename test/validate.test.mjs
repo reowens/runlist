@@ -300,7 +300,7 @@ describe('archive drift (#8)', () => {
     strictEqual(result.status, 1, `should fail. stdout: ${result.stdout}`);
     ok(result.stdout.includes('status: `archived`') || result.stdout.includes('`status: archived`'),
        `error names the bad status: ${result.stdout}`);
-    ok(result.stdout.includes('dotmd archive'), 'suggests dotmd archive');
+    ok(result.stdout.includes('runlist archive'), 'suggests runlist archive');
     ok(result.stdout.includes('docs/prompts/drift.md'), 'mentions the file path');
   });
 
@@ -313,7 +313,7 @@ describe('archive drift (#8)', () => {
     const result = run(['check', '--verbose']);
     strictEqual(result.status, 1, `should fail. stdout: ${result.stdout}`);
     ok(result.stdout.includes('docs/plans/drift-plan.md'), 'mentions the file path');
-    ok(result.stdout.includes('dotmd archive'), 'suggests dotmd archive');
+    ok(result.stdout.includes('runlist archive'), 'suggests runlist archive');
   });
 
   it('does NOT flag status: archived in a nested non-archive subdir (e.g., audit/)', () => {
@@ -530,7 +530,7 @@ describe('archived/terminal status suppresses noise validators', () => {
     const result = run(['check', '--verbose']);
     ok(result.stdout.includes('Unknown surface'),
       `live plan with unknown surface should warn. stdout: ${result.stdout}`);
-    ok(result.stdout.includes('dotmd surfaces'),
+    ok(result.stdout.includes('runlist surfaces'),
       `unknown-surface warning should hint at the lookup command. stdout: ${result.stdout}`);
   });
 

@@ -284,7 +284,7 @@ function _renderContext(index, config, opts = {}) {
     const shown = stale.slice(0, cap).map(d => `${toSlug(d)} (${d.daysSinceUpdate}d)`).join(', ');
     const overflow = stale.length - cap;
     const tail = overflow > 0
-      ? `${shown}, …and ${overflow} more (run \`dotmd stale\` for the full list)`
+      ? `${shown}, …and ${overflow} more (run \`runlist stale\` for the full list)`
       : shown;
     lines.push(`Stale: ${tail}`);
   } else {
@@ -297,7 +297,7 @@ function _renderContext(index, config, opts = {}) {
     const parts = [];
     if (withErrors.length) parts.push(`${withErrors.length} with errors`);
     if (withWarnings.length) parts.push(`${withWarnings.length} with warnings`);
-    lines.push(`Non-compliant: ${parts.join(', ')} (run \`dotmd check\` for details)`);
+    lines.push(`Non-compliant: ${parts.join(', ')} (run \`runlist check\` for details)`);
   }
 
   const ctx = config.context;
@@ -371,10 +371,10 @@ export function renderBriefing(index, config) {
       lines.push(`  > ${path.basename(p.path, '.md')} (${p.status}) ${next}`);
     }
     if (liveRoadmaps.length) {
-      lines.push(`  ${liveRoadmaps.length} roadmap${liveRoadmaps.length === 1 ? '' : 's'} ${dim('· dotmd roadmaps')}`);
+      lines.push(`  ${liveRoadmaps.length} roadmap${liveRoadmaps.length === 1 ? '' : 's'} ${dim('· runlist roadmaps')}`);
     }
     if (liveRunlists) {
-      lines.push(`  ${liveRunlists} runlist${liveRunlists === 1 ? '' : 's'} ${dim('· dotmd runlists')}`);
+      lines.push(`  ${liveRunlists} runlist${liveRunlists === 1 ? '' : 's'} ${dim('· runlist runlists')}`);
     }
   }
 
@@ -396,7 +396,7 @@ export function renderBriefing(index, config) {
   // with no clue what or where. `dotmd check` is the canonical detail view.
   const errorCount = index.errors.length;
   const errorPart = errorCount > 0
-    ? `Errors: ${errorCount} ${dim('(run `dotmd check` to see)')}`
+    ? `Errors: ${errorCount} ${dim('(run `runlist check` to see)')}`
     : `Errors: ${errorCount}`;
   lines.push(`Stale: ${stale} | ${errorPart} | Warnings: ${index.warnings.length}`);
 
@@ -420,13 +420,13 @@ export function classifyIssueAction(issue) {
   // re-matching their prose. Drift is mechanically fixable; an unreadable cell
   // is not — nothing can guess which word in it was meant to be the status.
   if (issue?.meta?.kind === 'hub-status-drift') {
-    return { action: 'dotmd sync-status', fixable: true, label: 'hub status drift' };
+    return { action: 'runlist sync-status', fixable: true, label: 'hub status drift' };
   }
   if (issue?.meta?.kind === 'hub-status-unreadable') {
     return { action: `edit ${file}: lead the status cell with the status word, or wrap it in <!--s-->…<!--/s-->`, fixable: false, label: 'hub status rows' };
   }
   if (issue?.meta?.kind === 'hub-membership-backref') {
-    return { action: 'dotmd fix-membership', fixable: true, label: 'membership back-references' };
+    return { action: 'runlist fix-membership', fixable: true, label: 'membership back-references' };
   }
   if (issue?.meta?.kind === 'hub-membership-orphan') {
     return { action: `edit ${file}: add the child to the hub's meaningful list, or correct the child's parent_plan`, fixable: false, label: 'orphan membership claims' };
@@ -436,41 +436,41 @@ export function classifyIssueAction(issue) {
   }
 
   if (/Missing frontmatter `status`/.test(message)) {
-    return { action: `dotmd bulk-tag ${file}`, fixable: false, label: 'missing status' };
+    return { action: `runlist bulk-tag ${file}`, fixable: false, label: 'missing status' };
   }
   if (/Missing frontmatter `updated`/.test(message) || /frontmatter `updated: .*` is behind git history/.test(message)) {
-    return { action: 'dotmd touch --git', fixable: true, label: 'dates' };
+    return { action: 'runlist touch --git', fixable: true, label: 'dates' };
   }
-  if ((/`(?:module|surface):` \(singular\) is deprecated/.test(message) && /Run `dotmd lint --fix`/.test(message))
+  if ((/`(?:module|surface):` \(singular\) is deprecated/.test(message) && /Run `runlist lint --fix`/.test(message))
     || /camelCase|nextStep|currentState|auditLevel/.test(message)) {
-    return { action: 'dotmd lint --fix', fixable: true, label: 'frontmatter migrations' };
+    return { action: 'runlist lint --fix', fixable: true, label: 'frontmatter migrations' };
   }
   if (/Unknown surface/.test(message)) {
-    return { action: 'dotmd surfaces', fixable: false, label: 'taxonomy' };
+    return { action: 'runlist surfaces', fixable: false, label: 'taxonomy' };
   }
   if (/Glossary config points at section|Glossary file configured/.test(message)) {
-    return { action: 'edit dotmd.config.mjs glossary.path/glossary.section', fixable: false, label: 'glossary config' };
+    return { action: 'edit runlist.config.mjs glossary.path/glossary.section', fixable: false, label: 'glossary config' };
   }
   if (/under `.*\/` but `status: .*` is not an archive status/.test(message)) {
-    return { action: message.match(/Run `([^`]+)`/)?.[1] ?? `dotmd set archived ${file}`, fixable: true, label: 'archive drift' };
+    return { action: message.match(/Run `([^`]+)`/)?.[1] ?? `runlist set archived ${file}`, fixable: true, label: 'archive drift' };
   }
   if (/`status: .*` but file is a direct child/.test(message)) {
-    return { action: `dotmd archive ${file}`, fixable: true, label: 'archive drift' };
+    return { action: `runlist archive ${file}`, fixable: true, label: 'archive drift' };
   }
   if (/`current_state` is \d+ chars|`next_step` is \d+ chars/.test(message)) {
-    return { action: 'dotmd doctor --frontmatter-fix', fixable: true, label: 'long frontmatter' };
+    return { action: 'runlist doctor --frontmatter-fix', fixable: true, label: 'long frontmatter' };
   }
   if (/`modules` is required/.test(message)) {
-    return { action: `edit ${file} modules: or run dotmd lint --fix if scaffolded empty`, fixable: false, label: 'module metadata' };
+    return { action: `edit ${file} modules: or run runlist lint --fix if scaffolded empty`, fixable: false, label: 'module metadata' };
   }
   if (issue?.meta?.kind === 'body-link-resolution') {
     if (issue.meta.targetKind === 'document' && issue.meta.reason === 'missing') {
-      return { action: 'dotmd fix-refs --dry-run', fixable: true, label: 'document links' };
+      return { action: 'runlist fix-refs --dry-run', fixable: true, label: 'document links' };
     }
     return { action: `edit ${file}: correct the linked file, asset, or directory`, fixable: false, label: 'file links' };
   }
   if (/entry `.*` does not resolve/.test(message)) {
-    return { action: 'dotmd fix-refs --dry-run', fixable: true, label: 'references' };
+    return { action: 'runlist fix-refs --dry-run', fixable: true, label: 'references' };
   }
 
   return { action: `edit ${file}`, fixable: false, label: 'manual review' };
@@ -573,7 +573,7 @@ function _renderCheck(index, config, opts = {}) {
       }
       lines.push('');
     } else {
-      lines.push(dim(`Run \`dotmd check --verbose\` for per-doc detail. \`dotmd doctor --apply\` auto-fixes supported issues (bare \`dotmd doctor\` previews only); remaining issues need the suggested manual command.`));
+      lines.push(dim(`Run \`runlist check --verbose\` for per-doc detail. \`runlist doctor --apply\` auto-fixes supported issues (bare \`runlist doctor\` previews only); remaining issues need the suggested manual command.`));
       lines.push('');
     }
   }

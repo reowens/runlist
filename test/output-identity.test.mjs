@@ -22,7 +22,7 @@ describe('allocateOutputIdentities', () => {
     const reverse = allocateOutputIdentities([...docs].reverse());
     for (const item of docs) {
       const htmlPath = forward.get(item.path).htmlPath;
-      match(htmlPath, /^__dotmd\/[a-f0-9]{64}\.html$/);
+      match(htmlPath, /^__runlist\/[a-f0-9]{64}\.html$/);
       strictEqual(reverse.get(item.path).htmlPath, htmlPath);
     }
   });
@@ -31,14 +31,16 @@ describe('allocateOutputIdentities', () => {
     const docs = [
       doc('docs/index.md'),
       doc('docs/index.html/child.md'),
-      doc('docs/__dotmd/own.md'),
+      doc('docs/__runlist/own.md'),
+      // The legacy fallback directory stays reserved for old export trees.
+      doc('docs/__dotmd/legacy.md'),
       doc('docs/A.md'),
       doc('docs/a.md'),
       doc('docs/foo.md'),
       doc('docs/foo.html/bar.md'),
     ];
     const identities = allocateOutputIdentities(docs);
-    for (const item of docs) match(identities.get(item.path).htmlPath, /^__dotmd\//);
+    for (const item of docs) match(identities.get(item.path).htmlPath, /^__runlist\//);
     strictEqual(new Set([...identities.values()].map(value => value.htmlPath)).size, docs.length);
   });
 
@@ -62,7 +64,7 @@ describe('allocateOutputIdentities', () => {
     const all = [doc('docs/a.md'), doc('notes/a.md', 'notes'), doc('docs/b.md')];
     const identities = allocateOutputIdentities(all);
     deepStrictEqual([...identities.keys()].sort(), all.map(item => item.path).sort());
-    match(identities.get('docs/a.md').htmlPath, /^__dotmd\//);
+    match(identities.get('docs/a.md').htmlPath, /^__runlist\//);
   });
 
   it('percent-encodes URL segments without encoding separators', () => {

@@ -99,7 +99,7 @@ function runDoctorTransactions(argv, config, opts = {}) {
   }
   if (resolvable.length) {
     process.stdout.write(`\n${resolvable.length} resolvable — the canonical files already agree on one generation.\n`);
-    process.stdout.write(dim('Run `dotmd doctor --transactions --apply` to clear them (no document content is touched).\n'));
+    process.stdout.write(dim('Run `runlist doctor --transactions --apply` to clear them (no document content is touched).\n'));
   }
   const stuck = report.filter(item => !item.resolvable && !clearedIds.has(item.id) && (item.status === 'failed-manual' || !item.readable));
   if (stuck.length) {
@@ -152,7 +152,7 @@ async function runDoctorClaims(argv, config, opts = {}) {
         // status into. Deciding by existence here rather than by catching
         // runSet's "File not found" keeps the bypass narrow and explicit.
         if (existsSync(path.resolve(config.repoRoot, claim.plan))) {
-          await runSet(['active', claim.plan], config, { force: true, sessionId: operator, note: 'Claim released by `dotmd doctor --claims` — the owning session was gone.' });
+          await runSet(['active', claim.plan], config, { force: true, sessionId: operator, note: 'Claim released by `runlist doctor --claims` — the owning session was gone.' });
         } else {
           releaseVanishedPlanClaim(claim, config);
           claim.vanished = true;
@@ -201,13 +201,13 @@ async function runDoctorClaims(argv, config, opts = {}) {
   const pendingDead = dead.filter(claim => !releasedSet.has(claim.plan));
   if (pendingDead.length) {
     process.stdout.write(yellow(`\n${pendingDead.length} held by a session whose process is gone.\n`));
-    process.stdout.write(dim('Run `dotmd doctor --claims --apply` to release them.\n'));
+    process.stdout.write(dim('Run `runlist doctor --claims --apply` to release them.\n'));
   }
   const unjudgeable = claims.filter(claim =>
     !claim.corrupt && claim.liveness !== 'dead' && !releasedSet.has(claim.plan));
   if (unjudgeable.length && olderThanMs === null) {
     process.stdout.write(dim(`\n${unjudgeable.length} cannot be judged from here — no owning process was recorded, or it is on another machine.\n`));
-    process.stdout.write(dim('If you know those sessions are over: `dotmd doctor --claims --apply --older-than 24h`.\n'));
+    process.stdout.write(dim('If you know those sessions are over: `runlist doctor --claims --apply --older-than 24h`.\n'));
   }
 }
 
@@ -228,10 +228,10 @@ function runDoctorSession(argv) {
   for (const line of identity.advice) process.stdout.write(`    → ${line}\n`);
 
   process.stdout.write('\n' + bold('Host integration\n'));
-  if (oc.foreign) process.stdout.write(`  ${yellow('!')} opencode: a dotmd.js dotmd did not write — ${oc.path}\n`);
+  if (oc.foreign) process.stdout.write(`  ${yellow('!')} opencode: a dotmd.js runlist did not write — ${oc.path}\n`);
   else if (!oc.exists) process.stdout.write(`  ${dim('·')} opencode: not installed — ${dim(oc.path)}\n`);
-  else process.stdout.write(`  ${oc.stale ? yellow('!') : green('✓')} opencode: ${oc.version}${oc.stale ? ` (CLI is ${dotmdVersion()} — run \`dotmd update\`)` : ''}\n`);
-  process.stdout.write(dim('  Claude Code ships as a plugin — `dotmd install` reports both hosts.\n'));
+  else process.stdout.write(`  ${oc.stale ? yellow('!') : green('✓')} opencode: ${oc.version}${oc.stale ? ` (CLI is ${dotmdVersion()} — run \`runlist update\`)` : ''}\n`);
+  process.stdout.write(dim('  Claude Code ships as a plugin — `runlist install` reports both hosts.\n'));
 }
 
 export function runDoctor(argv, config, opts = {}) {
@@ -273,7 +273,7 @@ export function runDoctor(argv, config, opts = {}) {
   const modeNote = dryRun
     ? dim('[preview — run with --apply to write]')
     : dim('[applying changes]');
-  process.stdout.write(bold('dotmd doctor') + ' ' + modeNote + '\n\n');
+  process.stdout.write(bold('runlist doctor') + ' ' + modeNote + '\n\n');
   if (dryRun) {
     const skippedHooks = ['validate', 'transformDoc', 'formatSnapshot', 'renderCheck']
       .filter(name => typeof config.hooks?.[name] === 'function');
@@ -335,7 +335,7 @@ export function runDoctor(argv, config, opts = {}) {
       process.stdout.write('[dry-run] No retired slash-command files to remove.\n');
     } else {
       for (const r of wouldRemove) {
-        process.stdout.write(`[dry-run] Would remove retired .claude/commands/${r.name} (guidance now ships via the dotmd plugin).\n`);
+        process.stdout.write(`[dry-run] Would remove retired .claude/commands/${r.name} (guidance now ships via the runlist plugin).\n`);
       }
     }
   } else {
@@ -344,7 +344,7 @@ export function runDoctor(argv, config, opts = {}) {
       process.stdout.write('Nothing to clean up.\n');
     } else {
       for (const r of removed) {
-        process.stdout.write(`${green('Removed')} retired .claude/commands/${r.name} (guidance now ships via the dotmd plugin)\n`);
+        process.stdout.write(`${green('Removed')} retired .claude/commands/${r.name} (guidance now ships via the runlist plugin)\n`);
       }
     }
   }
@@ -369,7 +369,7 @@ export function runDoctor(argv, config, opts = {}) {
     process.stdout.write('\n' + bold('Session identity') + '\n');
     process.stdout.write(`${yellow('!')} ${identity.summary}\n`);
     for (const line of identity.advice) process.stdout.write(dim(`  → ${line}\n`));
-    process.stdout.write(dim('  `dotmd doctor --session` for the full picture.\n'));
+    process.stdout.write(dim('  `runlist doctor --session` for the full picture.\n'));
   }
 }
 
@@ -387,7 +387,7 @@ function findDeprecatedCommandMentions(config) {
   for (const filePath of docs) {
     let raw = '';
     try { raw = readFileSync(filePath, 'utf8'); } catch { continue; }
-    if (/\bdotmd status\b/.test(raw) || /\bdotmd (pickup|unpickup|release|finish)\b/.test(raw)) {
+    if (/\b(?:dotmd|runlist|rl) status\b/.test(raw) || /\b(?:dotmd|runlist|rl) (pickup|unpickup|release|finish)\b/.test(raw)) {
       matches.push(toRepoPath(filePath, config.repoRoot));
     }
   }
@@ -445,7 +445,7 @@ function runDoctorProject(config, { json = false } = {}) {
     return result;
   }
 
-  process.stdout.write(bold('dotmd doctor --project') + '\n\n');
+  process.stdout.write(bold('runlist doctor --project') + '\n\n');
   process.stdout.write(`- running CLI version: ${result.cliVersion ?? 'unknown'}\n`);
   process.stdout.write(`- package dependency: ${result.packageDependency ?? '(none found)'}\n`);
   process.stdout.write(`- stale Claude commands: ${claudeCommandWarnings.length}\n`);
@@ -456,18 +456,18 @@ function runDoctorProject(config, { json = false } = {}) {
     process.stdout.write('- docs mentioning deprecated commands: 0\n');
   }
   if (docsWithoutFrontmatter.length) {
-    process.stdout.write(yellow(`- docs without a frontmatter block: ${docsWithoutFrontmatter.length} — every status verb (\`set\`, \`archive\`, \`baton\`) dies on these. Fix: dotmd bulk-tag <file> --type <type> --status <status>`) + '\n');
+    process.stdout.write(yellow(`- docs without a frontmatter block: ${docsWithoutFrontmatter.length} — every status verb (\`set\`, \`archive\`, \`baton\`) dies on these. Fix: runlist bulk-tag <file> --type <type> --status <status>`) + '\n');
     for (const file of docsWithoutFrontmatter.slice(0, 10)) process.stdout.write(`  - ${file}\n`);
   } else {
     process.stdout.write('- docs without a frontmatter block: 0\n');
   }
   if (planStatusGaps.length) {
-    process.stdout.write(yellow(`- plan status vocab missing: ${planStatusGaps.join(', ')} — \`dotmd use\` and \`dotmd baton\` depend on these; add them to types.plan.statuses in dotmd.config.mjs`) + '\n');
+    process.stdout.write(yellow(`- plan status vocab missing: ${planStatusGaps.join(', ')} — \`runlist use\` and \`runlist baton\` depend on these; add them to types.plan.statuses in runlist.config.mjs`) + '\n');
   } else {
     process.stdout.write('- plan status vocab: ok\n');
   }
   if (skillDriftWarnings.length) {
-    process.stdout.write(yellow(`- canonical workflow block: drifted — CLAUDE.md and the plugin SKILL.md teach different workflows. Reconcile the block between the \`dotmd:canonical-workflow\` markers in both files.`) + '\n');
+    process.stdout.write(yellow(`- canonical workflow block: drifted — CLAUDE.md and the plugin SKILL.md teach different workflows. Reconcile the block between the \`runlist:canonical-workflow\` markers in both files.`) + '\n');
   } else {
     process.stdout.write('- canonical workflow block: in sync\n');
   }
@@ -559,7 +559,7 @@ function runDoctorStatuses(config, { json = false } = {}) {
     return;
   }
 
-  process.stdout.write(bold('dotmd doctor --statuses') + '\n\n');
+  process.stdout.write(bold('runlist doctor --statuses') + '\n\n');
 
   if (suggestions.length === 0) {
     process.stdout.write(`No overloaded status buckets detected (min bucket size: ${MIN_BUCKET_SIZE}).\n`);

@@ -163,8 +163,8 @@ export function runMigrateTemplate(argv, config, opts = {}) {
   }
 
   if (dryRun) {
-    process.stdout.write(`\nRun ${bold('dotmd doctor --migrate-template')} without --dry-run to apply.\n`);
+    process.stdout.write(`\nRun ${bold('runlist doctor --migrate-template')} without --dry-run to apply.\n`);
   } else {
-    process.stdout.write(`\n${green('Done.')} Re-run ${bold('dotmd check')} to see remaining issues.\n`);
+    process.stdout.write(`\n${green('Done.')} Re-run ${bold('runlist check')} to see remaining issues.\n`);
   }
 }

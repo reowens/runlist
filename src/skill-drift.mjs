@@ -15,9 +15,19 @@ import path from 'node:path';
 // surface and forgetting the other is exactly what this catches.
 
 export const CANONICAL_MARKERS = {
+  start: '<!-- runlist:canonical-workflow:start -->',
+  end: '<!-- runlist:canonical-workflow:end -->',
+};
+
+// The spelling used through dotmd-cli 0.78.0. Still read, so a copy of either
+// surface that predates the rename keeps participating in the lockstep instead
+// of silently dropping out of it. A block must open and close with the same
+// spelling; the current spelling is tried first.
+export const LEGACY_CANONICAL_MARKERS = {
   start: '<!-- dotmd:canonical-workflow:start -->',
   end: '<!-- dotmd:canonical-workflow:end -->',
 };
+const MARKER_SETS = [CANONICAL_MARKERS, LEGACY_CANONICAL_MARKERS];
 
 const CLAUDE_MD = 'CLAUDE.md';
 const SKILL_MD = path.join('plugins', 'dotmd', 'skills', 'dotmd', 'SKILL.md');
@@ -28,12 +38,15 @@ const SKILL_MD = path.join('plugins', 'dotmd', 'skills', 'dotmd', 'SKILL.md');
 // its own CLAUDE.md (but never adopted the block) from ever tripping the guard.
 export function extractCanonicalBlock(text) {
   if (typeof text !== 'string') return null;
-  const startIdx = text.indexOf(CANONICAL_MARKERS.start);
-  if (startIdx === -1) return null;
-  const afterStart = startIdx + CANONICAL_MARKERS.start.length;
-  const endIdx = text.indexOf(CANONICAL_MARKERS.end, afterStart);
-  if (endIdx === -1 || endIdx < afterStart) return null;
-  return text.slice(afterStart, endIdx);
+  for (const markers of MARKER_SETS) {
+    const startIdx = text.indexOf(markers.start);
+    if (startIdx === -1) continue;
+    const afterStart = startIdx + markers.start.length;
+    const endIdx = text.indexOf(markers.end, afterStart);
+    if (endIdx === -1 || endIdx < afterStart) continue;
+    return text.slice(afterStart, endIdx);
+  }
+  return null;
 }
 
 // Whitespace-tolerant so a CRLF vs LF or a stray trailing space between the two

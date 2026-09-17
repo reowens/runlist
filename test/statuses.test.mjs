@@ -76,7 +76,7 @@ afterEach(() => {
   if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
 });
 
-describe('dotmd statuses list', () => {
+describe('runlist statuses list', () => {
   it('prints all statuses with flags, per type', () => {
     setupRich();
     const r = run([]);
@@ -127,7 +127,7 @@ describe('dotmd statuses list', () => {
   });
 });
 
-describe('dotmd statuses add', () => {
+describe('runlist statuses add', () => {
   it('clones from --like and applies user flag overrides', () => {
     setupRich();
     const r = run(['add', 'paused', '--type', 'plan', '--like', 'blocked', '--quiet', '--yes']);
@@ -213,7 +213,7 @@ describe('dotmd statuses add', () => {
   });
 });
 
-describe('dotmd statuses set', () => {
+describe('runlist statuses set', () => {
   it('edits a flag, atomic write succeeds', () => {
     setupRich();
     const r = run(['set', 'blocked', '--type', 'plan', '--staleDays', '60', '--yes']);
@@ -245,7 +245,7 @@ describe('dotmd statuses set', () => {
   });
 });
 
-describe('dotmd statuses remove', () => {
+describe('runlist statuses remove', () => {
   it('deletes and re-import works', () => {
     setupRich();
     const r = run(['remove', 'blocked', '--type', 'plan', '--yes']);
@@ -264,7 +264,7 @@ describe('dotmd statuses remove', () => {
     const r = run(['remove', 'blocked', '--type', 'plan', '--yes']);
     ok(r.status !== 0);
     ok(r.stderr.includes('docs/foo.md'));
-    ok(r.stderr.includes('dotmd migrate'));
+    ok(r.stderr.includes('runlist migrate'));
   });
 
   it('warns when explicit lifecycle references the name', () => {
@@ -281,7 +281,7 @@ export const lifecycle = {
   });
 });
 
-describe('dotmd statuses migrate', () => {
+describe('runlist statuses migrate', () => {
   it('converts array form to rich form, pulling in peer staleDays/context/moduleRequiredFor', async () => {
     setupArrayForm();
     const r = run(['migrate', 'plan', '--yes']);
@@ -360,10 +360,10 @@ export const lifecycle = {
 });
 
 describe('write commands without a config', () => {
-  it('error with `dotmd init` hint', () => {
+  it('error with `runlist init` hint', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-statuses-empty-'));
     const r = run(['add', 'foo', '--type', 'plan', '--like', 'active', '--yes']);
     ok(r.status !== 0);
-    ok(r.stderr.includes('dotmd init'));
+    ok(r.stderr.includes('runlist init'));
   });
 });

@@ -218,7 +218,7 @@ export function runLint(argv, config, opts = {}) {
           }
         }
       }
-      process.stdout.write(`\nRun ${bold('dotmd lint --fix')} to auto-fix.\n`);
+      process.stdout.write(`\nRun ${bold('runlist lint --fix')} to auto-fix.\n`);
     }
 
     if (nonFixable.length > 0) {

@@ -203,7 +203,7 @@ function transactionRepairMessage(manifestPath, manifest, reason) {
     ...(manifest.gitIndex?.retainedPaths ?? []),
   ].filter(Boolean);
   return `${reason}\nTransaction recovery refused to guess. Manifest: ${manifestPath}\n` +
-    `Start with \`dotmd doctor --transactions\` — it reports this transaction's state and resolves it when the canonical files agree on one generation.\n` +
+    `Start with \`runlist doctor --transactions\` — it reports this transaction's state and resolves it when the canonical files agree on one generation.\n` +
     `If it reports the generations as ambiguous, inspect the canonical files and recovery artifacts, then restore one complete generation and remove the manifest:\n` +
     `${artifacts.map(item => `  ${item}`).join('\n') || '  (no content artifacts)'}`;
 }

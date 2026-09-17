@@ -338,7 +338,7 @@ export function readBodyInput(source) {
       if (isBodyPlaceholder(file)) {
         die(`\`@${file}\` is a placeholder, not a real path — write the body to a file first, then pass it:\n` +
           `  @/tmp/my-draft.md   read the body from that file\n` +
-          `  -                   read the body from stdin (\`cat notes.md | dotmd …\`)\n` +
+          `  -                   read the body from stdin (\`cat notes.md | runlist …\`)\n` +
           `  --message "..."     short one-liners only`);
       }
       die(`Body file not found: ${file}`);
@@ -447,8 +447,8 @@ ${bodyInput?.trim() ?? ''}
 
 ${steps}
 
-Pick up the next child with \`dotmd runlist next ${hubSlug}\` — it targets the
-first non-archived child. \`dotmd runlist ${hubSlug}\` shows the sequence + status.
+Pick up the next child with \`runlist runlist next ${hubSlug}\` — it targets the
+first non-archived child. \`runlist runlist ${hubSlug}\` shows the sequence + status.
 
 ## Version History
 
@@ -493,7 +493,7 @@ function roadmapHubBody(title, hubSlug, bodyInput, today) {
 # ${title}
 
 > One-paragraph: the domain this roadmap composes. A roadmap points at *runlists*
-> (not leaf plans) and rolls their done/total up — see \`dotmd roadmap ${hubSlug}\`.
+> (not leaf plans) and rolls their done/total up — see \`runlist roadmap ${hubSlug}\`.
 
 ## Scope
 
@@ -687,7 +687,7 @@ export async function runNew(argv, config, opts = {}) {
       name = await promptText(`${typeName} name: `);
       if (!name) die('No name provided.');
     } else {
-      die(`Usage: dotmd new <type> <name> [body]\n       types: ${[...knownTypes].join(', ')}\n       body: inline text | piped stdin (auto) | "@path" (file) | --body "..."`);
+      die(`Usage: runlist new <type> <name> [body]\n       types: ${[...knownTypes].join(', ')}\n       body: inline text | piped stdin (auto) | "@path" (file) | --body "..."`);
     }
   }
 
@@ -734,7 +734,7 @@ export async function runNew(argv, config, opts = {}) {
   if (planShapes.length > 0 && typeName !== 'plan') {
     const flag = planShapes[0][0];
     const usage = flag === '--runlist' ? '--runlist a,b,c' : flag;
-    die(`${flag} only applies to plans. Use: dotmd new plan <name> ${usage}`);
+    die(`${flag} only applies to plans. Use: runlist new plan <name> ${usage}`);
   }
   if (planShapes.length > 1) {
     die(`${planShapes.map(([f]) => f).join(' and ')} are mutually exclusive — a plan has one body shape. Pick one.`);
@@ -787,7 +787,7 @@ export async function runNew(argv, config, opts = {}) {
   }
 
   if (template.requiresBody && (!bodyInput || !bodyInput.trim())) {
-    die(`\`${typeName}\` template requires a body. Pipe stdin (\`cat draft.md | dotmd new ${typeName} <slug>\`), pass @path, --body "...", or inline text.`);
+    die(`\`${typeName}\` template requires a body. Pipe stdin (\`cat draft.md | runlist new ${typeName} <slug>\`), pass @path, --body "...", or inline text.`);
   }
 
   // Fail-fast when the user passes body input to a template that doesn't
@@ -817,10 +817,10 @@ export async function runNew(argv, config, opts = {}) {
     const builtinAccepts = Boolean(builtin && (builtin.acceptsBody || builtin.requiresBody));
     let cause;
     if (isOverride && builtinAccepts) {
-      const where = config.configPath ? toRepoPath(config.configPath, config.repoRoot) : 'dotmd.config.mjs';
+      const where = config.configPath ? toRepoPath(config.configPath, config.repoRoot) : 'runlist.config.mjs';
       cause = `Your config (${where}) overrides the built-in \`${typeName}\` template, and the override drops body acceptance.\nFix: in that override, add \`acceptsBody: true\` AND interpolate \`\${ctx?.bodyInput?.trim() ?? ''}\` into your \`body\` fn (e.g., inside \`## Problem\`). Or drop the override to use the built-in.`;
     } else {
-      cause = `Either drop the body, switch to a template that accepts it, or set \`acceptsBody: true\` on your custom \`${typeName}\` template in dotmd.config.mjs.`;
+      cause = `Either drop the body, switch to a template that accepts it, or set \`acceptsBody: true\` on your custom \`${typeName}\` template in runlist.config.mjs.`;
     }
     die(`\`${typeName}\` template does not accept body input, but body was passed via ${bodyInputSource}.${hint}\n${cause}`);
   }
@@ -909,7 +909,7 @@ export async function runNew(argv, config, opts = {}) {
         + `  ${repoPath}\n\n`
         + `A name with a \`/\` is read relative to the repo.\n`
         + `To place it under a root instead:\n`
-        + `  dotmd new ${typeName} ${name} --root ${path.basename(targetRoot)}\n`
+        + `  runlist new ${typeName} ${name} --root ${path.basename(targetRoot)}\n`
         + `     → ${toRepoPath(rooted, config.repoRoot)}\n\n`
         + `Roots: ${allRoots.map(root => path.basename(root)).join(', ')}`);
     }
@@ -1039,7 +1039,7 @@ export async function runNew(argv, config, opts = {}) {
   // confusingly). Tell the agent the next step explicitly, and flag a gitignored
   // target for any type so "why won't this commit" never happens silently.
   if (typeName === 'prompt') {
-    process.stdout.write(dim('Session-local — no need to commit. The next session runs `dotmd use` (or `dotmd use ' + repoPath + '`) to consume it.\n'));
+    process.stdout.write(dim('Session-local — no need to commit. The next session runs `runlist use` (or `runlist use ' + repoPath + '`) to consume it.\n'));
   }
   // Teach the field-length contract at the moment the fields get written —
   // learning it from a cap warning later sends sessions into hand-trim /

@@ -36,17 +36,17 @@ try {
 
   if ((process.env.RUNLIST_AUTO_PLUGIN_UPDATE ?? process.env.DOTMD_AUTO_PLUGIN_UPDATE) === '1' && hasClaude) {
     spawnSync('claude', ['plugin', 'update', 'dotmd@dotmd'], { stdio: 'ignore', timeout: 60000 });
-    process.stdout.write('dotmd: refreshed the Claude Code plugin — restart your session (or /reload-plugins) to apply.\n');
+    process.stdout.write('runlist: refreshed the Claude Code plugin — restart your session (or /reload-plugins) to apply.\n');
   } else {
     // The CLI just installed fresh, so only the plugin can be stale — point at
     // the targeted refresh rather than the full `dotmd update` (CLI + plugin).
     const nudge = hasClaude
-      ? 'dotmd CLI installed. Using the Claude Code plugin? Run `dotmd update --plugin-only` to refresh it, then restart.'
-      : 'dotmd CLI installed.';
+      ? 'runlist CLI installed. Using the Claude Code plugin? Run `runlist update --plugin-only` to refresh it, then restart.'
+      : 'runlist CLI installed.';
     process.stdout.write(`${nudge}\n`);
   }
   if (hasOpencode) {
-    process.stdout.write('dotmd: OpenCode detected — run `dotmd install opencode` for per-session plan ownership and a session-start briefing.\n');
+    process.stdout.write('runlist: OpenCode detected — run `runlist install opencode` for per-session plan ownership and a session-start briefing.\n');
   }
 } catch {
   // Best effort only — never break the install.

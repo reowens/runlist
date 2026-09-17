@@ -16,9 +16,9 @@ export async function runRename(argv, config, opts = {}) {
   const positional = argv.filter(arg => !arg.startsWith('-'));
   const oldInput = positional[0];
   let newInput = positional[1];
-  if (!oldInput) die('Usage: dotmd rename <old> <new>');
+  if (!oldInput) die('Usage: runlist rename <old> <new>');
   if (!newInput) {
-    if (!isInteractive()) die('Usage: dotmd rename <old> <new>');
+    if (!isInteractive()) die('Usage: runlist rename <old> <new>');
     newInput = await promptText('New name: ');
     if (!newInput) die('No name provided.');
   }

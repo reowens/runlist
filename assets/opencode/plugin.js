@@ -1,4 +1,4 @@
-// dotmd's OpenCode integration. Installed by `dotmd install opencode`, which
+// runlist's OpenCode integration. Installed by `runlist install opencode`, which
 // copies this file (with a version banner prepended) to the OpenCode plugin
 // directory, where OpenCode auto-discovers it — it globs
 // `{plugin,plugins}/*.{ts,js}` under `.opencode/` and the global config dir, so
@@ -13,7 +13,7 @@
 //
 //  2. NO HOOK MAY THROW. OpenCode awaits hook callbacks inside the request it
 //     is serving; a rejected promise fails the user's chat turn. Every hook
-//     body is wrapped, and a failure degrades to "dotmd does nothing here"
+//     body is wrapped, and a failure degrades to "runlist does nothing here"
 //     rather than to a broken session.
 //
 // Runs under Bun inside the OpenCode process. Node builtins only, no deps.
@@ -60,7 +60,7 @@ function runCli(directory, args, input = null) {
   });
 }
 
-// OpenCode runs no Claude Code hooks, so `dotmd guard` never sees its tool
+// OpenCode runs no Claude Code hooks, so `runlist guard` never sees its tool
 // calls, and sessions opened pending prompts with the read tool, which prints a
 // prompt without archiving it. The guard's answer for a prompt read is a
 // warning, not a block, so it is applied after the call: the teaching text is
@@ -98,7 +98,7 @@ export default async function dotmdOpencodePlugin({ directory }) {
 
   return {
     // Ownership identity. OpenCode sets no session-id variable of its own, and
-    // `OPENCODE_PID` — what dotmd falls back to without this plugin — names the
+    // `OPENCODE_PID` — what runlist falls back to without this plugin — names the
     // OpenCode *process*, so every session in one TUI shares it and can release
     // the others' plans. This is the only place the real session id is
     // available to a tool shell.
@@ -106,11 +106,12 @@ export default async function dotmdOpencodePlugin({ directory }) {
       try {
         if (input?.sessionID) {
           output.env.RUNLIST_SESSION_ID = `opencode:${input.sessionID}`;
+          // Legacy name, kept for an older CLI (before 0.77.0) still on PATH.
           output.env.DOTMD_SESSION_ID = `opencode:${input.sessionID}`;
         }
         // The OpenCode server process hosts the session and outlives every tool
         // shell, so it is the process whose liveness answers "is this claim's
-        // owner still there?" — `dotmd doctor --claims` probes exactly this.
+        // owner still there?" — `runlist doctor --claims` probes exactly this.
         output.env.RUNLIST_SESSION_PID = String(process.pid);
         output.env.DOTMD_SESSION_PID = String(process.pid);
       } catch { /* never break a shell over this */ }
@@ -130,7 +131,7 @@ export default async function dotmdOpencodePlugin({ directory }) {
     },
 
     // Session priming — the equivalent of the SessionStart hook that runs
-    // `dotmd hud` under Claude Code. Silent outside a dotmd repo (hud prints
+    // `runlist hud` under Claude Code. Silent outside a runlist repo (hud prints
     // nothing and exits 0), so this is inert in unrelated projects.
     'experimental.chat.system.transform': async (input, output) => {
       try {

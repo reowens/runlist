@@ -241,7 +241,7 @@ n/a
   });
 });
 
-describe('dotmd sync-status', () => {
+describe('runlist sync-status', () => {
   it('rewrites drifted rows, preserving case and the rest of the cell', () => {
     const plans = setupProject();
     child(path.join(plans, 'archived'), 'billing-a.md', 'archived');
@@ -360,7 +360,7 @@ describe('dotmd sync-status', () => {
     // Marked drift is an error, and `check` prints the fix command for errors.
     const result = run(['check']);
     strictEqual(result.status, 1);
-    match(result.stdout, /Fixable actions\n- dotmd sync-status/);
+    match(result.stdout, /Fixable actions\n- runlist sync-status/);
 
     // An unreadable cell is a warning and is never claimed as auto-fixable —
     // nothing can guess which word in the cell was meant to be the status.
@@ -377,7 +377,7 @@ describe('dotmd sync-status', () => {
     const file = classifyIssueAction({ ...base, meta: { ...base.meta, targetKind: 'file', reason: 'missing' } });
     const escape = classifyIssueAction({ ...base, meta: { ...base.meta, targetKind: 'document', reason: 'outside-repo' } });
     strictEqual(document.fixable, true);
-    strictEqual(document.action, 'dotmd fix-refs --dry-run');
+    strictEqual(document.action, 'runlist fix-refs --dry-run');
     strictEqual(file.fixable, false);
     match(file.action, /correct the linked file, asset, or directory/);
     strictEqual(escape.fixable, false);

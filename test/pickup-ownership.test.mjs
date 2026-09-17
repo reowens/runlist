@@ -530,7 +530,7 @@ describe('durable lifecycle ownership', () => {
     strictEqual(run(['use', file], 'A').status, 0);
     const denied = run(['rename', file, 'busy-rename-two'], 'B');
     ok(denied.status !== 0);
-    match(denied.stderr, /release it first with `dotmd set <status> docs\/plans\/busy-rename\.md --force`/);
+    match(denied.stderr, /release it first with `runlist set <status> docs\/plans\/busy-rename\.md --force`/);
     ok(existsSync(file));
   });
 
@@ -640,7 +640,7 @@ describe('durable lifecycle ownership', () => {
     // withholds the body. The unpark hint has to name a status THIS repo calls
     // startable — `ready-now` here — not the built-in default.
     for (const [name, expected] of [
-      ['parked', /is active — `dotmd set ready-now /],
+      ['parked', /is active — `runlist set ready-now /],
       ['terminal', /already closed \(done\)/],
       ['physical', /already closed/],
     ]) {
@@ -788,8 +788,8 @@ describe('durable lifecycle ownership', () => {
       else process.env.DOTMD_SESSION_ID = previous;
     }
     ok(error);
-    match(error.message, /dotmd prompts show docs\/prompts\/archived\/linked-output\.md/);
-    match(error.message, /dotmd use docs\/plans\/linked-output\.md/);
+    match(error.message, /runlist prompts show docs\/prompts\/archived\/linked-output\.md/);
+    match(error.message, /runlist use docs\/plans\/linked-output\.md/);
     strictEqual(JSON.parse(readFileSync(ownershipFile(), 'utf8')).operation.hook, 'pending');
     const archived = path.join(tmp, 'docs', 'prompts', 'archived', 'linked-output.md');
     const shown = run(['prompts', 'show', archived], 'A');

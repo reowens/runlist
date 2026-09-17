@@ -252,7 +252,7 @@ function renderFlatJson(graph, forwardMap, reverseMap, docByPath) {
 export function runUnblocks(argv, config) {
   const input = argv.find(a => !a.startsWith('-'));
   const json = argv.includes('--json');
-  if (!input) die('Usage: dotmd unblocks <file>');
+  if (!input) die('Usage: runlist unblocks <file>');
 
   const filePath = resolveDocArg(input, config);
   const repoPath = toRepoPath(filePath, config.repoRoot);

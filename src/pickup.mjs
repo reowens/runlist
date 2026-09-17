@@ -251,7 +251,7 @@ export function prepareOwnershipMigration(oldRepoPath, newPath, config, { sessio
     // `rename` has no --force of its own: a rename carries the claim across to
     // the new path rather than ending it, so the takeover has to happen first.
     throw planBusyError(oldRepoPath, ownership,
-      `release it first with \`dotmd set <status> ${oldRepoPath} --force\`, then rename.`);
+      `release it first with \`runlist set <status> ${oldRepoPath} --force\`, then rename.`);
   }
   const identity = plannedPlanIdentity(newPath, config);
   const recordPath = recordPathForIdentity(identity, config);
@@ -459,7 +459,7 @@ export function releaseVanishedPlanClaim(claim, config, { now = new Date().toISO
       throw new Error(`Claim changed under us for ${claim.plan}; re-run to see the current state.`);
     }
     if (existsSync(path.resolve(config.repoRoot, ownership.plan))) {
-      throw new Error(`${ownership.plan} exists after all — release it with \`dotmd set active\` instead.`);
+      throw new Error(`${ownership.plan} exists after all — release it with \`runlist set active\` instead.`);
     }
     replaceSnapshot(snapshot, JSON.stringify({
       schema: OWNERSHIP_SCHEMA,

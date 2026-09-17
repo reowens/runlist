@@ -1,7 +1,12 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
-export const HTML_FALLBACK_DIR = '__dotmd';
+export const HTML_FALLBACK_DIR = '__runlist';
+// Exports written by dotmd-cli 0.78.0 and earlier put fallbacks under this
+// directory, and an old export tree may still hold it. It stays reserved so a
+// document's own path can never land inside a stale fallback directory.
+export const LEGACY_HTML_FALLBACK_DIR = '__dotmd';
+const RESERVED_FALLBACK_DIRS = [HTML_FALLBACK_DIR, LEGACY_HTML_FALLBACK_DIR];
 
 function normalizeRelative(value, kind) {
   if (typeof value !== 'string' || value.includes('\0')) {
@@ -59,7 +64,7 @@ export function allocateOutputIdentities(docs) {
       preferred,
       conflict: preferred.toLowerCase() === 'index.html'
         || preferred.toLowerCase().startsWith('index.html/')
-        || preferred.toLowerCase().startsWith(`${HTML_FALLBACK_DIR.toLowerCase()}/`),
+        || RESERVED_FALLBACK_DIRS.some(dir => preferred.toLowerCase().startsWith(`${dir.toLowerCase()}/`)),
     });
   }
 

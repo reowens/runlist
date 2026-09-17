@@ -21,7 +21,7 @@ function resolveHubArgs(args, docs) {
     const [match] = matches;
     if (!isHubDoc(match)) {
       die(`${match.path} is not a hub — it has no \`runlist:\` and no \`execution_mode: coordination|roadmap\`. `
-        + 'Run `dotmd fix-membership` with no argument to sweep every hub.');
+        + 'Run `runlist fix-membership` with no argument to sweep every hub.');
     }
     paths.add(match.path);
   }

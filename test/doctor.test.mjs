@@ -93,7 +93,7 @@ describe('doctor command', () => {
 
     const result = run(['doctor']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-    ok(result.stdout.includes('dotmd doctor'), 'shows heading');
+    ok(result.stdout.includes('runlist doctor'), 'shows heading');
     ok(result.stdout.includes('Fixing broken references'), 'step 1');
     ok(result.stdout.includes('Fixing membership back-references'), 'step 2');
     ok(result.stdout.includes('Fixing frontmatter issues'), 'step 3');
@@ -114,10 +114,10 @@ describe('doctor command', () => {
 
     const result = run(['doctor', '--dry-run']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-    ok(result.stdout.includes('dotmd doctor'), 'shows heading');
+    ok(result.stdout.includes('runlist doctor'), 'shows heading');
   });
 
-  it('F4: default `dotmd doctor` previews — shows preview banner and does not write', () => {
+  it('F4: default `runlist doctor` previews — shows preview banner and does not write', () => {
     // 0.37.0 (F4): default mode is dry-run. Without --apply, files must stay
     // byte-identical. Test that the banner names the right flag so users
     // can self-correct.
@@ -168,7 +168,7 @@ describe('doctor command', () => {
     ok(!existsSync(sentinel), 'preview did not invoke custom hooks');
   });
 
-  it('F4: `dotmd doctor --apply` writes — shows applying banner and modifies files', () => {
+  it('F4: `runlist doctor --apply` writes — shows applying banner and modifies files', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-doctor-'));
     spawnSync('git', ['init'], { cwd: tmpDir });
     spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir });
@@ -224,8 +224,8 @@ describe('doctor command', () => {
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(result.stdout.includes('2 fixes applied across 1 file(s)'), result.stdout);
     ok(result.stdout.includes('1 file(s) with over-cap fields'), result.stdout);
-    ok(result.stdout.includes('dotmd lint --fix (1 file:'), result.stdout);
-    ok(result.stdout.includes('dotmd doctor --frontmatter-fix (1 file:'), result.stdout);
+    ok(result.stdout.includes('runlist lint --fix (1 file:'), result.stdout);
+    ok(result.stdout.includes('runlist doctor --frontmatter-fix (1 file:'), result.stdout);
   });
 
   it('keeps archived singular keys out of both lint preview and closeout counts', () => {
@@ -242,7 +242,7 @@ describe('doctor command', () => {
     const result = run(['doctor']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(result.stdout.includes('0 fixes applied across 0 file(s)'), result.stdout);
-    ok(!result.stdout.includes('dotmd lint --fix ('), result.stdout);
+    ok(!result.stdout.includes('runlist lint --fix ('), result.stdout);
   });
 
   it('F4: `--yes` is an alias for `--apply`', () => {
@@ -314,7 +314,7 @@ describe('doctor command', () => {
       `step 8 heading should print even with no .claude/ dir; got: ${result.stdout}`);
   });
 
-  it('briefing Errors line hints at `dotmd check` when errors exist', () => {
+  it('briefing Errors line hints at `runlist check` when errors exist', () => {
     // Pre-fix: `Errors: 1` with no detail — user had to guess what or where.
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-doctor-'));
     mkdirSync(path.join(tmpDir, '.git'));
@@ -331,8 +331,8 @@ describe('doctor command', () => {
     // When errors exist, the hint should be inline.
     ok(/Errors:\s*[1-9]/.test(result.stdout),
       `expected non-zero error count in briefing; got: ${result.stdout}`);
-    ok(result.stdout.includes('run `dotmd check` to see'),
-      'expected dotmd check hint inline; got: ' + result.stdout);
+    ok(result.stdout.includes('run `runlist check` to see'),
+      'expected runlist check hint inline; got: ' + result.stdout);
   });
 
   it('briefing Errors line stays terse when there are no errors', () => {
@@ -350,7 +350,7 @@ describe('doctor command', () => {
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(/Errors:\s*0/.test(result.stdout),
       `expected zero error count; got: ${result.stdout}`);
-    ok(!result.stdout.includes('run `dotmd check` to see'),
+    ok(!result.stdout.includes('run `runlist check` to see'),
       `should not show hint when zero errors; got: ${result.stdout}`);
   });
 

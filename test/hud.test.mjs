@@ -69,12 +69,12 @@ afterEach(() => {
 //     journal) for any programmatic caller, and skips the human primer
 //   - SessionStart is passive: no index healing, hook calls, journaling, or
 //     retired slash-command cleanup
-describe('dotmd hud', () => {
+describe('runlist hud', () => {
   it('always emits the command primer (one line)', () => {
     setupProject();
     const r = runCli(['hud']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
-    ok(/dotmd:/.test(r.stdout), `expected primer line; got: ${r.stdout}`);
+    ok(/runlist:/.test(r.stdout), `expected primer line; got: ${r.stdout}`);
     ok(/set <status>/.test(r.stdout), `primer should name the set verb; got: ${r.stdout}`);
     ok(/new <type>/.test(r.stdout), `primer should name the new verb; got: ${r.stdout}`);
     ok(/\buse\b/.test(r.stdout), `primer should name the use verb; got: ${r.stdout}`);
@@ -91,13 +91,13 @@ describe('dotmd hud', () => {
     const session = runCli(['hud']);
     strictEqual(session.status, 0, session.stderr);
     ok(session.stdout.includes('status-00'), session.stdout);
-    ok(session.stdout.includes('dotmd statuses list --type plan'), session.stdout);
+    ok(session.stdout.includes('runlist statuses list --type plan'), session.stdout);
     ok(/\(\+\d+;/.test(session.stdout), session.stdout);
 
     const subagent = runCli(['hud', '--subagent']);
     strictEqual(subagent.status, 0, subagent.stderr);
     ok(subagent.stdout.includes('status-00'), subagent.stdout);
-    ok(subagent.stdout.includes('dotmd statuses list --type plan'), subagent.stdout);
+    ok(subagent.stdout.includes('runlist statuses list --type plan'), subagent.stdout);
   });
 
   it('surfaces custom expanded prompt statuses', () => {
@@ -125,11 +125,11 @@ describe('dotmd hud', () => {
     // The handoff loop's last link: the next session MUST be told a prompt is
     // queued, or batons rot unconsumed (the 0.50.0 scrub broke this).
     ok(/1 pending prompt\b/.test(r.stdout), `stdout must announce the pending prompt; got: ${r.stdout}`);
-    ok(r.stdout.includes('dotmd use'), `the announcement must name the consume verb; got: ${r.stdout}`);
+    ok(r.stdout.includes('runlist use'), `the announcement must name the consume verb; got: ${r.stdout}`);
     ok(r.stdout.includes('docs/prompts/x.md'), `the oldest prompt is named; got: ${r.stdout}`);
     // Passive state stays out — these nudged phantom work.
     ok(!/errors:/.test(r.stdout), `stdout must not mention validation errors; got: ${r.stdout}`);
-    ok(!r.stdout.includes('run dotmd check'), `stdout must not point at check; got: ${r.stdout}`);
+    ok(!r.stdout.includes('run runlist check'), `stdout must not point at check; got: ${r.stdout}`);
 
     // …and the structured shape still carries the state for programmatic callers.
     const j = JSON.parse(runCli(['hud', '--json']).stdout);
@@ -147,7 +147,7 @@ describe('dotmd hud', () => {
     const r = runCli(['hud'], { session: 'sess-A' });
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
     ok(r.stdout.includes('in-session (yours): docs/mine.md'), `owned plan announced; got: ${r.stdout}`);
-    ok(r.stdout.includes('dotmd baton'), `handoff verb named; got: ${r.stdout}`);
+    ok(r.stdout.includes('runlist baton'), `handoff verb named; got: ${r.stdout}`);
 
     // A different session sees no owned line.
     const other = runCli(['hud'], { session: 'sess-B' });
@@ -178,7 +178,7 @@ describe('dotmd hud', () => {
     setupProject();
     const r = runCli(['hud', '--json']);
     strictEqual(r.status, 0, `hud --json failed: ${r.stderr}`);
-    ok(!r.stdout.includes('dotmd:'), 'no primer text in JSON output');
+    ok(!r.stdout.includes('runlist:'), 'no primer text in JSON output');
     JSON.parse(r.stdout); // should parse clean
   });
 
@@ -194,7 +194,7 @@ describe('dotmd hud', () => {
     const r = runCli(['hud']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
     ok(!/slash commands|removed|cleaned/i.test(r.stdout), `cleanup must be silent; got: ${r.stdout}`);
-    ok(/dotmd:/.test(r.stdout), `primer line should still emit; got: ${r.stdout}`);
+    ok(/runlist:/.test(r.stdout), `primer line should still emit; got: ${r.stdout}`);
 
     // HUD is passive. Explicit doctor/init maintenance owns retired cleanup.
     ok(existsSync(generatedPath), 'retired generated file should remain untouched');
@@ -255,10 +255,10 @@ describe('dotmd hud', () => {
     ok(!existsSync(path.join(tmpDir, '.claude')), 'precondition: no .claude/');
     const r = runCli(['hud']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
-    ok(/dotmd:/.test(r.stdout), `primer should still emit; got: ${r.stdout}`);
+    ok(/runlist:/.test(r.stdout), `primer should still emit; got: ${r.stdout}`);
   });
 
-  it('--json error count remains parity with `dotmd check --json`', () => {
+  it('--json error count remains parity with `runlist check --json`', () => {
     // Even though stdout no longer prints the error count, the --json shape
     // still surfaces .errors for programmatic callers. Contract: it equals
     // what `dotmd check --json` reports.
@@ -329,7 +329,7 @@ describe('hud misuse recap', () => {
     return spawnSync('node', [bin, ...args, '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
       cwd: tmpDir,
       encoding: 'utf8',
-      env: { ...process.env, DOTMD_ERROR_LOG_DIR: logDir, PATH: process.env.PATH },
+      env: { ...process.env, RUNLIST_ERROR_LOG_DIR: logDir, PATH: process.env.PATH },
     });
   }
 
@@ -354,7 +354,7 @@ describe('hud misuse recap', () => {
     const r = runCliWithLog(['hud']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
     ok(r.stdout.includes('tripped edit-status 3×'), `expected recap line, got: ${r.stdout}`);
-    ok(r.stdout.includes('dotmd set'), `recap should carry the corrective verb, got: ${r.stdout}`);
+    ok(r.stdout.includes('runlist set'), `recap should carry the corrective verb, got: ${r.stdout}`);
   });
 
   it('stays silent under the threshold', () => {
@@ -381,6 +381,6 @@ describe('hud misuse recap', () => {
     writeMisuseLog([entry('cat-prompt'), entry('cat-prompt'), entry('cat-prompt'), entry('cat-prompt')]);
     const j = JSON.parse(runCliWithLog(['hud', '--json']).stdout);
     ok(j.misuseRecap.includes('cat-prompt 4×'), `expected recap in json, got: ${JSON.stringify(j.misuseRecap)}`);
-    ok(j.misuseRecap.includes('dotmd use'), `expected corrective verb, got: ${JSON.stringify(j.misuseRecap)}`);
+    ok(j.misuseRecap.includes('runlist use'), `expected corrective verb, got: ${JSON.stringify(j.misuseRecap)}`);
   });
 });

@@ -183,9 +183,9 @@ export function runGlossary(argv, config) {
   const term = argv.find(a => !a.startsWith('-'));
 
   const result = loadGlossary(config);
-  if (!result) die('No glossary configured. Add glossary: { path, section } to your dotmd config.');
+  if (!result) die('No glossary configured. Add glossary: { path, section } to your runlist config.');
   if (!result.found) {
-    die(`Glossary section "## ${result.section}" not found in ${result.path}. Add the section, or update glossary.section in dotmd.config.mjs.`);
+    die(`Glossary section "## ${result.section}" not found in ${result.path}. Add the section, or update glossary.section in runlist.config.mjs.`);
   }
   if (result.entries.length === 0) {
     die(`Glossary section "## ${result.section}" found in ${result.path} but contains no recognizable entries (expected markdown table or schema→UI bullets).`);
@@ -212,7 +212,7 @@ export function runGlossary(argv, config) {
     return;
   }
 
-  if (!term) die('Usage: dotmd glossary <term> | --list | --json');
+  if (!term) die('Usage: runlist glossary <term> | --list | --json');
 
   const matches = matchTerm(term, entries);
 

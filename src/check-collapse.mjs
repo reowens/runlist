@@ -14,19 +14,19 @@ const CATEGORIES = [
     key: 'updated-behind-git',
     match: /^frontmatter `updated:.*` is behind git history/,
     label: 'docs have `updated` behind git history',
-    fix: 'dotmd touch --git',
+    fix: 'runlist touch --git',
   },
   {
     key: 'singular-module',
-    match: /^`module:` \(singular\) is deprecated.*Run `dotmd lint --fix`/,
+    match: /^`module:` \(singular\) is deprecated.*Run `runlist lint --fix`/,
     label: 'docs use deprecated singular `module:`',
-    fix: 'dotmd lint --fix',
+    fix: 'runlist lint --fix',
   },
   {
     key: 'singular-surface',
-    match: /^`surface:` \(singular\) is deprecated.*Run `dotmd lint --fix`/,
+    match: /^`surface:` \(singular\) is deprecated.*Run `runlist lint --fix`/,
     label: 'docs use deprecated singular `surface:`',
-    fix: 'dotmd lint --fix',
+    fix: 'runlist lint --fix',
   },
 ];
 

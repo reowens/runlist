@@ -30,19 +30,19 @@ describe('categorizeWarnings (unit)', () => {
   it('collapses singular-module warnings when count >= threshold (3)', () => {
     const warnings = Array.from({ length: 3 }, (_, i) => ({
       path: `docs/p${i}.md`,
-      message: '`module:` (singular) is deprecated — use `modules: ["foo"]`. Run `dotmd lint --fix` to migrate.',
+      message: '`module:` (singular) is deprecated — use `modules: ["foo"]`. Run `runlist lint --fix` to migrate.',
     }));
     const { passthrough, collapsed } = categorizeWarnings(warnings);
     strictEqual(passthrough.length, 0, 'all 3 should collapse');
     strictEqual(collapsed.length, 1);
     strictEqual(collapsed[0].count, 3);
-    strictEqual(collapsed[0].fix, 'dotmd lint --fix');
+    strictEqual(collapsed[0].fix, 'runlist lint --fix');
   });
 
   it('passes through when count below threshold (2)', () => {
     const warnings = Array.from({ length: 2 }, (_, i) => ({
       path: `docs/p${i}.md`,
-      message: '`module:` (singular) is deprecated — use `modules: ["foo"]`. Run `dotmd lint --fix` to migrate.',
+      message: '`module:` (singular) is deprecated — use `modules: ["foo"]`. Run `runlist lint --fix` to migrate.',
     }));
     const { passthrough, collapsed } = categorizeWarnings(warnings);
     strictEqual(collapsed.length, 0, 'below threshold should not collapse');
@@ -73,11 +73,11 @@ describe('categorizeWarnings (unit)', () => {
     const warnings = [
       ...Array.from({ length: 4 }, (_, i) => ({
         path: `docs/m${i}.md`,
-        message: '`module:` (singular) is deprecated — use `modules: ["foo"]`. Run `dotmd lint --fix` to migrate.',
+        message: '`module:` (singular) is deprecated — use `modules: ["foo"]`. Run `runlist lint --fix` to migrate.',
       })),
       ...Array.from({ length: 3 }, (_, i) => ({
         path: `docs/s${i}.md`,
-        message: '`surface:` (singular) is deprecated — use `surfaces: ["web"]`. Run `dotmd lint --fix` to migrate.',
+        message: '`surface:` (singular) is deprecated — use `surfaces: ["web"]`. Run `runlist lint --fix` to migrate.',
       })),
       { path: 'docs/x.md', message: 'Missing `title` and no H1 found for fallback.' },
     ];
@@ -102,7 +102,7 @@ describe('categorizeWarnings (unit)', () => {
   });
 });
 
-describe('dotmd check collapse render (CLI)', () => {
+describe('runlist check collapse render (CLI)', () => {
   it('collapses 3+ singular-module deprecations into a one-line summary with fix command', () => {
     setup();
     for (let i = 0; i < 3; i++) {
@@ -113,7 +113,7 @@ describe('dotmd check collapse render (CLI)', () => {
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(result.stdout.includes('3 docs use deprecated singular `module:`'),
       `expected collapsed summary line; got: ${result.stdout}`);
-    ok(result.stdout.includes('run `dotmd lint --fix` to bulk-fix'),
+    ok(result.stdout.includes('run `runlist lint --fix` to bulk-fix'),
       `expected bulk-fix hint; got: ${result.stdout}`);
     // No per-doc deprecation lines remain
     const perDocDeprecation = result.stdout.split('\n').filter(l =>

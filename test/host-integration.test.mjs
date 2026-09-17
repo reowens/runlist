@@ -1,12 +1,12 @@
 import { afterEach, describe, it } from 'node:test';
 import { deepStrictEqual, match, ok, strictEqual } from 'node:assert';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
-  CLAUDE_MARKETPLACE, CLAUDE_PLUGIN_ID, GENERATED_MARKER, degradedIdentityNotice, describeSessionIdentity,
+  CLAUDE_MARKETPLACE, CLAUDE_PLUGIN_ID, GENERATED_MARKER, LEGACY_GENERATED_MARKER, degradedIdentityNotice, describeSessionIdentity,
   installOpencodePlugin, installedVersion, opencodeConfigDir, opencodePluginDir,
   opencodeStatus, planClaudeInstall, removeOpencodePlugin, renderOpencodePlugin,
 } from '../src/host-integration.mjs';
@@ -109,6 +109,79 @@ describe('opencode plugin install', () => {
   });
 });
 
+describe('opencode files stamped with the legacy dotmd banner', () => {
+  // Every install made by dotmd-cli 0.78.0 or earlier carries this banner. It
+  // must stay recognizable as generated, or the file turns "foreign" and
+  // install, update and remove all refuse to touch it.
+  function writeLegacy(dir, version) {
+    mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, 'dotmd.js');
+    const legacy = renderOpencodePlugin(version).replace(GENERATED_MARKER, LEGACY_GENERATED_MARKER);
+    writeFileSync(file, legacy);
+    return file;
+  }
+
+  it('new files carry the runlist banner', () => {
+    strictEqual(GENERATED_MARKER, 'runlist-generated:');
+    strictEqual(LEGACY_GENERATED_MARKER, 'dotmd-generated:');
+    ok(renderOpencodePlugin('1.0.0').startsWith('// runlist-generated:1.0.0\n'));
+  });
+
+  it('still parses the version and is not foreign', () => {
+    const dir = path.join(setup(), 'plugin');
+    const file = writeLegacy(dir, '0.78.0');
+    strictEqual(installedVersion(file), '0.78.0');
+    const status = opencodeStatus({ version: '0.78.0', dir });
+    strictEqual(status.foreign, false);
+    strictEqual(status.legacyBanner, true);
+    // Same version, old banner: still stale, so the next install restamps it.
+    strictEqual(status.stale, true);
+  });
+
+  it('install rewrites it in place with the current banner — one file, not two', () => {
+    const dir = path.join(setup(), 'plugin');
+    const file = writeLegacy(dir, '0.78.0');
+    const result = installOpencodePlugin({ version: '0.79.0', dir });
+    strictEqual(result.action, 'updated');
+    const after = readFileSync(file, 'utf8');
+    ok(after.startsWith('// runlist-generated:0.79.0\n'), after.slice(0, 80));
+    ok(!after.includes(LEGACY_GENERATED_MARKER));
+    deepStrictEqual(readdirSync(dir), ['dotmd.js']);
+    strictEqual(opencodeStatus({ version: '0.79.0', dir }).stale, false);
+  });
+
+  it('install restamps an old banner even at the same version', () => {
+    const dir = path.join(setup(), 'plugin');
+    const file = writeLegacy(dir, '0.79.0');
+    strictEqual(installOpencodePlugin({ version: '0.79.0', dir }).action, 'updated');
+    ok(readFileSync(file, 'utf8').startsWith('// runlist-generated:0.79.0\n'));
+  });
+
+  it('update plans a refresh for it', () => {
+    const dir = path.join(setup(), 'plugin');
+    writeLegacy(dir, '0.78.0');
+    const opencode = opencodeStatus({ version: '0.79.0', dir });
+    const steps = planUpdate({ cliOnly: false, pluginOnly: false }, { plugin: null, opencode, hasClaude: false, hasNpm: true });
+    ok(steps.some(step => step.kind === 'opencode'), JSON.stringify(steps));
+  });
+
+  it('remove deletes it without --force', () => {
+    const dir = path.join(setup(), 'plugin');
+    const file = writeLegacy(dir, '0.78.0');
+    strictEqual(removeOpencodePlugin({ dir }).action, 'removed');
+    ok(!existsSync(file));
+  });
+
+  it('a file with neither banner stays foreign', () => {
+    const dir = path.join(setup(), 'plugin');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, 'dotmd.js'), '// hand-written\nexport default async () => ({});\n');
+    strictEqual(opencodeStatus({ version: '0.79.0', dir }).foreign, true);
+    strictEqual(installOpencodePlugin({ version: '0.79.0', dir }).action, 'refused');
+    strictEqual(removeOpencodePlugin({ dir }).action, 'refused');
+  });
+});
+
 describe('the generated opencode plugin module', () => {
   // OpenCode calls every export of a plugin module as a plugin factory and
   // throws `Plugin export is not a function` on anything else — so a stray
@@ -150,7 +223,7 @@ describe('the generated opencode plugin module', () => {
     await hooks['experimental.chat.system.transform'](undefined, undefined);
   });
 
-  it('primes the system prompt from dotmd hud, and stays silent when it says nothing', async () => {
+  it('primes the system prompt from runlist hud, and stays silent when it says nothing', async () => {
     const home = setup();
     const dir = path.join(home, 'plugin');
     const { path: file } = installOpencodePlugin({ version: '9.9.9', dir });
@@ -234,14 +307,14 @@ describe('the opencode plugin read-prompt warning', () => {
 
   it('appends the guard warning when the read tool opens a pending prompt', withRepo(async (hooks, repo) => {
     const out = await after(hooks, 'read', { filePath: path.join(repo, 'docs', 'prompts', 'resume-x.md') });
-    ok(out.startsWith('file contents\n\n[dotmd] '), out);
-    match(out, /saved dotmd prompt/);
-    match(out, /dotmd use /);
+    ok(out.startsWith('file contents\n\n[runlist] '), out);
+    match(out, /saved runlist prompt/);
+    match(out, /runlist use /);
   }));
 
   it('appends the warning when a shell command cats a pending prompt', withRepo(async (hooks) => {
     const out = await after(hooks, 'bash', { command: 'cat docs/prompts/resume-x.md' });
-    match(out, /\[dotmd\] .*dotmd use docs\/prompts\/resume-x\.md/);
+    match(out, /\[runlist\] .*runlist use docs\/prompts\/resume-x\.md/);
   }));
 
   it('leaves archived prompts and unrelated reads untouched', withRepo(async (hooks, repo) => {
@@ -289,7 +362,7 @@ describe('session identity reporting', () => {
     strictEqual(shared.scope, 'process');
     strictEqual(shared.id, 'opencode:42');
     match(shared.summary, /can release each other's plans/);
-    match(shared.advice.join(' '), /dotmd install opencode/);
+    match(shared.advice.join(' '), /runlist install opencode/);
 
     // Codex hands every tool shell its thread id, so it needs no install and
     // no advice — and it must win over a surrounding terminal id.
@@ -339,10 +412,10 @@ describe('degraded-identity notice', () => {
   it('fires once per session, then stays quiet', () => {
     const home = setup();
     const opts = { env: opencodeEnv(42), homedir: home };
-    match(degradedIdentityNotice(home, opts) ?? '', /dotmd install opencode/);
+    match(degradedIdentityNotice(home, opts) ?? '', /runlist install opencode/);
     strictEqual(degradedIdentityNotice(home, opts), null);
     // A different session in the same repo is a different reader.
-    match(degradedIdentityNotice(home, { env: opencodeEnv(99), homedir: home }) ?? '', /dotmd install opencode/);
+    match(degradedIdentityNotice(home, { env: opencodeEnv(99), homedir: home }) ?? '', /runlist install opencode/);
   });
 
   it('says nothing on a host that is not degraded, or when hints are off', () => {
@@ -364,7 +437,7 @@ describe('degraded-identity notice', () => {
     installOpencodePlugin({ version: '1.0.0', dir: path.join(home, '.config', 'opencode', 'plugin') });
     const notice = degradedIdentityNotice(home, { env: opencodeEnv(42), homedir: home, version: '1.0.0' });
     match(notice ?? '', /Restart OpenCode/);
-    ok(!/dotmd install opencode/.test(notice ?? ''));
+    ok(!/runlist install opencode/.test(notice ?? ''));
   });
 
   it('can answer without spending the once-per-session budget', () => {
@@ -436,7 +509,7 @@ describe('update keeps the opencode file in lockstep', () => {
 
     const foreign = planUpdate({}, { ...ctx, opencode: { exists: true, foreign: true, path: '/x/dotmd.js' } });
     ok(!foreign.some(step => step.kind === 'opencode'));
-    match(foreign.find(step => step.kind === 'skip')?.reason ?? '', /not written by dotmd/);
+    match(foreign.find(step => step.kind === 'skip')?.reason ?? '', /not written by runlist/);
   });
 
   // `update` keeps hosts in step; adopting a new one stays `dotmd install`'s job.
@@ -446,7 +519,7 @@ describe('update keeps the opencode file in lockstep', () => {
   });
 });
 
-describe('dotmd install command', () => {
+describe('runlist install command', () => {
   function run(args, env = {}) {
     return spawnSync('node', [bin, 'install', ...args], {
       cwd: tmp, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', ...env },
@@ -494,13 +567,13 @@ describe('dotmd install command', () => {
     });
 
     const first = plans(4242);
-    match(first.stderr, /dotmd install opencode/);
-    ok(!first.stdout.includes('dotmd install opencode'), 'notice must not reach stdout');
+    match(first.stderr, /runlist install opencode/);
+    ok(!first.stdout.includes('runlist install opencode'), 'notice must not reach stdout');
 
-    strictEqual(plans(4242).stderr.includes('dotmd install opencode'), false, 'second call in the same session must be quiet');
+    strictEqual(plans(4242).stderr.includes('runlist install opencode'), false, 'second call in the same session must be quiet');
 
     const json = plans(777, ['--json']);
-    match(json.stderr, /dotmd install opencode/);
+    match(json.stderr, /runlist install opencode/);
     JSON.parse(json.stdout); // throws if the notice leaked into stdout
   });
 

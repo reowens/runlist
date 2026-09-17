@@ -10,11 +10,17 @@ const ROTATE_SIZE_BYTES = 5 * 1024 * 1024;
 const ROTATE_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const BACKUP_RETENTION_MS = ROTATE_AGE_MS;
 
-const ERROR_LOG_FILE = 'dotmd-errors.log';
-const ERROR_LOG_BACKUP = 'dotmd-errors.log.1';
+// New writes go to the runlist-* names. The dotmd-* names are what dotmd-cli
+// 0.78.0 and earlier wrote, and what an older CLI still installed elsewhere on
+// the machine keeps writing, so readers merge both and never rename or delete
+// the legacy files (beyond the usual stale-schema and stale-backup pruning).
+const ERROR_LOG_FILE = 'runlist-errors.log';
+const ERROR_LOG_BACKUP = 'runlist-errors.log.1';
 
-const MISUSE_LOG_FILE = 'dotmd-misuse.log';
-const MISUSE_LOG_BACKUP = 'dotmd-misuse.log.1';
+const MISUSE_LOG_FILE = 'runlist-misuse.log';
+const MISUSE_LOG_BACKUP = 'runlist-misuse.log.1';
+const LEGACY_MISUSE_LOG_FILE = 'dotmd-misuse.log';
+const LEGACY_MISUSE_LOG_BACKUP = 'dotmd-misuse.log.1';
 const TELEMETRY_SCHEMA = 2;
 const REDACTED = '[redacted]';
 const SENSITIVE_VALUE_FLAGS = new Set([
@@ -358,9 +364,12 @@ export function recordGuardEvent(event) {
   }
 }
 
-export function readMisuseEntries() {
-  const file = globalMisuseLogPath();
-  purgeLegacyTelemetry(file, globalMisuseLogBackupPath());
+// Every misuse log a reader should see: the current file, then the legacy one.
+export function globalMisuseLogPaths() {
+  return [globalMisuseLogPath(), path.join(globalErrorLogDir(), LEGACY_MISUSE_LOG_FILE)];
+}
+
+function readLogLines(file) {
   if (!existsSync(file)) return [];
   let raw;
   try { raw = readFileSync(file, 'utf8'); } catch { return []; }
@@ -370,4 +379,28 @@ export function readMisuseEntries() {
     try { out.push(JSON.parse(line)); } catch { /* skip malformed */ }
   }
   return out;
+}
+
+// Current and legacy entries, merged oldest-first by timestamp. The sort is
+// stable, so entries with equal or unparseable timestamps keep file order.
+export function readMisuseEntries() {
+  const dir = globalErrorLogDir();
+  const pairs = [
+    [globalMisuseLogPath(), globalMisuseLogBackupPath()],
+    [path.join(dir, LEGACY_MISUSE_LOG_FILE), path.join(dir, LEGACY_MISUSE_LOG_BACKUP)],
+  ];
+  const entries = [];
+  for (const [file, backup] of pairs) {
+    purgeLegacyTelemetry(file, backup);
+    pruneStaleBackup(backup);
+    entries.push(...readLogLines(file));
+  }
+  const time = (entry) => {
+    const t = Date.parse(entry?.ts);
+    return Number.isNaN(t) ? 0 : t;
+  };
+  return entries
+    .map((entry, index) => ({ entry, index, t: time(entry) }))
+    .sort((a, b) => a.t - b.t || a.index - b.index)
+    .map(({ entry }) => entry);
 }

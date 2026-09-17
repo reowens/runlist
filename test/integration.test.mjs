@@ -295,7 +295,7 @@ describe('CLI integration', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-noconf-'));
     // No config file, no .git — just an empty dir
     const result = run(['json']);
-    ok(result.stderr.includes('No dotmd config found'), 'shows no-config warning');
+    ok(result.stderr.includes('No runlist config found'), 'shows no-config warning');
   });
 
   it('focus shows docs for a specific status', () => {

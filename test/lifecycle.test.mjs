@@ -364,7 +364,7 @@ describe('archive --closeout-template (issue #10 finding #5)', () => {
     strictEqual(after, before, 'file is byte-identical in dry-run');
   });
 
-  it('plain `dotmd archive` (no flag) does NOT inject — back-compat', () => {
+  it('plain `runlist archive` (no flag) does NOT inject — back-compat', () => {
     const docsDir = setupProject();
     writeDoc(docsDir, 'no-flag.md',
       'type: plan\nstatus: active\nupdated: 2026-05-26',
@@ -547,7 +547,7 @@ describe('archive fixes inbound refs (updateRefsAfterMove)', () => {
     const cfg = path.join(tmpDir, 'dotmd.config.mjs');
     const check = spawnSync('node', [bin, 'check', '--config', cfg], { cwd: tmpDir, encoding: 'utf8' });
     ok(!/does not resolve to an existing file/.test(check.stdout + check.stderr),
-      `dotmd check found a broken ref after archive:\n${check.stdout}\n${check.stderr}`);
+      `runlist check found a broken ref after archive:\n${check.stdout}\n${check.stderr}`);
   }
 
   it('rewrites a repo-relative frontmatter ref from a doc in another subdir', () => {
@@ -634,10 +634,10 @@ describe('runStatus moves fix inbound refs (deprecated status / set unarchive)',
     const cfg = path.join(tmpDir, 'dotmd.config.mjs');
     const check = spawnSync('node', [bin, 'check', '--config', cfg], { cwd: tmpDir, encoding: 'utf8' });
     ok(!/does not resolve to an existing file/.test(check.stdout + check.stderr),
-      `dotmd check found a broken ref:\n${check.stdout}\n${check.stderr}`);
+      `runlist check found a broken ref:\n${check.stdout}\n${check.stderr}`);
   }
 
-  it('deprecated `dotmd status <file> archived` rewrites inbound repo-relative refs', () => {
+  it('deprecated `runlist status <file> archived` rewrites inbound repo-relative refs', () => {
     const docsDir = project();
     const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
     const cfg = path.join(tmpDir, 'dotmd.config.mjs');
@@ -665,7 +665,7 @@ describe('runStatus moves fix inbound refs (deprecated status / set unarchive)',
     ok(existsSync(path.join(docsDir, 'plans', 'child.md')), 'child.md must stay put under --dry-run');
   });
 
-  it('`dotmd set active` unarchive (via runStatus) rewrites inbound refs', () => {
+  it('`runlist set active` unarchive (via runStatus) rewrites inbound refs', () => {
     const docsDir = project();
     const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
     const cfg = path.join(tmpDir, 'dotmd.config.mjs');
@@ -733,7 +733,7 @@ describe('archive collision (same basename twice)', () => {
   });
 });
 
-describe('archive resolves bare slugs (like `dotmd use`)', () => {
+describe('archive resolves bare slugs (like `runlist use`)', () => {
   it('archives a nested plan by bare basename (no path, no extension)', () => {
     const docsDir = setupProject();
     const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
@@ -789,7 +789,7 @@ describe('shared slug resolution across verbs (resolveDocArg)', () => {
     return writeDoc(docsDir, path.join('plans', 'lonely.md'), 'type: plan\nstatus: active\nupdated: 2025-01-01', '# Lonely\n');
   }
 
-  it('`dotmd use <bare-slug>` starts a nested plan', () => {
+  it('`runlist use <bare-slug>` starts a nested plan', () => {
     const docsDir = setupProject();
     const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
     const cfg = path.join(tmpDir, 'dotmd.config.mjs');
@@ -800,7 +800,7 @@ describe('shared slug resolution across verbs (resolveDocArg)', () => {
     match(readFileSync(planPath, 'utf8'), /status: in-session/, 'plan marked in-session');
   });
 
-  it('`dotmd set <status> <bare-slug>` transitions a nested plan', () => {
+  it('`runlist set <status> <bare-slug>` transitions a nested plan', () => {
     const docsDir = setupProject();
     const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
     const cfg = path.join(tmpDir, 'dotmd.config.mjs');
@@ -813,7 +813,7 @@ describe('shared slug resolution across verbs (resolveDocArg)', () => {
     match(readFileSync(planPath, 'utf8'), /status: planned/, 'plan transitioned to planned');
   });
 
-  it('`dotmd touch <bare-slug>` bumps a nested plan', () => {
+  it('`runlist touch <bare-slug>` bumps a nested plan', () => {
     const docsDir = setupProject();
     const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
     const cfg = path.join(tmpDir, 'dotmd.config.mjs');
@@ -953,7 +953,7 @@ describe('init writes current and legacy state to .gitignore', () => {
   });
 });
 
-describe('dotmd set — status write', () => {
+describe('runlist set — status write', () => {
   function runCli(args, env = {}) {
     const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
     return spawnSync('node', [bin, ...args, '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
@@ -963,7 +963,7 @@ describe('dotmd set — status write', () => {
     });
   }
 
-  it('archive transition: `dotmd set archived <f>` moves file and updates refs', () => {
+  it('archive transition: `runlist set archived <f>` moves file and updates refs', () => {
     const docsDir = setupProject();
     const filePath = writeDoc(docsDir, 'a.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# A\n');
 
@@ -1277,7 +1277,7 @@ describe('set — baton-on-exit nudge', () => {
     // Suggests the plan's own slug in slug mode (status already moved). The
     // body arg stays an obvious metavariable: `@draft` read as a runnable path
     // and got copied verbatim into failing batons.
-    match(r.stderr, /dotmd baton alpha @<draft-file>/);
+    match(r.stderr, /runlist baton alpha @<draft-file>/);
   });
 
   it('nudges on every non-terminal stop status (partial/awaiting/blocked)', () => {

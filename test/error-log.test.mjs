@@ -1,5 +1,5 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
-import { ok, strictEqual } from 'node:assert';
+import { ok, strictEqual, deepStrictEqual } from 'node:assert';
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync, rmSync, utimesSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -20,8 +20,8 @@ function setupProject() {
   configPath = path.join(tmpDir, 'dotmd.config.mjs');
   writeFileSync(configPath, `export const root = 'docs';\n`);
   logDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-errlog-out-'));
-  errorLogFile = path.join(logDir, 'dotmd-errors.log');
-  errorLogBackup = path.join(logDir, 'dotmd-errors.log.1');
+  errorLogFile = path.join(logDir, 'runlist-errors.log');
+  errorLogBackup = path.join(logDir, 'runlist-errors.log.1');
 }
 
 function run(args, env = {}) {
@@ -32,7 +32,7 @@ function run(args, env = {}) {
       ...env,
       NO_COLOR: '1',
       DOTMD_JOURNAL: env.DOTMD_JOURNAL ?? '',
-      DOTMD_ERROR_LOG_DIR: logDir,
+      RUNLIST_ERROR_LOG_DIR: logDir,
     },
   });
 }
@@ -90,11 +90,11 @@ describe('global error log: always-on on failure', () => {
       cwd: tmpDir,
       encoding: 'utf8',
       input: payload,
-      env: { ...process.env, NO_COLOR: '1', DOTMD_ERROR_LOG_DIR: logDir },
+      env: { ...process.env, NO_COLOR: '1', RUNLIST_ERROR_LOG_DIR: logDir },
     });
     strictEqual(r.status, 0, r.stderr);
     ok(/additionalContext/.test(r.stdout), 'guard still previews its decision');
-    ok(!existsSync(path.join(logDir, 'dotmd-misuse.log')), 'dry-run guard wrote no misuse log');
+    ok(!existsSync(path.join(logDir, 'runlist-misuse.log')), 'dry-run guard wrote no misuse log');
   });
 
   it('guard is a no-op and writes no misuse record outside a dotmd repository', () => {
@@ -105,11 +105,11 @@ describe('global error log: always-on on failure', () => {
         cwd: unrelated,
         encoding: 'utf8',
         input: payload,
-        env: { ...process.env, NO_COLOR: '1', DOTMD_ERROR_LOG_DIR: logDir },
+        env: { ...process.env, NO_COLOR: '1', RUNLIST_ERROR_LOG_DIR: logDir },
       });
       strictEqual(r.status, 0, r.stderr);
       strictEqual(r.stdout.trim(), '{}');
-      ok(!existsSync(path.join(logDir, 'dotmd-misuse.log')));
+      ok(!existsSync(path.join(logDir, 'runlist-misuse.log')));
     } finally {
       rmSync(unrelated, { recursive: true, force: true });
     }
@@ -122,11 +122,11 @@ describe('global error log: always-on on failure', () => {
       cwd: tmpDir,
       encoding: 'utf8',
       input: payload,
-      env: { ...process.env, NO_COLOR: '1', DOTMD_ERROR_LOG_DIR: logDir },
+      env: { ...process.env, NO_COLOR: '1', RUNLIST_ERROR_LOG_DIR: logDir },
     });
     strictEqual(r.status, 0, r.stderr);
     strictEqual(r.stdout.trim(), '{}');
-    ok(!existsSync(path.join(logDir, 'dotmd-misuse.log')));
+    ok(!existsSync(path.join(logDir, 'runlist-misuse.log')));
   });
 
   it('appends one entry per failed invocation', () => {
@@ -159,10 +159,10 @@ describe('global error log: always-on on failure', () => {
       cwd: tmpDir,
       encoding: 'utf8',
       input: payload,
-      env: { ...process.env, NO_COLOR: '1', DOTMD_ERROR_LOG_DIR: logDir },
+      env: { ...process.env, NO_COLOR: '1', RUNLIST_ERROR_LOG_DIR: logDir },
     });
     strictEqual(r.status, 0, r.stderr);
-    const misuse = readFileSync(path.join(logDir, 'dotmd-misuse.log'), 'utf8');
+    const misuse = readFileSync(path.join(logDir, 'runlist-misuse.log'), 'utf8');
     ok(!misuse.includes(secret), misuse);
     const entry = JSON.parse(misuse.trim());
     strictEqual(entry.schema, 2);
@@ -170,7 +170,7 @@ describe('global error log: always-on on failure', () => {
   });
 
   it('guard write purges legacy unsanitized misuse logs and backups', () => {
-    const misuseFile = path.join(logDir, 'dotmd-misuse.log');
+    const misuseFile = path.join(logDir, 'runlist-misuse.log');
     const misuseBackup = `${misuseFile}.1`;
     const secret = 'LEGACY_MISUSE_SECRET_51bb';
     const legacy = JSON.stringify({ ts: new Date().toISOString(), detail: secret, v: '0.69.0' }) + '\n';
@@ -181,7 +181,7 @@ describe('global error log: always-on on failure', () => {
       cwd: tmpDir,
       encoding: 'utf8',
       input: payload,
-      env: { ...process.env, NO_COLOR: '1', DOTMD_ERROR_LOG_DIR: logDir },
+      env: { ...process.env, NO_COLOR: '1', RUNLIST_ERROR_LOG_DIR: logDir },
     });
     strictEqual(r.status, 0, r.stderr);
     const current = readFileSync(misuseFile, 'utf8');
@@ -191,12 +191,45 @@ describe('global error log: always-on on failure', () => {
   });
 
   it('misuse reader purges legacy detail before rendering it', () => {
-    const misuseFile = path.join(logDir, 'dotmd-misuse.log');
+    const misuseFile = path.join(logDir, 'runlist-misuse.log');
     const secret = 'LEGACY_MISUSE_READ_SECRET_1e2c';
     writeFileSync(misuseFile, JSON.stringify({ ts: new Date().toISOString(), detail: secret }) + '\n');
     const r = run(['misuse', '--json']);
     strictEqual(r.status, 0, r.stderr);
     ok(!r.stdout.includes(secret), r.stdout);
+  });
+
+  it('never writes the legacy log names', () => {
+    const r = run(['definitely-not-a-command']);
+    ok(r.status !== 0);
+    ok(existsSync(errorLogFile));
+    ok(!existsSync(path.join(logDir, 'dotmd-errors.log')), 'legacy error log name was written');
+  });
+
+  it('still honors the legacy DOTMD_ERROR_LOG_DIR when the current name is unset', () => {
+    const env = { ...process.env, NO_COLOR: '1', DOTMD_ERROR_LOG_DIR: logDir };
+    delete env.RUNLIST_ERROR_LOG_DIR;
+    const r = spawnSync('node', [bin, 'definitely-not-a-command', '--config', configPath], { cwd: tmpDir, encoding: 'utf8', env });
+    ok(r.status !== 0);
+    ok(existsSync(errorLogFile), 'legacy env var did not redirect the error log');
+  });
+
+  it('misuse merges the legacy dotmd-misuse.log with the current log by time', () => {
+    const at = (minutesAgo) => new Date(Date.now() - minutesAgo * 60_000).toISOString();
+    const line = (ts, rule) => JSON.stringify({ schema: 2, ts, rule, decision: 'warn', repo: tmpDir, detail: rule }) + '\n';
+    writeFileSync(path.join(logDir, 'dotmd-misuse.log'), line(at(30), 'legacy-old') + line(at(10), 'legacy-new'));
+    writeFileSync(path.join(logDir, 'runlist-misuse.log'), line(at(20), 'current-old') + line(at(5), 'current-new'));
+    const r = run(['misuse', '--json']);
+    strictEqual(r.status, 0, r.stderr);
+    deepStrictEqual(JSON.parse(r.stdout).map(e => e.rule), ['legacy-old', 'current-old', 'legacy-new', 'current-new']);
+  });
+
+  it('misuse reads a legacy-only log', () => {
+    const line = JSON.stringify({ schema: 2, ts: new Date().toISOString(), rule: 'cat-prompt', decision: 'warn', repo: tmpDir }) + '\n';
+    writeFileSync(path.join(logDir, 'dotmd-misuse.log'), line);
+    const r = run(['misuse', '--json']);
+    strictEqual(r.status, 0, r.stderr);
+    strictEqual(JSON.parse(r.stdout).length, 1);
   });
 
   it('rotates on version change so active error log starts at current version', () => {

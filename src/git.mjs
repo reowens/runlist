@@ -36,7 +36,7 @@ function ensureGit() {
   if (gitChecked) return;
   const result = spawnSync('git', ['--version'], { encoding: 'utf8' });
   if (result.error) {
-    throw new Error('git is not installed or not found in PATH. dotmd requires git for this operation.');
+    throw new Error('git is not installed or not found in PATH. runlist requires git for this operation.');
   }
   gitChecked = true;
 }

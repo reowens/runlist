@@ -167,5 +167,5 @@ export function runMigratePrompts(argv, config, opts = {}) {
       process.stdout.write(dim(`    [${c.kind}] ${c.detail}\n`));
     }
   }
-  if (dryRun) process.stdout.write(`\nRun ${bold('dotmd doctor --migrate-prompts')} without --dry-run to apply.\n`);
+  if (dryRun) process.stdout.write(`\nRun ${bold('runlist doctor --migrate-prompts')} without --dry-run to apply.\n`);
 }

@@ -269,9 +269,9 @@ function evalBash(command, config, inspectGitPaths, baseCwd) {
           rule: 'commit-prompt',
           detail: `git ${git.subcommand} ${targets.join(' ')}`,
           reason:
-            `Saved prompts (${targets.join(', ')}) are session-local dotmd artifacts, not source to commit. ` +
+            `Saved prompts (${targets.join(', ')}) are session-local runlist artifacts, not source to commit. ` +
             `Don't git add/commit them — commit your other changes without the prompt in the pathspec. ` +
-            `The next session consumes a prompt with \`dotmd use <file>\` (or \`dotmd use\` for the oldest pending), which prints the body and archives it atomically.`,
+            `The next session consumes a prompt with \`runlist use <file>\` (or \`runlist use\` for the oldest pending), which prints the body and archives it atomically.`,
         };
       }
     }
@@ -283,9 +283,9 @@ function evalBash(command, config, inspectGitPaths, baseCwd) {
         rule: 'cat-prompt',
         detail: `${cmd0} ${promptTokens.join(' ')}`,
         reason:
-          `${promptTokens.join(', ')} is a saved dotmd prompt. To start work from it, run \`dotmd use ${promptTokens[0]}\` — ` +
+          `${promptTokens.join(', ')} is a saved runlist prompt. To start work from it, run \`runlist use ${promptTokens[0]}\` — ` +
           `it commits archive/claim before at-most-once body output (prevents double-consumption). ` +
-          `Just peeking or triaging (not consuming)? \`dotmd prompts show ${promptTokens[0]}\` reads it without archiving. Don't \`${cmd0}\` it directly.`,
+          `Just peeking or triaging (not consuming)? \`runlist prompts show ${promptTokens[0]}\` reads it without archiving. Don't \`${cmd0}\` it directly.`,
       };
     }
 
@@ -308,9 +308,9 @@ function evalRead(filePath, config) {
     rule: 'read-prompt',
     detail: filePath,
     reason:
-      `${filePath} is a saved dotmd prompt. To start work from it, run \`dotmd use ${filePath}\` — it commits archive/claim before at-most-once body output so it can't be double-consumed. ` +
-      `Just peeking or triaging (not consuming)? \`dotmd prompts show ${filePath}\` reads it without archiving. ` +
-      `Surveying the whole queue? \`dotmd prompts show --all\` peeks every pending prompt in one call — don't Read them file by file.`,
+      `${filePath} is a saved runlist prompt. To start work from it, run \`runlist use ${filePath}\` — it commits archive/claim before at-most-once body output so it can't be double-consumed. ` +
+      `Just peeking or triaging (not consuming)? \`runlist prompts show ${filePath}\` reads it without archiving. ` +
+      `Surveying the whole queue? \`runlist prompts show --all\` peeks every pending prompt in one call — don't Read them file by file.`,
   };
 }
 
@@ -396,7 +396,7 @@ function emit(result) {
     hookSpecificOutput.permissionDecisionReason = result.reason;
   } else {
     // warn — allow the call but teach the agent the dotmd-native path.
-    hookSpecificOutput.additionalContext = `[dotmd] ${result.reason}`;
+    hookSpecificOutput.additionalContext = `[runlist] ${result.reason}`;
   }
   process.stdout.write(JSON.stringify({ hookSpecificOutput }) + '\n');
 }

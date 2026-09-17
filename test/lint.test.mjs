@@ -30,7 +30,7 @@ afterEach(() => {
   if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
 });
 
-describe('dotmd lint', () => {
+describe('runlist lint', () => {
   it('reports fixable issues without --fix', () => {
     const docsDir = setupProject();
     // Missing updated, has status
@@ -41,7 +41,7 @@ describe('dotmd lint', () => {
     const result = run(['lint']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(result.stdout.includes('fixable issues'), 'reports fixable issues');
-    ok(result.stdout.includes('dotmd lint --fix'), 'suggests --fix');
+    ok(result.stdout.includes('runlist lint --fix'), 'suggests --fix');
   });
 
   it('reports camelCase key renames', () => {
@@ -288,7 +288,7 @@ describe('dotmd lint', () => {
     ok(fix.stdout.includes('0 fixes applied across 0 file(s)'), fix.stdout);
     strictEqual(readFileSync(filePath, 'utf8'), original);
     const report = run(['lint']);
-    ok(report.stdout.includes('manually') && !report.stdout.includes('Run dotmd lint --fix'), report.stdout);
+    ok(report.stdout.includes('manually') && !report.stdout.includes('Run runlist lint --fix'), report.stdout);
   });
 
   it('does not offer quiet archived singular keys as lint fixes', () => {

@@ -33,8 +33,8 @@ export function detectVersionDrift(env = process.env) {
     const pluginVersion = JSON.parse(readFileSync(pj, 'utf8')).version;
     const cmp = compareVersions(pluginVersion, pkg.version);
     if (cmp === null || cmp === 0) return null;
-    if (cmp < 0) return `dotmd plugin ${pluginVersion} is behind the CLI ${pkg.version} — run \`dotmd update\` then restart.`;
-    return `dotmd CLI ${pkg.version} is behind the plugin ${pluginVersion} — run \`dotmd update\` (or npm i -g dotmd-cli).`;
+    if (cmp < 0) return `runlist plugin ${pluginVersion} is behind the CLI ${pkg.version} — run \`runlist update\` then restart.`;
+    return `runlist CLI ${pkg.version} is behind the plugin ${pluginVersion} — run \`runlist update\` (or npm i -g dotmd-cli).`;
   } catch {
     return null;
   }
@@ -155,9 +155,9 @@ const MISUSE_RECAP_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const MISUSE_RECAP_THRESHOLD = 3;
 
 const MISUSE_CORRECTIONS = {
-  'edit-status': 'never hand-edit `status:`; use `dotmd set <status> <file>`',
-  'cat-prompt': 'consume prompts with `dotmd use <file>`; peek without consuming via `dotmd prompts show <file>`',
-  'read-prompt': 'consume prompts with `dotmd use <file>`; peek without consuming via `dotmd prompts show <file>`',
+  'edit-status': 'never hand-edit `status:`; use `runlist set <status> <file>`',
+  'cat-prompt': 'consume prompts with `runlist use <file>`; peek without consuming via `runlist prompts show <file>`',
+  'read-prompt': 'consume prompts with `runlist use <file>`; peek without consuming via `runlist prompts show <file>`',
   'commit-prompt': 'saved prompts are session-local; never git add/commit them',
 };
 
@@ -176,7 +176,7 @@ export function buildMisuseRecap(config, now = Date.now()) {
   const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
   if (!top || top[1] < MISUSE_RECAP_THRESHOLD) return null;
   const [rule, count] = top;
-  const fix = MISUSE_CORRECTIONS[rule] ?? 'see `dotmd misuse`';
+  const fix = MISUSE_CORRECTIONS[rule] ?? 'see `runlist misuse`';
   return `sessions here tripped ${rule} ${count}× this week — ${fix}`;
 }
 
@@ -235,15 +235,15 @@ export function buildHud(config) {
 // lines: the verbs + the three wrong-moves the guard exists to stop, so the
 // subagent self-corrects before the guard ever has to fire.
 const SUBAGENT_PRIMER = [
-  'dotmd manages this repo\'s plans/docs/prompts (markdown + YAML frontmatter).',
+  'runlist manages this repo\'s plans/docs/prompts (markdown + YAML frontmatter).',
   'Verbs: plans|briefing | query <filters> | use [<file>] | set <status> <file> | new <type> <slug> | archive <file>.',
-  'Do NOT: cat/read a docs/prompts/*.md (use `dotmd use <file>` — archive/claim commits before at-most-once output);',
-  'git add/commit a prompt (they are session-local, often gitignored); hand-edit a `status:` field (use `dotmd set`).',
+  'Do NOT: cat/read a docs/prompts/*.md (use `runlist use <file>` — archive/claim commits before at-most-once output);',
+  'git add/commit a prompt (they are session-local, often gitignored); hand-edit a `status:` field (use `runlist set`).',
 ].join('\n');
 
 export function buildPlanStatusPrimer(config, { maxChars = 220 } = {}) {
   const statuses = (resolveStatusMetadata(config).byType.plan ?? []).map(item => item.name);
-  const fallback = 'run `dotmd statuses list --type plan`';
+  const fallback = 'run `runlist statuses list --type plan`';
   if (statuses.length === 0) return `Plan statuses unavailable; ${fallback}.`;
   const prefix = 'Plan statuses: ';
   const full = `${prefix}${statuses.join(', ')}`;
@@ -313,15 +313,15 @@ export function runHud(argv, config) {
   //     Global in-session counts never provide a fallback.
   // The misuse recap stays for the same reason: a repeat-offense rule means
   // the primer alone isn't landing, so name the habit to break.
-  process.stdout.write(dim('dotmd: plans|briefing  set <status> [<file>]  new <type> <slug>  use [<file>]  archive <file>  baton [<slug>] <@<file>|-> (save a resume prompt; releases the in-session plan if any)  (use [no-arg] → oldest pending prompt)') + '\n');
+  process.stdout.write(dim('runlist: plans|briefing  set <status> [<file>]  new <type> <slug>  use [<file>]  archive <file>  baton [<slug>] <@<file>|-> (save a resume prompt; releases the in-session plan if any)  (use [no-arg] → oldest pending prompt)') + '\n');
   process.stdout.write(dim(buildPlanStatusPrimer(config)) + '\n');
   if (hud.owned && hud.owned.via === 'ownership') {
-    process.stdout.write(yellow(`[dotmd] in-session (yours): ${hud.owned.path} — continue it; hand off with \`dotmd baton @/tmp/draft.md\` before stopping.`) + '\n');
+    process.stdout.write(yellow(`[runlist] in-session (yours): ${hud.owned.path} — continue it; hand off with \`runlist baton @/tmp/draft.md\` before stopping.`) + '\n');
   }
   if (hud.prompts.length > 0) {
     const n = hud.prompts.length;
-    process.stdout.write(yellow(`[dotmd] ${n} pending prompt${n === 1 ? '' : 's'} queued for this session — unless the user asks for something else, start by running \`dotmd use\` to consume the oldest (${hud.prompts[0]}) and act on it. Peek first: \`dotmd prompts show <file>\`; list: \`dotmd prompts\`.`) + '\n');
+    process.stdout.write(yellow(`[runlist] ${n} pending prompt${n === 1 ? '' : 's'} queued for this session — unless the user asks for something else, start by running \`runlist use\` to consume the oldest (${hud.prompts[0]}) and act on it. Peek first: \`runlist prompts show <file>\`; list: \`runlist prompts\`.`) + '\n');
   }
-  if (hud.misuseRecap) process.stdout.write(yellow(`[dotmd] ${hud.misuseRecap}`) + '\n');
+  if (hud.misuseRecap) process.stdout.write(yellow(`[runlist] ${hud.misuseRecap}`) + '\n');
   if (drift) process.stdout.write(yellow(drift) + '\n');
 }

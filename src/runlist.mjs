@@ -426,7 +426,7 @@ function renderRunlist(hubRepoPath, children, opts = {}) {
     const parked = children.filter(c => !c.missing && !archiveStatuses.has(c.status));
     lines.push(dim(parked.length === 0
       ? '  All children archived. Hub is ready for archive.'
-      : `  No pickup-able child — ${parked.length} parked. Unstick one (e.g. \`dotmd set active <child>\`) to continue.`));
+      : `  No pickup-able child — ${parked.length} parked. Unstick one (e.g. \`runlist set active <child>\`) to continue.`));
   }
   return lines.join('\n') + '\n';
 }
@@ -497,7 +497,7 @@ async function runRunlistAdd(positional, config, { dryRun, json, testHooks }) {
   const hubInput = positional[0];
   const childTokens = positional.slice(1);
   if (!hubInput || childTokens.length === 0) {
-    die('Usage: dotmd runlist add <hub-plan> <child...>  (one or more child slugs or plan paths)');
+    die('Usage: runlist runlist add <hub-plan> <child...>  (one or more child slugs or plan paths)');
   }
 
   let hubAbs = resolveHubInput(hubInput, config);
@@ -596,7 +596,7 @@ async function runRunlistAdd(positional, config, { dryRun, json, testHooks }) {
   if (!json) {
     process.stdout.write(dim(`  runlist now has ${newRefs.length} ${newRefs.length === 1 ? 'child' : 'children'}.`) + '\n');
     if (!dryRun) {
-      process.stdout.write(dim(`  Show: dotmd runlist ${hubRepoPath}   ·   pick up next: dotmd runlist next ${hubRepoPath}`) + '\n');
+      process.stdout.write(dim(`  Show: runlist runlist ${hubRepoPath}   ·   pick up next: runlist runlist next ${hubRepoPath}`) + '\n');
     }
   }
 }
@@ -729,7 +729,7 @@ function planClearChildParent(childAbs, hubAbs, config) {
 // Shared front half of remove/reorder: resolve the hub, read its `runlist:`,
 // die if it isn't a sprint hub with an array to mutate.
 function loadSprintHub(hubInput, verb, config) {
-  if (!hubInput) die(`Usage: dotmd runlist ${verb} <hub-plan> <child...>`);
+  if (!hubInput) die(`Usage: runlist runlist ${verb} <hub-plan> <child...>`);
   let hubAbs = resolveHubInput(hubInput, config);
   if (!hubAbs) die(`Hub plan not found: ${hubInput}`);
   hubAbs = authorizeManagedSource(hubAbs, config, { kind: `Runlist ${verb} hub source` }).path;
@@ -749,7 +749,7 @@ function loadSprintHub(hubInput, verb, config) {
 async function runRunlistRemove(positional, config, { dryRun, json, clearParent, testHooks }) {
   const { hubAbs, hubRepoPath, hubDir, existingRefs, raw: hubRaw } = loadSprintHub(positional[0], 'remove', config);
   const childTokens = positional.slice(1);
-  if (childTokens.length === 0) die('Usage: dotmd runlist remove <hub-plan> <child...>');
+  if (childTokens.length === 0) die('Usage: runlist runlist remove <hub-plan> <child...>');
 
   const removeRefs = [];
   for (const token of childTokens) {
@@ -814,7 +814,7 @@ function parseReorderArgs(argv) {
 async function runRunlistReorder(argv, config, { dryRun, json, testHooks }) {
   const { hubInput, children, before, after } = parseReorderArgs(argv);
   if (!hubInput || children.length === 0) {
-    die('Usage: dotmd runlist reorder <hub> <child> --before|--after <other>\n   or: dotmd runlist reorder <hub> <child1> <child2> ...  (full new order)');
+    die('Usage: runlist runlist reorder <hub> <child> --before|--after <other>\n   or: runlist runlist reorder <hub> <child1> <child2> ...  (full new order)');
   }
   const { hubAbs, hubRepoPath, hubDir, existingRefs, raw: hubRaw } = loadSprintHub(hubInput, 'reorder', config);
 
@@ -876,8 +876,8 @@ export async function runRunlist(argv, config, opts = {}) {
 
   if (!hubInput) {
     die(sub === 'next'
-      ? 'Usage: dotmd runlist next <hub-plan>'
-      : 'Usage: dotmd runlist <hub-plan>');
+      ? 'Usage: runlist runlist next <hub-plan>'
+      : 'Usage: runlist runlist <hub-plan>');
   }
 
   const hubAbs = resolveHubInput(hubInput, config);
@@ -919,13 +919,13 @@ export async function runRunlist(argv, config, opts = {}) {
         `No pickup-able child in runlist ${hubRepoPath} — every remaining child is parked:\n` +
         `${listed}\n` +
         `Unstick one before continuing:\n` +
-        `  dotmd set active <child>   # if ready to resume\n` +
-        `  dotmd use <child>          # to inspect`,
+        `  runlist set active <child>   # if ready to resume\n` +
+        `  runlist use <child>          # to inspect`,
       );
     }
     const allArchived = children.some(c => !c.missing) && children.every(c => c.missing || archiveStatuses.has(c.status));
     if (allArchived) {
-      die(`All children in runlist ${hubRepoPath} are archived. Hub is ready for \`dotmd archive ${hubRepoPath}\`.`);
+      die(`All children in runlist ${hubRepoPath} are archived. Hub is ready for \`runlist archive ${hubRepoPath}\`.`);
     }
     const missing = children.filter(c => c.missing).map(c => c.ref);
     die(`No pickup-able child in runlist ${hubRepoPath}. Unresolved refs: ${missing.join(', ')}`);

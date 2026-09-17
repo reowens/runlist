@@ -62,7 +62,7 @@ function run(args, { input, sid = 'test-sid' } = {}) {
     env: {
       ...process.env, NO_COLOR: '1',
       CLAUDE_CODE_SESSION_ID: sid,
-      DOTMD_ERROR_LOG_DIR: path.join(tmpDir, '.logs'),
+      RUNLIST_ERROR_LOG_DIR: path.join(tmpDir, '.logs'),
     },
   });
 }
@@ -71,7 +71,7 @@ afterEach(() => {
   if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
 });
 
-describe('dotmd baton', () => {
+describe('runlist baton', () => {
   beforeEach(() => setupProject());
 
   it('explicit plan: saves resume prompt, flips to active, prints the commit hint', () => {
@@ -359,7 +359,7 @@ describe('dotmd baton', () => {
       strictEqual(r.status, 0, r.stderr);
       match(r.stdout, /PARKED-BODY/, 'the body is the point of a saved prompt');
       match(r.stderr, new RegExp(`Not claimed.*is ${status}`));
-      match(r.stderr, /dotmd set active/, 'says how to unpark it');
+      match(r.stderr, /runlist set active/, 'says how to unpark it');
     });
   }
 
@@ -399,7 +399,7 @@ describe('dotmd baton', () => {
     const r = run(['baton', '--message', 'x']);
     ok(r.status !== 0);
     match(r.stderr, /No valid in-session plan/);
-    match(r.stderr, /dotmd baton <slug>/);
+    match(r.stderr, /runlist baton <slug>/);
   });
 
   it('slug mode: bare word saves resume-<slug> and touches nothing else', () => {
@@ -453,8 +453,8 @@ describe('dotmd baton', () => {
     const r = run(['baton', 'docs/plans/auth-revamp.md', '--message', 'newer handoff']);
     ok(r.status !== 0, 'refused');
     match(r.stderr, /already pending:\n  docs\/prompts\/resume-auth-revamp\.md/);
-    match(r.stderr, /dotmd use resume-auth-revamp/);
-    match(r.stderr, /dotmd prompts archive docs\/prompts\/resume-auth-revamp\.md/);
+    match(r.stderr, /runlist use resume-auth-revamp/);
+    match(r.stderr, /runlist prompts archive docs\/prompts\/resume-auth-revamp\.md/);
     ok(!existsSync(path.join(docsDir, 'prompts', 'resume-auth-revamp-2.md')), 'no -2 copy');
     ok(readFileSync(older, 'utf8').includes('older handoff'), 'older prompt untouched');
     ok(readFileSync(path.join(plansDir, 'auth-revamp.md'), 'utf8').includes('status: in-session'), 'plan untouched');
@@ -513,7 +513,7 @@ describe('dotmd baton', () => {
     const r = run(['baton', 'docs/plans/legacy.md', '--message', 'resume']);
     ok(r.status !== 0);
     match(r.stderr, /no frontmatter block/);
-    match(r.stderr, /dotmd bulk-tag docs\/plans\/legacy\.md/);
+    match(r.stderr, /runlist bulk-tag docs\/plans\/legacy\.md/);
     ok(!existsSync(path.join(docsDir, 'prompts', 'resume-legacy.md')), 'no prompt created');
   });
 
@@ -591,7 +591,7 @@ describe('dotmd baton', () => {
   });
 });
 
-describe('dotmd hud --json owned', () => {
+describe('runlist hud --json owned', () => {
   beforeEach(() => setupProject());
 
   it('exposes the durably owned in-session plan as .owned', () => {

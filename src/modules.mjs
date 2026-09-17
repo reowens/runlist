@@ -268,7 +268,7 @@ export function runModulesDashboard(index, argv, config) {
 
   if (!flags.all && rows.length > flags.limit) {
     const hidden = rows.length - flags.limit;
-    process.stdout.write('\n' + dim(`  ${hidden} more module${hidden === 1 ? '' : 's'}  ·  dotmd modules --all\n`));
+    process.stdout.write('\n' + dim(`  ${hidden} more module${hidden === 1 ? '' : 's'}  ·  runlist modules --all\n`));
   }
 }
 
@@ -283,7 +283,7 @@ export function runModuleDetail(index, argv, config) {
     positional.push(arg);
   }
   const name = positional[0];
-  if (!name) die('Usage: dotmd module <name>');
+  if (!name) die('Usage: runlist module <name>');
 
   const { rows } = aggregateModules(index.docs, config);
   const row = rows.find(r => r.name === name);
@@ -292,7 +292,7 @@ export function runModuleDetail(index, argv, config) {
     const suggestions = suggestCandidates(name, candidates);
     const hint = suggestions.length
       ? `Did you mean: ${suggestions.join(', ')}?`
-      : `Available: ${candidates.slice(0, 5).join(', ')}${candidates.length > 5 ? ', …' : ''} (run \`dotmd modules\` for the full list).`;
+      : `Available: ${candidates.slice(0, 5).join(', ')}${candidates.length > 5 ? ', …' : ''} (run \`runlist modules\` for the full list).`;
     die(`Module '${name}' not found. ${hint}`);
   }
 

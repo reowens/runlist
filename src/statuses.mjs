@@ -125,8 +125,8 @@ function formatPropDisplay(v) {
 async function runAddStatus(args, config, opts) {
   const flags = parseFlags(args, { allowProps: true });
   const name = flags.positional[0];
-  if (!name) die('Usage: dotmd statuses add <name> --type <type> [--like <existing>] [flags]');
-  if (!flags.type) die('--type is required for `dotmd statuses add`.');
+  if (!name) die('Usage: runlist statuses add <name> --type <type> [--like <existing>] [flags]');
+  if (!flags.type) die('--type is required for `runlist statuses add`.');
 
   const validationErr = validateStatusName(name);
   if (validationErr) die(validationErr);
@@ -135,11 +135,11 @@ async function runAddStatus(args, config, opts) {
   const content = readFileSync(config.configPath, 'utf8');
   const parsed = parseStatusesBlock(content, flags.type);
   if (parsed.form === 'array') {
-    die(`Type '${flags.type}' uses array-form statuses. Run \`dotmd statuses migrate ${flags.type}\` first to convert to rich form.`);
+    die(`Type '${flags.type}' uses array-form statuses. Run \`runlist statuses migrate ${flags.type}\` first to convert to rich form.`);
   }
 
   if (parsed.entries.some(e => e.name === name)) {
-    die(`Status '${name}' already exists in type '${flags.type}'. Use \`dotmd statuses set\` to edit it.`);
+    die(`Status '${name}' already exists in type '${flags.type}'. Use \`runlist statuses set\` to edit it.`);
   }
 
   // Resolve --like base flags
@@ -152,7 +152,7 @@ async function runAddStatus(args, config, opts) {
       die(`--like target '${likeName}' is not defined in type '${flags.type}'.`);
     }
     if (likeEntry.multiLine) {
-      die(`--like target '${likeName}' spans multiple lines in dotmd.config.mjs; this CLI only edits single-line entries.`);
+      die(`--like target '${likeName}' spans multiple lines in runlist.config.mjs; this CLI only edits single-line entries.`);
     }
     baseProps = parseEntryProps(likeEntry.raw);
   }
@@ -235,8 +235,8 @@ function labelOrigin(key, userProps) {
 async function runSetStatus(args, config, opts) {
   const flags = parseFlags(args, { allowProps: true });
   const name = flags.positional[0];
-  if (!name) die('Usage: dotmd statuses set <name> --type <type> [flags]');
-  if (!flags.type) die('--type is required for `dotmd statuses set`.');
+  if (!name) die('Usage: runlist statuses set <name> --type <type> [flags]');
+  if (!flags.type) die('--type is required for `runlist statuses set`.');
   if (Object.keys(flags.props).length === 0) {
     die('At least one flag is required (e.g. --quiet, --staleDays 30).');
   }
@@ -245,15 +245,15 @@ async function runSetStatus(args, config, opts) {
   const content = readFileSync(config.configPath, 'utf8');
   const parsed = parseStatusesBlock(content, flags.type);
   if (parsed.form === 'array') {
-    die(`Type '${flags.type}' uses array-form statuses. Run \`dotmd statuses migrate ${flags.type}\` first.`);
+    die(`Type '${flags.type}' uses array-form statuses. Run \`runlist statuses migrate ${flags.type}\` first.`);
   }
 
   const existing = parsed.entries.find(e => e.name === name);
   if (!existing) {
-    die(`Status '${name}' is not defined in type '${flags.type}'. Use \`dotmd statuses add\` to create it.`);
+    die(`Status '${name}' is not defined in type '${flags.type}'. Use \`runlist statuses add\` to create it.`);
   }
   if (existing.multiLine) {
-    die(`Status '${name}' spans multiple lines in dotmd.config.mjs; edit it by hand.`);
+    die(`Status '${name}' spans multiple lines in runlist.config.mjs; edit it by hand.`);
   }
 
   const oldProps = parseEntryProps(existing.raw);
@@ -306,14 +306,14 @@ function printSetDiff(name, typeName, oldProps, newProps, userProps) {
 async function runRemoveStatus(args, config, opts) {
   const flags = parseFlags(args, { allowProps: false });
   const name = flags.positional[0];
-  if (!name) die('Usage: dotmd statuses remove <name> --type <type>');
-  if (!flags.type) die('--type is required for `dotmd statuses remove`.');
+  if (!name) die('Usage: runlist statuses remove <name> --type <type>');
+  if (!flags.type) die('--type is required for `runlist statuses remove`.');
 
   requireConfigPath(config);
   const content = readFileSync(config.configPath, 'utf8');
   const parsed = parseStatusesBlock(content, flags.type);
   if (parsed.form === 'array') {
-    die(`Type '${flags.type}' uses array-form statuses. Run \`dotmd statuses migrate ${flags.type}\` first.`);
+    die(`Type '${flags.type}' uses array-form statuses. Run \`runlist statuses migrate ${flags.type}\` first.`);
   }
   if (!parsed.entries.find(e => e.name === name)) {
     die(`Status '${name}' is not defined in type '${flags.type}'.`);
@@ -324,7 +324,7 @@ async function runRemoveStatus(args, config, opts) {
   if (offenders.length > 0) {
     const list = offenders.slice(0, 10).map(p => `  - ${p}`).join('\n');
     const more = offenders.length > 10 ? `\n  ... and ${offenders.length - 10} more` : '';
-    die(`${offenders.length} doc(s) currently use status '${name}':\n${list}${more}\n\nMigrate them first: \`dotmd migrate status ${name} <other> [files...]\``);
+    die(`${offenders.length} doc(s) currently use status '${name}':\n${list}${more}\n\nMigrate them first: \`runlist migrate status ${name} <other> [files...]\``);
   }
 
   // Warn (don't refuse) if explicit lifecycle references the name.
@@ -412,7 +412,7 @@ function findMatchingBrace(content, openPos) {
 async function runMigrateType(args, config, opts) {
   const flags = parseFlags(args, { allowProps: false });
   const typeName = flags.positional[0];
-  if (!typeName) die('Usage: dotmd statuses migrate <type>');
+  if (!typeName) die('Usage: runlist statuses migrate <type>');
 
   requireConfigPath(config);
   const content = readFileSync(config.configPath, 'utf8');
@@ -581,7 +581,7 @@ function lastNewlineIndexBefore(content, pos) {
 
 function requireConfigPath(config) {
   if (!config.configPath || !existsSync(config.configPath)) {
-    die(`No dotmd.config.mjs found in ${process.cwd()} — run \`dotmd init\` first.`);
+    die(`No runlist.config.mjs found in ${process.cwd()} — run \`runlist init\` first.`);
   }
 }
 

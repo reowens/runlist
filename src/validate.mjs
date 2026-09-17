@@ -143,7 +143,7 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
         doc.warnings.push({
           path: doc.path,
           level: 'warning',
-          message: `Unknown surface \`${surface}\`; expected a known surface taxonomy value.${hint} Run \`dotmd surfaces\` to list all valid values.`,
+          message: `Unknown surface \`${surface}\`; expected a known surface taxonomy value.${hint} Run \`runlist surfaces\` to list all valid values.`,
         });
       }
     }
@@ -173,7 +173,7 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
       const autoFixable = singularValues.every(autoFixableString)
         && pluralValue.every(autoFixableString);
       const guidance = autoFixable
-        ? `use \`${target}\`. Run \`dotmd lint --fix\` to migrate.`
+        ? `use \`${target}\`. Run \`runlist lint --fix\` to migrate.`
         : `use a \`${plural}:\` YAML list. Remove the deprecated \`${singular}:\` block manually and preserve all of its values.`;
       doc.warnings.push({
         path: doc.path,
@@ -228,7 +228,7 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
       doc.errors.push({
         path: doc.path,
         level: 'error',
-        message: `\`status: ${doc.status}\` but file is a direct child of \`${parentDir}/\`, not \`${parentDir}/${config.archiveDir}/\`. Run \`dotmd archive ${doc.path}\` to relocate to \`${expected}\`, or change the status.`,
+        message: `\`status: ${doc.status}\` but file is a direct child of \`${parentDir}/\`, not \`${parentDir}/${config.archiveDir}/\`. Run \`runlist archive ${doc.path}\` to relocate to \`${expected}\`, or change the status.`,
       });
     }
   }
@@ -244,8 +244,8 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
     const parentSegments = path.dirname(doc.path).split('/');
     if (parentSegments.includes(config.archiveDir)) {
       const heal = doc.type === 'prompt'
-        ? `dotmd prompts archive ${doc.path}`
-        : `dotmd set archived ${doc.path}`;
+        ? `runlist prompts archive ${doc.path}`
+        : `runlist set archived ${doc.path}`;
       doc.errors.push({
         path: doc.path,
         level: 'error',
@@ -492,7 +492,7 @@ export function checkCoordinationHubExecutionMode(docs, config) {
     warnings.push({
       path: doc.path,
       level: 'warning',
-      message: `reads as a coordination runlist (slug \`${base}\`) but is missing \`execution_mode: coordination\`. Add it so \`dotmd plans\` / \`dotmd runlists\` reliably treat it as a runlist, not an active plan.`,
+      message: `reads as a coordination runlist (slug \`${base}\`) but is missing \`execution_mode: coordination\`. Add it so \`runlist plans\` / \`runlist runlists\` reliably treat it as a runlist, not an active plan.`,
     });
   }
   return warnings;
@@ -547,7 +547,7 @@ export function checkRoadmapHubExecutionMode(docs, config) {
       warnings.push({
         path: doc.path,
         level: 'warning',
-        message: `is a coordination hub whose ${hubChildren} of ${resolved} \`related_plans:\` children are themselves runlists — that's structurally a tier-3 roadmap. Set \`execution_mode: roadmap\` so \`dotmd roadmap\` rolls their progress up (recursive done/total) instead of rendering it flat among them.`,
+        message: `is a coordination hub whose ${hubChildren} of ${resolved} \`related_plans:\` children are themselves runlists — that's structurally a tier-3 roadmap. Set \`execution_mode: roadmap\` so \`runlist roadmap\` rolls their progress up (recursive done/total) instead of rendering it flat among them.`,
       });
     }
   }
@@ -622,7 +622,7 @@ export function validatePlanShape(doc, body, frontmatter, config) {
     doc.warnings.push({
       path: doc.path,
       level: 'warning',
-      message: `\`next_step\` is ${nextStep.length} chars (cap: 800). One mechanical fix: \`dotmd doctor --frontmatter-fix\` (moves the overflow into the body) — do NOT hand-trim or re-run check in a loop. Going forward, write next_step as a 1-2 sentence pointer; detail goes in the body.`,
+      message: `\`next_step\` is ${nextStep.length} chars (cap: 800). One mechanical fix: \`runlist doctor --frontmatter-fix\` (moves the overflow into the body) — do NOT hand-trim or re-run check in a loop. Going forward, write next_step as a 1-2 sentence pointer; detail goes in the body.`,
     });
   }
 
@@ -635,7 +635,7 @@ export function validatePlanShape(doc, body, frontmatter, config) {
     doc.warnings.push({
       path: doc.path,
       level: 'warning',
-      message: `\`current_state\` is ${currentState.length} chars (cap: 1500). One mechanical fix: \`dotmd doctor --frontmatter-fix\` (moves the overflow into the body) — do NOT hand-trim or re-run check in a loop. Going forward, write current_state as a 2-4 sentence summary; detail goes in the body.`,
+      message: `\`current_state\` is ${currentState.length} chars (cap: 1500). One mechanical fix: \`runlist doctor --frontmatter-fix\` (moves the overflow into the body) — do NOT hand-trim or re-run check in a loop. Going forward, write current_state as a 2-4 sentence summary; detail goes in the body.`,
     });
   }
 

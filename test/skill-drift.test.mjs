@@ -5,6 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import {
   CANONICAL_MARKERS,
+  LEGACY_CANONICAL_MARKERS,
   extractCanonicalBlock,
   checkSkillDrift,
 } from '../src/skill-drift.mjs';
@@ -54,6 +55,20 @@ describe('extractCanonicalBlock', () => {
     strictEqual(extractCanonicalBlock(`prefix ${start} only the opener`), null);
   });
 
+  it('marks with the runlist spelling', () => {
+    strictEqual(start, '<!-- runlist:canonical-workflow:start -->');
+    strictEqual(end, '<!-- runlist:canonical-workflow:end -->');
+  });
+
+  it('still reads a block marked with the legacy dotmd spelling', () => {
+    const legacy = `${LEGACY_CANONICAL_MARKERS.start}\n- legacy body\n${LEGACY_CANONICAL_MARKERS.end}`;
+    strictEqual(extractCanonicalBlock(legacy).trim(), '- legacy body');
+  });
+
+  it('does not pair a current opener with a legacy closer', () => {
+    strictEqual(extractCanonicalBlock(`${start}\n- body\n${LEGACY_CANONICAL_MARKERS.end}`), null);
+  });
+
   it('returns null for non-string input', () => {
     strictEqual(extractCanonicalBlock(null), null);
     strictEqual(extractCanonicalBlock(undefined), null);
@@ -61,6 +76,13 @@ describe('extractCanonicalBlock', () => {
 });
 
 describe('checkSkillDrift', () => {
+  it('compares a legacy-marked copy against a current-marked one', () => {
+    setup();
+    writeClaude(BLOCK);
+    writeSkill(BLOCK.replace(start, LEGACY_CANONICAL_MARKERS.start).replace(end, LEGACY_CANONICAL_MARKERS.end).replace('briefing', 'plans'));
+    strictEqual(checkSkillDrift({ repoRoot: tmpDir }).length, 1);
+  });
+
   it('returns [] when CLAUDE.md is missing (plugin-only tree)', () => {
     setup();
     writeSkill(BLOCK);

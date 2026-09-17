@@ -89,7 +89,7 @@ export function readInstalledPlugin(opts = {}) {
 export function planMarketplaceRepair(plugin, { hasClaude, verb }) {
   const reason = `marketplace "${plugin.marketplace}" is not registered, so the installed plugin cannot load`;
   if (plugin.marketplace !== 'dotmd') {
-    return [{ kind: 'skip', reason: `${reason} — re-add that marketplace (dotmd does not know its source), then rerun` }];
+    return [{ kind: 'skip', reason: `${reason} — re-add that marketplace (runlist does not know its source), then rerun` }];
   }
   if (!hasClaude) {
     return [{ kind: 'manual', reason, lines: [`/plugin marketplace add ${CLAUDE_MARKETPLACE}`, `/plugin ${verb} ${plugin.id}`] }];
@@ -112,7 +112,7 @@ export function planUpdate(opts, ctx) {
   }
   if (!opts.cliOnly) {
     if (!ctx.plugin) {
-      steps.push({ kind: 'skip', reason: 'dotmd plugin not installed — skipping plugin update' });
+      steps.push({ kind: 'skip', reason: 'runlist plugin not installed — skipping plugin update' });
     } else if (ctx.plugin.marketplaceRegistered === false) {
       steps.push(...planMarketplaceRepair(ctx.plugin, { hasClaude: ctx.hasClaude, verb: 'update' }));
     } else if (!ctx.hasClaude) {
@@ -127,7 +127,7 @@ export function planUpdate(opts, ctx) {
     if (ctx.opencode?.exists && ctx.opencode.stale) {
       steps.push({ kind: 'opencode', path: ctx.opencode.path });
     } else if (ctx.opencode?.foreign) {
-      steps.push({ kind: 'skip', reason: `${ctx.opencode.path} was not written by dotmd — leaving it alone` });
+      steps.push({ kind: 'skip', reason: `${ctx.opencode.path} was not written by runlist — leaving it alone` });
     }
   }
   return steps;
@@ -140,24 +140,24 @@ export function runUpdate(argv, _config, opts = {}) {
   const plugin = readInstalledPlugin();
 
   if (check) {
-    process.stdout.write(`dotmd CLI:    ${pkg.version}\n`);
+    process.stdout.write(`runlist CLI:    ${pkg.version}\n`);
     if (plugin) {
       const cmp = compareVersions(plugin.version, pkg.version);
       const tag = cmp === 0 ? green('in sync')
         : cmp === null ? dim('(unknown)')
-        : cmp < 0 ? yellow('behind — run `dotmd update`')
+        : cmp < 0 ? yellow('behind — run `runlist update`')
         : yellow('ahead — CLI is behind');
-      process.stdout.write(`dotmd plugin: ${plugin.version ?? '?'} (${plugin.id}) ${tag}\n`);
+      process.stdout.write(`runlist plugin: ${plugin.version ?? '?'} (${plugin.id}) ${tag}\n`);
       if (plugin.marketplaceRegistered === false) {
-        process.stdout.write(yellow(`  marketplace "${plugin.marketplace}" is not registered — the plugin fails to load; run \`dotmd install claude\`\n`));
+        process.stdout.write(yellow(`  marketplace "${plugin.marketplace}" is not registered — the plugin fails to load; run \`runlist install claude\`\n`));
       }
     } else {
-      process.stdout.write(dim('dotmd plugin: not installed — `dotmd install claude`\n'));
+      process.stdout.write(dim('runlist plugin: not installed — `runlist install claude`\n'));
     }
     const oc = opencodeStatus({ version: pkg.version });
-    if (!oc.exists) process.stdout.write(dim('dotmd opencode: not installed\n'));
-    else if (oc.foreign) process.stdout.write(`dotmd opencode: ${yellow('unmanaged file — not written by dotmd')}\n`);
-    else process.stdout.write(`dotmd opencode: ${oc.version} ${oc.stale ? yellow('behind — run `dotmd update`') : green('in sync')}\n`);
+    if (!oc.exists) process.stdout.write(dim('runlist opencode: not installed\n'));
+    else if (oc.foreign) process.stdout.write(`runlist opencode: ${yellow('unmanaged file — not written by runlist')}\n`);
+    else process.stdout.write(`runlist opencode: ${oc.version} ${oc.stale ? yellow('behind — run `runlist update`') : green('in sync')}\n`);
     return;
   }
 

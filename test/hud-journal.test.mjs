@@ -53,7 +53,7 @@ describe('F17b: hud reads journal', () => {
     // No journal file written.
     const r = runHud();
     strictEqual(r.status, 0, r.stderr);
-    match(r.stdout, /dotmd: plans\|briefing/, 'primer present');
+    match(r.stdout, /runlist: plans\|briefing/, 'primer present');
     doesNotMatch(r.stdout, /previous self/, 'no previous-self header when journal absent');
     doesNotMatch(r.stdout, /fleet/, 'no fleet header when journal absent');
     doesNotMatch(r.stdout, /recent rejections/, 'no rejections header when journal absent');

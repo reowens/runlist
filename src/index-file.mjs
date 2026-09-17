@@ -72,7 +72,7 @@ function renderArchivedSection(docs, config, status) {
     lines.push(`| [${escapeTable(doc.title)}](${linkPath}) | ${escapeTable(formatSnapshot(doc, config))} |`);
   }
   lines.push('');
-  lines.push('- Use `dotmd list` or `dotmd json` for the full inventory.');
+  lines.push('- Use `runlist list` or `runlist json` for the full inventory.');
 
   return lines;
 }
@@ -141,7 +141,7 @@ export function checkIndex(docs, config, opts = {}) {
   const index = { docs };
   const expected = renderIndexFile(index, config);
   if (expected !== current) {
-    errors.push({ path: config.indexPath, level: 'error', message: 'Generated index block is stale. Run `dotmd index`.' });
+    errors.push({ path: config.indexPath, level: 'error', message: 'Generated index block is stale. Run `runlist index`.' });
   }
 
   return { warnings, errors };

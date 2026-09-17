@@ -31,7 +31,7 @@ export function findOwnedPlan(config, index = null) {
 // next decision, and a prompt assembled from frontmatter reads like a handoff
 // while carrying nothing the plan doesn't already say.
 const BODY_USAGE = `Nothing saved: baton needs the resume you wrote, passed as @<file> or - (stdin).
-  dotmd baton [<plan-or-slug>] @/tmp/draft.md`;
+  runlist baton [<plan-or-slug>] @/tmp/draft.md`;
 
 // A handoff that lands beside a pending one leaves two prompts for the same
 // work, and the next session picks whichever sorts first. Baton used to step to
@@ -60,7 +60,7 @@ function pendingHandoffs(promptPath, planPath, config) {
 function refusePendingHandoff(pending) {
   const lines = pending.map(p => `  ${p}`).join('\n');
   const slug = path.basename(pending[0], '.md');
-  die(`Nothing saved: a handoff for this is already pending:\n${lines}\nUse it (\`dotmd use ${slug}\`) or archive it (\`dotmd prompts archive ${pending[0]}\`), then run baton again.`);
+  die(`Nothing saved: a handoff for this is already pending:\n${lines}\nUse it (\`runlist use ${slug}\`) or archive it (\`runlist prompts archive ${pending[0]}\`), then run baton again.`);
 }
 
 // Is this positional a filesystem reference (must resolve, typos die) or a
@@ -87,7 +87,7 @@ export async function runBaton(argv, config, opts = {}) {
     if (a === '--force') { force = true; continue; }
     if (a === '--json') continue;
     if (!a.startsWith('-') || a === '-' || a.startsWith('@')) { positionals.push(a); continue; }
-    die(`Unknown flag for \`dotmd baton\`: ${a}`);
+    die(`Unknown flag for \`runlist baton\`: ${a}`);
   }
 
   let planArg = null;
@@ -138,10 +138,10 @@ export async function runBaton(argv, config, opts = {}) {
     if (owned.plan) {
       planPath = path.resolve(config.repoRoot, owned.plan.path);
     } else if (owned.owned?.length > 1) {
-      die(`Multiple plans are owned by this session; pass one explicitly:\n${owned.owned.map(d => '  dotmd baton ' + d.path + ' @/tmp/draft.md').join('\n')}`);
+      die(`Multiple plans are owned by this session; pass one explicitly:\n${owned.owned.map(d => '  runlist baton ' + d.path + ' @/tmp/draft.md').join('\n')}`);
     } else {
       const diagnostics = owned.diagnostics?.length ? `\nIgnored ownership records:\n${owned.diagnostics.map(d => `  ${d}`).join('\n')}` : '';
-      die(`No valid in-session plan is owned by this session, so baton needs a name for the resume prompt:\n  dotmd baton <slug> @/tmp/draft.md      # saves resume-<slug>, touches nothing else\nHanding off a specific plan? dotmd baton <plan-file> @/tmp/draft.md${diagnostics}`);
+      die(`No valid in-session plan is owned by this session, so baton needs a name for the resume prompt:\n  runlist baton <slug> @/tmp/draft.md      # saves resume-<slug>, touches nothing else\nHanding off a specific plan? runlist baton <plan-file> @/tmp/draft.md${diagnostics}`);
     }
   }
 
@@ -162,7 +162,7 @@ export async function runBaton(argv, config, opts = {}) {
     const raw = readFileSync(planPath, 'utf8');
     const { frontmatter: fmRaw } = extractFrontmatter(raw);
     if (!fmRaw) {
-      die(`${repoPath} has no frontmatter block — baton can't flip its status.\nFix the doc first (\`dotmd bulk-tag ${repoPath} --type plan --status in-session\`), or save the prompt without a status flip: dotmd baton ${path.basename(planPath, '.md')} @/tmp/draft.md`);
+      die(`${repoPath} has no frontmatter block — baton can't flip its status.\nFix the doc first (\`runlist bulk-tag ${repoPath} --type plan --status in-session\`), or save the prompt without a status flip: runlist baton ${path.basename(planPath, '.md')} @/tmp/draft.md`);
     }
     const fm = parseSimpleFrontmatter(fmRaw);
     const docType = asString(fm.type);
@@ -176,7 +176,7 @@ export async function runBaton(argv, config, opts = {}) {
       die(`Invalid status \`${status}\` for type \`${docType ?? 'plan'}\`\nValid: ${[...validStatuses].join(', ')}`);
     }
     if (status === 'in-session') {
-      die('`dotmd baton --status in-session` contradicts baton release semantics. Choose active/paused/awaiting/partial/blocked.');
+      die('`runlist baton --status in-session` contradicts baton release semantics. Choose active/paused/awaiting/partial/blocked.');
     }
     assertPlanMutationAuthorized(repoPath, config, { sessionId: authoritativeSessionId(), force });
     // Before the plan-completion step: a refusal must leave nothing changed.

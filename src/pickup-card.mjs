@@ -208,7 +208,7 @@ export function buildCard(filePath, raw, config) {
 // Render the card to human-format string.
 export function renderCard(card) {
   const lines = [];
-  lines.push(`[dotmd] in-session: ${card.path} — close with: dotmd set <status> ${card.path}`);
+  lines.push(`[runlist] in-session: ${card.path} — close with: runlist set <status> ${card.path}`);
   lines.push('---');
   lines.push(`# ${card.title}`);
   const meta = [card.status, card.updated && `updated ${card.updated}`].filter(Boolean).join(' · ');
@@ -266,7 +266,7 @@ export function renderCard(card) {
   }
 
   lines.push('');
-  lines.push(dim(`Body: ${formatBytes(card.bodyBytes)}. \`dotmd set in-session ${card.path} --full\` for everything, or Read the file with offset/limit to target a section by line number.`));
+  lines.push(dim(`Body: ${formatBytes(card.bodyBytes)}. \`runlist set in-session ${card.path} --full\` for everything, or Read the file with offset/limit to target a section by line number.`));
   return lines.join('\n') + '\n';
 }
 

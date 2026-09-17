@@ -22,7 +22,7 @@ export function runWatch(argv, config) {
 
     // Clear terminal
     process.stdout.write('\x1b[2J\x1b[H');
-    process.stderr.write(dim(`[${new Date().toLocaleTimeString()}] dotmd ${subCommand.join(' ')}`) + '\n\n');
+    process.stderr.write(dim(`[${new Date().toLocaleTimeString()}] runlist ${subCommand.join(' ')}`) + '\n\n');
 
     spawnSync(process.execPath, [cliPath, ...subCommand], {
       stdio: 'inherit',

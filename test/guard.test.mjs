@@ -101,14 +101,14 @@ test('guard has no opinion without a discovered dotmd config', () => {
   assert.equal(r, null);
 });
 
-test('cat of a prompt warns and nudges to dotmd use', () => {
+test('cat of a prompt warns and nudges to runlist use', () => {
   const r = evaluateGuard(
     { tool_name: 'Bash', tool_input: { command: 'cat docs/prompts/foo.md' } },
     config, notIncluded,
   );
   assert.equal(r.decision, 'warn');
   assert.equal(r.rule, 'cat-prompt');
-  assert.match(r.reason, /dotmd use docs\/prompts\/foo\.md/);
+  assert.match(r.reason, /runlist use docs\/prompts\/foo\.md/);
 });
 
 test('Read tool on a prompt warns', () => {
@@ -268,8 +268,8 @@ test('sed -i on a non-managed file is not guarded', () => {
 test('heredoc prose DESCRIBING sed -i status edits is not guarded', () => {
   // Saved-prompt bodies often describe the rules; the body is data, not a command.
   const command = [
-    "dotmd new prompt resume-foo - <<'EOF'",
-    "Gotcha: never `sed -i 's/status: active/status: archived/' docs/plans/x.md` — use dotmd set.",
+    "runlist new prompt resume-foo - <<'EOF'",
+    "Gotcha: never `sed -i 's/status: active/status: archived/' docs/plans/x.md` — use runlist set.",
     'EOF',
   ].join('\n');
   const r = evaluateGuard({ tool_name: 'Bash', tool_input: { command } }, config, notIncluded);
@@ -331,7 +331,7 @@ test('prompt path in a NON-git segment does not deny the commit', () => {
   // The false positive that taught sessions to distrust legitimate commits:
   // `dotmd check` on a prompt in one segment, `git commit` of a plan in another.
   const r = evaluateGuard(
-    { tool_name: 'Bash', tool_input: { command: 'dotmd check docs/prompts/resume-x.md 2>&1 | tail -3; git commit -m "close plan" -- docs/plans/foo.md' } },
+    { tool_name: 'Bash', tool_input: { command: 'runlist check docs/prompts/resume-x.md 2>&1 | tail -3; git commit -m "close plan" -- docs/plans/foo.md' } },
     config, notIncluded,
   );
   assert.equal(r, null, `prompt mention outside the git segment must not deny; got ${JSON.stringify(r)}`);
@@ -374,7 +374,7 @@ test('git add of an escaped-space prompt path is denied', () => {
 
 test('git add of a prompt in a LATER segment is denied', () => {
   const r = evaluateGuard(
-    { tool_name: 'Bash', tool_input: { command: 'dotmd check && git add docs/prompts/resume-x.md && git commit -m x' } },
+    { tool_name: 'Bash', tool_input: { command: 'runlist check && git add docs/prompts/resume-x.md && git commit -m x' } },
     config, explicitPaths,
   );
   assert.equal(r.rule, 'commit-prompt');
@@ -383,7 +383,7 @@ test('git add of a prompt in a LATER segment is denied', () => {
 test('creating a prompt via heredoc whose BODY mentions a prompt path is not warned', () => {
   // The canonical creation flow — the guard must not scold it.
   const command = [
-    "cat <<'EOF' | dotmd new prompt resume-y",
+    "cat <<'EOF' | runlist new prompt resume-y",
     'see docs/prompts/old-thing.md for context',
     'EOF',
   ].join('\n');
@@ -397,7 +397,7 @@ test('cat of a prompt piped onward still warns (segment-scoped, not pipe-blind)'
     config, notIncluded,
   );
   assert.equal(r.rule, 'cat-prompt');
-  assert.match(r.reason, /dotmd prompts show docs\/prompts\/foo\.md/);
+  assert.match(r.reason, /runlist prompts show docs\/prompts\/foo\.md/);
 });
 
 test('git add of a non-prompt path is not denied', () => {

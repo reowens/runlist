@@ -163,8 +163,8 @@ export function checkHubStatusDrift(docs, config) {
           path: hub.path,
           level: row.marked ? 'error' : 'warning',
           message: row.marked
-            ? `line ${row.line} rows \`${row.target}\` as \`${row.printed}\` inside a \`${MARKER_OPEN}…${MARKER_CLOSE}\` marker, but that doc's status is \`${row.actual}\`. The marker means dotmd owns that word — run \`dotmd sync-status\` to rewrite it, or change the doc's status.`
-            : `line ${row.line} rows \`${row.target}\` as \`${row.printed}\`, but that doc's status is \`${row.actual}\`. Run \`dotmd sync-status\` to rewrite the row, or change the doc's status.`,
+            ? `line ${row.line} rows \`${row.target}\` as \`${row.printed}\` inside a \`${MARKER_OPEN}…${MARKER_CLOSE}\` marker, but that doc's status is \`${row.actual}\`. The marker means runlist owns that word — run \`runlist sync-status\` to rewrite it, or change the doc's status.`
+            : `line ${row.line} rows \`${row.target}\` as \`${row.printed}\`, but that doc's status is \`${row.actual}\`. Run \`runlist sync-status\` to rewrite the row, or change the doc's status.`,
           meta: { kind: DRIFT_KIND, target: row.target, printed: row.printed, actual: row.actual, line: row.line, marked: row.marked },
         };
         (row.marked ? errors : warnings).push(entry);
@@ -257,7 +257,7 @@ export function syncHubStatuses(config, { docs, dryRun = false, adopt = false, h
     if (result.unreadable > 0) {
       process.stdout.write(yellow(`${result.unreadable} row(s) sit under a status column with no readable status word`)
         + ' — lead the cell with the status, or wrap it in '
-        + `${MARKER_OPEN}…${MARKER_CLOSE}. Run \`dotmd check\` to list them.\n`);
+        + `${MARKER_OPEN}…${MARKER_CLOSE}. Run \`runlist check\` to list them.\n`);
     }
   }
   return result;
@@ -281,7 +281,7 @@ function resolveHubArgs(args, docs) {
     const [match] = matches;
     if (!isHubDoc(match)) {
       die(`${match.path} is not a hub — it has no \`runlist:\` and no \`execution_mode: coordination|roadmap\`. `
-        + 'Run `dotmd sync-status` with no argument to sweep every hub.');
+        + 'Run `runlist sync-status` with no argument to sweep every hub.');
     }
     paths.add(match.path);
   }

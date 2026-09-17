@@ -238,7 +238,7 @@ test('detectVersionDrift: warns when cached plugin is behind the CLI', () => {
   withPluginRoot('0.0.1', true, (root) => {
     const msg = detectVersionDrift({ CLAUDE_PLUGIN_ROOT: root });
     assert.match(msg, /plugin 0\.0\.1 is behind the CLI/);
-    assert.match(msg, /dotmd update/);
+    assert.match(msg, /runlist update/);
   });
 });
 
