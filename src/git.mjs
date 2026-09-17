@@ -122,8 +122,7 @@ export function getGitLastModifiedBatch(repoRoot, relPaths, options = {}) {
   assertSafeGitPaths(paths);
   if (paths.length === 0) return { dates: new Map(), commits: new Map(), history: new Map(), complete: true, reason: null };
   // Full-tree callers can supply a small set of configured root pathspecs for
-  // diff extraction. Revision selection still uses the exact requested paths,
-  // so excluded or unrelated documents cannot consume the commit bound.
+  // diff extraction.
   const scanPaths = options.pathspecs?.length ? [...new Set(options.pathspecs)] : paths;
   assertSafeGitPaths(scanPaths);
   const expectedPaths = new Set(paths);
@@ -133,10 +132,22 @@ export function getGitLastModifiedBatch(repoRoot, relPaths, options = {}) {
   const commitsByPath = new Map();
   const history = new Map();
   let reason = null;
+  // Revision selection uses the root pathspecs when the caller supplied them,
+  // not the full requested list: Git matches every pathspec against every
+  // commit's diff, so selecting by roots avoids repeatedly matching every
+  // document path. The window can only widen, never narrow, per requested path —
+  // every requested path lives under a root, so a commit touching one matches
+  // the root too, and the window stays a newest-first prefix of history. What
+  // it costs is depth: commits touching only non-requested docs now consume the
+  // bound, so a path whose latest commit falls outside the window resolves to
+  // no date at all rather than to a stale one. That case is already accounted
+  // for below — an unresolved TRACKED path keeps `commit-limit`, which callers
+  // surface as "Git metadata is incomplete".
+  const revisionPathspecs = scanPaths.length < paths.length ? scanPaths : paths;
   const revisions = spawnSync('git', ['rev-list', '--stdin', `--max-count=${maxCommits + 1}`, revision], {
     cwd: repoRoot,
     encoding: 'utf8',
-    input: `--\n${paths.map(literalGitPathspec).join('\n')}\n`,
+    input: `--\n${revisionPathspecs.map(literalGitPathspec).join('\n')}\n`,
     maxBuffer,
   });
   if (revisions.error?.code === 'ENOBUFS') {

@@ -12,6 +12,8 @@ import {
   die,
   DotmdError,
   suggestCandidates,
+  levenshtein,
+  levenshteinWithin,
 } from '../src/util.mjs';
 
 describe('escapeTable', () => {
@@ -166,6 +168,55 @@ describe('die', () => {
 
   it('throws with the correct message', () => {
     throws(() => die('bad input'), { message: 'bad input' });
+  });
+});
+
+describe('levenshteinWithin', () => {
+  // The bounded walk exists only to answer the suggester's "within N edits?"
+  // faster; if it ever disagrees with the exact matrix inside the limit, the
+  // did-you-mean hints change silently. So it is checked against it directly,
+  // over the shapes the band edges care about: equal lengths, every gap up to
+  // one past the limit, empty strings, and transpositions.
+  const alphabet = 'ab-c.md';
+  const randomString = (rand, maxLength) => {
+    let out = '';
+    const length = Math.floor(rand() * (maxLength + 1));
+    for (let i = 0; i < length; i++) out += alphabet[Math.floor(rand() * alphabet.length)];
+    return out;
+  };
+
+  it('agrees with the exact matrix at every limit', () => {
+    let seed = 20260917;
+    const rand = () => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed / 2147483648;
+    };
+    for (let trial = 0; trial < 4000; trial++) {
+      const a = randomString(rand, 12);
+      const b = randomString(rand, 12);
+      for (const limit of [0, 1, 2, 3, 5]) {
+        const exact = levenshtein(a, b);
+        const bounded = levenshteinWithin(a, b, limit);
+        if (exact <= limit) strictEqual(bounded, exact, `within: ${JSON.stringify([a, b, limit])}`);
+        else strictEqual(bounded, null, `beyond: ${JSON.stringify([a, b, limit])} exact=${exact}`);
+      }
+    }
+  });
+
+  it('handles empty strings and length gaps', () => {
+    strictEqual(levenshteinWithin('', '', 3), 0);
+    strictEqual(levenshteinWithin('', 'abc', 3), 3);
+    strictEqual(levenshteinWithin('abc', '', 3), 3);
+    strictEqual(levenshteinWithin('', 'abcd', 3), null);
+    strictEqual(levenshteinWithin('abcd', '', 3), null);
+    strictEqual(levenshteinWithin('plan.md', 'plan.md', 0), 0);
+    strictEqual(levenshteinWithin('paln.md', 'plan.md', 2), 2);
+  });
+
+  it('does not reuse a row across calls', () => {
+    strictEqual(levenshteinWithin('aaaaaaaaaa', 'aaaaaaaaaa', 3), 0);
+    strictEqual(levenshteinWithin('zzzzzzzzzz', 'aaaaaaaaaa', 3), null);
+    strictEqual(levenshteinWithin('aaaaaaaaaa', 'aaaaaaaaaa', 3), 0);
   });
 });
 

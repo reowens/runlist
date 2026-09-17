@@ -56,7 +56,13 @@ export async function runPrompts(argv, config, opts = {}) {
 }
 
 function runPromptsList(argv, config, opts = {}) {
-  const index = buildIndex(config);
+  // Listing prompts renders slug / status / updated / target — nothing any
+  // validating pass produces, and `runQuery` never reads warnings either. A
+  // full `buildIndex` here parsed every body in the repo through the ref,
+  // git-staleness and hub passes just to print a small prompt list,
+  // and then `pendingPromptsOldestFirst` scanned the tree a second time. One
+  // fast index, shared, on the same terms hud reads on.
+  const index = buildIndex(config, { fast: true, invokeHooks: false });
   const hasStatusFlag = argv.includes('--status');
   const includeArchived = argv.includes('--include-archived');
   const sub = argv[0];
@@ -87,7 +93,7 @@ function runPromptsList(argv, config, opts = {}) {
 }
 
 function renderPromptQueueList(index, config) {
-  const queue = pendingPromptsOldestFirst(config);
+  const queue = pendingPromptsOldestFirst(config, index);
   const queuedPaths = new Set(queue.map(q => q.doc.path));
   const others = index.docs
     .filter(d => d.type === 'prompt' && !queuedPaths.has(d.path) && !isArchivedPath(d.path, config) && d.status !== 'archived')
@@ -175,8 +181,12 @@ function renderPromptsVerbose(index, config, { hasStatusFlag, includeArchived })
   }
 }
 
-export function pendingPromptsOldestFirst(config) {
-  const index = buildIndex(config, { fast: true, invokeHooks: false });
+// `index` lets a caller that already has a fast index (the prompt listings)
+// share it rather than re-walking the tree. It must be a full index of the
+// repo: the filter below narrows it, so a pre-filtered one would drop prompts
+// from the queue.
+export function pendingPromptsOldestFirst(config, index = null) {
+  index = index ?? buildIndex(config, { fast: true, invokeHooks: false });
   const actionable = actionablePromptStatuses(config);
   const prompts = index.docs.filter(d =>
     d.type === 'prompt'

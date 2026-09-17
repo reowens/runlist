@@ -338,14 +338,24 @@ function candidatePathsForType(docs, type) {
 // can't see siblings). Filters candidates by ref-field type when the field
 // name implies one (e.g. `related_plans` → plans only).
 export function enrichRefErrorSuggestions(docs, config) {
+  // One candidate list per inferred type, not per broken ref. The list is a
+  // filter plus a ~2-per-doc Set build over the whole index, and it does not
+  // depend on the entry — rebuilding it for each entry made this pass quadratic
+  // in (docs × broken refs), adding repeated work to every index build.
+  const candidateCache = new Map();
+  const candidatesFor = (type) => {
+    const key = type ?? '';
+    if (!candidateCache.has(key)) candidateCache.set(key, candidatePathsForType(docs, type));
+    return candidateCache.get(key);
+  };
+
   const enrich = (entry) => {
     if (!entry?.meta || !['ref-resolution', 'body-link-resolution'].includes(entry.meta.kind)) return;
     if (entry.meta.kind === 'body-link-resolution'
       && (entry.meta.targetKind !== 'document' || entry.meta.reason !== 'missing')) return;
     if (entry._suggested) return;
     const inferred = inferRefFieldType(entry.meta.field);
-    const candidates = candidatePathsForType(docs, inferred);
-    const suggestions = suggestCandidates(path.basename(entry.meta.relPath), candidates);
+    const suggestions = suggestCandidates(path.basename(entry.meta.relPath), candidatesFor(inferred));
     entry._suggested = true;
     if (suggestions.length === 0) return;
     entry.message = `${entry.message} Did you mean: ${suggestions.join(', ')}?`;

@@ -8,6 +8,13 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
 
 - **`runlist baton <plan>` no longer flips the status of a plan that is not in-session.** Baton's release is a claim release, but it applied to any plan it was handed: a prompt-refresh pass named a plan slug to re-save its handoff and silently got `awaiting-testing` → `active`, which it then had to notice and undo by hand. When the named plan is neither `in-session` nor owned by this session, baton now saves the prompt — still stamped with its `plan:` link, so the handoff loop still closes itself — and leaves the status alone, saying so. `--status` still states a transition deliberately, and a plan that is in-session or owned here releases exactly as before.
 
+- **Commands are several times faster in large repos.** Three improvements in the shared index build:
+  - The git-staleness check asked `git rev-list` for history matching every document path at once. Git matches each pathspec against each commit. Revision selection now uses the root pathspecs when the caller supplies them; the per-document dates, commits and warnings are unchanged, and a path whose latest commit falls outside the bounded window still reports "Git metadata is incomplete" rather than a stale date.
+  - `Did you mean...` suggestions for unresolved references rebuilt the whole candidate list for every broken reference and then ran an exact edit distance against every basename and path in the index. The list is now built once per field type, and the distance walk stops as soon as it passes the 3-edit limit the suggester cares about. Suggestions are byte-identical.
+  - `runlist prompts` built the full validating index, which reads every body in the repo, and then scanned the tree a second time to order the queue. It shares one frontmatter-only index instead, like `hud`.
+
+  These changes reduce repeated parsing, history traversal and suggestion work.
+
 ## 0.80.0 — 2026-09-16
 
 ### Fixed

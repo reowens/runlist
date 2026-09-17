@@ -221,6 +221,48 @@ export function levenshtein(a, b) {
   return matrix[b.length][a.length];
 }
 
+// Edit distance, but only as far as the caller cares. Returns the distance when
+// it is <= limit and null when it provably exceeds it. The suggester asks
+// "within 3 edits?" of every candidate in the index, and the full matrix
+// computes an exact answer it then throws away: ~900 cells and two allocations
+// per pair, several hundred thousand pairs per unresolved reference on a large
+// corpus. Only cells within `limit` of the diagonal can hold a value <= limit,
+// so this walks that band in two flat rows and abandons a row whose cheapest
+// cell is already past the limit. Distances <= limit are identical to
+// `levenshtein`'s — test/util.test.mjs checks that against it directly.
+export function levenshteinWithin(a, b, limit) {
+  if (Math.abs(a.length - b.length) > limit) return null;
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  const over = limit + 1;
+  let prev = new Int32Array(a.length + 2).fill(over);
+  let cur = new Int32Array(a.length + 2).fill(over);
+  for (let j = 0; j <= Math.min(a.length, limit); j++) prev[j] = j;
+  for (let i = 1; i <= b.length; i++) {
+    const lo = Math.max(1, i - limit);
+    const hi = Math.min(a.length, i + limit);
+    // Reset the cells this row will write plus the two the next row reads as
+    // band neighbours, so nothing stale survives the row swap.
+    cur.fill(over, Math.max(0, lo - 1), hi + 2);
+    cur[0] = i <= limit ? i : over;
+    let rowMin = over;
+    for (let j = lo; j <= hi; j++) {
+      const substitution = prev[j - 1] + (b.charCodeAt(i - 1) === a.charCodeAt(j - 1) ? 0 : 1);
+      const deletion = prev[j] + 1;
+      const insertion = cur[j - 1] + 1;
+      let best = substitution < deletion ? substitution : deletion;
+      if (insertion < best) best = insertion;
+      if (best > limit) best = over;
+      cur[j] = best;
+      if (best < rowMin) rowMin = best;
+    }
+    if (rowMin > limit) return null;
+    const swap = prev; prev = cur; cur = swap;
+  }
+  const distance = prev[a.length];
+  return distance <= limit ? distance : null;
+}
+
 // Top-N candidates from a list, ranked for "did you mean" hints. Substring
 // match wins (cheap and intent-revealing for typos that share a prefix or
 // stem); Levenshtein distance ≤3 catches transpositions and small edits.
@@ -246,8 +288,12 @@ export function suggestCandidates(query, candidates, max = 3) {
       if (!cand || scored.has(cand)) continue;
       const candLower = String(cand).toLowerCase();
       if (candLower === lower) continue;
-      const dist = levenshtein(lower, candLower);
-      if (dist <= 3) scored.set(cand, 1000 + dist);
+      // The candidate list here is every basename AND every repo path in the
+      // index, so on a large corpus this loop ran hundreds of thousands of
+      // distance computations per unresolved reference. Only "within 3 edits"
+      // matters, so it asks for exactly that.
+      const dist = levenshteinWithin(lower, candLower, 3);
+      if (dist !== null) scored.set(cand, 1000 + dist);
     }
   }
 
