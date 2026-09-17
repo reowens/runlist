@@ -52,11 +52,15 @@ describe('watch command', () => {
         env: { ...process.env, NO_COLOR: '1' },
       });
 
+      // Stop once the initial run has announced itself. A fixed 2s delay
+      // failed on a loaded machine before watch had printed anything.
+      const stop = () => { clearTimeout(limit); child.kill('SIGTERM'); };
+      const limit = setTimeout(stop, 15_000);
       child.stdout.on('data', (d) => { stdout += d.toString(); });
-      child.stderr.on('data', (d) => { stderr += d.toString(); });
-
-      // Give it enough time to run the initial command
-      setTimeout(() => child.kill('SIGTERM'), 2000);
+      child.stderr.on('data', (d) => {
+        stderr += d.toString();
+        if (stderr.includes('Watching') && stderr.includes('runlist list')) stop();
+      });
 
       child.on('error', reject);
       child.on('close', () => resolve({ stdout, stderr }));
