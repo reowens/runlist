@@ -2,6 +2,26 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- **`runlist baton` (and `runlist new`) no longer hang on an open, silent stdin pipe.** Claude Code gives chained and backgrounded commands a stdin pipe that is never written or closed, so a bare `runlist baton` blocked until the tool call timed out (two minutes in one session). With no `@file`, `-` or `--message`, piped stdin is now read only if data arrives within 1.5 seconds; once data starts, it is read to the end. Redirected files (`< draft.md`) are read as before.
+
+- **`runlist hud` fits its hook timeout in large repos.** It built the full index (every document body) to find pending prompts, which took 18 seconds in a repo of about 5,000 documents. Claude Code stops a SessionStart hook after 5 seconds, so those sessions never saw their pending prompts or the plan they own, including after compaction. `hud` now reads only the prompt directory's frontmatter and the ownership records (0.3 seconds on that repo). `hud --json` still builds the full index and reports validation errors.
+- **`runlist new` with a draft that has its own `## ` headings no longer gets a repo's plan or doc template appended.** The built-in templates already used such a draft as the whole body; a repo that overrode `templates.plan` or `templates.doc` got the draft inside the template's first section with the template's outline after it, so a draft starting with `## Problem` produced two. Overrides now behave like the built-ins. A draft with no `## ` headings still fills the first section, and frontmatter in the draft still overrides the scaffold's.
+
+### Added
+
+- **The plugin gives the baton command when you ask for a handoff.** A new UserPromptSubmit hook (`runlist hud --prompt-submit`) runs when a message mentions baton, handoff, a resume prompt, or picking work up later. It tells the session which form to use: `runlist baton @<file>` when this session owns one plan (and names it), `runlist baton <plan-file> @<file>` when it owns several, and `runlist baton <slug> @<file>` when it owns none. The hook script checks for those words before starting Node, so other messages cost nothing, and it always exits 0, so an older CLI without the flag never turns a message into a hook error.
+- **`runlist new --help` lists the repo's own types.** When run inside a runlist repo it ends with each creatable type, the folder it lands in, its starting status, its valid statuses, whether the repo overrides its template, and the roots `--root` accepts.
+
+### Changed
+
+- **`runlist new --help` opens with usage and what a draft does**: a draft with its own headings is the body, one without fills the first section, and a leading frontmatter block sets fields such as `status` and `next_step`.
+- **Baton explains itself where agents look.** Sessions in a large repo ran `runlist baton --help`, often twice, before nearly every baton, because the usage line sat below line 20. `--help` now opens with the three forms (owned plan, named plan, slug-only) and what the resume should contain; the transaction details follow. A bare `runlist baton` lists the same three forms. `hud`, the main help and the canonical workflow block now write the form as `baton [<plan-or-slug>] @<draft-file>`.
+- **The `/dotmd:baton` command triggers on the word "baton".** Its description now covers "baton this", "baton now" and "pick it up next time", so Claude invokes it rather than reading `--help`. It also tells the session to report the saved prompt name, and explains what to do when baton refuses because a handoff is already pending.
+
 ## 0.79.1 — 2026-09-16
 
 ### Fixed

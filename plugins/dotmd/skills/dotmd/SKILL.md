@@ -15,7 +15,7 @@ This repo's plans, reference docs, and saved prompts are managed by the **runlis
 - **Start a plan:** `runlist use <plan-file>` — marks it `in-session` and prints the plan card.
 - **Single status verb:** `runlist set <status> [<file>]` writes the status, validates it against the doc's type, runs lifecycle hooks, fixes refs, and syncs the index. **Never hand-edit a `status:` line.** Add `--note "why"` to record the reason in `## Version History` in the same call.
 - **Close to match reality:** `archived` (shipped) · `partial` (tail deferred — link the successor) · `active` (more work later) · `awaiting` (needs a human decision) · `blocked` (external arrival you can't speed up). Parking a plan with a known next step? Leave a baton in the same breath — never narrate the next pickup into chat.
-- **Hand off / save a resume prompt:** `runlist baton [<slug>] <@<file>|->` — saves the resume prompt and releases the in-session plan. Never paste a "here's how to resume" block into chat.
+- **Hand off / save a resume prompt:** `runlist baton [<plan-or-slug>] @<draft-file>` — write the resume to a file first; saves the prompt and releases the in-session plan (a slug with no plan just saves `resume-<slug>`). Never paste a "here's how to resume" block into chat.
 - **Saved prompts are session-local:** consume with `runlist use` (no arg = oldest pending), peek with `runlist prompts show` (`--all` surveys the whole queue in one call). Never read them with file tools, never commit `docs/prompts/*.md`.
 <!-- runlist:canonical-workflow:end -->
 

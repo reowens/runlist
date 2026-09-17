@@ -365,7 +365,7 @@ export function evaluateGuard(payload, config, deps = {}) {
   return null;
 }
 
-function readStdin() {
+export function readHookStdin() {
   return new Promise((resolve) => {
     let data = '';
     try {
@@ -404,7 +404,7 @@ function emit(result) {
 export async function runGuard(argv, config, opts = {}) {
   let payload = {};
   try {
-    const raw = await readStdin();
+    const raw = await readHookStdin();
     if (raw && raw.trim()) payload = JSON.parse(raw);
   } catch {
     payload = {};

@@ -3,7 +3,7 @@ import { ok, strictEqual, match } from 'node:assert';
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync, rmSync, appendFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 
 const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
 
@@ -158,6 +158,31 @@ describe('runlist baton', () => {
     ok(r.status !== 0);
     match(r.stderr, /^Nothing saved: baton needs the resume you wrote, passed as @<file> or - \(stdin\)\.$/m);
     ok(!existsSync(path.join(docsDir, 'prompts', 'resume-auth-revamp.md')), 'no prompt created');
+    const plan = readFileSync(path.join(plansDir, 'auth-revamp.md'), 'utf8');
+    ok(plan.includes('status: in-session'), 'plan untouched');
+  });
+
+  // An agent's shell can hold stdin open as a pipe that never sends or closes.
+  // A bare baton used to block on it until the tool call timed out.
+  it('gives up on an open pipe that sends nothing, and lists the forms', async () => {
+    writePlan('auth-revamp');
+    const child = spawn('node', [bin, 'baton', 'docs/plans/auth-revamp.md', '--config', configPath], {
+      cwd: tmpDir,
+      env: { ...process.env, NO_COLOR: '1', CLAUDE_CODE_SESSION_ID: 'test-sid', RUNLIST_ERROR_LOG_DIR: path.join(tmpDir, '.logs') },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let stderr = '';
+    child.stderr.on('data', (c) => { stderr += c; });
+    const started = Date.now();
+    const code = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { child.kill(); reject(new Error('baton blocked on a silent stdin pipe')); }, 10_000);
+      child.on('exit', (c) => { clearTimeout(timer); resolve(c); });
+    });
+    child.stdin.destroy();
+    ok(code !== 0);
+    ok(Date.now() - started < 10_000);
+    match(stderr, /^Nothing saved: baton needs the resume you wrote/m);
+    match(stderr, /runlist baton <slug> @\/tmp\/draft\.md/);
     const plan = readFileSync(path.join(plansDir, 'auth-revamp.md'), 'utf8');
     ok(plan.includes('status: in-session'), 'plan untouched');
   });

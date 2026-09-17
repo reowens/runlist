@@ -54,9 +54,10 @@ shell, and runlist reads it as a per-session identity automatically.
 /plugin install dotmd@dotmd
 ```
 
-The plugin provides SessionStart and SubagentStart orientation, a PreToolUse
-guard, the canonical workflow skill, and `/plans`, `/docs`, `/prompts`, and
-`/baton` commands.
+The plugin provides SessionStart and SubagentStart orientation, a
+UserPromptSubmit hint that gives the exact `runlist baton` form when you ask for
+a handoff, a PreToolUse guard, the canonical workflow skill, and `/plans`,
+`/docs`, `/prompts`, and `/baton` commands.
 
 ### OpenCode Plugin
 

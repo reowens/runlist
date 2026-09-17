@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, mkdirSync, fstatSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -348,13 +349,43 @@ export function readBodyInput(source) {
   return source;
 }
 
+// An agent's shell can hand a command a pipe that is open and never written or
+// closed (Claude Code does for chained and backgrounded commands), so a plain
+// blocking read of an implicit pipe hangs until the tool times out: a bare
+// `runlist baton` sat there for two minutes in the platform transcripts. A
+// child reads the pipe instead and gives up when the first byte doesn't arrive
+// within the window; once data starts it waits for EOF, so a slow producer that
+// has begun writing is never cut off.
+export const PIPED_STDIN_IDLE_MS = 1500;
+const STDIN_SILENT_EXIT = 3;
+const PIPE_READER = `let d='',got=false;` +
+  `const t=setTimeout(()=>{if(!got)process.exit(${STDIN_SILENT_EXIT})},Number(process.argv[1]));` +
+  `process.stdin.setEncoding('utf8');` +
+  `process.stdin.on('data',c=>{got=true;d+=c});` +
+  `process.stdin.on('end',()=>{clearTimeout(t);process.stdout.write(d)});`;
+
+function readPipeUnlessSilent() {
+  const r = spawnSync(process.execPath, ['-e', PIPE_READER, String(PIPED_STDIN_IDLE_MS)], {
+    stdio: [0, 'pipe', 'ignore'],
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+    windowsHide: true,
+  });
+  if (r.status !== 0) return null;
+  return r.stdout;
+}
+
 export function readPipedBodyInput() {
   try {
     const stat = fstatSync(0);
+    if (stat.isFile()) {
+      const redirected = readFileSync(0, 'utf8');
+      return redirected.length > 0 ? redirected : null;
+    }
     const isWindowsPipe = process.platform === 'win32' && !process.stdin.isTTY;
-    if (stat.isFIFO() || stat.isFile() || stat.isSocket() || isWindowsPipe) {
-      const piped = readFileSync(0, 'utf8');
-      return piped.length > 0 ? piped : null;
+    if (stat.isFIFO() || stat.isSocket() || isWindowsPipe) {
+      const piped = readPipeUnlessSilent();
+      return piped ? piped : null;
     }
   } catch { /* stdin not introspectable */ }
   return null;
@@ -368,6 +399,18 @@ export function titleize(s) {
   return s.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
+// Where saved prompts are written: the prompt template's targetRoot when a
+// root matches it, else the primary root plus the template's `dir`.
+export function promptDirectory(config, template = resolveTemplate('prompt', config)) {
+  let targetRoot = config.docsRoot;
+  let routed = false;
+  if (template.targetRoot) {
+    const match = (config.docsRoots || [config.docsRoot]).find(root => root.endsWith(template.targetRoot) || path.basename(root) === template.targetRoot);
+    if (match) { targetRoot = match; routed = true; }
+  }
+  return template.dir && !routed ? path.join(targetRoot, template.dir) : targetRoot;
+}
+
 export function preparePromptDocument(name, bodyInput, config, { plan = null, dryRun = false } = {}) {
   const template = resolveTemplate('prompt', config);
   const typeStatuses = config.typeStatuses?.get('prompt');
@@ -377,14 +420,7 @@ export function preparePromptDocument(name, bodyInput, config, { plan = null, dr
   if (!bodyInput?.trim()) die('`prompt` template requires a body.');
   const slug = slugify(path.basename(name, '.md'));
   const title = titleize(path.basename(name, '.md'));
-  let targetRoot = config.docsRoot;
-  let routed = false;
-  if (template.targetRoot) {
-    const match = (config.docsRoots || [config.docsRoot]).find(root => root.endsWith(template.targetRoot) || path.basename(root) === template.targetRoot);
-    if (match) { targetRoot = match; routed = true; }
-  }
-  const baseDir = template.dir && !routed ? path.join(targetRoot, template.dir) : targetRoot;
-  const filePath = path.join(baseDir, `${slug}.md`);
+  const filePath = path.join(promptDirectory(config, template), `${slug}.md`);
   authorizeManagedDestination(filePath, config, { kind: 'Baton prompt destination' });
   if (dryRun) return { slug, filePath, repoPath: toRepoPath(filePath, config.repoRoot), content: null };
 
@@ -989,7 +1025,13 @@ export async function runNew(argv, config, opts = {}) {
     if (isRoadmap) fm = mergeBodyFrontmatter(fm, { execution_mode: 'roadmap' }, typeName);
     let body;
     const variantBody = isRunlistHub || isCoordinationHub || isRoadmap || isLite || isAudit;
-    const authored = variantBody ? fullBodyShortcut(docTitle, bodyInput) : null;
+    // A repo that overrides the plan or doc template keeps the built-in promise
+    // that an authored body replaces the outline. Without this, the override's
+    // body fn dropped the draft into its first slot and appended its own
+    // sections after it, so a draft opening `## Problem` came out with two, and
+    // sessions trimmed the tail by hand. Other custom types render as written.
+    const overridesShortcutType = template._overridesBuiltin && (typeName === 'plan' || typeName === 'doc');
+    const authored = variantBody || overridesShortcutType ? fullBodyShortcut(docTitle, bodyInput) : null;
     if (authored !== null) body = authored;
     else if (isRunlistHub) body = runlistHubBody(docTitle, slug, runlistChildren, bodyInput, today);
     else if (isCoordinationHub) body = coordinationHubBody(docTitle, bodyInput, today);
@@ -1072,6 +1114,40 @@ export async function runNew(argv, config, opts = {}) {
     deferredGeneratedFiles: config.indexPath && opts.deferIndex ? [toRepoPath(config.indexPath, config.repoRoot)] : [],
     path: repoPath,
   };
+}
+
+// The part of `new --help` only the repo can answer: which types exist here,
+// what status each starts at, which statuses are valid, and where each lands.
+// Sessions otherwise read the config file to find out.
+export function newHelpForRepo(config) {
+  // Only types with a template: a status-only type can't be created by `new`.
+  const types = new Set([...Object.keys(BUILTIN_TEMPLATES), ...Object.keys(config.raw?.templates ?? {})]);
+  const rows = [];
+  const width = Math.max(...[...types].map(t => t.length));
+  for (const typeName of types) {
+    const template = resolveTemplate(typeName, config);
+    if (!template) continue;
+    const statuses = [...(config.typeStatuses?.get(typeName) ?? [])];
+    const tmplDefault = typeof template === 'object' ? template.defaultStatus : null;
+    const start = tmplDefault && (!statuses.length || statuses.includes(tmplDefault)) ? tmplDefault : (statuses[0] ?? tmplDefault ?? 'active');
+    const roots = config.docsRoots ?? [config.docsRoot];
+    // Mirrors runNew: a matching targetRoot wins, else the catch-all root plus
+    // the template's `dir`.
+    const typeRoot = typeof template === 'object' && template.targetRoot
+      ? roots.find(r => r.endsWith(template.targetRoot) || path.basename(r) === template.targetRoot)
+      : null;
+    const dest = typeRoot ?? (typeof template === 'object' && template.dir
+      ? path.join(catchAllRoot(config), template.dir)
+      : catchAllRoot(config));
+    const where = toRepoPath(dest, config.repoRoot) + '/';
+    const custom = Object.prototype.hasOwnProperty.call(config.raw?.templates ?? {}, typeName) ? ' (this repo\'s template)' : '';
+    rows.push(`  ${typeName.padEnd(width)} → ${where}<slug>.md, starts ${start}${custom}`);
+    if (statuses.length) rows.push(`  ${''.padEnd(width)}   statuses: ${statuses.join(', ')}`);
+  }
+  const roots = (config.docsRoots ?? [config.docsRoot]).map(r => path.basename(r));
+  return `This repo:
+${rows.join('\n')}
+  roots (for --root): ${roots.join(', ')}`;
 }
 
 function resolveTemplate(name, config) {

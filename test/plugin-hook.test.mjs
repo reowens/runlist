@@ -100,4 +100,27 @@ describe('plugin hook wrapper (dotmd present)', { skip: process.platform === 'wi
       rmSync(binDir, { recursive: true, force: true });
     }
   });
+
+  // UserPromptSubmit fires on every message; only a handoff request should pay
+  // for a Node start, and a failing CLI (an older one without the flag) must
+  // never turn a message into a hook error.
+  it('runs the prompt hook only for handoff requests, always exiting 0', () => {
+    const binDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-fakebin-'));
+    try {
+      const fake = path.join(binDir, 'runlist');
+      writeFileSync(fake, '#!/bin/sh\ncat >/dev/null\necho "FAKE-RUNLIST: $@"\nexit 1\n');
+      chmodSync(fake, 0o755);
+      const hook = ['hud', '--prompt-submit'];
+      for (const prompt of ['Baton this', 'can you HAND OFF', 'save a resume prompt', 'pick it up next time']) {
+        const r = runHook(hook, binDir, JSON.stringify({ prompt }));
+        strictEqual(r.status, 0, r.stderr);
+        match(r.stdout, /FAKE-RUNLIST: hud --prompt-submit/, prompt);
+      }
+      const quiet = runHook(hook, binDir, JSON.stringify({ prompt: 'fix the flaky test' }));
+      strictEqual(quiet.status, 0);
+      strictEqual(quiet.stdout, '');
+    } finally {
+      rmSync(binDir, { recursive: true, force: true });
+    }
+  });
 });

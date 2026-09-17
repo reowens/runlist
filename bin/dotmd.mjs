@@ -109,8 +109,9 @@ Common commands:
   set <status> [file]   Transition status (start work, finish, archive — all via target status)
   new <type> <name>     Create plan/doc/prompt (pipe stdin or @path for body)
   use [<file-or-slug>]  Open a doc by type: prompt → consume, plan → start, doc → read
-  baton [<plan>|<slug>] <@<file>|-> Save a resume prompt (+ release the plan, if one is in-session)
                         (no file: consume oldest pending prompt)
+  baton [<plan>|<slug>] @<draft-file>
+                        Save a resume prompt (+ release the plan, if one is in-session)
   archive <file>        Close out a plan (status → archived, move, update refs)
 
 More help:
@@ -229,7 +230,7 @@ View & Query:
   grep <term>                       Keyword search incl. document bodies (query --keyword --body --all)
   plans                             Live plans (excludes archived; --include-archived for all)
   use [<file-or-slug>]              Open a doc by type: prompt → consume, plan → start, doc → read
-  baton [<plan>|<slug>] <@<file>|->  Save a resume prompt; releases the plan + prints the commit when one is in-session
+  baton [<plan>|<slug>] @<draft>     Save a resume prompt; releases the plan + prints the commit when one is in-session
   prompts [list|show|archive|new] Prompt admin (list / peek / archive / save). Use \`runlist use\` to consume.
   stale                             Stale docs (preset)
   actionable                        Docs with next steps (preset)
@@ -917,49 +918,53 @@ Use --dry-run (-n) to preview without writing.`,
 
   new: `runlist new <type> <name> [body] — create a new document
 
-Types and their default destinations:
-  plan        docs/plans/<slug>.md     (build-up template: Problem → Phases → Closeout)
-  doc         docs/<slug>.md           (build-up lite: Overview → Version History → Related)
-  prompt      docs/prompts/<slug>.md   (saved prompt to seed a future session — body required)
+Usage (write the draft to a file first):
+  runlist new plan <slug> @/tmp/draft.md     # plan from a draft
+  runlist new doc <slug> @/tmp/draft.md      # reference doc from a draft
+  runlist new prompt <slug> @/tmp/draft.md   # saved prompt (body required)
+  runlist new plan <slug>                    # empty scaffold to fill in
 
-\`<type>\` can be omitted; defaults to \`doc\`.
-\`<name>\` is slugified for the filename.
+What the draft does:
+  - Draft with its own \`## \` headings → it IS the body. Only a \`# Title\` is
+    added if missing; the template's outline is not appended. This holds for a
+    repo's own plan/doc template too.
+  - Draft with no \`## \` headings → lands in the template's first section
+    (\`## Problem\` for plans).
+  - Draft opening with a \`---\` frontmatter block → those keys replace the
+    scaffold's (status, surfaces, modules, current_state, next_step, …), so no
+    frontmatter edit is needed afterwards. \`type:\` is fixed by <type>.
+  To change status later, use \`runlist set <status> <file>\`.
 
-Body input (all built-in types — required for prompt, optional for plan/doc):
-  piped stdin            Auto-consumed when stdin is piped/redirected (no flag needed)
-  @path                  Read body from a file
-  -                      Explicit stdin marker (equivalent to piped stdin)
-  --body "<text>"        Explicit inline body (alias: --message)
-  <text>                 Inline body as 3rd positional
+The repo's own types, starting statuses and folders are listed at the end of
+this help when it runs inside a runlist repo.
 
-Tip for agents: prefer piped stdin or \`@path\` for multi-line bodies. Inline
-bodies put the entire content on the bash command line, which (a) breaks
-under shell quoting for backticks/dollar-signs and (b) trips PreToolUse hooks
-that scan command strings for forbidden literals (destructive-git patterns,
-etc.). \`cat /tmp/foo.md | runlist new …\` and \`@/tmp/foo.md\` both sidestep both.
+Body input (required for prompt, optional for plan/doc):
+  @path                  Read body from a file (preferred)
+  -                      Read stdin explicitly (heredoc: \`runlist new … - <<'EOF'\`)
+  piped stdin            Read when something is piped or redirected in
+  --body "<text>"        Inline body (alias: --message), one-liners only
+  <text>                 Inline body as 3rd positional, one-liners only
 
-For plan/doc, a single-section body lands under the type's first scaffolded
-section (e.g. \`## Problem\` for plans). If the body already authors
-\`## Section\` headings start-to-finish, the scaffold short-circuits and only
-the title + your body is emitted — no duplicated empty outline below
-(since 0.36.1).
+Inline bodies put the whole content on the command line, which breaks on
+backticks and dollar signs and trips hooks that scan commands; use @path.
+
+\`<type>\` can be omitted; defaults to \`doc\`. \`<name>\` is slugified for the
+filename; a name with a \`/\` is read relative to the repo (or to --root).
 
 Examples:
-  runlist new plan auth-revamp
+  runlist new plan auth-revamp @/tmp/auth-revamp.md
   runlist new prompt resume-foo @/tmp/draft.md
-  cat /tmp/draft.md | runlist new prompt resume-foo
-  runlist new prompt resume-foo <<'EOF'
-  multi-line
-  prompt body
-  EOF
-  runlist new prompt cleanup-tomorrow "look at remaining lint warnings"
-  runlist new plan full-spec <<'EOF'
+  runlist new plan full-spec - <<'EOF'
+  ---
+  status: planned
+  next_step: Phase 1, extract the token store.
+  ---
   ## Problem
   …
   ## Phases
   …
   EOF
-  runlist new plan auth-revamp "Investigation findings before scoping…"
+  runlist new prompt cleanup-tomorrow "look at remaining lint warnings"
 
 Scaffolding runlists (plans only):
   --runlist <a,b,c>    Create a sprint runlist hub plus one child plan per slug.
@@ -1182,31 +1187,15 @@ Examples:
 
   baton: `runlist baton — save a resume prompt for whatever you're doing (and release the plan, if there is one)
 
-The "save a resume prompt" verb. Works mid-anything:
+Usage (write the resume to a file first, then pick the form that matches):
+  runlist baton @/tmp/draft.md               # a plan is in-session: save resume-<plan-slug>, release the plan
+  runlist baton <plan-file> @/tmp/draft.md   # hand off a named plan
+  runlist baton <slug> @/tmp/draft.md        # no plan: save resume-<slug>, change nothing else
+  The resume can also come from stdin (\`-\`, or a pipe) or --message "..." for one-liners.
+  Baton prints the prompt name it saved and, in plan mode, the git commit to run.
 
-Plan mode (a plan is in-session, or you pass one):
-  The following publish in one atomic cooperating transaction:
-  1. A resume prompt named resume-<plan-slug> (collision-safe: -2, -3, …),
-     stamped with a plan: link so consuming it re-claims the plan (see \`runlist
-     use\`). The prompt is session-local — the next session's hud surfaces it;
-     never paste resume text into chat.
-  2. Releases the plan: one status flip, in-session → active by default
-     (--status to override, --note to record why in ## Version History).
-  3. Defers the shared generated index and prints exact repository-only commit
-     guidance. Prompt and ownership records stay session-local and OUT of the
-     pathspec.
-  Which plan? Pass it explicitly, or baton resolves exactly one plan owned by
-  this authoritative session. Journal entries and global in-session counts never
-  grant ownership. A live pickup-hook delivery lease blocks release and force
-  takeover; hooks are at-least-once and deduplicate the stable operationId.
-
-Slug mode (no plan involved — "save a resume prompt for this"):
-  runlist baton <slug> @/tmp/draft.md   →  saves resume-<slug>, touches NOTHING
-  else: no status changes, no commit, no plan required. Reference any relevant
-  plans/docs inside the draft body.
-
-Usage:
-  runlist baton [<plan-file> | <slug>] [@<draft-file> | - | --message "..."]
+The resume (10–20 lines): the next concrete decision plus any gotchas, and the
+paths of the plans/docs it concerns — not a recap of the plan body.
 
 Options:
   --status <s>           Target status for the plan (default: active; plan mode only)
@@ -1217,14 +1206,34 @@ Options:
   --dry-run, -n          Preview without writing
 
 Examples:
-  runlist baton @/tmp/draft.md                       # owned plan, body from file
-  runlist baton checkout-fixes @/tmp/draft.md        # no plan: just save resume-checkout-fixes
-  cat /tmp/draft.md | runlist baton                  # body from stdin
-  runlist baton docs/plans/auth.md @/tmp/draft.md    # explicit plan
+  runlist baton @/tmp/draft.md
+  runlist baton checkout-fixes @/tmp/draft.md
+  runlist baton docs/plans/auth.md @/tmp/draft.md
   runlist baton --status paused --note "blocked on review" @/tmp/d.md
+  cat /tmp/draft.md | runlist baton
 
-Write the draft FIRST (10–20 lines): the next concrete decision plus any
-gotchas — not a recap of the plan body.`,
+Plan mode (a plan is in-session, or you pass one) publishes in one atomic
+cooperating transaction:
+  1. A resume prompt named resume-<plan-slug>, stamped with a plan: link so
+     consuming it re-claims the plan (see \`runlist use\`). The prompt is
+     session-local — the next session's hud surfaces it; never paste resume text
+     into chat.
+  2. Releases the plan: one status flip, in-session → active by default.
+  3. Defers the shared generated index and prints exact repository-only commit
+     guidance. Prompt and ownership records stay session-local and OUT of the
+     pathspec.
+  Which plan? Pass it explicitly, or baton resolves exactly one plan owned by
+  this authoritative session. Journal entries and global in-session counts never
+  grant ownership. A live pickup-hook delivery lease blocks release and force
+  takeover; hooks are at-least-once and deduplicate the stable operationId.
+
+Slug mode (no plan involved) saves resume-<slug> and touches nothing else: no
+status change, no commit. A bare word that names a plan is treated as that plan.
+
+Baton saves nothing while a handoff for the same work is pending (resume-<name>,
+or a pending prompt linked to the plan): consume or archive it, then re-run.
+With no @file, \`-\` or --message, baton reads stdin only when something is piped
+in; an open pipe that sends nothing is given up on after a moment.`,
 
   stale: `runlist stale — list stale documents
 
@@ -1600,6 +1609,17 @@ async function main() {
   if (args.includes('--help') || args.includes('-h')) {
     requireCommandPolicy(command, dispatchPolicy);
     process.stdout.write(`${HELP[command] ?? commandUsage(command)}\n`);
+    if (command === 'new') {
+      // Best effort: outside a runlist repo, or with a broken config, the
+      // static help above is the whole answer.
+      try {
+        const repoConfig = await resolveConfig(process.cwd(), explicitConfig);
+        if (repoConfig?.configFound !== false) {
+          const { newHelpForRepo } = await import('../src/new.mjs');
+          process.stdout.write(`\n${newHelpForRepo(repoConfig)}\n`);
+        }
+      } catch { /* static help already printed */ }
+    }
     return;
   }
 
@@ -1619,6 +1639,9 @@ async function main() {
       process.stdout.write('{}\n');
       return;
     }
+    // A prompt hook runs on every user message; a broken config must not
+    // turn each one into an error.
+    if (command === 'hud' && restArgs.includes('--prompt-submit')) return;
     throw err;
   }
   _resolvedConfig = config;
@@ -1820,6 +1843,12 @@ async function main() {
   if (command === 'export') { const { runExport } = await import('../src/export.mjs'); runExport(restArgs, config, { dryRun, root: rootArg, type: typeArg }); return; }
 
   // Lifecycle commands
+  if (command === 'hud' && restArgs.includes('--prompt-submit')) {
+    const { runPromptSubmitHud } = await import('../src/hud.mjs');
+    const { readHookStdin } = await import('../src/guard.mjs');
+    await runPromptSubmitHud(config, { readStdin: readHookStdin });
+    return;
+  }
   if (command === 'hud') { const { runHud } = await import('../src/hud.mjs'); runHud(restArgs, config); return; }
   if (command === 'guard') { const { runGuard } = await import('../src/guard.mjs'); await runGuard(restArgs, config, { dryRun }); return; }
   if (command === 'update') { const { runUpdate } = await import('../src/update.mjs'); runUpdate(restArgs, config, { dryRun }); return; }

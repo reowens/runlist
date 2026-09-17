@@ -384,3 +384,64 @@ describe('hud misuse recap', () => {
     ok(j.misuseRecap.includes('runlist use'), `expected corrective verb, got: ${JSON.stringify(j.misuseRecap)}`);
   });
 });
+
+// UserPromptSubmit: a handoff request gets the exact baton form for this
+// session; every other message gets nothing.
+describe('runlist hud --prompt-submit', () => {
+  const ask = (prompt) => JSON.stringify({ session_id: 'x', prompt });
+
+  it('names the owned plan and the plan-mode form', () => {
+    const docsDir = setupProject();
+    writeDoc(docsDir, 'mine.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# Mine\n');
+    strictEqual(runCli(['use', 'docs/mine.md']).status, 0);
+    const r = runCli(['hud', '--prompt-submit'], { input: ask('baton this and we will pick it up next time') });
+    strictEqual(r.status, 0, r.stderr);
+    ok(r.stdout.includes('this session owns docs/mine.md'), r.stdout);
+    ok(r.stdout.includes('`runlist baton @<file>`'), r.stdout);
+  });
+
+  it('gives the slug form when this session owns no plan', () => {
+    const docsDir = setupProject();
+    writeDoc(docsDir, 'theirs.md', 'type: plan\nstatus: in-session\nupdated: 2025-01-01', '# Theirs\n');
+    const r = runCli(['hud', '--prompt-submit'], { input: ask('Hand-off now please') });
+    strictEqual(r.status, 0, r.stderr);
+    ok(r.stdout.includes('this session owns no plan'), r.stdout);
+    ok(r.stdout.includes('`runlist baton <slug> @<file>`'), r.stdout);
+    ok(!r.stdout.includes('theirs.md'), 'another session’s in-session plan is not offered');
+  });
+
+  it('is silent for an unrelated message, bad input, and outside a runlist repo', () => {
+    setupProject();
+    for (const input of [ask('fix the flaky test'), ask('the batons are in the drawer'), 'not json', '']) {
+      const r = runCli(['hud', '--prompt-submit'], { input });
+      strictEqual(r.status, 0, r.stderr);
+      strictEqual(r.stdout, '', `expected silence for ${input}`);
+    }
+    const bare = mkdtempSync(path.join(os.tmpdir(), 'dotmd-hud-bare-'));
+    try {
+      const r = spawnSync('node', [bin, 'hud', '--prompt-submit'], { cwd: bare, encoding: 'utf8', input: ask('baton') });
+      strictEqual(r.status, 0, r.stderr);
+      strictEqual(r.stdout, '');
+    } finally {
+      rmSync(bare, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('hud pending prompts without the index', () => {
+  it('lists only actionable prompts outside the archive, oldest first', () => {
+    const docsDir = setupProject();
+    mkdirSync(path.join(docsDir, 'prompts', 'archived'), { recursive: true });
+    writeDoc(docsDir, 'prompts/newer.md', 'type: prompt\nstatus: pending\ncreated: 2025-02-01', 'b\n');
+    writeDoc(docsDir, 'prompts/older.md', 'type: prompt\nstatus: pending\ncreated: 2025-01-01', 'a\n');
+    writeDoc(docsDir, 'prompts/parked.md', 'type: prompt\nstatus: held\ncreated: 2024-01-01', 'c\n');
+    writeDoc(docsDir, 'prompts/archived/gone.md', 'type: prompt\nstatus: pending\ncreated: 2024-01-01', 'd\n');
+    writeDoc(docsDir, 'prompts/not-a-prompt.md', 'type: doc\nstatus: active\ncreated: 2024-01-01', 'e\n');
+    const r = runCli(['hud']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(r.stdout.includes('2 pending prompts'), r.stdout);
+    ok(r.stdout.includes('consume the oldest (docs/prompts/older.md)'), r.stdout);
+    const j = JSON.parse(runCli(['hud', '--json']).stdout);
+    strictEqual(JSON.stringify(j.prompts), JSON.stringify(['docs/prompts/older.md', 'docs/prompts/newer.md']));
+  });
+});

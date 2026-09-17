@@ -64,7 +64,7 @@ const definitions = [
   command('briefing', none, 'read', [form('', { options: [flag('--json')] })]),
   command('context', none, 'read', [form('', { options: [flag('--json'), flag('--compact'), flag('--summarize'), value('--model')] })]),
   command('agent-context', none, 'read', [form('', { options: [flag('--json')] })]),
-  command('hud', none, 'read', [form('', { options: [flag('--json'), flag('--subagent')] })]),
+  command('hud', none, 'read', [form('', { options: [flag('--json'), flag('--subagent'), flag('--prompt-submit')] })]),
   command('focus', none, 'read', [form('[status]', { args: positionals(0, 1), options: [flag('--json')] })]),
   command('query', none, 'read', [form('[terms...]', { args: positionals(0, Infinity), options: QUERY_OPTIONS })]),
   command('grep', none, 'read', [form('<term> [terms...]', { args: positionals(1, Infinity), options: QUERY_OPTIONS })]),

@@ -68,4 +68,18 @@ if [ "$1" = "guard" ]; then
   exit 0
 fi
 
+# UserPromptSubmit fast path: this fires on every user message, and only a
+# message that asks for a handoff gets an answer. The glob is strictly weaker
+# than the Node-side match, so a skipped payload could never have matched.
+if [ "$1" = "hud" ] && [ "$2" = "--prompt-submit" ]; then
+  payload=$(cat)
+  case "$payload" in
+    *[Bb][Aa][Tt][Oo][Nn]*|*[Hh][Aa][Nn][Dd]*[Oo][Ff][Ff]*|*[Rr][Ee][Ss][Uu][Mm][Ee]*|*[Pp][Ii][Cc][Kk]*[Uu][Pp]*)
+      printf '%s' "$payload" | "$CLI" "$@"
+      exit 0
+      ;;
+  esac
+  exit 0
+fi
+
 exec "$CLI" "$@"

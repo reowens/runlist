@@ -30,8 +30,13 @@ export function findOwnedPlan(config, index = null) {
 // resume itself: the session that did the work is the only one that knows the
 // next decision, and a prompt assembled from frontmatter reads like a handoff
 // while carrying nothing the plan doesn't already say.
+// The three forms are listed because this is the message a bare `runlist baton`
+// prints, and an agent unsure of the shape should be able to act on it without
+// a trip through --help.
 const BODY_USAGE = `Nothing saved: baton needs the resume you wrote, passed as @<file> or - (stdin).
-  runlist baton [<plan-or-slug>] @/tmp/draft.md`;
+  runlist baton @/tmp/draft.md               # hand off the plan this session owns
+  runlist baton <plan-file> @/tmp/draft.md   # hand off a named plan
+  runlist baton <slug> @/tmp/draft.md        # no plan: save resume-<slug>, change nothing else`;
 
 // A handoff that lands beside a pending one leaves two prompts for the same
 // work, and the next session picks whichever sorts first. Baton used to step to

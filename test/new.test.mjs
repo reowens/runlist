@@ -1261,3 +1261,66 @@ describe('dotmd new — plan body variants (--lite / --audit)', () => {
     ok(!plan.includes('## Version History'), 'skeleton Version History dropped');
   });
 });
+
+// A repo that overrides the plan template got its own outline appended after an
+// authored body, and a draft opening `## Problem` came out with two of them.
+describe('runlist new — authored body with an overridden plan template', () => {
+  function setupOverride() {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-new-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, 'docs', 'plans'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
+      export const root = ['docs/plans', 'docs'];
+      export const templates = {
+        plan: {
+          targetRoot: 'plans',
+          acceptsBody: true,
+          frontmatter: (s, d) => \`type: plan\\nstatus: \${s}\\nkind: commitment\\ncreated: \${d}\\nupdated: \${d}\\nnext_step:\`,
+          body: (t, ctx) => \`\\n# \${t}\\n\\n## Problem\\n\\n\${ctx?.bodyInput?.trim() ?? ''}\\n\\n## Goals\\n\\n1. Goal one\\n\\n## Closeout\\n\`,
+        },
+      };
+    `);
+  }
+
+  it('an authored body replaces the override outline', () => {
+    setupOverride();
+    const r = run(['new', 'plan', 'authored', '-'], {
+      input: '---\nstatus: active\nnext_step: Phase 1.\n---\n## Problem\n\nThe reason.\n\n## Phases\n\nOne.\n',
+    });
+    strictEqual(r.status, 0, r.stderr);
+    const plan = readFileSync(path.join(tmpDir, 'docs', 'plans', 'authored.md'), 'utf8');
+    strictEqual((plan.match(/^## Problem$/gm) || []).length, 1, plan);
+    ok(!plan.includes('## Goals'), 'override outline not appended');
+    ok(!plan.includes('## Closeout'), 'override outline not appended');
+    ok(plan.includes('# Authored'), 'title added');
+    ok(plan.includes('kind: commitment'), 'override frontmatter kept');
+    ok(plan.includes('status: active'), 'draft frontmatter wins');
+    ok(plan.includes('next_step: Phase 1.'), 'draft frontmatter wins');
+  });
+
+  it('a body with no headings still lands in the override first section', () => {
+    setupOverride();
+    const r = run(['new', 'plan', 'slotted', '-'], { input: 'Just the problem statement.\n' });
+    strictEqual(r.status, 0, r.stderr);
+    const plan = readFileSync(path.join(tmpDir, 'docs', 'plans', 'slotted.md'), 'utf8');
+    ok(/## Problem\n\nJust the problem statement\.\n\n## Goals/.test(plan), plan);
+  });
+
+  it('--help lists the repo types, starting statuses and destinations', () => {
+    setupOverride();
+    const r = run(['new', '--help']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(/^Usage \(write the draft to a file first\):$/m.test(r.stdout), 'usage leads');
+    ok(/^This repo:$/m.test(r.stdout), r.stdout);
+    ok(/^  plan +→ docs\/plans\/<slug>\.md, starts planned \(this repo's template\)$/m.test(r.stdout), r.stdout);
+    ok(/^ +statuses: .*in-session/m.test(r.stdout), r.stdout);
+    ok(/roots \(for --root\): plans, docs/.test(r.stdout), r.stdout);
+  });
+
+  it('--help outside a runlist repo prints only the static help', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-new-'));
+    const r = run(['new', '--help']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(!r.stdout.includes('This repo:'), r.stdout);
+  });
+});

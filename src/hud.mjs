@@ -1,12 +1,15 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { currentSessionId, isArchivedPath, relTime } from './util.mjs';
+import { asString, currentSessionId, isArchivedPath, relTime, toRepoPath } from './util.mjs';
+import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
+import { promptDirectory } from './new.mjs';
 import { dim, yellow } from './color.mjs';
 import { buildIndex } from './index.mjs';
 import { readJournalEntries, journalFilePath, readMisuseEntries } from './journal.mjs';
 import { compareVersions } from './update.mjs';
 import { findOwnedPlan } from './baton.mjs';
+import { listOwnedPlans } from './pickup.mjs';
 import { actionablePromptStatuses, comparePromptDocs, resolveStatusMetadata } from './status-metadata.mjs';
 
 export { actionablePromptStatuses } from './status-metadata.mjs';
@@ -48,6 +51,41 @@ export function detectVersionDrift(env = process.env) {
 // status surfaced too, without needing a code change.
 // Returns repo paths, oldest-created first — the same order no-arg `dotmd use`
 // consumes them, so prompts[0] is always "the one you'd pick up next".
+// The same answer from the prompt directory alone, reading frontmatter only.
+// The full index read every body in the repo; at ~5k docs that took 10s and the
+// SessionStart hook's 5s timeout killed hud before it printed anything.
+export function findActionablePromptsInPromptDir(config) {
+  const actionable = actionablePromptStatuses(config);
+  const dir = promptDirectory(config);
+  if (!existsSync(dir)) return [];
+  const docs = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true, recursive: true })) {
+    if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
+    const abs = path.join(entry.parentPath ?? entry.path, entry.name);
+    const repoPath = toRepoPath(abs, config.repoRoot);
+    if (isArchivedPath(repoPath, config)) continue;
+    let fm;
+    try { fm = parseSimpleFrontmatter(extractFrontmatter(readFileSync(abs, 'utf8')).frontmatter ?? ''); }
+    catch { continue; }
+    const status = asString(fm.status);
+    if (asString(fm.type) !== 'prompt' || !actionable.has(status)) continue;
+    docs.push({ path: repoPath, status, created: asString(fm.created) || null, updated: asString(fm.updated) || null });
+  }
+  return docs.sort(comparePromptDocs).map(doc => doc.path);
+}
+
+// Text-mode hud: pending prompts and this session's plan, without the index.
+export function buildHudFast(config) {
+  let prompts = [];
+  let owned = null;
+  try { prompts = findActionablePromptsInPromptDir(config); } catch { /* hud must not fail */ }
+  try {
+    const records = listOwnedPlans(config);
+    if (!records.diagnostics?.length && records.length === 1) owned = { path: records[0].plan, title: null, via: 'ownership' };
+  } catch { /* hud must not fail */ }
+  return { owned, prompts, misuseRecap: buildMisuseRecap(config) };
+}
+
 function findActionablePrompts(config, index) {
   const actionable = actionablePromptStatuses(config);
   return index.docs
@@ -266,6 +304,47 @@ export function buildPlanStatusPrimer(config, { maxChars = 220 } = {}) {
 // the zero-false-positive signal for "this is a dotmd repo." A bare docs/ dir is
 // deliberately NOT enough — too many repos have one. In a non-dotmd repo the hook
 // then contributes nothing to the session: no primer, no index build, no heal.
+// UserPromptSubmit: when the user asks for a baton, tell the session the exact
+// form for its situation before it goes looking. Sessions ran `baton --help`
+// before nearly every baton even with the form in CLAUDE.md, because the right
+// form depends on whether this session owns a plan, which only runlist knows.
+const HANDOFF_ASK = /\bbaton\b|\bhand[\s-]?off\b|\bresume[\s-]prompt\b|\bsave (?:a |the )?resume\b|\bpick (?:it|this|that) (?:back )?up (?:next time|later|tomorrow)\b/i;
+
+export function isHandoffAsk(prompt) {
+  return typeof prompt === 'string' && HANDOFF_ASK.test(prompt);
+}
+
+export function buildHandoffContext(config) {
+  // Ownership records name their plans and are checked against those files
+  // alone; building the index here cost 9s in a repo of ~5k docs, past the
+  // hook's timeout.
+  let ownedPaths = [];
+  try {
+    const records = listOwnedPlans(config);
+    if (!records.diagnostics?.length) ownedPaths = records.map(record => record.plan);
+  } catch { /* fall through to the no-plan form */ }
+  const draft = 'Write the resume first (the next concrete decision, any gotchas, the plan/doc paths it concerns; not a recap) to a file in your scratchpad.';
+  const tail = 'Baton prints the prompt name it saved; tell the user that name. No `--help` needed.';
+  if (ownedPaths.length === 1) {
+    return `[runlist] Baton: this session owns ${ownedPaths[0]}. ${draft} Then run \`runlist baton @<file>\`: it saves the prompt, releases the plan to active (\`--status paused|awaiting|partial|blocked\` and \`--note "why"\` if that fits better), and prints the commit to run. ${tail}`;
+  }
+  if (ownedPaths.length > 1) {
+    return `[runlist] Baton: this session owns ${ownedPaths.length} plans (${ownedPaths.join(', ')}), so name the one to hand off. ${draft} Then run \`runlist baton <plan-file> @<file>\`. ${tail}`;
+  }
+  return `[runlist] Baton: this session owns no plan. ${draft} Then run \`runlist baton <slug> @<file>\` (saves resume-<slug>, changes nothing else), or \`runlist baton <plan-file> @<file>\` to hand off a plan by path. ${tail}`;
+}
+
+export async function runPromptSubmitHud(config, { readStdin } = {}) {
+  if (!isDotmdRepo(config)) return;
+  let prompt = '';
+  try {
+    const raw = await readStdin();
+    if (raw && raw.trim()) prompt = JSON.parse(raw).prompt ?? '';
+  } catch { return; }
+  if (!isHandoffAsk(prompt)) return;
+  process.stdout.write(buildHandoffContext(config) + '\n');
+}
+
 function isDotmdRepo(config) {
   return Boolean(config?.configFound);
 }
@@ -291,12 +370,13 @@ export function runHud(argv, config) {
   // the session. Skip the index build, slash-heal, primer, and drift line.
   if (!dotmdRepo && !json) return;
 
-  const hud = buildHud(config);
-
   if (json) {
+    const hud = buildHud(config);
     process.stdout.write(JSON.stringify({ ...hud, drift: drift ?? null }, null, 2) + '\n');
     return;
   }
+
+  const hud = buildHudFast(config);
 
   // SessionStart contract: the command primer, plus ONLY signals that carry a
   // direct instruction for this session. Passive state (error counts,
@@ -313,7 +393,7 @@ export function runHud(argv, config) {
   //     Global in-session counts never provide a fallback.
   // The misuse recap stays for the same reason: a repeat-offense rule means
   // the primer alone isn't landing, so name the habit to break.
-  process.stdout.write(dim('runlist: plans|briefing  set <status> [<file>]  new <type> <slug>  use [<file>]  archive <file>  baton [<slug>] <@<file>|-> (save a resume prompt; releases the in-session plan if any)  (use [no-arg] → oldest pending prompt)') + '\n');
+  process.stdout.write(dim('runlist: plans|briefing  set <status> [<file>]  new <type> <slug>  use [<file>]  archive <file>  baton [<plan-or-slug>] @<draft-file> (save a resume prompt; releases the in-session plan if any)  (use [no-arg] → oldest pending prompt)') + '\n');
   process.stdout.write(dim(buildPlanStatusPrimer(config)) + '\n');
   if (hud.owned && hud.owned.via === 'ownership') {
     process.stdout.write(yellow(`[runlist] in-session (yours): ${hud.owned.path} — continue it; hand off with \`runlist baton @/tmp/draft.md\` before stopping.`) + '\n');
