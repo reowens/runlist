@@ -22,6 +22,18 @@ const DEFAULTS = {
   // Floor under the scan surface; null = off. See `applyScanFloor` in validate.mjs.
   minDocs: null,
 
+  // Reference repair outside the doc roots (`runlist refs`). An empty
+  // `codeRoots` is off, which is the behaviour before this key existed: the
+  // doc-root repair archive and rename already run is unchanged either way.
+  // Paths are repo-relative. `null` on the two lists means "the built-in
+  // list", which lives in code-refs.mjs so config.mjs stays a leaf.
+  codeRoots: [],
+  codeExtensions: null,
+  codeExcludes: null,
+  // Files whose content is data keyed on document paths — a guard baseline
+  // whose keys are plan paths, for instance. Reported, never written.
+  codeRefsUntouched: [],
+
   types: {
     plan: {
       statuses: ['in-session', 'active', 'planned', 'blocked', 'partial', 'paused', 'awaiting', 'queued-after', 'archived'],
@@ -394,6 +406,17 @@ function validateConfig(userConfig, config, validStatuses, indexPath) {
     warnings.push("Config: index.snapshot must be 'status' or 'state'.");
   }
 
+  for (const key of ['codeRoots', 'codeRefsUntouched']) {
+    if (config[key] !== undefined && !Array.isArray(config[key])) {
+      warnings.push(`Config: ${key} must be an array.`);
+    }
+  }
+  for (const key of ['codeExtensions', 'codeExcludes']) {
+    if (config[key] != null && !Array.isArray(config[key])) {
+      warnings.push(`Config: ${key} must be an array.`);
+    }
+  }
+
   // Unknown top-level user config keys
   for (const key of Object.keys(userConfig)) {
     if (!VALID_CONFIG_KEYS.has(key)) {
@@ -607,6 +630,13 @@ export async function resolveConfig(cwd, explicitConfigPath) {
     excludeDirs: new Set(config.excludeDirs),
     docsRootPrefix,
     minDocs,
+
+    codeRefs: {
+      roots: Array.isArray(config.codeRoots) ? config.codeRoots : [],
+      extensions: Array.isArray(config.codeExtensions) ? config.codeExtensions : null,
+      excludes: Array.isArray(config.codeExcludes) ? config.codeExcludes : null,
+      untouched: Array.isArray(config.codeRefsUntouched) ? config.codeRefsUntouched : [],
+    },
 
     statusOrder,
     validStatuses,

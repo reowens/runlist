@@ -120,7 +120,7 @@ const definitions = [
   command('status', mutates('managed source and same-root destination'), 'mutate', [form('<file> [status]', { args: positionals(1, 2), options: LIFECYCLE_OPTIONS })]),
   command('set', mutates('managed source and same-root destination'), 'mutate', [form('<status> [file]', { args: positionals(1, 2), options: LIFECYCLE_OPTIONS })]),
   command('ship', mutates('repository release/index paths and global release tooling'), 'mutate', [form('[patch|minor|major]', { args: positionals(0, 1) })]),
-  command('archive', mutates('managed source and same-root destination'), 'mutate', [form('<file>', { args: positionals(1, 1), options: [...LIFECYCLE_OPTIONS, flag('--closeout-template')] })]),
+  command('archive', mutates('managed source and same-root destination'), 'mutate', [form('<file>', { args: positionals(1, 1), options: [...LIFECYCLE_OPTIONS, flag('--closeout-template'), flag('--fix-refs'), flag('--strings')] })]),
   command('bulk', mutates('managed source sweep; archive destinations preserve roots'), 'mutate', [
     form('archive <files...>', { subcommands: ['archive'], args: positionals(1, Infinity), options: [flag('--json'), flag('--no-index'), flag('--show-files')] }),
     form('tag [files...]', { subcommands: ['tag'], args: positionals(0, Infinity), options: [value('--type'), value('--status'), flag('--json')] }),
@@ -133,9 +133,13 @@ const definitions = [
     dashPositionalsAfter: 1,
   })]),
   command('lint', mutates('managed source sweep with --fix; otherwise read-only'), 'mutate', [form('', { options: [flag('--fix')] })]),
-  command('rename', mutates('managed source, same-root destination, and rewrite sweep'), 'mutate', [form('<old> [new]', { args: positionals(1, 2), options: [flag('--show-files')] })]),
+  command('rename', mutates('managed source, same-root destination, and rewrite sweep'), 'mutate', [form('<old> [new]', { args: positionals(1, 2), options: [flag('--show-files'), flag('--fix-refs'), flag('--strings')] })]),
   command('migrate', mutates('managed source sweep'), 'mutate', [form('<field> <old> <new> [files...]', { args: positionals(3, Infinity), options: [flag('--show-files')] })]),
   command('fix-refs', mutates('managed source sweep'), 'mutate', [form('', { options: [flag('--show-files')] })]),
+  command('refs', mutates('configured code roots with --fix; otherwise read-only'), 'mutate', [
+    form('repair', { subcommands: ['repair'], options: [flag('--fix'), flag('--strings')] }),
+    form('<old> <new>', { args: positionals(2, 2), options: [flag('--fix'), flag('--strings')] }),
+  ]),
   command('fix-membership', mutates('managed source sweep'), 'mutate', [form('[hubs...]', { args: positionals(0, Infinity), options: [flag('--json')] })]),
   command('sync-status', mutates('managed source sweep'), 'mutate', [form('[hubs...]', { args: positionals(0, Infinity), options: [flag('--adopt'), flag('--json')] })]),
   command('doctor', mutates('managed sweeps, repo index, and maintenance config paths by mode'), 'mutate', [form('[path]', { args: positionals(0, 1), options: [flag('--apply', '--yes'), flag('--statuses'), optionalValue('--migrate-template'), flag('--migrate-prompts'), flag('--frontmatter-fix'), flag('--project'), flag('--transactions'), flag('--claims'), flag('--session'), value('--older-than'), flag('--json'), flag('--include-archived')] })]),

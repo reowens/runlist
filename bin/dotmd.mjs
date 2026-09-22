@@ -256,6 +256,8 @@ Validate & Fix:
   self-check                        Project/version skew diagnostic (alias: doctor --project)
   lint [--fix]                      Check and auto-fix frontmatter issues
   fix-refs [--dry-run]              Auto-fix broken reference paths + body links
+  refs <old> <new> [--fix]          Report (or rewrite) code-root citations of a moved document
+  refs repair [--fix]               Same, for every archived document still cited at its old path
   fix-membership [<hub>...]         Add unambiguous missing child parent_plan back-references
   sync-status [<hub>...] [--adopt]  Rewrite hub table rows whose printed status drifted from the plan
 
@@ -890,6 +892,39 @@ a parentless child ranked by multiple hubs as ambiguous.
   runlist fix-membership <hub>...        narrow to named hubs
   runlist fix-membership --dry-run       preview without writing
   runlist fix-membership --dry-run --json`,
+
+  refs: `runlist refs <old> <new> — code-root citations of a moved document
+       runlist refs repair          — every archived document still cited at its old path
+
+Reference repair inside the doc roots is what archive and rename already do.
+This is the other half: a source comment, docstring or string literal that
+cites a document by its repo-relative path, in the roots \`codeRoots\` names.
+Absent that key, nothing is scanned and nothing changes.
+
+What it matches:
+  - The full repo-relative path only (\`docs/plans/<slug>.md\`). Never a bare
+    basename — a corpus cites slugs as words, and matching one is how a rename
+    corrupts an unrelated line.
+  - A trailing \`§\` or \`#\` anchor is kept as written: only the path is
+    replaced, so quotes, backticks and punctuation around it survive.
+
+What it writes:
+  - Report is the default. \`--fix\` rewrites citations in comments.
+  - A citation inside a string literal (or bare in code) is reported in its own
+    group and rewritten only with \`--strings\` — a test or a guard may assert
+    on it.
+  - A file listed in \`codeRefsUntouched\` is reported and never written.
+  - A file that is not writable, or that resolves outside the repository, is
+    refused by name.
+
+  runlist refs docs/plans/a.md docs/plans/archived/a.md
+  runlist refs docs/plans/a.md docs/plans/archived/a.md --fix
+  runlist refs repair                   report every stale archived citation
+  runlist refs repair --fix --strings   rewrite them, string literals included
+
+\`repair\` reads each previous path from the archive directory mapping, which is
+the one move the tool leaves a readable trace of. A rename records none, so a
+renamed document is covered by the two-argument form.`,
 
   'fix-refs': `runlist fix-refs — auto-fix broken reference paths
 
@@ -1873,6 +1908,7 @@ async function main() {
   if (command === 'rename') { const { runRename } = await import('../src/rename.mjs'); await runRename(restArgs, config, { dryRun }); return; }
   if (command === 'migrate') { const { runMigrate } = await import('../src/migrate.mjs'); runMigrate(restArgs, config, { dryRun }); return; }
   if (command === 'fix-refs') { const { runFixRefs } = await import('../src/fix-refs.mjs'); runFixRefs(restArgs, config, { dryRun }); return; }
+  if (command === 'refs') { const { runRefs } = await import('../src/code-refs.mjs'); runRefs(restArgs, config, { dryRun }); return; }
   if (command === 'fix-membership') { const { runFixMembership } = await import('../src/fix-membership.mjs'); await runFixMembership(restArgs, config, { dryRun }); return; }
   if (command === 'sync-status') { const { runSyncStatus } = await import('../src/sync-status.mjs'); await runSyncStatus(restArgs, config, { dryRun }); return; }
   if (command === 'self-check') {
