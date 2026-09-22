@@ -12,6 +12,8 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
 
   Three rules keep it from doing damage, each drawn from a measured risk. It matches the full repo-relative path only, never a bare basename, because a corpus cites document slugs as words in prose and matching one is how a rename corrupts an unrelated line. It replaces the path segment and nothing else, so a trailing `§` or `#` anchor, a backtick, a quote or a comma survives as written, and the replacement is spelled repo-relative, which is what a reader of a source comment can paste. A citation inside a string literal is reported in its own group and rewritten only with `--strings`, since one may be a value a test or a guard asserts on.
 
+  `repair` reads each source file once and matches any document-shaped path in one pass, rather than sweeping the tree once per archived document. The match rule is identical either way, and a test asserts the two scans return the same hits.
+
   Four config keys, all additive: `codeRoots` (empty by default, and empty means nothing is scanned and output is unchanged), `codeExtensions` (an entry without a leading dot is an exact basename, which is how a file with no extension opts in), `codeExcludes` (vendored trees and generated output by default, where a rewrite is undone by the next codegen run) and `codeRefsUntouched` (files whose content is data keyed on document paths, reported and never written). A file that is not writable, or that resolves outside the repository, is refused by name.
 
 ### Changed
