@@ -2,6 +2,15 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Changed
+
+- **Every command that builds the index reuses what it already parsed.** Each document's frontmatter, links, checklist, summary and next step come only from its text, so they are now kept per file in `.runlist/parse-cache` and reused while the file's size, times and inode are unchanged. Everything that depends on config or the clock is still computed each run. A listing that does not validate no longer reads unchanged files at all. The cache is written only where the state directory already exists, is never an input (a damaged or other-version file is rebuilt), and `RUNLIST_NO_PARSE_CACHE=1` turns it off. Tests assert that uncached, cold and warm builds return identical documents, warnings and errors.
+- **`plans`, `runlists`, `roadmaps` and the list presets skip validation they never print.** They show status, title, age and next step, and none of that comes from the validating passes. `--json` still runs them in full, because it emits each document's warnings and errors. Output is byte-identical on the same corpus.
+- **Masking inline code before link extraction is one pass per line.** It used to copy the whole line again for every code span on it, and scanned from the first backtick run for every closer. A body with no `](` now skips the mask entirely. Output equivalence is covered by regression tests.
+- **Plan listings stop computing canonical identity for plans with no ownership record.** Every plan's canonical identity listed each directory on its path, 3 times, to look for an ownership record that for most plans did not exist. The names in the ownership folder now rule those plans out first. Any record it cannot read, a symlinked plan, or a record found under the plan's real path still goes through the full check.
+
 ## 0.82.0 — 2026-09-22
 
 ### Added

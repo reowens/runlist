@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { authorizeManagedSource, authorizeRepoGeneratedPath } from './managed-path.mjs';
 import os from 'node:os';
@@ -233,7 +233,48 @@ function validateBinding(record, identity, config) {
   return record;
 }
 
+// Working out a plan's canonical identity lists every directory on its path,
+// three times over, and listing plans asks it of every plan in the repo. A
+// record can only belong to a plan whose file name it carries, so the names in
+// the ownership folder rule most plans out first. The summary is rebuilt
+// whenever the folder changes, and any record it cannot read turns the check
+// off, so the full identity check still decides every case it could get wrong.
+let ownershipNamesCache = null;
+
+function ownershipNames(config) {
+  const dir = ownershipRoot(config);
+  let stamp;
+  try { stamp = `${dir}\0${statSync(dir, { bigint: true }).mtimeNs}`; }
+  catch { return new Set(); }
+  if (ownershipNamesCache?.stamp === stamp) return ownershipNamesCache.names;
+  let names = new Set();
+  try {
+    for (const entry of readdirSync(dir)) {
+      if (!entry.endsWith('.json')) continue;
+      const record = parseOwnership(readFileSync(path.join(dir, entry), 'utf8'), entry);
+      if (record.corrupt) { names = null; break; }
+      names.add(path.basename(record.canonicalPath).toLowerCase());
+      names.add(path.basename(record.plan).toLowerCase());
+    }
+  } catch { names = null; }
+  ownershipNamesCache = { stamp, names };
+  return names;
+}
+
+function mayHaveOwnershipRecord(absolutePath, config) {
+  const names = ownershipNames(config);
+  if (names === null || names.has(path.basename(absolutePath).toLowerCase())) return true;
+  try {
+    if (lstatSync(absolutePath).isSymbolicLink()) return true;
+    // A record whose fields were rewritten still sits at its identity's file
+    // name, and has to be found to be reported corrupt.
+    const guess = createHash('sha256').update(realpathSync(absolutePath)).digest('hex');
+    return existsSync(path.join(ownershipRoot(config), `${guess}.json`));
+  } catch { return true; }
+}
+
 export function readPlanOwnership(repoPath, config) {
+  if (!mayHaveOwnershipRecord(path.resolve(config.repoRoot, repoPath), config)) return null;
   let identity;
   try { identity = canonicalPlanIdentity(path.resolve(config.repoRoot, repoPath), config); }
   catch { return null; }

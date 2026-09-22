@@ -1752,12 +1752,18 @@ async function main() {
     process.stderr.write(`Repo root: ${config.repoRoot}\n`);
   }
 
+  // A printed list shows status, title, age and next step, none of which the
+  // validating passes produce, so it reads the index the way `prompts` and
+  // `hud` do. `--json` emits each document's warnings and errors, so it still
+  // pays for the full pass.
+  const listIndexOptions = listArgs => (listArgs.includes('--json') ? {} : { fast: true });
+
   // Preset aliases (user config can override built-in commands below)
   if ((command === 'stale' || command === 'actionable') && !config.configuredPresetNames.has(command)) {
     const { buildIndex } = await import('../src/index.mjs');
     const { runQuery } = await import('../src/query.mjs');
     const { statusMetadataFor } = await import('../src/status-metadata.mjs');
-    const index = buildIndex(config);
+    const index = buildIndex(config, listIndexOptions(restArgs));
     applyIndexFilters(index);
     const docs = index.docs.filter(doc => {
       const metadata = statusMetadataFor(config, doc.type, doc.status);
@@ -1774,7 +1780,7 @@ async function main() {
   if (config.presets[command]) {
     const { buildIndex } = await import('../src/index.mjs');
     const { runQuery } = await import('../src/query.mjs');
-    const index = buildIndex(config);
+    const index = buildIndex(config, listIndexOptions([...config.presets[command], ...restArgs]));
     applyIndexFilters(index);
     runQuery(index, [...config.presets[command], ...restArgs], config, { preset: command, type: typeArg, root: rootArg });
     return;
@@ -1787,7 +1793,7 @@ async function main() {
   if (command === 'plans') {
     const { buildIndex } = await import('../src/index.mjs');
     const { runQuery } = await import('../src/query.mjs');
-    const index = buildIndex(config);
+    const index = buildIndex(config, listIndexOptions(restArgs));
     applyIndexFilters(index);
     const sub = restArgs[0];
     let defaults;
@@ -1807,7 +1813,7 @@ async function main() {
   if (command === 'runlists') {
     const { buildIndex } = await import('../src/index.mjs');
     const { runRunlists } = await import('../src/query.mjs');
-    const index = buildIndex(config);
+    const index = buildIndex(config, listIndexOptions(restArgs));
     applyIndexFilters(index);
     runRunlists(index, restArgs, config);
     return;
@@ -1818,7 +1824,7 @@ async function main() {
   if (command === 'roadmaps') {
     const { buildIndex } = await import('../src/index.mjs');
     const { runRoadmaps } = await import('../src/roadmap.mjs');
-    const index = buildIndex(config);
+    const index = buildIndex(config, listIndexOptions(restArgs));
     applyIndexFilters(index);
     runRoadmaps(index, restArgs, config);
     return;

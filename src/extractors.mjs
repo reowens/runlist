@@ -42,7 +42,8 @@ export function extractNextStep(body) {
 }
 
 export function extractBodyLinks(body) {
-  if (!body) return [];
+  // Every inline link contains `](`, and masking never creates one.
+  if (!body || !body.includes('](')) return [];
   // Strip fenced code blocks, then MASK inline code rather than delete it.
   // Deleting it ate the commonest link idiom in a plan hub: [`plan.md`](plan.md)
   // has its link TEXT as a code span, so removing the span left `[](plan.md)`,

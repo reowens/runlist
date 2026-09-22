@@ -4,6 +4,7 @@ import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { extractFirstHeading, extractSummary, extractStatusSnapshot, extractNextStep, extractChecklistCounts, extractBodyLinks } from './extractors.mjs';
 import { asString, normalizeStringList, normalizeBlockers, mergeUniqueStrings, toRepoPath, warn, die, resolveDocPath, suggestCandidates } from './util.mjs';
 import { findLexicalDocsRoot } from './managed-path.mjs';
+import { openParseCache, fileStamp, stampSize } from './parse-cache.mjs';
 import { validateDoc, validatePlanShape, validateDocShape, checkBidirectionalReferences, checkGitStaleness, checkRunlistBackPointers, checkCoordinationHubExecutionMode, checkRoadmapHubExecutionMode, computeDaysSinceUpdate, computeIsStale, computeChecklistCompletionRate, enrichRefErrorSuggestions } from './validate.mjs';
 import { checkIndex } from './index-file.mjs';
 import { checkClaudeCommands } from './claude-commands.mjs';
@@ -30,7 +31,9 @@ export function buildIndex(config, opts = {}) {
   const invokeHooks = opts.invokeHooks ?? !config._execution?.suppressSideEffects;
   const gitStaleness = opts.gitStaleness ?? config._execution?.gitStaleness ?? true;
   const skipWarningOnlyChecks = fast || errorsOnly;
-  const docs = collectDocFiles(config).map(f => parseDocFile(f, config, { fast }));
+  const cache = openParseCache(config);
+  const docs = collectDocFiles(config).map(f => parseDocFile(f, config, { fast, cache }));
+  if (cache && !config._execution?.suppressSideEffects) cache.save();
   if (!fast) {
     // Per-file validation (validateDoc) ran during parse without sibling
     // visibility. Now that the full index is materialized, enrich
@@ -271,16 +274,45 @@ function walkMarkdownFiles(directory, files, excludedDirs, skipPaths, seen = new
   }
 }
 
-export function parseDocFile(filePath, config, opts = {}) {
-  const { fast = false } = opts;
-  const relativePath = toRepoPath(filePath, config.repoRoot);
-  const raw = readFileSync(filePath, 'utf8');
-  const { frontmatter, body } = extractFrontmatter(raw);
+// Everything parseDocFile takes from the file's text alone, with no config and
+// no clock, which is what the parse cache may keep.
+function extractDocText(frontmatter, body) {
   const fmWarnings = [];
   const parsedFrontmatter = parseSimpleFrontmatter(frontmatter, fmWarnings);
-  const headingTitle = extractFirstHeading(body);
+  return {
+    parsedFrontmatter,
+    fmWarnings: fmWarnings.map(w => ({ message: w.message })),
+    headingTitle: extractFirstHeading(body),
+    bodySummary: extractSummary(body),
+    bodyStatusSnapshot: extractStatusSnapshot(body),
+    bodyNextStep: extractNextStep(body),
+    checklist: extractChecklistCounts(body),
+    bodyLinks: extractBodyLinks(body),
+    hasCloseout: /^##\s+Closeout/m.test(body),
+  };
+}
+
+export function parseDocFile(filePath, config, opts = {}) {
+  const { fast = false, cache = null } = opts;
+  const relativePath = toRepoPath(filePath, config.repoRoot);
+  const stamp = cache ? fileStamp(filePath) : null;
+  let text = stamp ? cache.get(relativePath, stamp) : null;
+  // Validation reads the body itself, so only a fast build can skip the read.
+  let body = null;
+  if (!text || !fast) {
+    const raw = readFileSync(filePath, 'utf8');
+    const extracted = extractFrontmatter(raw);
+    body = extracted.body;
+    // A file rewritten between the stat and the read no longer matches its stamp.
+    if (text && Buffer.byteLength(raw) !== stampSize(stamp)) text = null;
+    if (!text) {
+      text = extractDocText(extracted.frontmatter, body);
+      if (stamp) cache.set(relativePath, stamp, text);
+    }
+  }
+  const { parsedFrontmatter, fmWarnings, headingTitle, checklist, bodyLinks, hasCloseout } = text;
   const title = asString(parsedFrontmatter.title) ?? headingTitle ?? path.basename(filePath, '.md');
-  const summary = asString(parsedFrontmatter.summary) ?? extractSummary(body) ?? null;
+  const summary = asString(parsedFrontmatter.summary) ?? text.bodySummary ?? null;
   // For terminal-status docs (archived / reference / deprecated by default),
   // skip the body-scrape and the "No current_state set" fallback when the user
   // didn't set `current_state:` in frontmatter explicitly. Body text on a
@@ -305,7 +337,7 @@ export function parseDocFile(filePath, config, opts = {}) {
   } else if (isTerminalDoc) {
     currentState = null;
   } else {
-    const scraped = extractStatusSnapshot(body);
+    const scraped = text.bodyStatusSnapshot;
     if (scraped) {
       currentState = scraped;
       currentStateOrigin = 'body';
@@ -313,7 +345,7 @@ export function parseDocFile(filePath, config, opts = {}) {
       currentState = 'No current_state set';
     }
   }
-  const nextStep = asString(parsedFrontmatter.next_step) ?? extractNextStep(body) ?? null;
+  const nextStep = asString(parsedFrontmatter.next_step) ?? text.bodyNextStep ?? null;
   // `blocked_by` is accepted as an alias for `blockers` since 0.39.3 — agents
   // filing tickets naturally reach for the JIRA/Linear name. If both are set,
   // they're merged (de-duped via normalizeBlockers → mergeUniqueStrings).
@@ -328,9 +360,6 @@ export function parseDocFile(filePath, config, opts = {}) {
   const domain = asString(parsedFrontmatter.domain) ?? null;
   const audience = asString(parsedFrontmatter.audience) ?? null;
   const executionMode = asString(parsedFrontmatter.execution_mode) ?? null;
-  const checklist = extractChecklistCounts(body);
-  const bodyLinks = extractBodyLinks(body);
-  const hasCloseout = /^##\s+Closeout/m.test(body);
 
   // Dynamic reference field extraction. A leading `>` on a value (e.g.
   // `"> docs/audit-example-project.md"`) marks that single ref as one-way —
