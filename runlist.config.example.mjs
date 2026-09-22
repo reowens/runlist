@@ -21,6 +21,38 @@ export const excludeDirs = ['evidence'];
 // checks, which are deliberate subsets.
 // export const minDocs = 500;
 
+// ─── Code references (`runlist refs`) ────────────────────────────────────────
+//
+// Archive and rename repair every reference inside the doc roots. These four
+// keys extend that to source files that cite a document by its repo-relative
+// path in a comment, a docstring or a string literal. With no `codeRoots` the
+// scan never runs and nothing changes.
+//
+// `runlist refs <old> <new>` reports, `--fix` writes; `runlist refs repair`
+// does the same for every archived document still cited at its previous path.
+// Archive and rename print the count afterwards and take `--fix-refs`.
+//
+// Only the full repo-relative path matches, never a bare basename — a corpus
+// cites slugs as words, and matching one is how a rename corrupts an
+// unrelated line. Only the path segment is replaced, so a trailing `§` or `#`
+// anchor, a backtick or a quote is kept as written.
+
+// Repo-relative directories scanned for path-shaped citations. Empty = off.
+// export const codeRoots = ['packages', 'scripts', 'services'];
+
+// File kinds considered. An entry with no leading dot is an exact basename,
+// which is how a file with no extension opts in. Unset = the built-in list.
+// export const codeExtensions = ['.ts', '.tsx', '.mjs', '.swift', '.sql', '.py', '.sh', 'Dockerfile'];
+
+// Never scanned. Vendored trees and generated output, where a rewrite is
+// undone by the next codegen run and the citation belongs upstream.
+// Unset = node_modules, dist/build, and the usual generated-output shapes.
+// export const codeExcludes = ['**/node_modules/**', '**/*.generated.*', '**/__generated__/**'];
+
+// Files whose content is data keyed on document paths — a guard baseline
+// whose keys are plan paths, for instance. Reported, never written.
+// export const codeRefsUntouched = ['scripts/guards/plan-baseline.json'];
+
 // Document types — each type has its own status vocabulary and context layout.
 // Defaults: plan, doc, prompt. Override to customize statuses per type, or add new types.
 //

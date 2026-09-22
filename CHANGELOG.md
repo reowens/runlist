@@ -2,6 +2,22 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- **`runlist refs` repairs document citations in code, where reference repair used to stop.** Archive and rename rewrite every reference inside the doc roots and nothing outside them, because every lifecycle sweep passes through a chokepoint that refuses anything but a `.md` file in a configured docs root. So a move left every source comment, docstring and string literal citing the pre-move path.
+
+  `runlist refs <old> <new>` reports every citation by file and line, grouped with the counts first, and writes only on `--fix`. `runlist refs repair` walks every archived document and reports the citations still naming its previous path. That previous path comes from the archive directory mapping, which is the one move the tool leaves a readable trace of; a rename records none, so a renamed or hand-moved document is covered by the two-argument form.
+
+  Three rules keep it from doing damage, each drawn from a measured risk. It matches the full repo-relative path only, never a bare basename, because a corpus cites document slugs as words in prose and matching one is how a rename corrupts an unrelated line. It replaces the path segment and nothing else, so a trailing `§` or `#` anchor, a backtick, a quote or a comma survives as written, and the replacement is spelled repo-relative, which is what a reader of a source comment can paste. A citation inside a string literal is reported in its own group and rewritten only with `--strings`, since one may be a value a test or a guard asserts on.
+
+  Four config keys, all additive: `codeRoots` (empty by default, and empty means nothing is scanned and output is unchanged), `codeExtensions` (an entry without a leading dot is an exact basename, which is how a file with no extension opts in), `codeExcludes` (vendored trees and generated output by default, where a rewrite is undone by the next codegen run) and `codeRefsUntouched` (files whose content is data keyed on document paths, reported and never written). A file that is not writable, or that resolves outside the repository, is refused by name.
+
+### Changed
+
+- **Archive and rename print what their doc repair could not reach.** After the count of documents they rewrote, both now print how many code-root citations still name the old path and the `runlist refs` command that fixes them, and both take `--fix-refs` to write those in the same run (`--strings` extends it to string literals). The code-root sweep runs after the move has committed rather than inside it: adding 500-plus files to the move's participant set would make the lock set and the rollback surface of every archive depend on files its correctness does not. With no `codeRoots` configured, their output is byte-identical to before.
+
 ## 0.81.0 — 2026-09-17
 
 ### Fixed

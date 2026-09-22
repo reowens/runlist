@@ -282,6 +282,26 @@ export const types = {
 };
 ```
 
+### Code references
+
+Archive and rename repair every reference inside the doc roots. `codeRoots`
+extends that to source files that cite a document by its repo-relative path in
+a comment, a docstring or a string literal:
+
+```js
+export const codeRoots = ['packages', 'scripts', 'services'];
+export const codeRefsUntouched = ['scripts/guards/plan-baseline.json'];
+```
+
+`runlist refs <old> <new>` reports every citation by file and line and writes
+only on `--fix`; `runlist refs repair` does the same for every archived
+document still cited at its previous path. Archive and rename print the count
+afterwards and take `--fix-refs`. Only the full repo-relative path matches,
+never a bare basename, and only that segment is replaced, so a trailing `§` or
+`#` anchor survives. A citation inside a string literal waits for `--strings`,
+a file in `codeRefsUntouched` is never written, and with no `codeRoots` set
+nothing is scanned.
+
 Configuration supports multiple roots, custom types and templates, taxonomy,
 reference fields, presets, rendering, lifecycle hooks, validation hooks, and
 AI summarization hooks. See [`runlist.config.example.mjs`](runlist.config.example.mjs)
