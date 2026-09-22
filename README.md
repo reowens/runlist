@@ -238,11 +238,26 @@ and add it:
 runlist new decision auth-revamp --question "Which token store?" @record.md
 ```
 
-It takes the next free id (`D1`, `D2`, …) in that plan, lands at the end of the
-plan's top-level decisions section (created before `## Version History` when
-there is none) with a `Disposition: OPEN.` line, and refuses an empty record.
-`--disposition held` parks it instead. The heading and id prefix are config:
-`export const decisions = { section: 'Decisions', prefix: 'D' }`.
+It takes the next id (`D1`, `D2`, …) that no decision item in that plan uses,
+lands at the end of the plan's top-level decisions section (created before
+`## Version History` when there is none) with a `Disposition: OPEN.` line, and
+refuses an empty record. `--disposition held` parks it instead.
+
+A corpus that indexes its decisions in one register numbers them in one
+sequence. Name the register, and the id follows the highest the register or the
+plan uses, and the register gets the entry's row in the same locked write:
+
+```js
+export const decisions = {
+  section: 'Decisions',
+  prefix: 'D',
+  register: { file: 'docs/plans/register.md', statusLine: 'waiting on you:' },
+};
+```
+
+The register block is the fenced block whose first line carries `statusLine`.
+The row is the question plus `--answers` (what each answer leaves in place),
+which is required when a register is configured.
 
 ## Safety Model
 

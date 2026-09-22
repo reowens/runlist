@@ -1238,11 +1238,13 @@ function runNewDecisionArgs(argv, config, opts) {
   const positional = [];
   let question = null;
   let disposition = null;
+  let answers = null;
   let bodyFlag = null;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--question' && argv[i + 1] !== undefined) { question = argv[++i]; continue; }
     if (a === '--disposition' && argv[i + 1] !== undefined) { disposition = argv[++i]; continue; }
+    if (a === '--answers' && argv[i + 1] !== undefined) { answers = argv[++i]; continue; }
     if ((a === '--body' || a === '--message') && argv[i + 1] !== undefined) { bodyFlag = argv[++i]; continue; }
     if (a === '--config' || a === '--root') { i++; continue; }
     if (!a.startsWith('-') || a === '-') positional.push(a);
@@ -1252,5 +1254,5 @@ function runNewDecisionArgs(argv, config, opts) {
   if (bodyFlag !== null) record = readBodyInput(bodyFlag);
   else if (rest.length) record = readBodyInput(rest.join(' '));
   else record = readPipedBodyInput();
-  return runNewDecision({ planArg, question, disposition, record }, config, { dryRun: opts.dryRun });
+  return runNewDecision({ planArg, question, disposition, record, answers }, config, { dryRun: opts.dryRun });
 }

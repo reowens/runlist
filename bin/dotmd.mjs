@@ -1005,13 +1005,16 @@ Hubs and decisions:
   runlist new hub <slug>                     # coordination hub (a plan)
   runlist new hub <slug> --runlist a,b,c     # sprint hub plus child plans
   runlist new hub <slug> --roadmap           # roadmap hub
-  runlist new decision <plan> --question "<question>" @record.md
-                       Adds the next numbered entry (D1, D2, …) to the plan's
-                       top-level decisions section with a \`Disposition: OPEN.\`
-                       line (or \`--disposition held\`) and the record as its
-                       body; a plan with no such section gets \`## Decisions\`.
-                       The record is required. The heading and id prefix come
-                       from \`export const decisions = { section, prefix }\`.
+  runlist new decision <plan> --question "<question>" [--answers "<…>"] @record.md
+                       Adds the next numbered entry to the plan's top-level
+                       decisions section with a \`Disposition: OPEN.\` line (or
+                       \`--disposition held\`) and the record, which is required;
+                       a plan with no such section gets \`## Decisions\`. With a
+                       register in config, the id is numbered across the corpus
+                       and the register gets its row, question plus --answers
+                       (required then), in the same locked write. Config:
+                       \`export const decisions = { section, prefix,
+                       register: { file, statusLine } }\`.
 
 Scaffolding runlists (plans only):
   --runlist <a,b,c>    Create a sprint runlist hub plus one child plan per slug.

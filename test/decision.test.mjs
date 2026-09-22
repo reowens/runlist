@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, existsSync
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { insertDecision, nextDecisionId } from '../src/decision.mjs';
+import { insertDecision, nextDecisionId, findRegister } from '../src/decision.mjs';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
 let tmpDir;
@@ -37,11 +37,16 @@ afterEach(() => {
 });
 
 describe('nextDecisionId', () => {
-  it('follows the highest id of the prefix the text mentions', () => {
-    strictEqual(nextDecisionId('### D2 a\n\nsee D9 in another plan\n### D4 b', 'D'), 'D10');
+  it('follows the highest id where an item starts, never one named in prose', () => {
+    strictEqual(nextDecisionId('### D2 a\n\nsee D9 in another plan, job D256\n- **D4 b**\n| D3 | c |', 'D'), 'D5');
   });
   it('starts at 1 and ignores ids inside fences and other prefixes', () => {
-    strictEqual(nextDecisionId('```\nD40\n```\nP7 and DD3 and D12x', 'D'), 'D1');
+    strictEqual(nextDecisionId('```\n### D40\n```\n### P7\n### DD3\n### D12x', 'D'), 'D1');
+  });
+  it('with a register, follows the higher of the register and the plan', () => {
+    const register = findRegister('```\nOpen, waiting on you:\n\nD7 OPEN x\nC-D40 y\nD12 RULED z\n```\n', 'waiting on you:');
+    strictEqual(nextDecisionId('### D3 a', 'D', register), 'D13');
+    strictEqual(nextDecisionId('### D30 a', 'D', register), 'D31');
   });
 });
 
@@ -156,5 +161,64 @@ describe('runlist new hub and unknown types', () => {
     const r = run(['new', 'notes', 'some inline body']);
     strictEqual(r.status, 0, r.stderr);
     ok(existsSync(path.join(tmpDir, 'docs', 'plans', 'notes.md')) || existsSync(path.join(tmpDir, 'docs', 'notes.md')));
+  });
+});
+
+describe('runlist new decision with a register', () => {
+  const config = `export const decisions = { register: { file: 'docs/plans/arc.md', statusLine: 'waiting on you:' } };`;
+  const arc = () => plan('arc', 'Register.\n\n```\nOpen, waiting on you:\n\nD7 RULED 2025-01-02: done. Record: [x.md](x.md).\n```\n\nAfter.\n');
+
+  it('numbers from the register and writes the row with the record', () => {
+    setup(config);
+    const arcFile = arc();
+    const file = plan('widgets', '## Decisions\n\n### D1  Old? RULED 2025-01-02.\n\nDone.\n');
+    const r = run(['new', 'decision', 'widgets', '--question', 'Does the shelf fill?', '--answers', 'Yes: it fills. No: it stays empty.', record()]);
+    strictEqual(r.status, 0, r.stderr);
+    match(readFileSync(file, 'utf8'), /### D8  Does the shelf fill\?\n\nDisposition: OPEN\./);
+    match(readFileSync(arcFile, 'utf8'), /D7 RULED 2025-01-02: done\. Record: \[x\.md\]\(x\.md\)\.\nD8 OPEN \d{4}-\d{2}-\d{2}: Does the shelf fill\? Yes: it fills\. No: it stays empty\. Record: \[widgets\.md § Decisions D8\]\(widgets\.md\)\.\n```/);
+  });
+
+  it('requires --answers and writes nothing without it', () => {
+    setup(config);
+    const arcFile = arc();
+    const file = plan('widgets', '');
+    const before = [readFileSync(arcFile, 'utf8'), readFileSync(file, 'utf8')];
+    const r = run(['new', 'decision', 'widgets', '--question', 'Q?', record()]);
+    ok(r.status !== 0);
+    match(r.stderr, /--answers is required/);
+    strictEqual(readFileSync(arcFile, 'utf8'), before[0]);
+    strictEqual(readFileSync(file, 'utf8'), before[1]);
+  });
+
+  it('a decision owned by the register plan itself lands in both places in one file', () => {
+    setup(config);
+    const arcFile = arc();
+    const r = run(['new', 'decision', 'arc', '--question', 'Own one?', '--answers', 'Yes: a. No: b.', record()]);
+    strictEqual(r.status, 0, r.stderr);
+    const text = readFileSync(arcFile, 'utf8');
+    match(text, /\nD8 OPEN [^\n]*Own one\? Yes: a\. No: b\. Record: \[arc\.md § Decisions D8\]\(arc\.md\)\.\n```/);
+    match(text, /## Decisions\n\n### D8  Own one\?\n\nDisposition: OPEN\./);
+  });
+
+  it('refuses a register file with no register block', () => {
+    setup(config);
+    plan('arc', 'No block here.\n');
+    plan('widgets', '');
+    const r = run(['new', 'decision', 'widgets', '--question', 'Q?', '--answers', 'Yes: a. No: b.', record()]);
+    ok(r.status !== 0);
+    match(r.stderr, /has no block whose first line carries "waiting on you:"/);
+  });
+
+  it('dry-run shows the id and the row and writes nothing', () => {
+    setup(config);
+    const arcFile = arc();
+    const file = plan('widgets', '');
+    const before = [readFileSync(arcFile, 'utf8'), readFileSync(file, 'utf8')];
+    const r = run(['new', 'decision', 'widgets', '--question', 'Q?', '--answers', 'Yes: a. No: b.', record(), '-n']);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stdout, /Would add D8 to docs\/plans\/widgets\.md/);
+    match(r.stdout, /Would add its row to the register in docs\/plans\/arc\.md:\n  D8 OPEN/);
+    strictEqual(readFileSync(arcFile, 'utf8'), before[0]);
+    strictEqual(readFileSync(file, 'utf8'), before[1]);
   });
 });

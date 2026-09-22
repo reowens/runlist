@@ -137,6 +137,8 @@ const DEFAULTS = {
   templates: {},
 
   glossary: null,
+  // `runlist new decision`: { section, prefix, register: { file, statusLine } }.
+  decisions: null,
 
   // Opt-in JSONL command journal at .dotmd/journal.jsonl. Default off — agents
   // and users who want usage observability flip this on (or set RUNLIST_JOURNAL=1).
@@ -414,6 +416,14 @@ function validateConfig(userConfig, config, validStatuses, indexPath) {
   for (const key of ['codeExtensions', 'codeExcludes']) {
     if (config[key] != null && !Array.isArray(config[key])) {
       warnings.push(`Config: ${key} must be an array.`);
+    }
+  }
+
+  if (userConfig.decisions != null) {
+    const d = userConfig.decisions;
+    if (typeof d !== 'object' || Array.isArray(d)) warnings.push('Config: decisions must be an object.');
+    else if (d.register != null && (typeof d.register?.file !== 'string' || typeof d.register?.statusLine !== 'string')) {
+      warnings.push('Config: decisions.register needs a file and a statusLine.');
     }
   }
 
