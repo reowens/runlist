@@ -2,6 +2,12 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- **Session start names plans claimed by a session that is gone.** A dead claim blocks `set`, `archive` and `baton` on its plan, and until now nothing said so unless someone ran `runlist doctor --claims`. `runlist hud` prints the dead claims (up to 3 by name, then a count) with `runlist doctor --claims --apply`, which releases them. `runlist hud --json` carries them as `deadClaims`. The subagent primer and the skill now name the claims verbs.
+
 ## 0.85.0 — 2026-09-22
 
 ### Added
