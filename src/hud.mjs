@@ -1,3 +1,4 @@
+import { flagsHudLine, openFlags } from './flags.mjs';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -263,6 +264,7 @@ export function buildHud(config) {
     fleet,
     recentRejections,
     misuseRecap,
+    flags: (() => { try { return openFlags(config).map(f => ({ id: f.id, severity: f.severity, file: f.file, line: f.line, text: f.text })); } catch { return []; } })(),
   };
 }
 
@@ -403,5 +405,10 @@ export function runHud(argv, config) {
     process.stdout.write(yellow(`[runlist] ${n} pending prompt${n === 1 ? '' : 's'} queued for this session — unless the user asks for something else, start by running \`runlist use\` to consume the oldest (${hud.prompts[0]}) and act on it. Peek first: \`runlist prompts show <file>\`; list: \`runlist prompts\`.`) + '\n');
   }
   if (hud.misuseRecap) process.stdout.write(yellow(`[runlist] ${hud.misuseRecap}`) + '\n');
+  // Open flags are the one piece of passive state printed here: the person
+  // asked that every session start knowing where things stand. It is worded
+  // as awareness, not an instruction, so no session treats it as its task.
+  const flagsLine = flagsHudLine(config);
+  if (flagsLine) process.stdout.write(yellow(flagsLine) + '\n');
   if (drift) process.stdout.write(yellow(drift) + '\n');
 }

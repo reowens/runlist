@@ -139,6 +139,8 @@ const DEFAULTS = {
   glossary: null,
   // `runlist new decision`: { section, prefix, register: { file, statusLine } }.
   decisions: null,
+  // `runlist flag` / `runlist flags`: { file } moves the log from .runlist/flags.jsonl.
+  flags: null,
 
   // Opt-in JSONL command journal at .dotmd/journal.jsonl. Default off — agents
   // and users who want usage observability flip this on (or set RUNLIST_JOURNAL=1).

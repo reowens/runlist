@@ -17,6 +17,7 @@ This repo's plans, reference docs, and saved prompts are managed by the **runlis
 - **Close to match reality:** `archived` (shipped) · `partial` (tail deferred — link the successor) · `active` (more work later) · `awaiting` (needs a human decision) · `blocked` (external arrival you can't speed up). Parking a plan with a known next step? Leave a baton in the same breath — never narrate the next pickup into chat.
 - **Hand off / save a resume prompt:** `runlist baton [<plan-or-slug>] @<draft-file>` — write the resume to a file first; saves the prompt and releases the in-session plan (a slug with no plan just saves `resume-<slug>`). Never paste a "here's how to resume" block into chat.
 - **Saved prompts are session-local:** consume with `runlist use` (no arg = oldest pending), peek with `runlist prompts show` (`--all` surveys the whole queue in one call). Never read them with file tools, never commit `docs/prompts/*.md`.
+- **Flag what the person should know:** `runlist flag add <file[:line]> "<what is wrong>"` puts a problem you found but are not fixing on the flags list (`--severity problem|warn|info`); `runlist flags` lists what is open. A flag says what is wrong and where, never what to do about it.
 <!-- runlist:canonical-workflow:end -->
 
 ## Order of operations

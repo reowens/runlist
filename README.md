@@ -259,6 +259,29 @@ The register block is the fenced block whose first line carries `statusLine`.
 The row is the question plus `--answers` (what each answer leaves in place),
 which is required when a register is configured.
 
+## Flags
+
+A flag is something someone found that the person should know about when they
+come back: a plan that contradicts another, a decision open in one place and
+ruled in another, a citation that no longer says what it claims. Any session,
+person or check can add one, and no model is needed:
+
+```bash
+runlist flag add docs/plans/auth.md:42 "says tokens expire in 1h; the spec says 24h" --severity problem
+runlist flags                 # open flags, problems first, newest first
+runlist flag accept F3 --note "real, owner agrees"
+runlist flag reject F4        # not a problem; closed
+runlist flag resolve F3       # fixed
+runlist check --flag          # the check's errors become flags, attributed to it
+```
+
+Each flag keeps the text of the line it points at, so the list says when that
+line has moved or changed since. A repeat of an open flag on the same place is
+merged. The log is append-only, `.runlist/flags.jsonl` by default
+(`export const flags = { file }` moves it), and triage is recorded as events
+beside the flag, never over it. Every session start shows a count and the top
+open flags.
+
 ## Safety Model
 
 - Mutation commands support `--dry-run` / `-n`.

@@ -78,6 +78,14 @@ const definitions = [
   command('summary', none, 'read', [form('<file>', { args: positionals(1, 1), options: [value('--model'), value('--max-tokens'), flag('--json')] })]),
   command('unblocks', none, 'read', [form('<file>', { args: positionals(1, 1), options: [flag('--json')] })]),
   command('health', none, 'read', [form('', { options: [flag('--json')] })]),
+  command('flags', none, 'read', [form('', { options: [flag('--all'), flag('--json')] })]),
+  command('flag', mutates('the flags log under the state directory'), 'mutate', [
+    form('add <file[:line]> <text...>', { subcommands: ['add'], args: positionals(2, Infinity), options: [value('--severity'), value('--by')] }),
+    form('accept <id>', { subcommands: ['accept'], args: positionals(1, 1), options: [value('--note'), value('--by')] }),
+    form('reject <id>', { subcommands: ['reject'], args: positionals(1, 1), options: [value('--note'), value('--by')] }),
+    form('resolve <id>', { subcommands: ['resolve'], args: positionals(1, 1), options: [value('--note'), value('--by')] }),
+    form('show <id>', { subcommands: ['show'], args: positionals(1, 1) }),
+  ]),
   command('glossary', none, 'read', [form('[term]', { args: positionals(0, 1), options: [flag('--list'), flag('--json')] })]),
   command('modules', none, 'read', [form('', { options: [value('--sort'), value('--limit'), flag('--all'), flag('--json')] })]),
   command('module', none, 'read', [form('<name>', { args: positionals(1, 1), options: [value('--sort'), flag('--json')] })]),
@@ -129,7 +137,7 @@ const definitions = [
   command('touch', mutates('managed source or managed source sweep'), 'mutate', [form('[file...]', { args: positionals(0, Infinity), options: [flag('--git')] })]),
   command('new', mutates('managed document destination; external body input unrestricted'), 'mutate', [form('[type] <name> [body...]', {
     args: positionals(0, Infinity),
-    options: [value('--status'), value('--title'), value('--runlist'), flag('--coordination'), flag('--roadmap'), flag('--lite', '--minimal'), flag('--audit', '--findings'), value('--body', '--message'), value('--root'), flag('--show-files'), flag('--list-templates', '--list-types')],
+    options: [value('--status'), value('--title'), value('--runlist'), flag('--coordination'), flag('--roadmap'), flag('--lite', '--minimal'), flag('--audit', '--findings'), value('--body', '--message'), value('--root'), flag('--show-files'), flag('--list-templates', '--list-types'), value('--question'), value('--answers'), value('--disposition')],
     dashPositionalsAfter: 1,
   })]),
   command('lint', mutates('managed source sweep with --fix; otherwise read-only'), 'mutate', [form('', { options: [flag('--fix')] })]),
@@ -151,7 +159,7 @@ const definitions = [
     form('migrate <type>', { subcommands: ['migrate'], args: positionals(1, 1), options: [flag('--yes', '-y'), flag('--json'), flag('--ignore-lifecycle-override')] }),
     form('', { options: [value('--type'), flag('--json')] }),
   ]),
-  command('check', mutates('managed fix sweeps and repo-generated index; otherwise validation'), 'mutate', [form('[paths...]', { args: positionals(0, Infinity), options: [flag('--fix'), flag('--errors-only'), flag('--no-collapse'), flag('--json'), flag('--verbose'), value('--min-docs')] })]),
+  command('check', mutates('managed fix sweeps and repo-generated index; otherwise validation'), 'mutate', [form('[paths...]', { args: positionals(0, Infinity), options: [flag('--fix'), flag('--errors-only'), flag('--no-collapse'), flag('--json'), flag('--verbose'), value('--min-docs'), flag('--flag')] })]),
   command('index', mutates('repo-generated index destination; --print is read-only'), 'mutate', [form('', { options: [flag('--print')] })]),
 
   command('self-check', none, 'internal', [form('', { options: [flag('--json')] })], { visibility: 'internal' }),

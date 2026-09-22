@@ -1895,6 +1895,8 @@ async function main() {
   if (command === 'deps') { const { runDeps } = await import('../src/deps.mjs'); runDeps(restArgs, config); return; }
   if (command === 'unblocks') { const { runUnblocks } = await import('../src/deps.mjs'); runUnblocks(restArgs, config); return; }
   if (command === 'health') { const { runHealth } = await import('../src/health.mjs'); runHealth(restArgs, config); return; }
+  if (command === 'flags') { const { runFlags } = await import('../src/flags.mjs'); runFlags(restArgs, config); return; }
+  if (command === 'flag') { const { runFlag } = await import('../src/flags.mjs'); runFlag(restArgs, config); return; }
   if (command === 'glossary') { const { runGlossary } = await import('../src/glossary.mjs'); runGlossary(restArgs, config); return; }
   if (command === 'export') { const { runExport } = await import('../src/export.mjs'); runExport(restArgs, config, { dryRun, root: rootArg, type: typeArg }); return; }
 
@@ -2014,6 +2016,17 @@ async function main() {
       ? ['validate', 'transformDoc', 'formatSnapshot', 'renderCheck']
           .filter(name => typeof config.hooks?.[name] === 'function')
       : [];
+    // `--flag` puts each error on the flags list, attributed to this check, and
+    // resolves the check's earlier flags it no longer reports. Whole-repo runs
+    // only: a scoped run cannot tell a fixed error from one outside its scope.
+    const flagCheckErrors = async (checkIndex) => {
+      if (!args.includes('--flag') || dryRun) return;
+      if (checkTargets.length > 0) die('`--flag` runs on the whole repository; drop the path arguments.');
+      const { syncCheckFlags } = await import('../src/flags.mjs');
+      const findings = checkIndex.errors.filter(e => e.path).map(e => ({ file: e.path, text: e.message }));
+      const { added, resolved } = syncCheckFlags(config, 'runlist check', findings);
+      process.stderr.write(`flags: ${added} added, ${resolved} resolved\n`);
+    };
     const checkJson = (checkIndex) => {
       const builtInPassed = checkIndex.errors.length === 0;
       const complete = skippedCheckHooks.length === 0;
@@ -2068,6 +2081,7 @@ async function main() {
       applyIndexFilters(freshIndex);
       applyPathScopeToIndex(freshIndex, config, checkTargets);
       applyFloor(freshIndex);
+      await flagCheckErrors(freshIndex);
       if (args.includes('--json')) {
         process.stdout.write(JSON.stringify(checkJson(freshIndex), null, 2) + '\n');
       } else {
@@ -2080,6 +2094,7 @@ async function main() {
 
     applyPathScopeToIndex(index, config, checkTargets);
     applyFloor(index);
+    await flagCheckErrors(index);
 
     if (args.includes('--json')) {
       process.stdout.write(JSON.stringify(checkJson(index), null, 2) + '\n');

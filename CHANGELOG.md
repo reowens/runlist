@@ -2,6 +2,14 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- **`runlist flag add <file[:line]> "<what is wrong>"` and `runlist flags`.** A flag is a problem someone found that the person should know about on return. Any session, person or check adds one, with no model involved. It records the place, the text of the flagged line as it read, a severity (`problem`, `warn` or `info`), and who raised it: a session by host and id, a person, or a check (`--by check:<name>`). A repeat of an open flag on the same place is merged. `runlist flags` lists open flags, problems first and newest first, and says when the flagged line has moved, changed or gone. `runlist flag accept|reject|resolve <id> [--note]` records triage as events, so the log is append-only and nothing is overwritten. The log is `.runlist/flags.jsonl`, and `export const flags = { file }` moves it.
+- **`runlist check --flag`** puts each error on the flags list, attributed to the check, and resolves the check's earlier flags it no longer reports. It runs on the whole repository only.
+- **Session start shows open flags:** a count and the top 3, worded for awareness rather than as an instruction. `runlist hud --json` carries them as `flags`.
+
 ## 0.84.0 — 2026-09-22
 
 ### Added
