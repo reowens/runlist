@@ -158,14 +158,24 @@ export function openFlags(config) {
 // A check's flags follow what the check reports: each error it reports is
 // flagged once, and a flag it raised earlier that it no longer reports is
 // resolved, so the list never holds a problem the check has stopped seeing.
+// A finding is matched to its open flag on file and text, not line: a check
+// reports the same problem at a new line after an edit above it, and that is
+// still one flag.
 export function syncCheckFlags(config, checkName, findings) {
   const by = { kind: 'check', name: checkName };
-  const current = new Set(findings.map(f => `${f.file}\0${normalizeText(f.text)}`));
+  const keyOf = f => `${f.file}\0${normalizeText(f.text)}`;
+  const current = new Set(findings.map(keyOf));
+  const open = new Set(openFlags(config).filter(f => f.by?.kind === 'check' && f.by?.name === checkName).map(keyOf));
   let added = 0;
   let resolved = 0;
   for (const finding of findings) {
+    if (open.has(keyOf(finding))) continue;
     if (!existsSync(path.resolve(config.repoRoot, finding.file))) continue;
-    if (addFlag(config, { place: finding.file, text: finding.text, severity: 'problem', by }).added) added++;
+    const place = finding.line ? `${finding.file}:${finding.line}` : finding.file;
+    const severity = SEVERITIES.includes(finding.severity) ? finding.severity : 'problem';
+    try {
+      if (addFlag(config, { place, text: finding.text, severity, by }).added) { added++; open.add(keyOf(finding)); }
+    } catch { /* a line the file no longer has: the next run reports it again */ }
   }
   for (const flag of openFlags(config)) {
     if (flag.by?.kind !== 'check' || flag.by?.name !== checkName) continue;
@@ -242,7 +252,8 @@ export function runFlag(argv, config) {
   }
   const usage = 'Usage: runlist flag add <file[:line]> "<what is wrong>" [--severity problem|warn|info]\n'
     + '       runlist flag accept|reject|resolve <id> [--note "..."]\n'
-    + '       runlist flag show <id>';
+    + '       runlist flag show <id>\n'
+    + '       runlist flag sync <check-name> [@findings.json | -]';
 
   if (sub === 'add') {
     const [place, ...words] = positional;
@@ -256,6 +267,23 @@ export function runFlag(argv, config) {
     if (!id) die(usage);
     triageFlag(config, { id, event: sub, note, by });
     process.stdout.write(`${green({ accept: 'Accepted', reject: 'Rejected', resolve: 'Resolved' }[sub])} ${id}\n`);
+    return;
+  }
+  if (sub === 'sync') {
+    // A check outside runlist hands over everything it reports now, as a JSON
+    // array of { file, line?, text, severity? }; the list follows it.
+    const [name, source] = positional;
+    if (!name) die('Usage: runlist flag sync <check-name> [@findings.json | -]   (JSON array of { file, line?, text, severity? })');
+    let raw;
+    try { raw = source && source !== '-' ? readFileSync(source.replace(/^@/, ''), 'utf8') : readFileSync(0, 'utf8'); }
+    catch (err) { die(`Could not read the findings: ${err.message}`); }
+    let findings;
+    try { findings = JSON.parse(raw); } catch { die('The findings are not valid JSON.'); }
+    if (!Array.isArray(findings) || findings.some(f => typeof f?.file !== 'string' || typeof f?.text !== 'string')) {
+      die('The findings are a JSON array of { file, line?, text, severity? }.');
+    }
+    const { added, resolved } = syncCheckFlags(config, name, findings);
+    process.stdout.write(`flags from ${name}: ${added} added, ${resolved} resolved\n`);
     return;
   }
   if (sub === 'show') {

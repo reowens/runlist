@@ -85,6 +85,7 @@ const definitions = [
     form('reject <id>', { subcommands: ['reject'], args: positionals(1, 1), options: [value('--note'), value('--by')] }),
     form('resolve <id>', { subcommands: ['resolve'], args: positionals(1, 1), options: [value('--note'), value('--by')] }),
     form('show <id>', { subcommands: ['show'], args: positionals(1, 1) }),
+    form('sync <check-name> [findings]', { subcommands: ['sync'], args: positionals(1, 2), dashPositionalsAfter: 1 }),
   ]),
   command('glossary', none, 'read', [form('[term]', { args: positionals(0, 1), options: [flag('--list'), flag('--json')] })]),
   command('modules', none, 'read', [form('', { options: [value('--sort'), value('--limit'), flag('--all'), flag('--json')] })]),

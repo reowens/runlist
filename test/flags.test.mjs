@@ -146,4 +146,20 @@ describe('flags', () => {
     writeFileSync(file, readFileSync(file, 'utf8') + '{"event":"add","id":\n');
     strictEqual(deriveFlags(readFlagEvents(file)).length, 1);
   });
+
+  it('`flag sync` follows a check outside runlist, matching on file and text so a moved line is one flag', async () => {
+    const config = await setup();
+    const findings = path.join(tmpDir, 'f.json');
+    writeFileSync(findings, JSON.stringify([{ file: 'docs/a.md', line: 7, text: 'D1 missing disposition', severity: 'warn' }]));
+    match(run(['flag', 'sync', 'decision check', `@${findings}`]).stdout, /1 added, 0 resolved/);
+    writeFileSync(findings, JSON.stringify([{ file: 'docs/a.md', line: 8, text: 'D1 missing disposition' }]));
+    match(run(['flag', 'sync', 'decision check', `@${findings}`]).stdout, /0 added, 0 resolved/);
+    writeFileSync(findings, '[]');
+    match(run(['flag', 'sync', 'decision check', `@${findings}`]).stdout, /0 added, 1 resolved/);
+    strictEqual(openFlags(config).length, 0);
+    writeFileSync(findings, '{"not":"an array"}');
+    const bad = run(['flag', 'sync', 'decision check', `@${findings}`]);
+    ok(bad.status !== 0);
+    match(bad.stderr, /JSON array/);
+  });
 });
