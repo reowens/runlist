@@ -10,7 +10,7 @@ import { buildIndex } from './index.mjs';
 import { readJournalEntries, journalFilePath, readMisuseEntries } from './journal.mjs';
 import { compareVersions } from './update.mjs';
 import { findOwnedPlan } from './baton.mjs';
-import { listOwnedPlans } from './pickup.mjs';
+import { listOwnedPlans, surveyOwnershipClaims } from './pickup.mjs';
 import { actionablePromptStatuses, comparePromptDocs, resolveStatusMetadata } from './status-metadata.mjs';
 
 export { actionablePromptStatuses } from './status-metadata.mjs';
@@ -84,7 +84,22 @@ export function buildHudFast(config) {
     const records = listOwnedPlans(config);
     if (!records.diagnostics?.length && records.length === 1) owned = { path: records[0].plan, title: null, via: 'ownership' };
   } catch { /* hud must not fail */ }
-  return { owned, prompts, misuseRecap: buildMisuseRecap(config) };
+  return { owned, prompts, misuseRecap: buildMisuseRecap(config), deadClaimsLine: deadClaimsHudLine(config) };
+}
+
+// A claim whose session is provably gone wedges `set`, `archive` and `baton` on
+// that plan until someone releases it, and nothing at session start said so:
+// three platform claims sat dead for up to 25 days, and the session that found
+// them had to read `doctor --help` to learn the verb. Name them and the command.
+export function deadClaimsHudLine(config, { top = 3 } = {}) {
+  let claims;
+  try { claims = surveyOwnershipClaims(config); } catch { return null; }
+  const dead = claims.filter(claim => !claim.corrupt && claim.liveness === 'dead');
+  if (!dead.length) return null;
+  const n = dead.length;
+  const shown = dead.slice(0, top).map(claim => claim.plan).join(', ');
+  const more = n > top ? `, +${n - top} more` : '';
+  return `[runlist] ${n} plan${n === 1 ? ' is' : 's are'} claimed by a session that is gone (${shown}${more}) — \`runlist doctor --claims --apply\` releases ${n === 1 ? 'it' : 'them'}; \`runlist doctor --claims\` lists every claim.`;
 }
 
 function findActionablePrompts(config, index) {
@@ -264,6 +279,7 @@ export function buildHud(config) {
     fleet,
     recentRejections,
     misuseRecap,
+    deadClaims: (() => { try { return surveyOwnershipClaims(config).filter(c => !c.corrupt && c.liveness === 'dead').map(c => ({ plan: c.plan, sessionId: c.sessionId, since: c.since })); } catch { return []; } })(),
     flags: (() => { try { return openFlags(config).map(f => ({ id: f.id, severity: f.severity, file: f.file, line: f.line, text: f.text })); } catch { return []; } })(),
   };
 }
@@ -277,6 +293,7 @@ export function buildHud(config) {
 const SUBAGENT_PRIMER = [
   'runlist manages this repo\'s plans/docs/prompts (markdown + YAML frontmatter).',
   'Verbs: plans|briefing | query <filters> | use [<file>] | set <status> <file> | new <type> <slug> | archive <file>.',
+  'Claims: `runlist doctor --claims` lists which session holds each plan; `--apply` releases the ones whose session is gone.',
   'Do NOT: cat/read a docs/prompts/*.md (use `runlist use <file>` — archive/claim commits before at-most-once output);',
   'git add/commit a prompt (they are session-local, often gitignored); hand-edit a `status:` field (use `runlist set`).',
 ].join('\n');
@@ -405,6 +422,7 @@ export function runHud(argv, config) {
     process.stdout.write(yellow(`[runlist] ${n} pending prompt${n === 1 ? '' : 's'} queued for this session — unless the user asks for something else, start by running \`runlist use\` to consume the oldest (${hud.prompts[0]}) and act on it. Peek first: \`runlist prompts show <file>\`; list: \`runlist prompts\`.`) + '\n');
   }
   if (hud.misuseRecap) process.stdout.write(yellow(`[runlist] ${hud.misuseRecap}`) + '\n');
+  if (hud.deadClaimsLine) process.stdout.write(yellow(hud.deadClaimsLine) + '\n');
   // Open flags are the one piece of passive state printed here: the person
   // asked that every session start knowing where things stand. It is worded
   // as awareness, not an instruction, so no session treats it as its task.

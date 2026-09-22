@@ -3,7 +3,7 @@ import { strictEqual, ok } from 'node:assert';
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 
 let tmpDir;
 const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
@@ -443,5 +443,31 @@ describe('hud pending prompts without the index', () => {
     ok(r.stdout.includes('consume the oldest (docs/prompts/older.md)'), r.stdout);
     const j = JSON.parse(runCli(['hud', '--json']).stdout);
     strictEqual(JSON.stringify(j.prompts), JSON.stringify(['docs/prompts/older.md', 'docs/prompts/newer.md']));
+  });
+});
+
+describe('hud dead claims', () => {
+  it('names a plan claimed by a session that is gone, with the command that releases it', async () => {
+    const docsDir = setupProject();
+    mkdirSync(path.join(docsDir, 'plans'), { recursive: true });
+    writeDoc(docsDir, 'plans/wedged.md', 'type: plan\nstatus: active\ntitle: wedged\nupdated: 2025-01-01T00:00:00Z\ncurrent_state: testing', '# wedged\n\n## Version History\n\n- **2025-01-01T00:00:00Z** Created.\n');
+
+    const victim = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)']);
+    const claim = spawnSync('node', [bin, 'use', 'docs/plans/wedged.md', '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir, encoding: 'utf8',
+      env: { ...process.env, NO_COLOR: '1', CLAUDE_CODE_SESSION_ID: 'gone', DOTMD_SESSION_PID: String(victim.pid) },
+    });
+    strictEqual(claim.status, 0, claim.stderr);
+
+    ok(!runCli(['hud']).stdout.includes('claimed by a session that is gone'), 'a live owner is not reported');
+
+    await new Promise(resolve => { victim.on('exit', resolve); victim.kill('SIGKILL'); });
+
+    const text = runCli(['hud']).stdout;
+    ok(text.includes('1 plan is claimed by a session that is gone (docs/plans/wedged.md)'), text);
+    ok(text.includes('runlist doctor --claims --apply'), text);
+    const j = JSON.parse(runCli(['hud', '--json']).stdout);
+    strictEqual(j.deadClaims.length, 1);
+    strictEqual(j.deadClaims[0].plan, 'docs/plans/wedged.md');
   });
 });
