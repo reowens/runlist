@@ -10,9 +10,12 @@ import { authorizeManagedDestination, authorizeManagedSource, authorizeManagedSw
 import { availableSessionId, prepareOwnershipMigration } from './pickup.mjs';
 import { moveFileAtomic } from './atomic-mutation.mjs';
 import { configuredReferenceFields, createReferenceIdentitySet, planReferenceMove, rewriteDocumentReferences } from './reference-planner.mjs';
+import { reportMovedCodeRefs } from './code-refs.mjs';
 
 export async function runRename(argv, config, opts = {}) {
   const { dryRun } = opts;
+  const fixCodeRefs = argv.includes('--fix-refs') || opts.fixRefs;
+  const codeRefStrings = argv.includes('--strings');
   const positional = argv.filter(arg => !arg.startsWith('-'));
   const oldInput = positional[0];
   let newInput = positional[1];
@@ -58,6 +61,7 @@ export async function runRename(argv, config, opts = {}) {
       for (const item of referencePlan.updates) process.stdout.write(`${prefix}   ${toRepoPath(item.path, config.repoRoot)}\n`);
     }
     if (ownership) process.stdout.write(`${prefix} Would migrate this session's ownership record.\n`);
+    reportMovedCodeRefs(config, oldRepoPath, newRepoPath, { dryRun: true, prefix: `${prefix} ` });
     return;
   }
 
@@ -93,6 +97,10 @@ export async function runRename(argv, config, opts = {}) {
   regenIndex(config);
   process.stdout.write(`${green('Renamed')}: ${oldRepoPath} → ${newRepoPath}\n`);
   if (result.updatedPaths.length) process.stdout.write(`Updated references in ${result.updatedPaths.length} file(s).\n`);
+  // The doc-root repair above is committed. The code roots are a separate
+  // sweep outside the move transaction, so the count is reported and the
+  // write waits for --fix-refs.
+  reportMovedCodeRefs(config, oldRepoPath, newRepoPath, { fix: fixCodeRefs, strings: codeRefStrings });
   try { config.hooks.onRename?.({ oldPath: oldRepoPath, newPath: newRepoPath, referencesUpdated: result.updatedPaths.length }); }
   catch (err) { warn(`Hook 'onRename' threw: ${err.message}`); }
   return { oldRepoPath, newRepoPath, referencePaths: result.updatedPaths.map(item => toRepoPath(item, config.repoRoot)) };

@@ -272,3 +272,42 @@ describe('runlist refs repair', () => {
     deepStrictEqual(archivedPreviousPaths(config), []);
   });
 });
+
+describe('archive and rename print the code-reference count', () => {
+  it('archive reports the count and takes --fix-refs', async () => {
+    setupProject();
+    writeDoc('docs/plans/beacon-rollout.md', 'type: plan\nstatus: active\nupdated: 2026-08-01', '# Beacon Rollout\n');
+    writeCode('packages/atrium/src/a.ts', '// owner: docs/plans/beacon-rollout.md\n');
+
+    const reported = run(['archive', 'docs/plans/beacon-rollout.md']);
+    strictEqual(reported.status, 0, reported.stderr);
+    match(reported.stdout, /1 code reference in 1 file still cites the old path/);
+    match(reported.stdout, /runlist refs docs\/plans\/beacon-rollout\.md docs\/archived\/beacon-rollout\.md --fix/);
+    strictEqual(readFileSync(path.join(tmpDir, 'packages/atrium/src/a.ts'), 'utf8').includes('archived'), false);
+
+    writeDoc('docs/plans/kiosk-intake.md', 'type: plan\nstatus: active\nupdated: 2026-08-01', '# Kiosk Intake\n');
+    writeCode('packages/atrium/src/b.ts', '// owner: docs/plans/kiosk-intake.md\n');
+    const fixed = run(['archive', 'docs/plans/kiosk-intake.md', '--fix-refs']);
+    strictEqual(fixed.status, 0, fixed.stderr);
+    match(fixed.stdout, /Rewrote 1 code reference\(s\) in 1 file\(s\)/);
+    match(readFileSync(path.join(tmpDir, 'packages/atrium/src/b.ts'), 'utf8'), /docs\/archived\/kiosk-intake\.md/);
+  });
+
+  it('rename reports the count and takes --fix-refs', async () => {
+    setupProject();
+    writeDoc('docs/plans/beacon-rollout.md', 'type: plan\nstatus: active\nupdated: 2026-08-01', '# Beacon Rollout\n');
+    writeCode('packages/atrium/src/a.ts', '// owner: docs/plans/beacon-rollout.md\n');
+
+    const reported = run(['rename', 'docs/plans/beacon-rollout.md', 'beacon-wave.md']);
+    strictEqual(reported.status, 0, reported.stderr);
+    match(reported.stdout, /1 code reference in 1 file still cites the old path/);
+    match(readFileSync(path.join(tmpDir, 'packages/atrium/src/a.ts'), 'utf8'), /docs\/plans\/beacon-rollout\.md/);
+
+    writeDoc('docs/plans/kiosk-intake.md', 'type: plan\nstatus: active\nupdated: 2026-08-01', '# Kiosk Intake\n');
+    writeCode('packages/atrium/src/b.ts', '// owner: docs/plans/kiosk-intake.md\n');
+    const fixed = run(['rename', 'docs/plans/kiosk-intake.md', 'kiosk-desk.md', '--fix-refs']);
+    strictEqual(fixed.status, 0, fixed.stderr);
+    match(fixed.stdout, /Rewrote 1 code reference\(s\) in 1 file\(s\)/);
+    match(readFileSync(path.join(tmpDir, 'packages/atrium/src/b.ts'), 'utf8'), /docs\/plans\/kiosk-desk\.md/);
+  });
+});

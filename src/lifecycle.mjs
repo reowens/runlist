@@ -13,6 +13,7 @@ import { walkSections, findSection } from './section.mjs';
 import { authorizeManagedDestination, authorizeManagedSource, authorizeManagedSweep } from './managed-path.mjs';
 import { withPathLocks, snapshotFile, replaceSnapshot, moveFileAtomic, mutateFile, mutateFileSet } from './atomic-mutation.mjs';
 import { configuredReferenceFields, createReferenceIdentitySet, rewriteDocumentReferences } from './reference-planner.mjs';
+import { reportMovedCodeRefs } from './code-refs.mjs';
 import {
   assertPlanMutationAuthorized,
   assertHookDeliveryTakeoverSafe,
@@ -705,7 +706,10 @@ export function runArchive(argv, config, opts = {}) {
   const noIndex = argv.includes('--no-index') || opts.noIndex;
   const showFiles = argv.includes('--show-files') || opts.showFiles;
   const closeoutTemplate = argv.includes('--closeout-template');
-  argv = argv.filter(a => a !== '--no-index' && a !== '--show-files' && a !== '--closeout-template' && a !== '--force');
+  const fixCodeRefs = argv.includes('--fix-refs') || opts.fixRefs;
+  const codeRefStrings = argv.includes('--strings');
+  argv = argv.filter(a => a !== '--no-index' && a !== '--show-files' && a !== '--closeout-template' && a !== '--force'
+    && a !== '--fix-refs' && a !== '--strings');
   let note = opts.note ?? null;
   const noteIdx = argv.indexOf('--note');
   if (noteIdx !== -1) {
@@ -833,6 +837,10 @@ export function runArchive(argv, config, opts = {}) {
       }
     }
 
+    if (!opts.skipInboundRefs) {
+      reportMovedCodeRefs(config, oldRepoPath, newRepoPath, { dryRun: true, out, prefix: `${prefix} ` });
+    }
+
     // Preview onArchive hook fire
     if (config.hooks?.onArchive) {
       out.write(`${prefix} Would fire hook: onArchive\n`);
@@ -868,6 +876,12 @@ export function runArchive(argv, config, opts = {}) {
   }
   if (selfRefsFixed) out.write('Updated references in archived file.\n');
   if (updatedRefCount > 0) out.write(`Updated references in ${updatedRefCount} file(s).\n`);
+  // The doc-root repair above is committed. The code roots are a separate
+  // sweep outside the move transaction, so the count is reported and the
+  // write waits for --fix-refs.
+  if (!opts.skipInboundRefs) {
+    reportMovedCodeRefs(config, oldRepoPath, newRepoPath, { fix: fixCodeRefs, strings: codeRefStrings, out });
+  }
   if (config.indexPath && indexRegenerated) out.write('Index regenerated.\n');
   if (config.indexPath && noIndex) out.write(dim('(index not regenerated — run `runlist index` to refresh)\n'));
 
