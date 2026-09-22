@@ -213,6 +213,9 @@ runlist new plan platform-work --coordination
 runlist runlists
 ```
 
+`runlist new hub platform-work` makes the same coordination hub; add
+`--runlist a,b,c` or `--roadmap` for the other two shapes.
+
 For progress across several runlists, create a roadmap:
 
 ```bash
@@ -224,6 +227,22 @@ runlist roadmap platform-roadmap next
 Roadmaps roll up progress recursively and choose the first startable plan across
 their child runlists. Runlists and roadmaps are held out of actionable plan
 counts so dashboards do not double-count their children.
+
+## Decisions
+
+A decision is an entry in its plan, not a document of its own. Write the record
+(the situation, what exists today, what each answer leaves in place) to a file
+and add it:
+
+```bash
+runlist new decision auth-revamp --question "Which token store?" @record.md
+```
+
+It takes the next free id (`D1`, `D2`, …) in that plan, lands at the end of the
+plan's top-level decisions section (created before `## Version History` when
+there is none) with a `Disposition: OPEN.` line, and refuses an empty record.
+`--disposition held` parks it instead. The heading and id prefix are config:
+`export const decisions = { section: 'Decisions', prefix: 'D' }`.
 
 ## Safety Model
 

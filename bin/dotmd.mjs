@@ -1001,6 +1001,18 @@ Examples:
   EOF
   runlist new prompt cleanup-tomorrow "look at remaining lint warnings"
 
+Hubs and decisions:
+  runlist new hub <slug>                     # coordination hub (a plan)
+  runlist new hub <slug> --runlist a,b,c     # sprint hub plus child plans
+  runlist new hub <slug> --roadmap           # roadmap hub
+  runlist new decision <plan> --question "<question>" @record.md
+                       Adds the next numbered entry (D1, D2, …) to the plan's
+                       top-level decisions section with a \`Disposition: OPEN.\`
+                       line (or \`--disposition held\`) and the record as its
+                       body; a plan with no such section gets \`## Decisions\`.
+                       The record is required. The heading and id prefix come
+                       from \`export const decisions = { section, prefix }\`.
+
 Scaffolding runlists (plans only):
   --runlist <a,b,c>    Create a sprint runlist hub plus one child plan per slug.
                        The hub carries \`runlist: [<hub>-01-a.md, <hub>-02-b.md, …]\`

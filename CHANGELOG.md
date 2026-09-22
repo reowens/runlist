@@ -2,6 +2,17 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- **`runlist new decision <plan> --question "…" @record.md`** adds a numbered entry to a plan's top-level decisions section. It takes the next id of its prefix that the plan does not already mention, writes a `Disposition: OPEN.` line (or `HELD` with `--disposition held`) and the record as its body, and creates `## Decisions` before `## Version History` when the plan has none. A decisions heading nested inside a workstream is left alone. The record and the question are required, the write goes through the same locked, atomic mutation as every other verb, and `updated:` is bumped in the same write. The heading and prefix come from `export const decisions = { section, prefix }`.
+- **`runlist new hub <slug>`** makes a plan with a hub body: a coordination hub by default, a sprint hub with `--runlist a,b,c`, a roadmap with `--roadmap`.
+
+### Fixed
+
+- **An unknown type followed by a slug is refused.** `runlist new decison foo` used to create `decison.md` as a doc with `foo` as its whole body, because a first argument that is not a type is read as the name and the rest as an inline body. A single bare word in the body slot now stops with the list of types and the exact command for the doc it would have made. A name with a multi-word inline body, `@path`, or a path-shaped name is unchanged.
+
 ## 0.83.0 — 2026-09-22
 
 ### Changed

@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, mkdirSync, fstatSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runNewDecision } from './decision.mjs';
 import { toRepoPath, die, warn, nowIso, emitFilesFooter } from './util.mjs';
 import { green, dim, bold } from './color.mjs';
 import { isInteractive, promptText } from './prompt.mjs';
@@ -652,9 +653,14 @@ next_step:
 export async function runNew(argv, config, opts = {}) {
   const { dryRun } = opts;
 
+  if (argv.find(a => !a.startsWith('-')) === 'decision') return runNewDecisionArgs(argv, config, opts);
+
   const knownTypes = new Set(Object.keys(BUILTIN_TEMPLATES));
   // Also include any custom templates from config
   for (const k of Object.keys(config.raw?.templates ?? {})) knownTypes.add(k);
+  // `hub` is a plan with a hub body; `decision` is handled above.
+  knownTypes.add('hub');
+  knownTypes.add('decision');
 
   const hasNameForBody = args => {
     if (args.length >= 2 && knownTypes.has(args[0])) return true;
@@ -713,9 +719,25 @@ export async function runNew(argv, config, opts = {}) {
     name = positional[1];
     if (positional.length > 2) bodyArg = positional.slice(2).join(' ');
   } else {
+    // `new <name> <inline body>` is a doc with the type left out, but a single
+    // bare word in the body slot is almost always a mistyped type and a slug
+    // (`new decison foo`), which used to create `<type-name>.md` with the slug
+    // as its whole body.
+    const [first, second] = positional;
+    if (positional.length === 2 && !/[/\\]|\.md$/.test(first) && /^[A-Za-z][\w.-]*$/.test(second)) {
+      die(`Unknown type \`${first}\`. Types: ${[...knownTypes].join(', ')}.\n`
+        + `For a doc named ${first} with "${second}" as its body, run: runlist new doc ${first} "${second}"`);
+    }
     typeName = 'doc';
     name = positional[0];
     if (positional.length > 1) bodyArg = positional.slice(1).join(' ');
+  }
+
+  // A hub is a plan with a hub body. Coordination is the default shape, being
+  // the one a hub without children or tiers has.
+  if (typeName === 'hub') {
+    typeName = 'plan';
+    if (runlistArg === null && !roadmap) coordination = true;
   }
 
   if (!name) {
@@ -1145,6 +1167,8 @@ export function newHelpForRepo(config) {
     if (statuses.length) rows.push(`  ${''.padEnd(width)}   statuses: ${statuses.join(', ')}`);
   }
   const roots = (config.docsRoots ?? [config.docsRoot]).map(r => path.basename(r));
+  rows.push(`  ${'hub'.padEnd(width)} → a plan with a hub body (coordination unless --runlist or --roadmap)`);
+  rows.push(`  ${'decision'.padEnd(width)} → an entry in an existing plan's decisions section`);
   return `This repo:
 ${rows.join('\n')}
   roots (for --root): ${roots.join(', ')}`;
@@ -1206,4 +1230,27 @@ function listTemplates(config) {
     if (desc) process.stdout.write(`  ${dim(desc)}\n`);
     process.stdout.write('\n');
   }
+  process.stdout.write(`  hub\n  ${dim('A plan with a hub body: coordination by default, --runlist or --roadmap for the others.')}\n\n`);
+  process.stdout.write(`  decision\n  ${dim('An entry in an existing plan\'s decisions section: runlist new decision <plan> --question "…" @record.md')}\n\n`);
+}
+
+function runNewDecisionArgs(argv, config, opts) {
+  const positional = [];
+  let question = null;
+  let disposition = null;
+  let bodyFlag = null;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--question' && argv[i + 1] !== undefined) { question = argv[++i]; continue; }
+    if (a === '--disposition' && argv[i + 1] !== undefined) { disposition = argv[++i]; continue; }
+    if ((a === '--body' || a === '--message') && argv[i + 1] !== undefined) { bodyFlag = argv[++i]; continue; }
+    if (a === '--config' || a === '--root') { i++; continue; }
+    if (!a.startsWith('-') || a === '-') positional.push(a);
+  }
+  const [, planArg, ...rest] = positional;
+  let record = null;
+  if (bodyFlag !== null) record = readBodyInput(bodyFlag);
+  else if (rest.length) record = readBodyInput(rest.join(' '));
+  else record = readPipedBodyInput();
+  return runNewDecision({ planArg, question, disposition, record }, config, { dryRun: opts.dryRun });
 }
