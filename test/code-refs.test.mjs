@@ -17,6 +17,7 @@ import {
   rewriteCodeReferences,
   runRefs,
   scanCodeRefs,
+  scanManyCodeRefs,
 } from '../src/code-refs.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -262,6 +263,29 @@ describe('runlist refs repair', () => {
     match(after, /docs\/plans\/archived\/beacon-rollout\.md/);
     match(after, /docs\/plans\/archived\/kiosk-intake\.md § Phase 1/);
     match(after, /docs\/plans\/gallery-live\.md/);
+  });
+
+  it('the one-pass sweep and the single-document scan agree', async () => {
+    setupProject();
+    writeCode('packages/atrium/src/a.ts', [
+      '// see docs/plans/beacon-rollout.md § Phase 2',
+      'const p = "docs/plans/beacon-rollout.md";',
+      '// unrelated beacon-rollout.md and ../docs/plans/beacon-rollout.md',
+      '// neighbour docs/plans/kiosk-intake.md',
+    ].join('\n') + '\n');
+    const config = await resolveConfig(tmpDir);
+    const wanted = new Set(['docs/plans/beacon-rollout.md', 'docs/plans/kiosk-intake.md']);
+    const swept = scanManyCodeRefs(config, wanted);
+    for (const target of wanted) {
+      const single = scanCodeRefs(config, target);
+      const many = swept.get(target);
+      strictEqual(many.total, single.total);
+      deepStrictEqual(many.byForm, single.byForm);
+      deepStrictEqual(many.files.map(file => file.hits.map(hit => [hit.line, hit.column, hit.form, hit.anchored])),
+        single.files.map(file => file.hits.map(hit => [hit.line, hit.column, hit.form, hit.anchored])));
+    }
+    strictEqual(swept.get('docs/plans/beacon-rollout.md').total, 2);
+    strictEqual(swept.get('docs/plans/kiosk-intake.md').total, 1);
   });
 
   it('skips a previous path a live document still occupies', async () => {

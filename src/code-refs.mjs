@@ -262,7 +262,7 @@ function writability(absPath, repoRoot) {
  */
 export function scanCodeRefs(config, oldRepoPath, { files = null } = {}) {
   const settings = codeRefsConfig(config);
-  const result = { enabled: settings.enabled, files: [], total: 0, byForm: { comment: 0, string: 0, code: 0 }, untouchedCount: 0, refused: [] };
+  const result = emptyScan(settings.enabled);
   if (!settings.enabled) return result;
 
   for (const absPath of files ?? collectCodeFiles(config)) {
@@ -279,6 +279,67 @@ export function scanCodeRefs(config, oldRepoPath, { files = null } = {}) {
     for (const hit of hits) result.byForm[hit.form]++;
   }
   return result;
+}
+
+// Any document-shaped path, so a sweep reads each file once instead of once
+// per moved document. The captured token is looked up in the work list,
+// avoiding a separate file read for each archived document while keeping the rule
+// identical to the single-document scan.
+const ANY_DOC_PATH = /(?<![A-Za-z0-9_\-/.])([A-Za-z0-9_\-./]+\.md)(?![A-Za-z0-9_\-/])/g;
+
+function emptyScan(enabled) {
+  return { enabled, files: [], total: 0, byForm: { comment: 0, string: 0, code: 0 }, untouchedCount: 0, refused: [] };
+}
+
+/**
+ * One pass over the code roots for many document paths at once. Returns a Map
+ * of path → the same scan shape `scanCodeRefs` returns, for the paths that
+ * were actually cited.
+ */
+export function scanManyCodeRefs(config, wanted, { files = null } = {}) {
+  const settings = codeRefsConfig(config);
+  const byPath = new Map();
+  if (!settings.enabled || wanted.size === 0) return byPath;
+
+  for (const absPath of files ?? collectCodeFiles(config)) {
+    let content;
+    try { content = readFileSync(absPath, 'utf8'); } catch { continue; }
+    if (!content.includes('.md')) continue;
+    const repoPath = toRepoPath(absPath, config.repoRoot);
+    const untouched = settings.untouched.has(repoPath);
+    const kind = fileKindFor(absPath);
+    const lines = content.split('\n');
+    const perPath = new Map();
+
+    for (let n = 0; n < lines.length; n++) {
+      const line = lines[n];
+      if (!line.includes('.md')) continue;
+      ANY_DOC_PATH.lastIndex = 0;
+      let match;
+      while ((match = ANY_DOC_PATH.exec(line)) !== null) {
+        const found = match[1];
+        if (!wanted.has(found)) continue;
+        if (!perPath.has(found)) perPath.set(found, []);
+        perPath.get(found).push({
+          line: n + 1,
+          column: match.index + 1,
+          text: line.trim(),
+          form: classifyMatch(line, match.index, kind),
+          anchored: ANCHOR.test(line.slice(match.index + found.length)),
+        });
+      }
+    }
+
+    for (const [found, hits] of perPath) {
+      if (!byPath.has(found)) byPath.set(found, emptyScan(true));
+      const scan = byPath.get(found);
+      scan.files.push({ path: repoPath, absPath, untouched, hits });
+      scan.total += hits.length;
+      if (untouched) scan.untouchedCount += hits.length;
+      for (const hit of hits) scan.byForm[hit.form]++;
+    }
+  }
+  return byPath;
 }
 
 /** Writable citations only: what `--fix` (or `--fix --strings`) would change. */
@@ -410,8 +471,8 @@ function normalizeInput(input, config) {
   return toRepoPath(abs, config.repoRoot);
 }
 
-function reportOne(config, oldRepoPath, newRepoPath, { fix, strings, dryRun, out, showEmpty = false, files = null }) {
-  const scan = scanCodeRefs(config, oldRepoPath, { files });
+function reportOne(config, oldRepoPath, newRepoPath, { fix, strings, dryRun, out, showEmpty = false, files = null, scan: given = null }) {
+  const scan = given ?? scanCodeRefs(config, oldRepoPath, { files });
   if (!scan.total) {
     if (showEmpty) out.write(green(`No code references to ${oldRepoPath}.\n`));
     return { enabled: true, scan, changed: 0 };
@@ -437,13 +498,14 @@ function reportOne(config, oldRepoPath, newRepoPath, { fix, strings, dryRun, out
 
 function repairAll(config, { fix, strings, dryRun, out }) {
   const pairs = archivedPreviousPaths(config);
-  const files = collectCodeFiles(config);
+  const wanted = new Map(pairs.map(pair => [pair.previous, pair.current]));
+  const found = scanManyCodeRefs(config, new Set(wanted.keys()));
   let total = 0;
   let changed = 0;
   const stale = [];
   for (const pair of pairs) {
-    const scan = scanCodeRefs(config, pair.previous, { files });
-    if (!scan.total) continue;
+    const scan = found.get(pair.previous);
+    if (!scan?.total) continue;
     stale.push({ ...pair, scan });
     total += scan.total;
   }
@@ -453,7 +515,7 @@ function repairAll(config, { fix, strings, dryRun, out }) {
   }
   out.write(`${bold(`${total} stale code reference(s) across ${stale.length} archived document(s).`)}\n\n`);
   for (const entry of stale) {
-    const applied = reportOne(config, entry.previous, entry.current, { fix, strings, dryRun, out, files });
+    const applied = reportOne(config, entry.previous, entry.current, { fix, strings, dryRun, out, scan: entry.scan });
     changed += applied.changed ?? 0;
     out.write('\n');
   }
