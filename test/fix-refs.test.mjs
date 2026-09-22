@@ -95,6 +95,7 @@ describe('fix-refs command', () => {
     const result = run(['fix-refs']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(result.stdout.includes('body link'), 'shows body link fix');
+    ok(!result.stdout.includes('could not be auto-resolved'), 'fixed body link is not counted as an unresolved frontmatter reference');
 
     const content = readFileSync(path.join(docsDir, 'a.md'), 'utf8');
     ok(content.includes('[plan B](archived/b.md)'), 'body link rewritten');

@@ -516,15 +516,7 @@ export function renderManualFixes(index) {
 }
 
 export function buildReferenceValidationCoverage(index, config) {
-  let checkedDocs = 0;
-  let terminalDocsSkipped = 0;
-  for (const doc of index.docs) {
-    const terminal = config.lifecycle.isTerminal?.(doc.status, doc.type)
-      ?? config.lifecycle.terminalStatuses.has(doc.status);
-    if (terminal) terminalDocsSkipped++;
-    else checkedDocs++;
-  }
-  return { checkedDocs, terminalDocsSkipped };
+  return { checkedDocs: index.docs.length, terminalDocsSkipped: 0 };
 }
 
 function _renderCheck(index, config, opts = {}) {

@@ -43,9 +43,7 @@ export function fixBrokenRefs(config, opts = {}) {
 
   // ── Fix broken frontmatter references ────────────────────────────────
 
-  const brokenRefErrors = index.errors.filter(e =>
-    e.message.includes('does not resolve to an existing file')
-  );
+  const brokenRefErrors = index.errors.filter(error => error.meta?.kind === 'ref-resolution');
 
   if (brokenRefErrors.length > 0) {
     const fixesByDoc = new Map();
@@ -101,12 +99,12 @@ export function fixBrokenRefs(config, opts = {}) {
   // ── Fix broken body links ────────────────────────────────────────────
 
   for (const doc of index.docs) {
-    const brokenBodyWarnings = doc.warnings.filter(w =>
-      w.meta?.kind === 'body-link-resolution'
-        && w.meta?.targetKind === 'document'
-        && w.meta?.reason === 'missing'
+    const brokenBodyErrors = doc.errors.filter(error =>
+      error.meta?.kind === 'body-link-resolution'
+        && error.meta?.targetKind === 'document'
+        && error.meta?.reason === 'missing'
     );
-    if (!brokenBodyWarnings.length) continue;
+    if (!brokenBodyErrors.length) continue;
 
     const absPath = path.join(config.repoRoot, doc.path);
     let raw = readFileSync(absPath, 'utf8');
@@ -116,10 +114,10 @@ export function fixBrokenRefs(config, opts = {}) {
     const bodyFixes = [];
     const seenBodyTargets = new Set();
 
-    for (const warn of brokenBodyWarnings) {
-      const brokenHref = warn.meta.relPath;
-      const rawHref = warn.meta.rawHref ?? brokenHref;
-      const targetKey = `${warn.meta.angle ? 'angle' : 'plain'}:${rawHref}`;
+    for (const error of brokenBodyErrors) {
+      const brokenHref = error.meta.relPath;
+      const rawHref = error.meta.rawHref ?? brokenHref;
+      const targetKey = `${error.meta.angle ? 'angle' : 'plain'}:${rawHref}`;
       if (seenBodyTargets.has(targetKey)) continue;
       seenBodyTargets.add(targetKey);
       const brokenBasename = path.basename(brokenHref);
@@ -133,11 +131,11 @@ export function fixBrokenRefs(config, opts = {}) {
 
       const suffixAt = rawHref.search(/[?#]/);
       const suffix = suffixAt === -1 ? '' : rawHref.slice(suffixAt);
-      const renderedHref = warn.meta.angle
+      const renderedHref = error.meta.angle
         ? `<${correctHref}${suffix}>`
         : `${correctHref.replace(/([\s()[\]<>])/g, '\\$1')}${suffix}`;
       const linkRegex = new RegExp(
-        '(\\]\\(\\s*)' + (warn.meta.angle ? '<' : '') + escapeRegex(rawHref) + (warn.meta.angle ? '>' : '') + '(?=\\s|\\))',
+        '(\\]\\(\\s*)' + (error.meta.angle ? '<' : '') + escapeRegex(rawHref) + (error.meta.angle ? '>' : '') + '(?=\\s|\\))',
         'g'
       );
       let replacements = 0;

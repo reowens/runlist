@@ -216,7 +216,7 @@ updated: 2026-08-01`, '# Design\n');
     deepStrictEqual(hubStatusMessages([...warnings, ...errors]), []);
     // The broken link is still reported once, by the body-link check.
     const hub = docs.find(d => d.path.endsWith('billing-runlist.md'));
-    ok(hub.warnings.some(w => w.message.includes('billing-gone.md') && w.message.includes('does not resolve')));
+    ok(hub.errors.some(error => error.message.includes('billing-gone.md') && error.message.includes('does not resolve')));
     strictEqual(config.repoRoot, tmpDir);
   });
 

@@ -77,14 +77,14 @@ describe('modules-required gate (opt-in via taxonomy.modules)', () => {
 });
 
 describe('body link validation', () => {
-  it('warns about broken body links', () => {
+  it('fails on broken body links', () => {
     const docsDir = setupProject();
     writeFileSync(path.join(docsDir, 'a.md'),
       '---\nstatus: active\nupdated: 2025-01-01\n---\n# A\n\nSee [broken](nonexistent.md) for details.\n');
 
     const result = run(['check', '--verbose']);
-    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-    ok(result.stdout.includes('body link'), 'shows body link warning');
+    strictEqual(result.status, 1, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('body link'), 'shows body link error');
     ok(result.stdout.includes('nonexistent.md'), 'shows broken link path');
   });
 
@@ -110,7 +110,7 @@ describe('body link validation', () => {
     const result = run(['check', '--json']);
     const json = JSON.parse(result.stdout);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-    ok(!json.warnings.some(issue => issue.meta?.kind === 'body-link-resolution'));
+    ok(!json.errors.some(issue => issue.meta?.kind === 'body-link-resolution'));
   });
 
   it('reports missing non-document targets as manual file findings', () => {
@@ -120,8 +120,8 @@ describe('body link validation', () => {
 
     const result = run(['check', '--json']);
     const json = JSON.parse(result.stdout);
-    const issue = json.warnings.find(entry => entry.meta?.kind === 'body-link-resolution');
-    strictEqual(result.status, 0);
+    const issue = json.errors.find(entry => entry.meta?.kind === 'body-link-resolution');
+    strictEqual(result.status, 1);
     strictEqual(issue?.meta?.targetKind, 'file');
     strictEqual(issue?.meta?.reason, 'missing');
   });
@@ -134,7 +134,7 @@ describe('body link validation', () => {
 
     const result = run(['check', '--json']);
     const json = JSON.parse(result.stdout);
-    ok(json.warnings.some(issue => issue.meta?.kind === 'body-link-resolution'));
+    ok(json.errors.some(issue => issue.meta?.kind === 'body-link-resolution'));
   });
 
   it('rejects lexical and symlink escapes from the repository', () => {
@@ -148,7 +148,8 @@ describe('body link validation', () => {
 
       const result = run(['check', '--json']);
       const json = JSON.parse(result.stdout);
-      const escapes = json.warnings.filter(issue => issue.meta?.reason === 'outside-repo');
+      const escapes = json.errors.filter(issue => issue.meta?.reason === 'outside-repo');
+      strictEqual(result.status, 1);
       strictEqual(escapes.length, 2);
       ok(escapes.every(issue => issue.message.includes('escapes the repository')));
     } finally {
@@ -198,15 +199,14 @@ describe('body link validation', () => {
     ok(result.stdout.includes('Unknown status'), 'shows error about unknown status');
   });
 
-  it('body link issues are warnings not errors', () => {
+  it('keeps broken body links visible with --errors-only', () => {
     const docsDir = setupProject();
     writeFileSync(path.join(docsDir, 'a.md'),
       '---\nstatus: active\nupdated: 2025-01-01\n---\n# A\n\n[broken](gone.md)\n');
 
     const result = run(['check', '--errors-only']);
-    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-    // With --errors-only, body link warnings should be suppressed
-    ok(!result.stdout.includes('body link'), 'body link warning suppressed with --errors-only');
+    strictEqual(result.status, 1, `stderr: ${result.stderr}`);
+    ok(result.stdout.includes('body link'), 'body link error remains visible with --errors-only');
   });
 });
 
@@ -493,12 +493,8 @@ describe('reference path resolution', () => {
   });
 });
 
-// Regression for audit-example-project F2: three validators (Unknown surface,
-// body link does not resolve, ref-field error) were ignoring
-// `skipWarningsFor` and `terminalStatuses` — firing for archived plans whose
-// quiet: true should have suppressed them. Example project hit 46 archived-noise
-// warnings out of 279 total.
-describe('archived/terminal status suppresses noise validators', () => {
+// Archived docs suppress taxonomy noise but still need navigable links.
+describe('archived status validation', () => {
   function setupArchivedProject() {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-archnoise-'));
     mkdirSync(path.join(tmpDir, '.git'));
@@ -545,24 +541,24 @@ describe('archived/terminal status suppresses noise validators', () => {
       `did-you-mean should propose 'frontend' for typo 'frontent'. stdout: ${result.stdout}`);
   });
 
-  it('does NOT flag broken body links in archived docs', () => {
+  it('fails on broken body links in archived docs', () => {
     const root = setupArchivedProject();
     writeFileSync(path.join(root, 'docs', 'archived', 'old.md'),
       '---\ntype: plan\nstatus: archived\nupdated: 2025-01-01\n---\n# Old\n\nSee [gone](./deleted.md).\n');
     const result = run(['check', '--verbose']);
-    ok(!result.stdout.includes('body link'),
-      `archived doc body link to deleted target should not warn. stdout: ${result.stdout}`);
+    strictEqual(result.status, 1);
+    ok(result.stdout.includes('body link'),
+      `archived doc body link to deleted target should fail. stdout: ${result.stdout}`);
   });
 
-  it('does NOT error on unresolved ref-field entries in archived docs', () => {
+  it('fails on unresolved ref-field entries in archived docs', () => {
     const root = setupArchivedProject();
     writeFileSync(path.join(root, 'docs', 'archived', 'old.md'),
       '---\ntype: plan\nstatus: archived\nupdated: 2025-01-01\nrelated_plans:\n  - ./gone-forever.md\n---\n# Old\n');
     const result = run(['check', '--verbose']);
-    ok(!result.stdout.includes('does not resolve'),
-      `archived doc ref-field to deleted target should not error. stdout: ${result.stdout}`);
-    // And exit code should reflect zero errors.
-    strictEqual(result.status, 0, `check should pass for archived-only noise: ${result.stderr}`);
+    ok(result.stdout.includes('does not resolve'),
+      `archived doc ref-field to deleted target should fail. stdout: ${result.stdout}`);
+    strictEqual(result.status, 1);
   });
 
   it('still errors on unresolved ref-field entries in live docs', () => {
@@ -603,7 +599,7 @@ describe('reference validation coverage ratchet', () => {
     return tmpDir;
   }
 
-  it('checks quiet live refs as errors and body links as warnings', () => {
+  it('checks quiet live refs and body links as errors', () => {
     const root = setupTypeScopedProject();
     const cases = [
       ['doc', 'current'],
@@ -620,16 +616,16 @@ describe('reference validation coverage ratchet', () => {
     const result = run(['check', '--json']);
     const json = JSON.parse(result.stdout);
     strictEqual(result.status, 1);
-    strictEqual(json.errorCount, 4);
+    strictEqual(json.errorCount, 5);
     strictEqual(json.referenceValidation.checkedDocs, 4);
     strictEqual(json.referenceValidation.terminalDocsSkipped, 0);
     for (const [type] of cases) {
       ok(json.errors.some(issue => issue.path === `docs/${type}.md` && issue.meta?.kind === 'ref-resolution'));
     }
-    ok(json.warnings.some(issue => issue.meta?.field === 'body-link'));
+    ok(json.errors.some(issue => issue.meta?.field === 'body-link'));
   });
 
-  it('keeps a same-named terminal status scoped to its declaring type', () => {
+  it('checks links in terminal docs while keeping status scoped to its type', () => {
     const root = setupTypeScopedProject();
     writeFileSync(path.join(root, 'docs', 'history.md'),
       '---\ntype: doc\nstatus: outdated\nupdated: 2026-08-24\nrelated_docs:\n  - ./gone.md\n---\n# History\n\n[gone](./gone.md)\n');
@@ -638,14 +634,15 @@ describe('reference validation coverage ratchet', () => {
     const result = run(['check', '--json']);
     const json = JSON.parse(result.stdout);
     strictEqual(result.status, 1);
-    strictEqual(json.referenceValidation.checkedDocs, 1);
-    strictEqual(json.referenceValidation.terminalDocsSkipped, 1);
-    ok([...json.errors, ...json.warnings].every(issue => issue.path !== 'docs/history.md'));
+    strictEqual(json.referenceValidation.checkedDocs, 2);
+    strictEqual(json.referenceValidation.terminalDocsSkipped, 0);
+    ok(json.errors.some(issue => issue.path === 'docs/history.md' && issue.meta?.kind === 'ref-resolution'));
+    ok(json.errors.some(issue => issue.path === 'docs/history.md' && issue.meta?.kind === 'body-link-resolution'));
     ok(json.errors.some(issue => issue.path === 'docs/research.md' && issue.meta?.kind === 'ref-resolution'));
-    ok(json.warnings.some(issue => issue.path === 'docs/research.md' && issue.meta?.field === 'body-link'));
+    ok(json.errors.some(issue => issue.path === 'docs/research.md' && issue.meta?.field === 'body-link'));
 
     const text = run(['check']);
-    ok(text.stdout.includes('reference validation: 1 docs checked; 1 terminal docs skipped'));
+    ok(text.stdout.includes('reference validation: 2 docs checked; 0 terminal docs skipped'));
   });
 });
 

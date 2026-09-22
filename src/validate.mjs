@@ -254,50 +254,43 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
     }
   }
 
-  // Validate reference fields resolve to existing files. Terminal statuses
-  // (archived, deprecated, etc.) document historical state — their refs may
-  // legitimately point at moved/deleted targets and shouldn't gate the
-  // exit code with a hard error.
+  // Historical documents still need navigable references. Their prose is a
+  // dated record, but links to moved or deleted files cannot be followed.
   const docDir = path.dirname(path.join(config.repoRoot, doc.path));
   const allRefFields = [...(config.referenceFields.bidirectional || []), ...(config.referenceFields.unidirectional || [])];
-  const skipRefValidation = config.lifecycle.isTerminal?.(doc.status, doc.type)
-    ?? config.lifecycle.terminalStatuses.has(doc.status);
-  if (!skipRefValidation) {
-    for (const field of allRefFields) {
-      for (const relPath of (doc.refFields[field] || [])) {
-        if (!resolveRefPath(relPath, docDir, config.repoRoot)) {
-          doc.errors.push({
-            path: doc.path,
-            level: 'error',
-            message: `${field} entry \`${relPath}\` does not resolve to an existing file.`,
-            meta: { kind: 'ref-resolution', field, relPath },
-          });
-        }
-      }
-    }
-
-    // Validate body links resolve to existing files
-    for (const link of (doc.bodyLinks || [])) {
-      const resolution = resolveBodyLinkTarget(link.href, docDir, config.repoRoot);
-      if (!resolution.ok) {
-        const shownHref = link.rawHref ?? link.href;
-        doc.warnings.push({
+  for (const field of allRefFields) {
+    for (const relPath of (doc.refFields[field] || [])) {
+      if (!resolveRefPath(relPath, docDir, config.repoRoot)) {
+        doc.errors.push({
           path: doc.path,
-          level: 'warning',
-          message: resolution.reason === 'outside-repo'
-            ? `body link \`${shownHref}\` escapes the repository.`
-            : `body link \`${shownHref}\` does not resolve to an existing file or directory.`,
-          meta: {
-            kind: 'body-link-resolution',
-            field: 'body-link',
-            relPath: link.href,
-            rawHref: shownHref,
-            targetKind: link.targetKind ?? 'document',
-            angle: link.angle === true,
-            reason: resolution.reason,
-          },
+          level: 'error',
+          message: `${field} entry \`${relPath}\` does not resolve to an existing file.`,
+          meta: { kind: 'ref-resolution', field, relPath },
         });
       }
+    }
+  }
+
+  for (const link of (doc.bodyLinks || [])) {
+    const resolution = resolveBodyLinkTarget(link.href, docDir, config.repoRoot);
+    if (!resolution.ok) {
+      const shownHref = link.rawHref ?? link.href;
+      doc.errors.push({
+        path: doc.path,
+        level: 'error',
+        message: resolution.reason === 'outside-repo'
+          ? `body link \`${shownHref}\` escapes the repository.`
+          : `body link \`${shownHref}\` does not resolve to an existing file or directory.`,
+        meta: {
+          kind: 'body-link-resolution',
+          field: 'body-link',
+          relPath: link.href,
+          rawHref: shownHref,
+          targetKind: link.targetKind ?? 'document',
+          angle: link.angle === true,
+          reason: resolution.reason,
+        },
+      });
     }
   }
 }
