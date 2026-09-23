@@ -15,7 +15,7 @@ import { die } from './util.mjs';
 //     section: 'Decisions',          // the word a decisions heading names
 //     types: ['plan'],               // which document types carry decisions
 //     paths: ['docs/plans'],         // only documents under these, when set
-//     id: '[A-Z]{1,3}-?\\d{1,3}[a-z]?',
+//     id: '[A-Z]{1,3}-?[A-Z]?\\d{1,3}[a-z]?(?:[-.][A-Z0-9]{1,3}\\b)?',
 //     prose: false,                  // also read a disposition out of prose
 //     vocabulary: { open: [...], held: [...], ruled: [...], closed: [...] },
 //     patterns: { ruled: ['regex source', ...] }, // extra prose markers per disposition
@@ -29,7 +29,9 @@ export const DEFAULTS = Object.freeze({
   section: 'Decisions',
   types: ['plan'],
   paths: null,
-  id: '[A-Z]{1,3}-?[A-Z]?\\d{1,3}[a-z]?',
+  // A compound id (`P4-D2`, `D1-R`, `D1.2`) is read whole; `D1.` at a
+  // sentence end is still `D1`.
+  id: '[A-Z]{1,3}-?[A-Z]?\\d{1,3}[a-z]?(?:[-.][A-Z0-9]{1,3}\\b)?',
   prose: false,
   vocabulary: {
     ruled: ['ruled', 'ratified', 'resolved', 'approved', 'decided', 'answered', 'settled', 'locked'],
@@ -142,7 +144,11 @@ export function parseDecisionItems(text, settings = DEFAULTS) {
         const level = h[1].length;
         // A heading that shouts a disposition (`Decisions, both RESOLVED
         // 2025-01-01`) marks the items under it, as a bold lead does.
-        context = s.prose ? proseDisposition(h[2], vocab, s.patterns, { shoutedOnly: true }) : null;
+        // So does one that records a dated ruling (`Decisions, ruled by the
+        // owner 2025-01-01`): a date makes the ruling unambiguous in lowercase.
+        context = s.prose
+          ? proseDisposition(h[2], vocab, s.patterns, { shoutedOnly: true }) ?? datedRulingHeading(h[2], vocab, s.patterns)
+          : null;
         const open = items.at(-1);
         if (open && !open.closed && open.kind === 'heading' && level > open.level) {
           // A subheading inside a heading record is part of it.
@@ -179,7 +185,10 @@ export function parseDecisionItems(text, settings = DEFAULTS) {
         matched = true;
         break;
       }
-      if (!matched && !inRegister && UNNAMED.test(line)) {
+      // A bold `Decision:` field inside a heading record is part of that record.
+      const last = items.at(-1);
+      const insideRecord = last && !last.closed && last.kind === 'heading';
+      if (!matched && !inRegister && !insideRecord && UNNAMED.test(line)) {
         closeOpen(items);
         items.push({ id: null, line: i + 1, kind: 'unnamed', level: 0, context, lines: [line] });
         matched = true;
@@ -321,6 +330,13 @@ export function recordParts(text, settings = DEFAULTS) {
   return { prose, citation, answers };
 }
 
+/** A heading that records a ruling with its date, and no other disposition. */
+function datedRulingHeading(text, vocab, patterns) {
+  const dated = new RegExp(`\\b(?:${wordsRe(vocab.ruled ?? [])})\\b[^.;?!\\n]{0,40}?${DATE}`, 'i');
+  if (!dated.test(text)) return null;
+  return proseMarkers(text, vocab, patterns).every(m => m.kind === 'ruled') ? 'ruled' : null;
+}
+
 /** Documents an item points at, by basename. */
 export function pointedDocs(text) {
   const out = new Set();
@@ -330,6 +346,36 @@ export function pointedDocs(text) {
 }
 
 // ── Assembly ─────────────────────────────────────────────────────────────────
+
+const LINK = /\[[^\]]*\]\(([^)\s]*\.md)(?:#[^)]*)?\)|\b([\w.-]+\.md)\b/g;
+const BESIDE = 24;
+
+/**
+ * Documents an item points at about its own id, by basename. A register or
+ * table row is one line indexing one id, so any document it names counts;
+ * elsewhere the id has to sit beside the link on its line (`other.md`
+ * Decisions, D1, or D1 in [other](other.md)). A record that cites another
+ * document for something else does not make that document's same id its peer.
+ */
+export function idPointedDocs(text, id, kind) {
+  if (!id) return new Set();
+  if (kind === 'register' || kind === 'table') return pointedDocs(text);
+  const out = new Set();
+  const idRe = new RegExp(`(?<![\\w.-])${escapeRe(id)}(?![\\w]|[-.][A-Z0-9])`, 'g');
+  // The item's text starts after its id; the id is put back on its first line.
+  for (const line of `${id} ${text}`.split('\n')) {
+    const at = [...line.matchAll(idRe)].map(m => [m.index, m.index + m[0].length]);
+    if (!at.length) continue;
+    for (const m of line.matchAll(LINK)) {
+      const start = m.index;
+      const end = m.index + m[0].length;
+      if (at.some(([a, b]) => (a >= end && a - end <= BESIDE) || (b <= start && start - b <= BESIDE))) {
+        out.add((m[1] ?? m[2]).split('/').pop());
+      }
+    }
+  }
+  return out;
+}
 
 /**
  * Every item across the given documents with its disposition, its parts (its
@@ -347,7 +393,7 @@ export function analyzeDecisions(docs, settings = DEFAULTS) {
         file: path.basename(doc.path),
         disposition: dispositionOf(item, s),
         own: recordParts(item.text, s),
-        points: pointedDocs(item.text),
+        points: idPointedDocs(item.text, item.id, item.kind),
       });
     }
   }

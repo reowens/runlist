@@ -162,6 +162,67 @@ describe('pendingRows', () => {
   });
 });
 
+describe('misreads', () => {
+  const s = { prose: true };
+
+  it('reads a bold Decision field inside a heading record as part of that record', () => {
+    const text = [
+      '## Decisions', '',
+      '### W-001 — Shelves use pegs', '',
+      '- **Status:** settled, ruled 2025-01-01',
+      '- **Decision:** pegs, not brackets.', '',
+      '### W-002 — RULED 2025-01-02: lids stay', '',
+      '**Decision (owner):** the lids stay on.', '',
+      '## Other decisions', '',
+      '- **Decision: a bin with no name.**',
+    ].join('\n');
+    const items = parseDecisionItems(text, s);
+    deepStrictEqual(items.map(i => [i.id, i.kind]), [['W-001', 'heading'], ['W-002', 'heading'], [null, 'unnamed']]);
+    ok(items[0].text.includes('pegs, not brackets'));
+  });
+
+  it('reads a compound id whole, and a sentence-end period is not part of it', () => {
+    const text = [
+      '## Decisions', '',
+      '- **D1 — Which shelf?** Ruled 2025-01-01: the left one.',
+      '- **D1-R — Which shelf, again?** Ruled 2025-02-01: the right one.',
+      '- **P4-D2, RULED 2025-01-01 — Which hook?** Brass.',
+      '- **D2-B — Which lid?** Held.',
+      '- **D1.2 — Which label?** Held.',
+      '- **D3. Which bin?** Held.',
+    ].join('\n');
+    const items = analyzeDecisions([{ path: 'docs/plans/p.md', text }], s);
+    deepStrictEqual(items.map(i => i.id), ['D1', 'D1-R', 'P4-D2', 'D2-B', 'D1.2', 'D3']);
+    deepStrictEqual(decisionDefects(items).filter(d => /used again/.test(d.message)), []);
+  });
+
+  it('keeps a configured id pattern in force', () => {
+    const items = parseDecisionItems('## Decisions\n\n- **Q-12 — Which bin?** Held.\n- **D1 — Which lid?** Held.\n', { id: 'Q-\\d+' });
+    deepStrictEqual(items.map(i => i.id), ['Q-12']);
+  });
+
+  it('pairs records across documents only when the link names the id beside it', () => {
+    const shelf = { path: 'docs/plans/shelf.md', text: '## Decisions\n\n- **D1 — Which peg?** RULED 2025-01-01: brass.\n' };
+    const cited = {
+      path: 'docs/plans/bins.md',
+      text: '## Decisions\n\n**D1 — Which bin size?** Open.\n\n- *A small bin.* The guidance recorded in [shelf.md](./shelf.md) calls it fragile.\n',
+    };
+    const after = { path: 'docs/plans/hooks.md', text: '## Decisions\n\n- **D1 — Which peg?** Open, recorded in full in `shelf.md` Decisions, D1.\n' };
+    const before = { path: 'docs/plans/lids.md', text: '## Decisions\n\n- **D1 — Which peg?** Open.\n  See D1 in [the shelf plan](shelf.md) for the record.\n' };
+    const defects = decisionDefects(analyzeDecisions([shelf, cited, after, before], s));
+    deepStrictEqual(defects.filter(d => /ruled at/.test(d.message)).map(d => d.doc), ['docs/plans/hooks.md', 'docs/plans/lids.md']);
+  });
+
+  it('lets a heading with a dated ruling govern its items, and not a bare lowercase open', () => {
+    const ruled = parseDecisionItems('## Decisions, ruled by the owner 2025-01-01\n\n| D1 | Which bin? | The blue one. |\n', s);
+    strictEqual(dispositionOf(ruled[0], s), 'ruled');
+    const paren = parseDecisionItems('## Decisions (ratified 2025-01-01, owner)\n\n- **D2 — Which lid?** The red one.\n', s);
+    strictEqual(dispositionOf(paren[0], s), 'ruled');
+    const bare = parseDecisionItems('## Decisions still open\n\n- **D3 — Which hook?** The brass one.\n', s);
+    strictEqual(dispositionOf(bare[0], s), null);
+  });
+});
+
 describe('runlist decisions (CLI)', () => {
   const config = `export const decisions = { listHeading: 'Waiting on you:', requires: { open: ['citation'] } };\n`;
 
