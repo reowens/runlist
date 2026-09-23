@@ -140,7 +140,9 @@ export function parseDecisionItems(text, settings = DEFAULTS) {
       const h = line.match(/^(#{1,6})\s+(.+)$/);
       if (h) {
         const level = h[1].length;
-        context = null;
+        // A heading that shouts a disposition (`Decisions, both RESOLVED
+        // 2025-01-01`) marks the items under it, as a bold lead does.
+        context = s.prose ? proseDisposition(h[2], vocab, s.patterns, { shoutedOnly: true }) : null;
         const open = items.at(-1);
         if (open && !open.closed && open.kind === 'heading' && level > open.level) {
           // A subheading inside a heading record is part of it.

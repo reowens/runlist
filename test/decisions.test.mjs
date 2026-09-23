@@ -102,6 +102,11 @@ describe('dispositionOf', () => {
     strictEqual(dispositionOf(item('the geocoder is open source', 'ruled'), s), 'ruled');
     strictEqual(dispositionOf(item('OPEN again after the review', 'ruled'), s), 'open');
   });
+  it('takes a shouted disposition on the heading above as the items\' lead', () => {
+    const s = { prose: true };
+    const [row] = parseDecisionItems('## Decisions, both RESOLVED 2025-01-01\n\n- **D1 — Which bin?** The open one.\n', s);
+    strictEqual(dispositionOf(row, s), 'ruled');
+  });
   it('takes extra markers from config', () => {
     const s = { prose: true, patterns: { ruled: ['\\(owner[^)]*20\\d{2}-\\d{2}-\\d{2}\\)'] } };
     strictEqual(dispositionOf(item('shelf goes left (owner, 2025-01-01)'), s), 'ruled');
