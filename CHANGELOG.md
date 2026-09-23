@@ -22,6 +22,7 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
 
 ### Fixed
 
+- **Body-link validation accepts configured external roots.** `externalBodyLinkRoots` names paths whose existing files may be linked from documents, including sibling repositories and mounted directories. Links outside those roots still fail.
 - **A reader that closes the pipe early no longer crashes runlist.** `runlist flags | head` exited 1 with an unhandled `EPIPE`; a closed pipe now ends the run with exit 0.
 - **`runlist decisions` reads a table row that indexes a range of ids** (`| A2 to A12 | … |`) as one item whose id is the range; it was dropped, so the decisions in it went uncounted. A line naming any id in the range names it.
 - **`runlist decisions` reads a bold `Decision:` field inside a heading record as part of that record,** not as a second item with no id.
