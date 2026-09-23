@@ -264,6 +264,7 @@ Analyze:
   model [start|stop|use|cap]        The local model: server, which model, memory cap
   glossary <term> [--list] [--json] Look up domain terms + related docs
   decisions [doc|id] [--all|--check] Open and held decisions, read from the corpus
+  show <file...> [--json]           One document's card: status, next step, related plans and docs, links
 
 Validate & Fix:
   doctor [--apply]                  Auto-fix everything: refs, membership, lint, long fields, dates, index (preview by default)
@@ -1352,7 +1353,8 @@ Options:
   runlist decisions <doc>       one document, by path, filename or slug
   runlist decisions <ID>        one record, whole, as it is written
   runlist decisions --all       every disposition, not only the pending ones
-  runlist decisions --json      the same rows as data
+  runlist decisions --json      the same rows as data, each with its question, its
+                                document's title and what it blocks
   runlist decisions --check     every item it could not read or that is incomplete; exit 1 if any
 
 A decision is an item in a decisions section (a heading naming the section word
@@ -1361,7 +1363,26 @@ token is an id. A register is a fenced block whose first line carries
 decisions.register.statusLine; its rows are \`ID  text\`. A disposition is read
 from a \`Disposition:\` line or a row's opening word, then from prose when
 decisions.prose is on, then from the block or bold lead above it. Configure it
-with \`export const decisions = { ... }\` (see src/decisions.mjs).`,
+with \`export const decisions = { ... }\` (see src/decisions.mjs).
+
+What a decision blocks, in --json as \`blocks: [{ doc, line, kind, section, text }]\`:
+what its record says it blocks or gates (kind "stated"), and every unticked
+checklist item (kind "item") or frontmatter blocker (kind "blocker") that
+names its id, alone or inside a written range such as \`A2 to A12\`. In
+another document the id has to sit beside a link to the decision's document.`,
+
+  show: `runlist show <file...> — one document's card, read-only
+
+  runlist show <file>           title, status, next step, blockers, checklist,
+                                related plans and docs, documents linked from the body
+  runlist show <a> <b> --json   [{ path, type, title, status, summary, currentState,
+                                   nextStep, blockers, checklist, updated,
+                                   related: [{ field, ref, path, exists, title, status, type }],
+                                   links: [{ path, title, status, type }] }]
+
+A file is a path, filename or slug, as for \`use\`. Nothing is claimed or
+written. With --json a file that is not found is { path, error } rather than
+an exit.`,
 
   model: `runlist model — the local model behind summaries and lint
 
@@ -1961,6 +1982,7 @@ async function main() {
   if (command === 'flag') { const { runFlag } = await import('../src/flags.mjs'); runFlag(restArgs, config); return; }
   if (command === 'glossary') { const { runGlossary } = await import('../src/glossary.mjs'); runGlossary(restArgs, config); return; }
   if (command === 'model') { const { runModel } = await import('../src/model.mjs'); await runModel(restArgs, config); return; }
+  if (command === 'show') { const { runShow } = await import('../src/show.mjs'); runShow(restArgs, config); return; }
   if (command === 'decisions') { const { runDecisions } = await import('../src/decisions.mjs'); runDecisions(restArgs, config); return; }
   if (command === 'export') { const { runExport } = await import('../src/export.mjs'); runExport(restArgs, config, { dryRun, root: rootArg, type: typeArg }); return; }
 

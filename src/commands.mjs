@@ -97,6 +97,7 @@ const definitions = [
     form('use <name>', { subcommands: ['use'], args: positionals(1, 1) }),
     form('cap <gb>', { subcommands: ['cap'], args: positionals(1, 1) }),
   ]),
+  command('show', none, 'read', [form('<file...>', { args: positionals(1, Infinity), options: [flag('--json')] })]),
   command('decisions', none, 'read', [form('[doc-or-id]', { args: positionals(0, 1), options: [flag('--all'), flag('--json'), flag('--check')] })]),
   command('modules', none, 'read', [form('', { options: [value('--sort'), value('--limit'), flag('--all'), flag('--json')] })]),
   command('module', none, 'read', [form('<name>', { args: positionals(1, 1), options: [value('--sort'), flag('--json')] })]),

@@ -259,6 +259,12 @@ The register block is the fenced block whose first line carries `statusLine`.
 The row is the question plus `--answers` (what each answer leaves in place),
 which is required when a register is configured.
 
+`runlist decisions --json` gives each open or held decision its `question`,
+its document's `docTitle`, and `blocks`: what its record says it blocks or
+gates, then every unticked checklist item and frontmatter blocker that names
+its id, alone or inside a written range (`A2 to A12`). In another document the
+id has to sit beside a link to the decision's document.
+
 ## Flags
 
 A flag is something someone found that the person should know about when they
@@ -307,6 +313,19 @@ are per machine in `~/.runlist/model.json`.
 `running`, `name` (the model loaded now, else the one runlist would load) and
 `memoryMb` (what it holds, null when nothing is loaded), followed by the full
 detail.
+
+## One document's card
+
+```bash
+runlist show docs/plans/shelf.md          # title, status, next step, blockers, checklist, related, links
+runlist show shelf bins --json            # [{ path, title, status, nextStep, blockers, checklist,
+                                          #    related: [{ field, path, title, status }], links: [...] }]
+```
+
+Read-only: nothing is claimed. `related` is what the frontmatter names
+(`related_plans`, `related_docs`, `supports_plans`, `parent_plan`, `runlist` and
+the configured reference fields), each with its title and status; `links` is
+every other document the body links to.
 
 ## Failed commands
 

@@ -361,18 +361,145 @@ export function idPointedDocs(text, id, kind) {
   if (!id) return new Set();
   if (kind === 'register' || kind === 'table') return pointedDocs(text);
   const out = new Set();
-  const idRe = new RegExp(`(?<![\\w.-])${escapeRe(id)}(?![\\w]|[-.][A-Z0-9])`, 'g');
   // The item's text starts after its id; the id is put back on its first line.
   for (const line of `${id} ${text}`.split('\n')) {
-    const at = [...line.matchAll(idRe)].map(m => [m.index, m.index + m[0].length]);
-    if (!at.length) continue;
-    for (const m of line.matchAll(LINK)) {
-      const start = m.index;
-      const end = m.index + m[0].length;
-      if (at.some(([a, b]) => (a >= end && a - end <= BESIDE) || (b <= start && start - b <= BESIDE))) {
-        out.add((m[1] ?? m[2]).split('/').pop());
+    for (const file of linksBesideId(line, id)) out.add(file);
+  }
+  return out;
+}
+
+const idPattern = id => new RegExp(`(?<![\\w.-])${escapeRe(id)}(?![\\w]|[-.][A-Z0-9])`, 'g');
+
+/** The documents, by basename, linked within a few characters of `id` on one line. */
+function linksBesideId(line, id) {
+  const out = new Set();
+  const at = [...line.matchAll(idPattern(id))].map(m => [m.index, m.index + m[0].length]);
+  if (!at.length) return out;
+  for (const m of line.matchAll(LINK)) {
+    const start = m.index;
+    const end = m.index + m[0].length;
+    if (at.some(([a, b]) => (a >= end && a - end <= BESIDE) || (b <= start && start - b <= BESIDE))) {
+      out.add((m[1] ?? m[2]).split('/').pop());
+    }
+  }
+  return out;
+}
+
+// ── What each decision blocks ────────────────────────────────────────────────
+
+// A range written out (`A2 to A12`, `A2-A12`, `A2 through 12`) names every id in it.
+const RANGE = /(?<![\w.-])([A-Z]{1,3}-?)(\d{1,3})\s*(?:to|through|thru|–|—|-)\s*(?:\1)?(\d{1,3})(?![\w])/g;
+
+/** Whether a line names `id`, on its own or inside a written range. */
+export function namesId(line, id, ranges = writtenRanges(line)) {
+  if (line.includes(id) && idPattern(id).test(line)) return true;
+  if (!ranges.length) return false;
+  const m = id.match(/^([A-Z]{1,3}-?)(\d{1,3})$/);
+  if (!m) return false;
+  const n = Number(m[2]);
+  return ranges.some(([prefix, lo, hi]) => prefix === m[1] && lo <= n && n <= hi);
+}
+
+function writtenRanges(line) {
+  return [...line.matchAll(RANGE)].map(r => [r[1], Number(r[2]), Number(r[3])]);
+}
+
+// What the record says it holds up: `blocks Phase 5`, `gates the sizing`,
+// `which switch sizing waits on`.
+// The verb has to open a clause (after a comma, a colon, `it`, `this`, `which`
+// or `and`), so a noun such as "code blocks" is not read as one.
+const STATED = [
+  /(?:^|[,;:(]\s*|\b(?:it|this|which|and|that)\s+)(?:blocks|gates|is blocking|holds up)\s+(?!on\b|nothing\b|none\b)([^.;:,()\n|]{3,80})/gi,
+  /\bwhich\s+([^.;:,()\n|]{3,60}?)\s+waits?\s+on\b/gi,
+];
+
+export function statedBlocks(text) {
+  const body = clean(text);
+  const out = [];
+  for (const re of STATED) {
+    for (const m of body.matchAll(re)) {
+      const what = m[1].trim().replace(/\s+(?:and|or|until|unless|while|when)$/i, '');
+      if (what && !out.includes(what)) out.push(what);
+    }
+  }
+  return out;
+}
+
+const OPEN_BOX = /^\s*[-*+]\s+\[ \]\s+(.*)$/;
+const BLOCKER_KEYS = /^(?:blockers|blocked_by):\s*(.*)$/;
+
+/**
+ * The open work in one document, one entry per line that can wait on a
+ * decision: an unticked checklist item, or a frontmatter blocker. Each carries
+ * the heading it sits under. Pure.
+ */
+export function openWork(text) {
+  const lines = text.split('\n');
+  const out = [];
+  let i = 0;
+  if (lines[0] === '---') {
+    const end = lines.indexOf('---', 1);
+    let inBlockers = false;
+    for (i = 1; i < (end > 0 ? end : 0); i++) {
+      const line = lines[i];
+      const key = line.match(/^([A-Za-z_][\w-]*):/);
+      if (key) {
+        const b = line.match(BLOCKER_KEYS);
+        inBlockers = Boolean(b);
+        if (b && b[1].trim() && !/^\[\s*\]$/.test(b[1].trim())) out.push({ line: i + 1, kind: 'blocker', section: null, text: b[1] });
+        continue;
+      }
+      const item = inBlockers && line.match(/^\s+-\s+(.*)$/);
+      if (item) out.push({ line: i + 1, kind: 'blocker', section: null, text: item[1].replace(/^["']|["']$/g, '') });
+    }
+    if (end > 0) i = end + 1;
+  }
+  let section = null;
+  let fence = null;
+  for (; i < lines.length; i++) {
+    const line = lines[i];
+    const f = line.match(/^\s*(`{3,}|~{3,})/);
+    if (f) { fence = fence === null ? f[1][0] : (f[1][0] === fence ? null : fence); continue; }
+    if (fence !== null) continue;
+    const h = line.match(/^#{1,6}\s+(.+)$/);
+    if (h) { section = clean(h[1]).replace(/\s*[⬜✅🟡]+$/u, ''); continue; }
+    const box = line.match(OPEN_BOX);
+    if (box) out.push({ line: i + 1, kind: 'item', section, text: box[1] });
+  }
+  return out;
+}
+
+const clip = (t, n) => (t.length > n ? `${t.slice(0, n - 1).trimEnd()}…` : t);
+
+/**
+ * What waits on each pending decision: what its record says it blocks, and
+ * every unticked checklist item or frontmatter blocker that names it. In its
+ * own document an entry naming the id counts; in another document the id has
+ * to sit beside a link to the decision's document, the rule records pair by.
+ * `items` are the ones asked about; `all` is every item read, so no record is
+ * counted as waiting on another. Returns a Map from item to
+ * `[{ doc, line, kind, section, text }]`.
+ */
+export function blocksOf(items, docs, all = items) {
+  const work = docs.map(d => ({
+    path: d.path,
+    entries: openWork(d.text).map(e => ({ ...e, ranges: writtenRanges(e.text) })),
+  }));
+  // An entry that is itself a decision item is the record, not what waits on it.
+  const starts = new Set(all.map(i => `${i.doc}:${i.line}`));
+  const out = new Map();
+  for (const item of items) {
+    if (!item.id) continue;
+    const found = statedBlocks(item.text).map(text => ({ doc: item.doc, line: item.line, kind: 'stated', section: null, text }));
+    for (const d of work) {
+      const own = d.path === item.doc;
+      for (const e of d.entries) {
+        if (starts.has(`${d.path}:${e.line}`) || !namesId(e.text, item.id, e.ranges)) continue;
+        if (!own && !linksBesideId(e.text, item.id).has(item.file)) continue;
+        found.push({ doc: d.path, line: e.line, kind: e.kind, section: e.section, text: clip(clean(e.text), 240) });
       }
     }
+    out.set(item, found);
   }
   return out;
 }
@@ -390,6 +517,7 @@ export function analyzeDecisions(docs, settings = DEFAULTS) {
       items.push({
         ...item,
         doc: doc.path,
+        docTitle: doc.title ?? null,
         file: path.basename(doc.path),
         disposition: dispositionOf(item, s),
         own: recordParts(item.text, s),
@@ -423,8 +551,12 @@ export function analyzeDecisions(docs, settings = DEFAULTS) {
   return items;
 }
 
-/** The pending rows, one per decision: linked pairs collapse, a register row preferred. */
-export function pendingRows(items, { doc = null, all = false } = {}) {
+/**
+ * The pending rows, one per decision: linked pairs collapse, a register row
+ * preferred. With `blocks` (from `blocksOf`), each row carries what waits on
+ * it, gathered across the record and every peer it collapsed.
+ */
+export function pendingRows(items, { doc = null, all = false, blocks = null } = {}) {
   let rows = items.filter(i => i.id && (all || PENDING.has(i.effective)));
   if (doc) rows = rows.filter(i => i.doc === doc);
   const kept = [];
@@ -437,16 +569,34 @@ export function pendingRows(items, { doc = null, all = false } = {}) {
   for (const k of kept) shared.set(k.id, (shared.get(k.id) ?? 0) + 1);
   return kept
     .sort((a, b) => a.id.localeCompare(b.id, 'en', { numeric: true }) || a.doc.localeCompare(b.doc))
-    .map(item => ({
-      id: item.id,
-      label: shared.get(item.id) > 1 ? `${item.id} (${item.file})` : item.id,
-      doc: item.doc,
-      line: item.line,
-      kind: item.kind,
-      disposition: item.effective,
-      missing: item.missing,
-      text: renderLine(item),
-    }));
+    .map(item => {
+      const row = {
+        id: item.id,
+        label: shared.get(item.id) > 1 ? `${item.id} (${item.file})` : item.id,
+        doc: item.doc,
+        docTitle: item.docTitle ?? null,
+        line: item.line,
+        kind: item.kind,
+        disposition: item.effective,
+        missing: item.missing,
+        question: questionOf(item),
+        text: renderLine(item),
+      };
+      if (blocks) {
+        const seen = new Set();
+        row.blocks = [item, ...item.peers].flatMap(i => blocks.get(i) ?? [])
+          .filter(b => { const k = `${b.doc}:${b.line}:${b.text}`; return !seen.has(k) && seen.add(k); });
+      }
+      return row;
+    });
+}
+
+/** The record's question, even when the record is incomplete: its first
+ * sentence ending in `?`, else its first sentence. */
+function questionOf(item) {
+  const parts = sentences(clean(item.text).replace(/^(?:open|held|ruled|closed)\b[^.:]*[.:]\s*/i, ''));
+  const q = parts.find(t => t.endsWith('?')) ?? parts[0] ?? '';
+  return clip(q, 300);
 }
 
 const clean = t => t
@@ -507,7 +657,7 @@ export function loadDecisionDocs(config, settings) {
     // A document whose frontmatter did not parse has no type; it is read rather than dropped.
     .filter(d => (types.has(d.type) || !d.type) && d.status !== 'archived' && !d.path.split('/').includes(archiveDir))
     .filter(d => !s.paths || [].concat(s.paths).some(p => d.path === p || d.path.startsWith(`${p.replace(/\/$/, '')}/`)))
-    .map(d => ({ path: d.path, text: readFileSync(path.join(config.repoRoot, d.path), 'utf8') }));
+    .map(d => ({ path: d.path, title: d.title ?? null, text: readFileSync(path.join(config.repoRoot, d.path), 'utf8') }));
 }
 
 export function runDecisions(args, config) {
@@ -540,7 +690,12 @@ export function runDecisions(args, config) {
     else die(`No document or decision id matches "${target}".`);
   }
 
-  const rows = pendingRows(items, { doc: docFilter, all });
+  let blocks = null;
+  if (json) {
+    const asked = items.filter(i => i.id && (all || PENDING.has(i.effective)) && (!docFilter || i.doc === docFilter));
+    blocks = blocksOf([...new Set(asked.flatMap(i => [i, ...i.peers]))], docs, items);
+  }
+  const rows = pendingRows(items, { doc: docFilter, all, blocks });
   if (json) {
     process.stdout.write(`${JSON.stringify(rows, null, 2)}\n`);
     return;

@@ -13,6 +13,10 @@ import {
   pendingRows,
   decisionDefects,
   decisionSettings,
+  namesId,
+  statedBlocks,
+  openWork,
+  blocksOf,
 } from '../src/decisions.mjs';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
@@ -262,5 +266,58 @@ describe('runlist decisions (CLI)', () => {
     strictEqual(run(['decisions']).stdout, 'No open or held decisions.\n');
     const rows = JSON.parse(run(['decisions', '--all', '--json']).stdout);
     deepStrictEqual(rows.map(r => [r.id, r.disposition]), [['D1', 'closed']]);
+  });
+});
+
+describe('what a decision blocks', () => {
+  it('names an id alone or inside a written range, and not a longer id', () => {
+    ok(namesId('- [ ] Build the shelf once D3 is ruled.', 'D3'));
+    ok(namesId('12 questions, A1 to A12 in § Decisions, wait on him', 'A7'));
+    ok(namesId('A2-A12 wait on him', 'A12'));
+    ok(!namesId('A2 to A12 wait on him', 'A13'));
+    ok(!namesId('Build it after D31.', 'D3'));
+    ok(!namesId('See D3-B for the lid.', 'D3'));
+    ok(!namesId('B1 to B4 wait', 'A2'));
+  });
+
+  it('reads what a record says it blocks, and not a noun', () => {
+    deepStrictEqual(statedBlocks('Open, blocks Phase 5: where the owner reads it first.'), ['Phase 5']);
+    deepStrictEqual(statedBlocks('Whether PoE draw counts, which switch sizing waits on.'), ['switch sizing']);
+    deepStrictEqual(statedBlocks('The code blocks went out unreadable.'), []);
+  });
+
+  it('lists unticked items with their heading, and frontmatter blockers', () => {
+    const text = '---\ntype: plan\nblockers:\n  - "Waits on D2, the shelf."\n---\n# P\n\n## Phase 1 ⬜\n\n- [x] Done after D2.\n- [ ] Hang it once D2 is ruled.\n\n```\n- [ ] D2 in a fence\n```\n';
+    deepStrictEqual(openWork(text).map(e => [e.line, e.kind, e.section, e.text]), [
+      [4, 'blocker', null, 'Waits on D2, the shelf.'],
+      [11, 'item', 'Phase 1', 'Hang it once D2 is ruled.'],
+    ]);
+  });
+
+  it('gathers stated blocks, own items, and another plan\'s items only beside a link', () => {
+    const shelf = { path: 'docs/plans/shelf.md', text: '## Decisions\n\n- **D2 — Which shelf?** Open, blocks Phase 3.\n\n## Phase 3\n\n- [ ] Hang the shelf D2 picks.\n- [ ] **D2** is not a record here.\n' };
+    const bins = { path: 'docs/plans/bins.md', text: '## Work\n\n- [ ] Size the bins after [shelf.md](shelf.md) D2.\n- [ ] Our own D2 is something else.\n' };
+    const items = analyzeDecisions([shelf, bins], { prose: true });
+    const d2 = items.find(i => i.id === 'D2');
+    const found = blocksOf([d2], [shelf, bins], items).get(d2);
+    deepStrictEqual(found.map(b => [b.kind, b.doc, b.line, b.section]), [
+      ['stated', 'docs/plans/shelf.md', 3, null],
+      ['item', 'docs/plans/shelf.md', 7, 'Phase 3'],
+      ['item', 'docs/plans/shelf.md', 8, 'Phase 3'],
+      ['item', 'docs/plans/bins.md', 3, 'Work'],
+    ]);
+    strictEqual(found[0].text, 'Phase 3');
+  });
+
+  it('carries blocks, the question and the document title on --json rows', () => {
+    setup('');
+    plan('shelf', '## Decisions\n\n- **D2 — Which shelf, oak or pine?** Disposition: open. It blocks Phase 3.\n\n## Phase 3\n\n- [ ] Hang the shelf D2 picks.\n');
+    const res = run(['decisions', '--json']);
+    strictEqual(res.status, 0, res.stderr);
+    const [row] = JSON.parse(res.stdout);
+    strictEqual(row.docTitle, 'shelf');
+    strictEqual(row.question, 'Which shelf, oak or pine?');
+    deepStrictEqual(row.blocks.map(b => [b.kind, b.line, b.text]), [['stated', 10, 'Phase 3'], ['item', 14, 'Hang the shelf D2 picks.']]);
+    ok(!run(['decisions']).stdout.includes('blocks:'), 'the text list is unchanged');
   });
 });
