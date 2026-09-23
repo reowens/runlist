@@ -2375,6 +2375,13 @@ function _journalExit(err) {
   }
 }
 
+// A reader that stops early (`runlist flags | head`) closes the pipe; the rest
+// of the output has nowhere to go, which is not a failure.
+process.stdout.on('error', err => {
+  if (err.code === 'EPIPE') process.exit(0);
+  throw err;
+});
+
 main()
   .then(() => { _journalExit(null); })
   .catch(err => {
