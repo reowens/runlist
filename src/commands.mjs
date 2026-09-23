@@ -93,6 +93,7 @@ const definitions = [
     form('status', { subcommands: ['status'], options: [flag('--json')] }),
     form('start', { subcommands: ['start'], options: [flag('--force')] }),
     form('stop', { subcommands: ['stop'], options: [flag('--all')] }),
+    form('measure [name...]', { subcommands: ['measure'], args: positionals(0, Infinity) }),
     form('use <name>', { subcommands: ['use'], args: positionals(1, 1) }),
     form('cap <gb>', { subcommands: ['cap'], args: positionals(1, 1) }),
   ]),

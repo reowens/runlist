@@ -30,14 +30,10 @@ import { bold, dim, green, yellow } from './color.mjs';
 
 const REQUEST = fileURLToPath(new URL('./model-request.mjs', import.meta.url));
 
-// Measured on the platform corpus before either was listed; peakGb is the
-// server's resident size for the model at DEFAULTS.contextTokens. The first
-// one under the cap is used when no model is named.
-export const CANDIDATES = Object.freeze([
-  Object.freeze({ name: 'gemma4:12b', peakGb: null }),
-  Object.freeze({ name: 'qwen3.5:9b', peakGb: null }),
-  Object.freeze({ name: 'qwen3.5:4b', peakGb: null }),
-]);
+// Best first. None is picked on a machine until `runlist model measure` has
+// recorded its peak memory there; the first measured one under the cap is used
+// when no model is named.
+export const CANDIDATES = Object.freeze(['gemma4:12b', 'qwen3.5:9b', 'qwen3.5:4b']);
 
 export const DEFAULTS = Object.freeze({
   runtime: 'ollama',
@@ -89,6 +85,18 @@ export function settingsFile() {
   return process.env.RUNLIST_MODEL_SETTINGS || path.join(os.homedir(), '.runlist', 'model.json');
 }
 
+export function measurementsFile() {
+  return path.join(path.dirname(settingsFile()), 'model-measurements.json');
+}
+
+export function readMeasurements() {
+  const file = measurementsFile();
+  if (!existsSync(file)) return {};
+  try { return JSON.parse(readFileSync(file, 'utf8')) ?? {}; } catch { return {}; }
+}
+
+const peakOf = (name, measured = readMeasurements()) => measured[name]?.peakGb ?? null;
+
 function readSettingsFile() {
   const file = settingsFile();
   if (!existsSync(file)) return {};
@@ -120,8 +128,9 @@ export function modelSettings(overrides = {}) {
 // candidate not yet measured is never picked on its own.
 export function pickModel(settings) {
   if (settings.model) return { name: settings.model, why: 'named' };
-  const fit = CANDIDATES.find(c => c.peakGb !== null && c.peakGb <= settings.capGb);
-  if (fit) return { name: fit.name, why: `fits the ${settings.capGb} GB cap` };
+  const measured = readMeasurements();
+  const fit = CANDIDATES.find(name => peakOf(name, measured) !== null && peakOf(name, measured) <= settings.capGb);
+  if (fit) return { name: fit, why: `measured here at ${peakOf(fit, measured)} GB, under the ${settings.capGb} GB cap` };
   return { name: null, why: `no measured model fits the ${settings.capGb} GB cap${settings.capSource === 'machine' ? ' this machine allows' : ''}` };
 }
 
@@ -213,7 +222,7 @@ export function generate(messages, opts = {}) {
     if (settings.runtime === 'ollama') {
       const onDisk = (tags.json?.models ?? []).find(m => sameModel(m.name, name));
       if (!onDisk) { warnOnce(`pull:${name}`, `${name} is not pulled. \`ollama pull ${name}\` downloads it.`); return null; }
-      const floorGb = CANDIDATES.find(c => sameModel(c.name, name))?.peakGb ?? onDisk.size / GB;
+      const floorGb = peakOf(name) ?? onDisk.size / GB;
       const local = isLocalEndpoint(settings.endpoint);
       if (local && floorGb > settings.capGb) {
         warnOnce(`cap:${name}`, `${name} needs about ${floorGb.toFixed(1)} GB, over this machine's ${settings.capGb} GB cap. \`runlist model cap <gb>\` raises it.`);
@@ -263,7 +272,13 @@ export function generate(messages, opts = {}) {
   }
 
   if (!res.ok) { warnOnce(`fail:${name}`, `${name} failed: ${res.error}`); return null; }
-  lastRun = { model: name, ms: Date.now() - started, residentBytes: resident?.bytes ?? null, evalCount: res.json?.eval_count ?? null };
+  lastRun = {
+    model: name,
+    ms: Date.now() - started,
+    residentBytes: resident?.bytes ?? null,
+    evalCount: res.json?.eval_count ?? null,
+    evalNs: res.json?.eval_duration ?? null,
+  };
   if (resident && isLocalEndpoint(settings.endpoint) && resident.bytes / GB > settings.capGb) {
     unload(settings, name);
     warnOnce(`over:${name}`, `${name} took ${(resident.bytes / GB).toFixed(1)} GB, over the ${settings.capGb} GB cap, and was unloaded.`);
@@ -326,11 +341,15 @@ function statusData(settings) {
     keepAlive: settings.keepAlive,
     contextTokens: settings.contextTokens,
     loaded: version ? loadedModels(settings) : [],
-    candidates: CANDIDATES.map(c => ({
-      ...c,
-      pulled: pulled ? pulled.some(m => sameModel(m.name, c.name)) : null,
-      fits: c.peakGb !== null ? c.peakGb <= settings.capGb : null,
-    })),
+    candidates: CANDIDATES.map(name => {
+      const peakGb = peakOf(name);
+      return {
+        name,
+        peakGb,
+        pulled: pulled ? pulled.some(m => sameModel(m.name, name)) : null,
+        fits: peakGb !== null ? peakGb <= settings.capGb : null,
+      };
+    }),
     settingsFile: settingsFile(),
   };
 }
@@ -354,7 +373,7 @@ function printStatus(d) {
   }
   out.push('', bold('Candidates'));
   for (const c of d.candidates) {
-    const peak = c.peakGb !== null ? `${c.peakGb} GB peak` : 'not measured';
+    const peak = c.peakGb !== null ? `${c.peakGb} GB peak here` : 'not measured here';
     const fits = c.fits === null ? '' : c.fits ? '' : yellow(' over the cap');
     const pulled = c.pulled === null ? '' : c.pulled ? '' : dim(' not pulled');
     out.push(`  ${c.name}  ${dim(peak)}${fits}${pulled}`);
@@ -363,9 +382,85 @@ function printStatus(d) {
   process.stdout.write(`${out.join('\n')}\n`);
 }
 
-export function runModel(argv) {
+const median = xs => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+
+// The documents a measurement summarises: the largest few in the corpus, so
+// the reading is taken on real text of the size the features will see.
+async function measureDocs(config, count = 3) {
+  const { buildIndex } = await import('./index.mjs');
+  const { extractFrontmatter } = await import('./frontmatter.mjs');
+  return buildIndex(config).docs
+    .filter(d => !d.path.includes('/archived/'))
+    .map(d => ({ doc: d, body: extractFrontmatter(readFileSync(path.resolve(config.repoRoot, d.path), 'utf8')).body ?? '' }))
+    .sort((a, b) => b.body.length - a.body.length)
+    .slice(0, count);
+}
+
+function reniceServer() {
+  const r = spawnSync('pgrep', ['-x', 'ollama'], { encoding: 'utf8' });
+  const pids = (r.stdout ?? '').trim().split('\n').filter(Boolean).map(Number);
+  for (const pid of pids) { try { os.setPriority(pid, 10); } catch { /* not ours to renice */ } }
+  return pids.length;
+}
+
+// Loads each named (or pulled) candidate in turn, summarises the largest
+// documents, records the peak memory and speed on this machine, and unloads it.
+// Skips any model the memory free right now cannot hold.
+async function measure(names, settings, config) {
+  if (settings.runtime !== 'ollama') die('`runlist model measure` reads memory from Ollama; it cannot measure another runtime.');
+  if (!isLocalEndpoint(settings.endpoint)) die('Measure on the machine that runs the server; its memory is what is recorded.');
+  if (!serverVersion(settings)) die('The model server is not running. `runlist model start --force` starts it for a measurement.');
+  const pulled = pulledModels(settings) ?? [];
+  const targets = names.length ? names : CANDIDATES.filter(n => pulled.some(m => sameModel(m.name, n)));
+  if (!targets.length) die(`None of the candidates is pulled: ${CANDIDATES.map(n => `\`ollama pull ${n}\``).join(', ')}.`);
+  const docs = await measureDocs(config);
+  if (!docs.length) die('No documents to summarise in this corpus.');
+  const { summarizeDocBody } = await import('./ai.mjs');
+  const reniced = reniceServer();
+  process.stderr.write(dim(`Measuring on ${docs.length} documents; ${reniced ? 'the server runs at lower priority' : 'could not lower the server\'s priority'}.\n`));
+
+  const results = readMeasurements();
+  let recorded = 0;
+  for (const name of targets) {
+    const onDisk = pulled.find(m => sameModel(m.name, name));
+    if (!onDisk) { process.stdout.write(`${name}: not pulled, skipped.\n`); continue; }
+    for (const m of loadedModels(settings)) if (CANDIDATES.some(c => sameModel(m.name, c))) unload(settings, m.name);
+    const refusal = roomRefusal(name, onDisk.bytes / GB, settings);
+    if (refusal) { process.stdout.write(`${name}: skipped. ${refusal}\n`); continue; }
+
+    const runs = [];
+    let peak = 0;
+    for (const { doc, body } of docs) {
+      const summary = summarizeDocBody(body, { title: doc.title ?? doc.path, status: doc.status }, { model: name, maxTokens: 120 });
+      if (!summary || !lastRun) break;
+      runs.push({ ms: lastRun.ms, tokensPerSec: lastRun.evalNs ? lastRun.evalCount / (lastRun.evalNs / 1e9) : null });
+      peak = Math.max(peak, lastRun.residentBytes ?? 0);
+    }
+    unload(settings, name);
+    if (runs.length < docs.length) { process.stdout.write(`${name}: stopped after ${runs.length} of ${docs.length} documents; nothing recorded.\n`); continue; }
+
+    results[name] = {
+      peakGb: +(peak / GB).toFixed(2),
+      contextTokens: settings.contextTokens,
+      firstMs: runs[0].ms,
+      medianMs: median(runs.slice(1).map(r => r.ms)) ?? runs[0].ms,
+      tokensPerSec: runs.every(r => r.tokensPerSec) ? +median(runs.map(r => r.tokensPerSec)).toFixed(1) : null,
+      documents: docs.length,
+      server: serverVersion(settings),
+      measuredAt: new Date().toISOString(),
+    };
+    recorded += 1;
+    mkdirSync(path.dirname(measurementsFile()), { recursive: true });
+    writeFileSync(measurementsFile(), `${JSON.stringify(results, null, 2)}\n`);
+    const r = results[name];
+    process.stdout.write(`${name}: ${r.peakGb} GB peak, first ${(r.firstMs / 1000).toFixed(1)}s (load included), then ${(r.medianMs / 1000).toFixed(1)}s per summary${r.tokensPerSec ? `, ${r.tokensPerSec} tokens/s` : ''}.\n`);
+  }
+  if (recorded) process.stdout.write(dim(`Recorded in ${measurementsFile()}.\n`));
+}
+
+export async function runModel(argv, config) {
   const json = argv.includes('--json');
-  const [sub = 'status', arg] = argv.filter(a => !a.startsWith('--'));
+  const [sub = 'status', arg, ...more] = argv.filter(a => !a.startsWith('--'));
   const settings = modelSettings();
 
   if (sub === 'status') {
@@ -394,6 +489,10 @@ export function runModel(argv) {
     }
     return;
   }
+  if (sub === 'measure') {
+    await measure([arg, ...more].filter(Boolean), settings, config);
+    return;
+  }
   if (sub === 'use') {
     if (!arg) die('Usage: runlist model use <name>   (`runlist model use auto` goes back to the first candidate under the cap)');
     const next = writeSettings({ model: arg === 'auto' ? null : arg });
@@ -412,5 +511,5 @@ export function runModel(argv) {
     process.stdout.write(`Cap: ${n} GB. Written to ${settingsFile()}.\n`);
     return;
   }
-  die(`Unknown: runlist model ${sub}. Use status, start, stop, use <name> or cap <gb>.`);
+  die(`Unknown: runlist model ${sub}. Use status, start, stop, measure, use <name> or cap <gb>.`);
 }

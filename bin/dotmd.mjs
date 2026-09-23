@@ -1359,7 +1359,12 @@ Subcommands:
   start [--force]        Start \`ollama serve\` (one model, one request at a time);
                          refused where no model fits unless forced
   stop [--all]           Unload runlist's model now; --all unloads every loaded model
-  use <name|auto>        Name the model; auto takes the first candidate under the cap
+  measure [name...]      Load each pulled candidate (or the named ones) in turn,
+                         summarise the corpus's largest documents at lower
+                         priority, and record peak memory and speed for this
+                         machine; a model is picked only once measured here
+  use <name|auto>        Name the model; auto takes the first measured candidate
+                         under the cap
   cap <gb|auto>          The most memory a model may take; auto (the default) is a
                          quarter of this machine's memory, at most 12 GB
 
@@ -1939,7 +1944,7 @@ async function main() {
   if (command === 'flags') { const { runFlags } = await import('../src/flags.mjs'); runFlags(restArgs, config); return; }
   if (command === 'flag') { const { runFlag } = await import('../src/flags.mjs'); runFlag(restArgs, config); return; }
   if (command === 'glossary') { const { runGlossary } = await import('../src/glossary.mjs'); runGlossary(restArgs, config); return; }
-  if (command === 'model') { const { runModel } = await import('../src/model.mjs'); runModel(restArgs); return; }
+  if (command === 'model') { const { runModel } = await import('../src/model.mjs'); await runModel(restArgs, config); return; }
   if (command === 'decisions') { const { runDecisions } = await import('../src/decisions.mjs'); runDecisions(restArgs, config); return; }
   if (command === 'export') { const { runExport } = await import('../src/export.mjs'); runExport(restArgs, config, { dryRun, root: rootArg, type: typeArg }); return; }
 

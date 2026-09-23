@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, existsSync
 import path from 'node:path';
 import os from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
-import { CANDIDATES, autoCapGb, isLocalEndpoint, pickModel, modelSettings, roomRefusal } from '../src/model.mjs';
+import { autoCapGb, isLocalEndpoint, pickModel, modelSettings, roomRefusal } from '../src/model.mjs';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
 const FAKE = path.resolve(import.meta.dirname, 'fixtures', 'fake-ollama.mjs');
@@ -52,11 +52,20 @@ describe('model settings', () => {
     deepStrictEqual(pickModel({ ...modelSettings(), model: 'fixture:3b' }), { name: 'fixture:3b', why: 'named' });
   });
 
-  it('picks the first measured candidate under the cap, never an unmeasured one', () => {
-    const pick = pickModel({ ...modelSettings(), model: null, capGb: 1000 });
-    const expected = CANDIDATES.find(c => c.peakGb !== null);
-    strictEqual(pick.name, expected?.name ?? null);
-    strictEqual(pickModel({ ...modelSettings(), model: null, capGb: 0.001 }).name, null);
+  it('picks the first candidate measured on this machine under the cap, never an unmeasured one', () => {
+    setup();
+    const file = path.join(tmpDir, 'model.json');
+    const prev = process.env.RUNLIST_MODEL_SETTINGS;
+    process.env.RUNLIST_MODEL_SETTINGS = file;
+    try {
+      strictEqual(pickModel({ ...modelSettings(), model: null, capGb: 1000 }).name, null);
+      writeFileSync(path.join(tmpDir, 'model-measurements.json'), JSON.stringify({ 'qwen3.5:9b': { peakGb: 6 }, 'qwen3.5:4b': { peakGb: 3.4 } }));
+      strictEqual(pickModel({ ...modelSettings(), model: null, capGb: 12 }).name, 'qwen3.5:9b');
+      strictEqual(pickModel({ ...modelSettings(), model: null, capGb: 4 }).name, 'qwen3.5:4b');
+      strictEqual(pickModel({ ...modelSettings(), model: null, capGb: autoCapGb(8 * 2 ** 30) }).name, null);
+    } finally {
+      process.env.RUNLIST_MODEL_SETTINGS = prev;
+    }
   });
 
   it('use and cap write the machine settings file', () => {
@@ -78,10 +87,6 @@ describe('memory', () => {
     strictEqual(autoCapGb(24 * GiB), 6);
     strictEqual(autoCapGb(48 * GiB), 12);
     strictEqual(autoCapGb(128 * GiB), 12);
-  });
-
-  it('leaves no candidate on an 8 GB machine', () => {
-    strictEqual(pickModel({ ...modelSettings(), model: null, capGb: autoCapGb(8 * GiB) }).name ?? null, CANDIDATES.find(c => c.peakGb !== null && c.peakGb <= 2)?.name ?? null);
   });
 
   it('refuses a load that free memory or pressure cannot take', () => {
@@ -193,5 +198,28 @@ describe('model server', () => {
     });
     strictEqual(result.status, 1);
     match(result.stderr, /Ollama is not installed/);
+  });
+
+  it('measure records peak memory and speed for this machine, then unloads', async () => {
+    setup();
+    const f = await startFake({ pulled: [{ name: 'fixture:3b', size: 2 * GB }], residentBytes: 3 * GB });
+    const env = { RUNLIST_MODEL_ENDPOINT: f.endpoint };
+    const result = run(['model', 'measure', 'fixture:3b'], env);
+    strictEqual(result.status, 0, result.stderr);
+    match(result.stdout, /fixture:3b: 3 GB peak/);
+    const recorded = JSON.parse(readFileSync(path.join(tmpDir, 'model-measurements.json'), 'utf8'))['fixture:3b'];
+    strictEqual(recorded.peakGb, 3);
+    strictEqual(recorded.contextTokens, 16384);
+    ok(f.requests().some(r => r.path === '/api/generate' && r.body.keep_alive === 0));
+  });
+
+  it('measure skips a model the free memory cannot hold', async () => {
+    setup();
+    const f = await startFake({ pulled: [{ name: 'fixture:3b', size: 6 * GB }] });
+    const result = run(['model', 'measure', 'fixture:3b'], { RUNLIST_MODEL_ENDPOINT: f.endpoint, RUNLIST_MODEL_AVAILABLE_GB: '4' });
+    strictEqual(result.status, 0, result.stderr);
+    match(result.stdout, /fixture:3b: skipped\. fixture:3b needs about 7\.5 GB free/);
+    ok(!f.requests().some(r => r.path === '/api/chat'));
+    ok(!existsSync(path.join(tmpDir, 'model-measurements.json')));
   });
 });
