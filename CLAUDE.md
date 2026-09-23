@@ -292,7 +292,7 @@ Release preflight requires a clean `main` that descends from `origin/main`; `--f
 
 **Feature modules** in `src/` each export a `runX()` function called from the CLI dispatcher. See `bin/dotmd.mjs` imports for the full list.
 
-**Supporting modules:** `extractors.mjs`, `validate.mjs`, `prompt.mjs`, `git.mjs`, `color.mjs`, `util.mjs`, `ai.mjs`.
+**Supporting modules:** `extractors.mjs`, `validate.mjs`, `prompt.mjs`, `git.mjs`, `color.mjs`, `util.mjs`, `ai.mjs` (prompts), `model.mjs` (the local model server, memory checks, `runlist model`), `model-request.mjs` (HTTP in a child process so synchronous callers can wait).
 
 **Reference rewriting:** `reference-planner.mjs` decides what a link means and what a move does to it. Note that it is not the only resolver — `resolveRefPath` in `util.mjs` is what validation uses to decide whether a link is broken, and the two disagreeing is a bug (it was: `check` called a differently-cased link valid while a move silently stranded it).
 

@@ -329,6 +329,6 @@ export const presets = {
 // by age, and an expired lease retries only when its owner is demonstrably dead.
 // export function onPickup({ path, oldStatus, newStatus, operationId }) {}
 
-// AI hooks — override summarization (replaces local MLX model).
+// AI hooks — override summarization (replaces the local model server; see `runlist model`).
 // export function summarizeDoc(body, meta) { return 'Custom summary'; }
 // export function summarizeDiff(diffOutput, filePath) { return 'Custom diff summary'; }

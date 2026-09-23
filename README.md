@@ -282,6 +282,27 @@ merged. The log is append-only, `.runlist/flags.jsonl` by default
 beside the flag, never over it. Every session start shows a count and the top
 open flags.
 
+## Local model
+
+Summaries (`--summarize`, `runlist summary`, `runlist diff --summarize`) and
+lint's status inference use one local model server, Ollama by default or any
+OpenAI-compatible server. runlist never starts it or pulls a model on its own:
+
+```bash
+runlist model                 # server, model, cap, free memory, what is loaded
+runlist model start           # ollama serve, one model and one request at a time
+runlist model measure         # record each pulled candidate's peak memory and speed here
+runlist model use qwen3.5:9b  # name a model; `auto` picks the first measured one under the cap
+runlist model cap 8           # most memory a model may take; `auto` is a quarter of the machine
+runlist model stop            # unload it now
+```
+
+The model unloads after 5 idle minutes. Before it loads, the memory free right
+now must hold it plus 1.5 GB with memory pressure normal, or the command goes
+on without it. On an 8 GB machine the cap is 2 GB and model features stay off;
+point `RUNLIST_MODEL_ENDPOINT` at a server on a bigger machine instead. Settings
+are per machine in `~/.runlist/model.json`.
+
 ## Safety Model
 
 - Mutation commands support `--dry-run` / `-n`.

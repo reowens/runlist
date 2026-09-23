@@ -2,6 +2,22 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- **`runlist model`: one local model server behind summaries and lint's status inference.** runlist talks to a local server over HTTP, Ollama by default or any OpenAI-compatible server (`mlx_lm.server`, `llama-server`, LM Studio), instead of starting Python and reloading the model for every document. The server applies each model's own chat template. The model loads once, serves one request at a time and unloads after 5 idle minutes. runlist never starts the server or pulls a model on its own. `runlist model` shows the server, the model, the cap, free memory and what is loaded; `runlist model start [--force]`, `stop [--all]`, `use <name|auto>` and `cap <gb|auto>` switch it. Settings are per machine in `~/.runlist/model.json`; `RUNLIST_MODEL`, `RUNLIST_MODEL_CAP_GB` and `RUNLIST_MODEL_ENDPOINT` override them.
+- **Memory guarded twice.** The cap, unless set, is a quarter of the machine's memory up to 12 GB, so an 8 GB laptop gets 2 GB, no candidate fits, and model features stay off there with one line saying why. Before a model loads, the memory free right now must hold it plus 1.5 GB with memory pressure normal; otherwise the command carries on without it. A model that grows past the cap once loaded is unloaded. A server on another machine skips both checks, which is how a small machine borrows a model.
+- **`runlist model measure [name...]`** loads each pulled candidate in turn with the server reniced, summarises the corpus's 3 largest documents, and records peak memory, load time, time per summary and tokens per second in `~/.runlist/model-measurements.json`. A candidate (`gemma4:12b`, `qwen3.5:9b`, `qwen3.5:4b`, best first) is picked automatically only once measured on the machine that runs it.
+
+### Changed
+
+- The `uv` and `mlx-lm` path for summaries is gone; MLX models run through Ollama's MLX builds or `mlx_lm.server`.
+
+### Fixed
+
+- **A reader that closes the pipe early no longer crashes runlist.** `runlist flags | head` exited 1 with an unhandled `EPIPE`; a closed pipe now ends the run with exit 0.
+
 ## 0.87.0 — 2026-09-22
 
 ### Added
