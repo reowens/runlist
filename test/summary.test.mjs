@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { checkUvAvailable, summarizeDocBody, summarizeDiffText } from '../src/ai.mjs';
+import { summarizeDocBody, summarizeDiffText } from '../src/ai.mjs';
 
 let tmpDir;
 
@@ -20,11 +20,6 @@ afterEach(() => {
 });
 
 describe('ai.mjs', () => {
-  it('checkUvAvailable returns boolean', () => {
-    const result = checkUvAvailable();
-    strictEqual(typeof result, 'boolean');
-  });
-
   it('summarizeDocBody returns null for empty body', () => {
     const result = summarizeDocBody('', { title: 'T', status: 's', path: 'p' });
     strictEqual(result, null);

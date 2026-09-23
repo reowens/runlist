@@ -16,6 +16,13 @@ if (!process.env[OWNER_FLAG]) {
   process.env.RUNLIST_ERROR_LOG_DIR = dir;
   // The legacy name too, so a test that clears the current one still lands here.
   process.env.DOTMD_ERROR_LOG_DIR = dir;
+  // Nor reach a real model server or the operator's model settings.
+  process.env.RUNLIST_MODEL_SETTINGS = path.join(dir, 'model.json');
+  process.env.RUNLIST_MODEL_ENDPOINT = 'http://127.0.0.1:9';
+  // And read the same memory on every machine.
+  process.env.RUNLIST_MODEL_CAP_GB = '12';
+  process.env.RUNLIST_MODEL_AVAILABLE_GB = '64';
+  process.env.RUNLIST_MODEL_PRESSURE = 'normal';
   process.on('exit', () => {
     try { rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
   });

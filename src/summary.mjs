@@ -69,6 +69,6 @@ export function runSummary(argv, config) {
   } else if (summary) {
     process.stdout.write(`${summary}\n`);
   } else {
-    process.stdout.write(dim('Summary unavailable (model call failed or uv not installed).') + '\n');
+    process.stdout.write(dim('Summary unavailable (no model available; `runlist model` says why).') + '\n');
   }
 }

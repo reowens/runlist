@@ -4,7 +4,7 @@ import { extractFrontmatter, parseSimpleFrontmatter, replaceFrontmatter } from '
 import { asString, toRepoPath, escapeRegex, warn } from './util.mjs';
 import { buildIndex, collectDocFiles } from './index.mjs';
 import { updateFrontmatter } from './lifecycle.mjs';
-import { runMLX, checkUvAvailable } from './ai.mjs';
+import { runModel } from './ai.mjs';
 import { bold, green, yellow, dim } from './color.mjs';
 import { authorizeManagedSweep, findLexicalDocsRoot } from './managed-path.mjs';
 
@@ -274,7 +274,7 @@ export function runLint(argv, config, opts = {}) {
         const statusList = inferTypeSet ? [...inferTypeSet].join(', ') : config.statusOrder.join(', ');
         const { body } = extractFrontmatter(raw);
         const prompt = `Given this markdown document, classify it into exactly one of these statuses: ${statusList}.\nReply with ONLY the status word, nothing else.\n\nFile: ${repoPath}\n\n${(body ?? '').slice(0, 4000)}`;
-        const result = runMLX(prompt, { maxTokens: 10 });
+        const result = runModel(prompt, { maxTokens: 10 });
         const suggested = result?.trim().toLowerCase().split(/\s+/)[0];
         const inferValid = inferTypeSet ?? config.validStatuses;
         if (suggested && inferValid.has(suggested)) {

@@ -247,6 +247,7 @@ Analyze:
   unblocks <file> [--json]          Show what completes when this doc ships
   diff [file] [--summarize]         Show changes since last updated date
   summary <file> [--json]           AI summary of a document
+  model [start|stop|use|cap]        The local model: server, which model, memory cap
   glossary <term> [--list] [--json] Look up domain terms + related docs
   decisions [doc|id] [--all|--check] Open and held decisions, read from the corpus
 
@@ -1096,7 +1097,7 @@ Options:
 Generates an AI-powered summary using a local model.
 
 Options:
-  --model <name>         Model to use (default: mlx-community/Llama-3.2-3B-Instruct-4bit)
+  --model <name>         Model to use (default: the one \`runlist model\` shows)
   --max-tokens <n>       Max tokens for generation (default: 200)
   --json                 Output as JSON`,
 
@@ -1109,7 +1110,7 @@ Options:
   --stat                 Summary only (files changed, insertions/deletions)
   --since <date>         Override: diff since this date instead of frontmatter
   --summarize            Generate AI summary using local model
-  --model <name>         Model to use (default: mlx-community/Llama-3.2-3B-Instruct-4bit)`,
+  --model <name>         Model to use (default: the one \`runlist model\` shows)`,
 
   lint: `runlist lint [--fix] — check and auto-fix frontmatter issues
 
@@ -1346,6 +1347,28 @@ decisions.register.statusLine; its rows are \`ID  text\`. A disposition is read
 from a \`Disposition:\` line or a row's opening word, then from prose when
 decisions.prose is on, then from the block or bold lead above it. Configure it
 with \`export const decisions = { ... }\` (see src/decisions.mjs).`,
+
+  model: `runlist model — the local model behind summaries and lint
+
+One local server (Ollama by default) holds one model, serves one request at a
+time and unloads it after it sits idle. runlist never starts the server or
+pulls a model on its own.
+
+Subcommands:
+  status [--json]        Default. Server, model, cap, what is loaded and its memory
+  start [--force]        Start \`ollama serve\` (one model, one request at a time);
+                         refused where no model fits unless forced
+  stop [--all]           Unload runlist's model now; --all unloads every loaded model
+  use <name|auto>        Name the model; auto takes the first candidate under the cap
+  cap <gb|auto>          The most memory a model may take; auto (the default) is a
+                         quarter of this machine's memory, at most 12 GB
+
+Before a model loads here, the memory free now must hold it plus 1.5 GB and
+memory pressure must be normal; otherwise the command goes on without it.
+
+Settings live in ~/.runlist/model.json. RUNLIST_MODEL, RUNLIST_MODEL_CAP_GB and
+RUNLIST_MODEL_ENDPOINT override them; \`runtime: "openai"\` there points at any
+OpenAI-compatible server (mlx_lm.server, llama-server, LM Studio).`,
 
   glossary: `runlist glossary <term> — look up domain terms and related docs
 
@@ -1916,6 +1939,7 @@ async function main() {
   if (command === 'flags') { const { runFlags } = await import('../src/flags.mjs'); runFlags(restArgs, config); return; }
   if (command === 'flag') { const { runFlag } = await import('../src/flags.mjs'); runFlag(restArgs, config); return; }
   if (command === 'glossary') { const { runGlossary } = await import('../src/glossary.mjs'); runGlossary(restArgs, config); return; }
+  if (command === 'model') { const { runModel } = await import('../src/model.mjs'); runModel(restArgs); return; }
   if (command === 'decisions') { const { runDecisions } = await import('../src/decisions.mjs'); runDecisions(restArgs, config); return; }
   if (command === 'export') { const { runExport } = await import('../src/export.mjs'); runExport(restArgs, config, { dryRun, root: rootArg, type: typeArg }); return; }
 

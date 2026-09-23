@@ -3,7 +3,7 @@ import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { asString, toRepoPath, die, warn } from './util.mjs';
 import { gitDiffSince } from './git.mjs';
 import { buildIndex, resolveDocArg } from './index.mjs';
-import { summarizeDiffText, DEFAULT_MODEL } from './ai.mjs';
+import { summarizeDiffText } from './ai.mjs';
 import { bold, dim } from './color.mjs';
 
 export function runDiff(argv, config) {
@@ -12,7 +12,7 @@ export function runDiff(argv, config) {
   let stat = false;
   let sinceOverride = null;
   let summarize = false;
-  let model = DEFAULT_MODEL;
+  let model;
 
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--stat') { stat = true; continue; }
