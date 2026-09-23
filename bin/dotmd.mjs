@@ -248,6 +248,7 @@ Analyze:
   diff [file] [--summarize]         Show changes since last updated date
   summary <file> [--json]           AI summary of a document
   glossary <term> [--list] [--json] Look up domain terms + related docs
+  decisions [doc|id] [--all|--check] Open and held decisions, read from the corpus
 
 Validate & Fix:
   doctor [--apply]                  Auto-fix everything: refs, membership, lint, long fields, dates, index (preview by default)
@@ -1329,6 +1330,23 @@ plans, and checklist progress. Plans-only view.
 Options:
   --json                 Output as JSON`,
 
+  decisions: `runlist decisions — the open and held decisions, read from the corpus
+
+  runlist decisions             every open and held decision, one line each
+  runlist decisions <doc>       one document, by path, filename or slug
+  runlist decisions <ID>        one record, whole, as it is written
+  runlist decisions --all       every disposition, not only the pending ones
+  runlist decisions --json      the same rows as data
+  runlist decisions --check     every item it could not read or that is incomplete; exit 1 if any
+
+A decision is an item in a decisions section (a heading naming the section word
+in its first 4 words): a heading, bold lead, bullet or table row whose first
+token is an id. A register is a fenced block whose first line carries
+decisions.register.statusLine; its rows are \`ID  text\`. A disposition is read
+from a \`Disposition:\` line or a row's opening word, then from prose when
+decisions.prose is on, then from the block or bold lead above it. Configure it
+with \`export const decisions = { ... }\` (see src/decisions.mjs).`,
+
   glossary: `runlist glossary <term> — look up domain terms and related docs
 
 Searches the glossary table in your docs for matching terms.
@@ -1898,6 +1916,7 @@ async function main() {
   if (command === 'flags') { const { runFlags } = await import('../src/flags.mjs'); runFlags(restArgs, config); return; }
   if (command === 'flag') { const { runFlag } = await import('../src/flags.mjs'); runFlag(restArgs, config); return; }
   if (command === 'glossary') { const { runGlossary } = await import('../src/glossary.mjs'); runGlossary(restArgs, config); return; }
+  if (command === 'decisions') { const { runDecisions } = await import('../src/decisions.mjs'); runDecisions(restArgs, config); return; }
   if (command === 'export') { const { runExport } = await import('../src/export.mjs'); runExport(restArgs, config, { dryRun, root: rootArg, type: typeArg }); return; }
 
   // Lifecycle commands

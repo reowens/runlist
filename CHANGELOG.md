@@ -2,6 +2,13 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- **`runlist decisions`** lists every open and held decision in the corpus, read from the documents rather than kept by hand: a status line, a blank line, then `ID  text` per decision. `runlist decisions <doc>` scopes it to one document, `runlist decisions <ID>` prints that record whole as written, `--all` includes every disposition, `--json` emits the rows, and `--check` lists every item it could not read (no id, no disposition), every pending record missing a part its disposition requires, an id used twice in one document, and a pending record whose linked register row says ruled or closed, exiting 1 when there is any. The default list names on stderr how many items it could not read.
+  A decision is an item in a section whose heading names the section word among its first 4 words: a heading, bold lead, bullet or table row starting with an id. A register is a fenced block whose first line carries `register.statusLine`; its rows index the records they link, collapse with them in the list, and govern their disposition. A disposition is read from a `Disposition:` line or a row's shouted opening word, then a shouted word in the item, then the block or bold lead above it, then (with `prose: true`) any word in its prose. Two documents numbering a question the same both print, each tagged with its file. Every word is config in `export const decisions`: `section`, `types`, `paths`, `id`, `prose`, `vocabulary`, `patterns`, `requires`, `answers`, `register`, `listHeading`.
+
 ## 0.86.0 — 2026-09-22
 
 ### Added

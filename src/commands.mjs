@@ -88,6 +88,7 @@ const definitions = [
     form('sync <check-name> [findings]', { subcommands: ['sync'], args: positionals(1, 2), dashPositionalsAfter: 1 }),
   ]),
   command('glossary', none, 'read', [form('[term]', { args: positionals(0, 1), options: [flag('--list'), flag('--json')] })]),
+  command('decisions', none, 'read', [form('[doc-or-id]', { args: positionals(0, 1), options: [flag('--all'), flag('--json'), flag('--check')] })]),
   command('modules', none, 'read', [form('', { options: [value('--sort'), value('--limit'), flag('--all'), flag('--json')] })]),
   command('module', none, 'read', [form('<name>', { args: positionals(1, 1), options: [value('--sort'), flag('--json')] })]),
   command('surfaces', none, 'read', [form('', { options: [flag('--json')] })]),
