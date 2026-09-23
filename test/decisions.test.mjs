@@ -295,7 +295,7 @@ describe('what a decision blocks', () => {
   });
 
   it('lists unticked items with their heading, and frontmatter blockers', () => {
-    const text = '---\ntype: plan\nblockers:\n  - "Waits on D2, the shelf."\n---\n# P\n\n## Phase 1 ⬜\n\n- [x] Done after D2.\n- [ ] Hang it once D2 is ruled.\n\n```\n- [ ] D2 in a fence\n```\n';
+    const text = '---\ntype: plan\nblockers:\n  - "Waits on D2, the shelf."\n---\n# P\n\n## Phase 1 ⬜ todo\n\n- [x] Done after D2.\n- [ ] Hang it once D2 is ruled.\n\n```\n- [ ] D2 in a fence\n```\n';
     deepStrictEqual(openWork(text).map(e => [e.line, e.kind, e.section, e.text]), [
       [4, 'blocker', null, 'Waits on D2, the shelf.'],
       [11, 'item', 'Phase 1', 'Hang it once D2 is ruled.'],

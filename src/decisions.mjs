@@ -473,7 +473,7 @@ export function openWork(text) {
     if (f) { fence = fence === null ? f[1][0] : (f[1][0] === fence ? null : fence); continue; }
     if (fence !== null) continue;
     const h = line.match(/^#{1,6}\s+(.+)$/);
-    if (h) { section = clean(h[1]).replace(/\s*[⬜✅🟡]+$/u, ''); continue; }
+    if (h) { section = clean(h[1]).replace(/\s*[⬜✅🟡🟢🔴⏳]\uFE0F?(?:\s*(?:todo|done|wip|in progress|partial))?\s*$/iu, ''); continue; }
     const box = line.match(OPEN_BOX);
     if (box) out.push({ line: i + 1, kind: 'item', section, text: box[1] });
   }
@@ -607,7 +607,7 @@ export function pendingRows(items, { doc = null, all = false, blocks = null } = 
 function questionOf(item) {
   const parts = sentences(clean(item.text).replace(/^(?:open|held|ruled|closed)\b[^.:]*[.:]\s*/i, ''));
   const q = parts.find(t => t.endsWith('?')) ?? parts[0] ?? '';
-  return clip(q, 300);
+  return clip(q.replace(/^[^\p{L}\p{N}"'(]+/u, ''), 300);
 }
 
 const clean = t => t
