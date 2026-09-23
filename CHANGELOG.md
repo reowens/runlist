@@ -10,8 +10,12 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
 - **Memory guarded twice.** The cap, unless set, is a quarter of the machine's memory up to 12 GB, so an 8 GB laptop gets 2 GB, no candidate fits, and model features stay off there with one line saying why. Before a model loads, the memory free right now must hold it plus 1.5 GB with memory pressure normal; otherwise the command carries on without it. A model that grows past the cap once loaded is unloaded. A server on another machine skips both checks, which is how a small machine borrows a model.
 - **`runlist model measure [name...]`** loads each pulled candidate in turn with the server reniced, summarises the corpus's 3 largest documents, and records peak memory, load time, time per summary and tokens per second in `~/.runlist/model-measurements.json`. A candidate (`gemma4:12b`, `qwen3.5:9b`, `qwen3.5:4b`, best first) is picked automatically only once measured on the machine that runs it.
 
+- **`runlist errors [--limit N] [--repo name] [--json]`** prints the newest failed runlist commands, newest first, from the cross-repo error log (`~/.claude/logs/runlist-errors.log` and its one rollover). `--json` rows are `{ at, command, message, repo, exit }`; the command is the one logged with secrets redacted and the message is the error's one line.
+- **`runlist model status --json` leads with `running`, `name` and `memoryMb`:** whether the server is up, the model loaded now (else the one runlist would load), and what it holds in MiB, null when nothing is loaded. The rest of the reading is unchanged.
+
 ### Changed
 
+- **A command that fails through its exit code is logged too.** `check` finding errors, a failed `update` step or an unknown `help` topic exited non-zero without an entry in the error log; each now appends one with the message `exited with status N`.
 - The `uv` and `mlx-lm` path for summaries is gone; MLX models run through Ollama's MLX builds or `mlx_lm.server`.
 
 ### Fixed

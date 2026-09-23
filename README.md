@@ -303,6 +303,25 @@ on without it. On an 8 GB machine the cap is 2 GB and model features stay off;
 point `RUNLIST_MODEL_ENDPOINT` at a server on a bigger machine instead. Settings
 are per machine in `~/.runlist/model.json`.
 
+`runlist model status --json` leads with a one-line reading for dashboards,
+`running`, `name` (the model loaded now, else the one runlist would load) and
+`memoryMb` (what it holds, null when nothing is loaded), followed by the full
+detail.
+
+## Failed commands
+
+Every runlist command that fails, by an error or a non-zero exit, appends one
+line to `~/.claude/logs/runlist-errors.log` (`RUNLIST_ERROR_LOG_DIR` moves it)
+with the time, the command with secrets redacted, and the error's one-line
+message. It rolls over once, to `runlist-errors.log.1`, at 5 MB or a new
+runlist version. Dry runs and the session-start `hud` are never logged.
+
+```bash
+runlist errors                # the newest 20 failures, newest first
+runlist errors --limit 50     # the newest N
+runlist errors --json         # [{ at, command, message, repo, exit }]
+```
+
 ## Safety Model
 
 - Mutation commands support `--dry-run` / `-n`.

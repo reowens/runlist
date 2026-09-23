@@ -1,5 +1,5 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
-import { ok, strictEqual, deepStrictEqual } from 'node:assert';
+import { ok, strictEqual, deepStrictEqual, match } from 'node:assert';
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync, rmSync, utimesSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -294,5 +294,72 @@ describe('global error log: always-on on failure', () => {
     ok(!current.includes(secret));
     strictEqual(JSON.parse(current.trim()).schema, 2);
     ok(!existsSync(errorLogBackup), 'legacy backup was purged');
+  });
+});
+
+describe('runlist errors: the read verb over the error log', () => {
+  beforeEach(() => setupProject());
+
+  const version = JSON.parse(readFileSync(path.resolve(import.meta.dirname, '..', 'package.json'), 'utf8')).version;
+  const line = (argv, err, ts) => JSON.stringify({ schema: 2, ts, repo: tmpDir, sid: 's', pid: 0, argv, exit: 1, ms: 1, v: version, err });
+
+  it('logs a command that fails through its exit code, not only by throwing', () => {
+    writeFileSync(path.join(tmpDir, 'docs', 'bad.md'), '---\ntype: plan\nstatus: not-a-status\ntitle: Bad\n---\n# Bad\n');
+    const r = run(['check']);
+    strictEqual(r.status, 1, r.stdout + r.stderr);
+    const entry = JSON.parse(readFileSync(errorLogFile, 'utf8').trim().split('\n').pop());
+    strictEqual(entry.argv[0], 'check');
+    strictEqual(entry.err, 'exited with status 1');
+    strictEqual(entry.errName, 'ExitStatus');
+  });
+
+  it('prints the newest failures first as { at, command, message, repo, exit }', () => {
+    run(['first-bad-command']);
+    run(['second-bad-command']);
+    const r = run(['errors', '--json']);
+    strictEqual(r.status, 0, r.stderr);
+    const rows = JSON.parse(r.stdout);
+    strictEqual(rows.length, 2);
+    deepStrictEqual(Object.keys(rows[0]), ['at', 'command', 'message', 'repo', 'exit']);
+    ok(rows[0].command.startsWith('runlist second-bad-command'), rows[0].command);
+    ok(rows[1].command.startsWith('runlist first-bad-command'), rows[1].command);
+    match(rows[0].message, /Unknown command/);
+    ok(!rows[0].message.includes('\n'), 'message is one line');
+    strictEqual(rows[0].repo, tmpDir);
+    ok(Date.parse(rows[0].at) >= Date.parse(rows[1].at));
+  });
+
+  it('--limit keeps the newest N and reads on into the rollover', () => {
+    writeFileSync(errorLogBackup, [
+      line(['old-a'], 'a', '2026-01-01T00:00:00.000Z'),
+      line(['old-b'], 'b', '2026-01-01T00:00:01.000Z'),
+    ].join('\n') + '\n');
+    writeFileSync(errorLogFile, line(['new-c'], 'c', '2026-01-01T00:00:02.000Z') + '\n');
+    const all = JSON.parse(run(['errors', '--json']).stdout).map(r => r.message);
+    deepStrictEqual(all, ['c', 'b', 'a']);
+    const two = JSON.parse(run(['errors', '--json', '--limit', '2']).stdout).map(r => r.message);
+    deepStrictEqual(two, ['c', 'b']);
+    ok(run(['errors', '--limit', '0']).status !== 0, '--limit 0 is refused');
+  });
+
+  it('rolls the log over once at 5 MB: the full file becomes .1 and the old .1 is replaced', () => {
+    writeFileSync(errorLogBackup, line(['oldest'], 'oldest', new Date().toISOString()) + '\n');
+    const filler = line(['filler'], 'x'.repeat(400), new Date().toISOString()) + '\n';
+    writeFileSync(errorLogFile, filler.repeat(Math.ceil((5 * 1024 * 1024 + 1) / filler.length)));
+    run(['definitely-not-a-command']);
+    const current = readFileSync(errorLogFile, 'utf8').trim().split('\n');
+    strictEqual(current.length, 1);
+    strictEqual(JSON.parse(current[0]).argv[0], 'definitely-not-a-command');
+    const backup = readFileSync(errorLogBackup, 'utf8');
+    ok(backup.length > 5 * 1024 * 1024, 'the full file is the rollover');
+    ok(!backup.includes('"oldest"'), 'only one rollover is kept');
+    ok(!existsSync(`${errorLogBackup}.1`) && !existsSync(path.join(logDir, 'runlist-errors.log.2')));
+  });
+
+  it('says there is nothing when no command has failed', () => {
+    const r = run(['errors']);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stdout, /No failed runlist commands/);
+    deepStrictEqual(JSON.parse(run(['errors', '--json']).stdout), []);
   });
 });

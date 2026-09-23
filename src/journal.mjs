@@ -322,6 +322,32 @@ export function recordGlobalError({ config, startMs, args, err, version }) {
   }
 }
 
+// The newest failures first, as `{ at, command, message, repo, exit }`: the
+// current file, then its one rollover. Reads what `recordGlobalError` wrote
+// (argv and message already sanitized there); nothing else is kept per line.
+export function readGlobalErrors({ limit = 20, repo = null } = {}) {
+  const file = globalErrorLogPath();
+  const backup = globalErrorLogBackupPath();
+  purgeLegacyTelemetry(file, backup);
+  pruneStaleBackup(backup);
+  const out = [];
+  for (const source of [file, backup]) {
+    const lines = readLogLines(source).reverse();
+    for (const e of lines) {
+      if (repo && !String(e.repo ?? '').includes(repo)) continue;
+      out.push({
+        at: e.ts ?? null,
+        command: ['runlist', ...(Array.isArray(e.argv) ? e.argv : [])].join(' '),
+        message: e.err ?? null,
+        repo: e.repo ?? null,
+        exit: e.exit ?? null,
+      });
+      if (limit && out.length >= limit) return out;
+    }
+  }
+  return out;
+}
+
 // Misuse log: always-on, cross-repo, append-only record of every wrong-move the
 // PreToolUse guard intercepts (committing a gitignored prompt, `cat`-ing a
 // prompt instead of `dotmd use`, hand-editing a `status:` field, …). This is

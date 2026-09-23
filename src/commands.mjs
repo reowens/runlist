@@ -102,6 +102,7 @@ const definitions = [
   command('module', none, 'read', [form('<name>', { args: positionals(1, 1), options: [value('--sort'), flag('--json')] })]),
   command('surfaces', none, 'read', [form('', { options: [flag('--json')] })]),
   command('journal', none, 'read', [form('', { options: [value('--tail'), flag('--errors'), value('--session'), value('--since'), flag('--by-command'), flag('--json')] })]),
+  command('errors', none, 'read', [form('', { options: [flag('--json'), value('--limit'), value('--tail'), value('--repo')] })]),
   command('misuse', none, 'read', [form('', { options: [flag('--json'), value('--tail'), flag('--by-rule'), value('--repo')] })]),
 
   command('roadmap', mutates('managed source when `next`; otherwise read-only'), 'workflow', [

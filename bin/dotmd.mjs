@@ -203,6 +203,20 @@ stop the others: every step runs, the failures are listed together, and the
 exit code is 1. A plugin whose marketplace registration is gone gets the
 marketplace re-added before the update (see \`runlist install claude\`).`,
 
+  errors: `runlist errors — the newest failed runlist commands, newest first
+
+Every runlist command that fails (an error, or a non-zero exit such as
+\`check\` finding errors) appends one line to ~/.claude/logs/runlist-errors.log
+(RUNLIST_ERROR_LOG_DIR moves it): when, the command with secrets redacted, and
+the error's one-line message. It rolls over to runlist-errors.log.1 at 5 MB or
+a new runlist version; this reads both. Dry runs and the session-start hud are
+never logged.
+
+  runlist errors                 last 20
+  runlist errors --limit 50      last N (--tail is the same)
+  runlist errors --repo <name>   only failures in a matching repo
+  runlist errors --json          [{ at, command, message, repo, exit }]`,
+
   misuse: `runlist misuse — read the cross-repo guard log (~/.claude/logs/runlist-misuse.log,
 merged by time with the legacy dotmd-misuse.log that older CLIs wrote)
 
@@ -295,6 +309,7 @@ Setup:
   completions <shell>               Shell completion script (bash, zsh)
   journal [--tail N|--errors|--by-command|--session id|--since iso|--json]
                                     View opt-in JSONL command journal (enable: RUNLIST_JOURNAL=1 or journal: true)
+  errors [--limit N] [--json]       The newest failed runlist commands, from the cross-repo error log
 
 Global Options:
   --config <path>        Explicit config file path
@@ -1678,7 +1693,8 @@ async function main() {
       if (HELP[key]) { process.stdout.write(`${HELP[key]}\n`); return; }
       if (HELP[topic]) { process.stdout.write(`${HELP[topic]}\n`); return; }
       process.stderr.write(`Unknown help topic: ${topic}\n\nAvailable topics: all, statuses\nPer-command help: runlist <cmd> --help\n`);
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
     process.stdout.write(`${HELP._main}\n`);
     return;
@@ -1959,6 +1975,7 @@ async function main() {
   if (command === 'guard') { const { runGuard } = await import('../src/guard.mjs'); await runGuard(restArgs, config, { dryRun }); return; }
   if (command === 'update') { const { runUpdate } = await import('../src/update.mjs'); runUpdate(restArgs, config, { dryRun }); return; }
   if (command === 'install') { const { runInstall } = await import('../src/install.mjs'); runInstall(restArgs, config, { dryRun }); return; }
+  if (command === 'errors') { const { runErrors } = await import('../src/errors-read.mjs'); runErrors(restArgs); return; }
   if (command === 'misuse') { const { runMisuse } = await import('../src/misuse-read.mjs'); runMisuse(restArgs, config); return; }
   if (command === 'journal') { const { runJournal } = await import('../src/journal-read.mjs'); runJournal(restArgs, config); return; }
   if (command === 'pickup' || command === 'unpickup' || command === 'release' || command === 'finish') {
@@ -2391,13 +2408,17 @@ function _journalExit(err) {
       version: pkg.version,
     });
   } catch { /* never break exit on journal failure */ }
-  if (err) {
+  // A command that reports its own failure through the exit code (check with
+  // errors, a failed update step) is a failure too.
+  const code = Number(process.exitCode ?? 0);
+  const failure = err ?? (code !== 0 ? { name: 'ExitStatus', message: `exited with status ${code}` } : null);
+  if (failure) {
     try {
       recordGlobalError({
         config: _resolvedConfig,
         startMs: _startMs,
         args: _invocationArgs,
-        err,
+        err: failure,
         version: pkg.version,
       });
     } catch { /* never break exit on error-log failure */ }
