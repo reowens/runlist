@@ -157,6 +157,28 @@ describe('body link validation', () => {
     }
   });
 
+  it('accepts links through configured external roots', () => {
+    const docsDir = setupProject();
+    const outside = mkdtempSync(path.join(os.tmpdir(), 'dotmd-external-'));
+    try {
+      writeFileSync(path.join(outside, 'target.md'), '# Target\n');
+      symlinkSync(outside, path.join(docsDir, 'linked'), 'dir');
+      writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'),
+        `export const root = 'docs';\nexport const externalBodyLinkRoots = [${JSON.stringify(outside)}];`);
+      const externalLink = path.relative(docsDir, path.join(outside, 'target.md'));
+      writeFileSync(path.join(docsDir, 'a.md'),
+        `---\nstatus: active\nupdated: 2025-01-01\n---\n# A\n\n[external](${externalLink}) [linked](linked/target.md) [missing](linked/gone.md)\n`);
+
+      const result = run(['check', '--json']);
+      const errors = JSON.parse(result.stdout).errors.filter(issue => issue.meta?.kind === 'body-link-resolution');
+      strictEqual(errors.length, 1);
+      strictEqual(errors[0].meta.reason, 'missing');
+      ok(errors[0].message.includes('gone.md'));
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
   it('skips links inside fenced code blocks', () => {
     const docsDir = setupProject();
     writeFileSync(path.join(docsDir, 'a.md'),

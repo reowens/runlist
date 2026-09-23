@@ -272,7 +272,7 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
   }
 
   for (const link of (doc.bodyLinks || [])) {
-    const resolution = resolveBodyLinkTarget(link.href, docDir, config.repoRoot);
+    const resolution = resolveBodyLinkTarget(link.href, docDir, config.repoRoot, config.externalBodyLinkRoots);
     if (!resolution.ok) {
       const shownHref = link.rawHref ?? link.href;
       doc.errors.push({

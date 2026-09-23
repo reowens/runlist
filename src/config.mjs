@@ -19,6 +19,7 @@ const DEFAULTS = {
   root: '.',
   archiveDir: 'archived',
   excludeDirs: [],
+  externalBodyLinkRoots: [],
   // Floor under the scan surface; null = off. See `applyScanFloor` in validate.mjs.
   minDocs: null,
 
@@ -640,6 +641,7 @@ export async function resolveConfig(cwd, explicitConfigPath) {
     configFound: Boolean(configPath),
     archiveDir: config.archiveDir,
     excludeDirs: new Set(config.excludeDirs),
+    externalBodyLinkRoots: Array.isArray(config.externalBodyLinkRoots) ? config.externalBodyLinkRoots : [],
     docsRootPrefix,
     minDocs,
 

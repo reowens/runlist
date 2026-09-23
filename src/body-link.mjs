@@ -9,12 +9,14 @@ function isWithin(root, candidate) {
 // Markdown body links are filesystem paths relative to the document that
 // contains them. They deliberately do not inherit frontmatter references'
 // repo-root fallback: that fallback can make a broken Markdown link look valid.
-export function resolveBodyLinkTarget(href, docDir, repoRoot) {
+export function resolveBodyLinkTarget(href, docDir, repoRoot, externalRoots = []) {
   if (!href) return { ok: false, reason: 'missing' };
 
   const root = path.resolve(repoRoot);
   const candidate = path.resolve(docDir, href);
-  if (!isWithin(root, candidate)) return { ok: false, reason: 'outside-repo' };
+  const allowedRoots = externalRoots.map(entry => path.resolve(root, entry));
+  const allowedLexically = isWithin(root, candidate) || allowedRoots.some(entry => isWithin(entry, candidate));
+  if (!allowedLexically) return { ok: false, reason: 'outside-repo' };
   if (!existsSync(candidate)) return { ok: false, reason: 'missing' };
 
   let canonicalRoot;
@@ -25,7 +27,13 @@ export function resolveBodyLinkTarget(href, docDir, repoRoot) {
   } catch {
     return { ok: false, reason: 'unreadable' };
   }
-  if (!isWithin(canonicalRoot, canonicalTarget)) return { ok: false, reason: 'outside-repo' };
+  const canonicalAllowedRoots = allowedRoots.flatMap(entry => {
+    try { return [realpathSync(entry)]; } catch { return []; }
+  });
+  if (!isWithin(canonicalRoot, canonicalTarget)
+    && !canonicalAllowedRoots.some(entry => isWithin(entry, canonicalTarget))) {
+    return { ok: false, reason: 'outside-repo' };
+  }
 
   try {
     const stat = statSync(canonicalTarget);
