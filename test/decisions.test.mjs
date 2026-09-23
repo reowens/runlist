@@ -280,6 +280,14 @@ describe('what a decision blocks', () => {
     ok(!namesId('B1 to B4 wait', 'A2'));
   });
 
+  it('reads a table row indexing a range of ids as one item, named by any id in it', () => {
+    const text = '## Decisions\n\n| ID | Question | Disposition |\n|---|---|---|\n| A1 | Which folder? | **OPEN.** |\n| A2 to A12 | The other questions. | **OPEN, recorded.** |\n';
+    deepStrictEqual(parseDecisionItems(text).map(i => i.id), ['A1', 'A2 to A12']);
+    ok(namesId('12 questions, A1 to A12, wait on him', 'A2 to A12'));
+    ok(namesId('Build it once A7 is ruled.', 'A2 to A12'));
+    ok(!namesId('Build it once A1 is ruled.', 'A2 to A12'));
+  });
+
   it('reads what a record says it blocks, and not a noun', () => {
     deepStrictEqual(statedBlocks('Open, blocks Phase 5: where the owner reads it first.'), ['Phase 5']);
     deepStrictEqual(statedBlocks('Whether PoE draw counts, which switch sizing waits on.'), ['switch sizing']);

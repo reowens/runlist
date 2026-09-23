@@ -81,7 +81,10 @@ export function isDecisionHeading(text, section = DEFAULTS.section) {
   return words.some(w => w === stem || w === `${stem}s`);
 }
 
-function itemPatterns(id) {
+// A row may index a run of decisions written as a range, `A2 to A12`; the
+// range is its id.
+function itemPatterns(single) {
+  const id = `${single}(?:\\s+(?:to|through)\\s+${single})?`;
   return [
     { kind: 'register', re: new RegExp(`^(${id})\\s{1,3}(\\S.*)$`), registerOnly: true },
     { kind: 'table', re: new RegExp(`^\\|\\s*\\**(${id})\\**\\s*\\|(.*)$`) },
@@ -390,8 +393,16 @@ function linksBesideId(line, id) {
 // A range written out (`A2 to A12`, `A2-A12`, `A2 through 12`) names every id in it.
 const RANGE = /(?<![\w.-])([A-Z]{1,3}-?)(\d{1,3})\s*(?:to|through|thru|–|—|-)\s*(?:\1)?(\d{1,3})(?![\w])/g;
 
-/** Whether a line names `id`, on its own or inside a written range. */
+/** Whether a line names `id`, on its own or inside a written range. An id
+ * that is itself a range (`A2 to A12`) is named when any id in it is. */
 export function namesId(line, id, ranges = writtenRanges(line)) {
+  const span = id.match(/^([A-Z]{1,3}-?)(\d{1,3})\s+(?:to|through)\s+\1?(\d{1,3})$/);
+  if (span) {
+    if (line.includes(id)) return true;
+    const [lo, hi] = [Number(span[2]), Number(span[3])];
+    for (let n = lo; n <= hi && n - lo < 100; n++) if (namesId(line, `${span[1]}${n}`, ranges)) return true;
+    return false;
+  }
   if (line.includes(id) && idPattern(id).test(line)) return true;
   if (!ranges.length) return false;
   const m = id.match(/^([A-Z]{1,3}-?)(\d{1,3})$/);

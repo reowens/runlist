@@ -23,6 +23,7 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
 ### Fixed
 
 - **A reader that closes the pipe early no longer crashes runlist.** `runlist flags | head` exited 1 with an unhandled `EPIPE`; a closed pipe now ends the run with exit 0.
+- **`runlist decisions` reads a table row that indexes a range of ids** (`| A2 to A12 | … |`) as one item whose id is the range; it was dropped, so the decisions in it went uncounted. A line naming any id in the range names it.
 - **`runlist decisions` reads a bold `Decision:` field inside a heading record as part of that record,** not as a second item with no id.
 - **`runlist decisions` reads a compound id whole.** `P4-D2`, `D1-R`, `D2-B` and `D1.2` were cut to their parent and reported as the parent used again; `D1.` at a sentence end is still `D1`. The `id` setting still overrides the grammar.
 - **`runlist decisions` pairs two documents' records only when the link names the id beside it** (`` `other.md` Decisions, D1 `` or `D1 in [other](other.md)`), or sits on a register or table row. A record citing another document for something else no longer reads as a conflict with that document's same-numbered id.
