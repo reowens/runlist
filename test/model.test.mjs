@@ -164,6 +164,23 @@ describe('model server', () => {
     strictEqual(JSON.parse(run(['model', '--json'], env).stdout).loaded.length, 0);
   });
 
+  it('status --json leads with running, name and memoryMb', async () => {
+    setup();
+    const down = JSON.parse(run(['model', 'status', '--json'], { RUNLIST_MODEL_ENDPOINT: 'http://127.0.0.1:9', RUNLIST_MODEL: 'fixture:3b' }).stdout);
+    deepStrictEqual({ running: down.running, name: down.name, memoryMb: down.memoryMb }, { running: false, name: 'fixture:3b', memoryMb: null });
+    strictEqual(down.server.running, false, 'the existing shape is kept');
+
+    const f = await startFake({ pulled: [{ name: 'fixture:3b', size: 2 * GB }], residentBytes: 3 * GB });
+    const env = { RUNLIST_MODEL_ENDPOINT: f.endpoint, RUNLIST_MODEL: 'fixture:3b' };
+    const idle = JSON.parse(run(['model', 'status', '--json'], env).stdout);
+    deepStrictEqual({ running: idle.running, name: idle.name, memoryMb: idle.memoryMb }, { running: true, name: 'fixture:3b', memoryMb: null });
+    run(['summary', 'docs/a.md'], env);
+    const busy = JSON.parse(run(['model', 'status', '--json'], env).stdout);
+    deepStrictEqual({ running: busy.running, name: busy.name, memoryMb: busy.memoryMb }, { running: true, name: 'fixture:3b', memoryMb: Math.round(3 * GB / 2 ** 20) });
+    strictEqual(busy.loaded[0].bytes, 3 * GB);
+    strictEqual(busy.server.running, true);
+  });
+
   it('does not load a model when free memory is short, and says so', async () => {
     setup();
     const f = await startFake({ pulled: [{ name: 'fixture:3b', size: 2 * GB }], residentBytes: 3 * GB });

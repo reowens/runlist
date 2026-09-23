@@ -327,7 +327,15 @@ function statusData(settings) {
   const reading = local ? memoryReading() : null;
   const pick = pickModel(settings);
   const pulled = version ? pulledModels(settings) : null;
+  const loaded = version ? loadedModels(settings) : [];
+  const resident = loaded.find(m => pick.name && sameModel(m.name, pick.name)) ?? loaded[0] ?? null;
   return {
+    // The one-line reading: is the server up, which model (the one loaded now,
+    // else the one runlist would load), and what it holds in memory (MiB, null
+    // when nothing is loaded).
+    running: !!version,
+    name: resident?.name ?? pick.name,
+    memoryMb: resident ? Math.round(resident.bytes / 2 ** 20) : null,
     runtime: settings.runtime,
     endpoint: settings.endpoint,
     server: version ? { running: true, version } : { running: false },
@@ -340,7 +348,7 @@ function statusData(settings) {
     local,
     keepAlive: settings.keepAlive,
     contextTokens: settings.contextTokens,
-    loaded: version ? loadedModels(settings) : [],
+    loaded,
     candidates: CANDIDATES.map(name => {
       const peakGb = peakOf(name);
       return {
