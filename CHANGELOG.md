@@ -2,11 +2,16 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
-## 0.89.1 — 2026-09-27
+## Unreleased
 
 ### Fixed
 
 - Publish the CLI as the `runlist` npm package, with release and update commands targeting that package. Existing `dotmd-cli` installs and dependency declarations remain recognizable during migration.
+
+## 0.89.1 — 2026-09-27
+
+### Fixed
+
 - New indexes, prompts, and HTML exports use runlist names. Existing index markers, prompt version stamps, and export directories remain usable; plugin descriptions and release guidance use the current CLI name.
 - Codex integration tests use the package version being released and provide their own CLI on PATH, so the npm publish CI job passes across version bumps and clean runners.
 
