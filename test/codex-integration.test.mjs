@@ -33,13 +33,14 @@ describe('Codex plugin distribution', () => {
 
   it('refuses to replace a foreign plugin or marketplace entry', () => {
     const h = fresh();
-    const plugin = path.join(h, '.agents', 'plugins', 'plugins', 'runlist-codex');
+    const plugin = path.join(h, 'plugins', 'runlist-codex');
     mkdirSync(plugin, { recursive: true });
     writeFileSync(path.join(plugin, 'custom.txt'), 'keep');
     const refused = installCodexPlugin({ version: '0.88.1', homedir: h });
     strictEqual(refused.action, 'refused');
     strictEqual(readFileSync(path.join(plugin, 'custom.txt'), 'utf8'), 'keep');
     rmSync(plugin, { recursive: true });
+    mkdirSync(path.join(h, '.agents', 'plugins'), { recursive: true });
     writeFileSync(path.join(h, '.agents', 'plugins', 'marketplace.json'), JSON.stringify({
       name: 'personal', plugins: [{ name: 'runlist-codex', source: { source: 'local', path: './other' } }],
     }));
@@ -48,7 +49,10 @@ describe('Codex plugin distribution', () => {
   });
 
   it('ships the Codex plugin files in the npm tarball', () => {
-    const p = JSON.parse(spawnSync('npm', ['pack', '--dry-run', '--json'], { cwd: root, encoding: 'utf8' }).stdout)[0];
+    const packed = spawnSync('npm', ['pack', '--dry-run', '--json'], { cwd: root, encoding: 'utf8' });
+    strictEqual(packed.status, 0, packed.stderr);
+    const output = JSON.parse(packed.stdout);
+    const p = Array.isArray(output) ? output[0] : output['dotmd-cli'];
     const files = new Set(p.files.map(f => f.path));
     ok(files.has('plugins/runlist-codex/.codex-plugin/plugin.json'));
     ok(files.has('plugins/runlist-codex/hooks/hooks.json'));

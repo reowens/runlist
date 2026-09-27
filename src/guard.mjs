@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { inspectGitCommandPaths } from './git.mjs';
@@ -248,10 +248,11 @@ function promptReadDecision(filePath, config, deps = {}) {
   const readFile = deps.readFile ?? ((p) => readFileSync(p, 'utf8'));
   try {
     const absolute = path.resolve(deps.gitCwd ?? process.cwd(), filePath);
+    const real = p => { try { return realpathSync(p); } catch { return p; } };
     const roots = config.docsRoots || (config.docsRoot ? [config.docsRoot] : ['docs']);
     const insideRoot = roots.some(root => {
-      const base = path.resolve(config.repoRoot ?? process.cwd(), root);
-      const relative = path.relative(base, absolute);
+      const base = real(path.resolve(config.repoRoot ?? process.cwd(), root));
+      const relative = path.relative(base, real(absolute));
       return relative && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
     });
     if (!insideRoot) return 'warn';

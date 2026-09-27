@@ -11,7 +11,9 @@ const MARKER = '.runlist-generated.json';
 
 export function codexPaths(homedir = os.homedir()) {
   const root = path.join(homedir, '.agents', 'plugins');
-  return { root, marketplace: path.join(root, 'marketplace.json'), plugin: path.join(root, 'plugins', NAME) };
+  // The implicit personal marketplace file lives under ~/.agents/plugins,
+  // but Codex resolves its `./plugins/...` sources relative to the home dir.
+  return { root, marketplace: path.join(root, 'marketplace.json'), plugin: path.join(homedir, 'plugins', NAME) };
 }
 
 function marketplaceAt(file) {
@@ -53,6 +55,7 @@ export function installCodexPlugin({ version, homedir = os.homedir(), dryRun = f
 
   const parent = path.dirname(status.plugin);
   mkdirSync(parent, { recursive: true });
+  mkdirSync(path.dirname(status.marketplace), { recursive: true });
   const stage = mkdtempSync(path.join(parent, '.runlist-codex-stage-'));
   const backup = `${stage}-previous`;
   const marketStage = `${status.marketplace}.runlist-stage-${process.pid}`;
