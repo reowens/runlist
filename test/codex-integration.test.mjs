@@ -10,25 +10,26 @@ let home;
 const root = path.resolve(import.meta.dirname, '..');
 const bin = path.join(root, 'bin', 'runlist.mjs');
 const hook = path.join(root, 'plugins', 'runlist-codex', 'bin', 'runlist-hook');
+const version = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version;
 const fresh = () => { home = mkdtempSync(path.join(os.tmpdir(), 'runlist-codex-')); return home; };
 afterEach(() => { if (home) rmSync(home, { recursive: true, force: true }); home = null; });
 
 describe('Codex plugin distribution', () => {
   it('installs the packaged skill and hooks into the personal marketplace and updates in place', () => {
     const h = fresh();
-    const preview = installCodexPlugin({ version: '0.88.1', homedir: h, dryRun: true });
+    const preview = installCodexPlugin({ version, homedir: h, dryRun: true });
     strictEqual(preview.action, 'installed');
     ok(!existsSync(preview.plugin));
-    const first = installCodexPlugin({ version: '0.88.1', homedir: h });
+    const first = installCodexPlugin({ version, homedir: h });
     strictEqual(first.action, 'installed');
     ok(existsSync(path.join(first.plugin, 'hooks', 'hooks.json')));
     ok(existsSync(path.join(first.plugin, 'skills', 'runlist', 'SKILL.md')));
     const manifest = JSON.parse(readFileSync(first.marketplace, 'utf8'));
     strictEqual(manifest.plugins[0].source.path, './plugins/runlist-codex');
-    strictEqual(installCodexPlugin({ version: '0.88.1', homedir: h }).action, 'current');
-    writeFileSync(path.join(first.plugin, '.runlist-generated.json'), JSON.stringify({ version: '0.88.0' }));
-    strictEqual(installCodexPlugin({ version: '0.88.1', homedir: h }).action, 'updated');
-    strictEqual(codexStatus({ version: '0.88.1', homedir: h }).stale, false);
+    strictEqual(installCodexPlugin({ version, homedir: h }).action, 'current');
+    writeFileSync(path.join(first.plugin, '.runlist-generated.json'), JSON.stringify({ version: '0.0.0' }));
+    strictEqual(installCodexPlugin({ version, homedir: h }).action, 'updated');
+    strictEqual(codexStatus({ version, homedir: h }).stale, false);
   });
 
   it('refuses to replace a foreign plugin or marketplace entry', () => {
@@ -36,7 +37,7 @@ describe('Codex plugin distribution', () => {
     const plugin = path.join(h, 'plugins', 'runlist-codex');
     mkdirSync(plugin, { recursive: true });
     writeFileSync(path.join(plugin, 'custom.txt'), 'keep');
-    const refused = installCodexPlugin({ version: '0.88.1', homedir: h });
+    const refused = installCodexPlugin({ version, homedir: h });
     strictEqual(refused.action, 'refused');
     strictEqual(readFileSync(path.join(plugin, 'custom.txt'), 'utf8'), 'keep');
     rmSync(plugin, { recursive: true });
@@ -44,7 +45,7 @@ describe('Codex plugin distribution', () => {
     writeFileSync(path.join(h, '.agents', 'plugins', 'marketplace.json'), JSON.stringify({
       name: 'personal', plugins: [{ name: 'runlist-codex', source: { source: 'local', path: './other' } }],
     }));
-    strictEqual(installCodexPlugin({ version: '0.88.1', homedir: h }).action, 'refused');
+    strictEqual(installCodexPlugin({ version, homedir: h }).action, 'refused');
     ok(!existsSync(plugin));
   });
 
@@ -103,8 +104,14 @@ describe('Codex hook payloads', () => {
 
   it('is silent in unrelated repos and gives a one-time install hint when the CLI is unavailable', () => {
     const h = fresh();
+    const fakeBin = path.join(h, 'bin');
+    mkdirSync(fakeBin);
+    const stub = path.join(fakeBin, 'runlist');
+    writeFileSync(stub, `#!/bin/sh\nexec "${process.execPath}" "${bin}" "$@"\n`);
+    chmodSync(stub, 0o755);
     const unrelated = spawnSync('sh', [hook, 'guard'], {
-      cwd: h, input: JSON.stringify({ tool_name: 'mcp__filesystem__read_file', tool_input: { path: 'docs/prompts/x.md' } }), encoding: 'utf8',
+      cwd: h, env: { ...process.env, PATH: `${fakeBin}${path.delimiter}${process.env.PATH}` },
+      input: JSON.stringify({ tool_name: 'mcp__filesystem__read_file', tool_input: { path: 'docs/prompts/x.md' } }), encoding: 'utf8',
     });
     strictEqual(unrelated.status, 0);
     strictEqual(unrelated.stdout.trim(), '{}');

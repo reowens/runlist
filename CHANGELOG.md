@@ -7,6 +7,7 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
 ### Fixed
 
 - New indexes, prompts, and HTML exports use runlist names. Existing index markers, prompt version stamps, and export directories remain usable; plugin descriptions and release guidance use the current CLI name.
+- Codex integration tests use the package version being released and provide their own CLI on PATH, so the npm publish CI job passes across version bumps and clean runners.
 
 ## 0.89.0 — 2026-09-27
 
