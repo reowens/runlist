@@ -65,7 +65,7 @@ function pendingHandoffs(promptPath, planPath, config) {
 function refusePendingHandoff(pending) {
   const lines = pending.map(p => `  ${p}`).join('\n');
   const slug = path.basename(pending[0], '.md');
-  die(`Nothing saved: a handoff for this is already pending:\n${lines}\nUse it (\`runlist use ${slug}\`) or archive it (\`runlist prompts archive ${pending[0]}\`), then run baton again.`);
+  die(`Nothing saved: a handoff for this is already pending:\n${lines}\nInspect it with \`runlist prompts show ${slug}\`. If it is current, keep it and do not hand off again. If it is stale, run \`runlist prompts archive ${pending[0]}\`, then run baton again.`);
 }
 
 // Is this positional a filesystem reference (must resolve, typos die) or a

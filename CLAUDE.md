@@ -43,18 +43,19 @@ To finish work, archive directly: `runlist archive <plan-file>`. The legacy `don
 **Workflow contract.** The bullets between the markers below are kept byte-identical across this `CLAUDE.md` and the plugin `SKILL.md`; `runlist check` guards the lockstep (`src/skill-drift.mjs`). Edit them in one surface and you must mirror them in the other — only the marked block is compared, so this framing line can differ per file.
 
 <!-- runlist:canonical-workflow:start -->
-- **Orient:** `runlist briefing` — active / paused / ready work, with ages and next steps.
+- **Orient:** `runlist plans` — compact plan dashboard; use `runlist agent-context` when an agent needs structured state across the repo.
 - **Start a plan:** `runlist use <plan-file>` — marks it `in-session` and prints the plan card.
 - **Single status verb:** `runlist set <status> [<file>]` writes the status, validates it against the doc's type, runs lifecycle hooks, fixes refs, and syncs the index. **Never hand-edit a `status:` line.** Add `--note "why"` to record the reason in `## Version History` in the same call.
 - **Close to match reality:** `archived` (shipped) · `partial` (tail deferred — link the successor) · `active` (more work later) · `awaiting` (needs a human decision) · `blocked` (external arrival you can't speed up). Parking a plan with a known next step? Leave a baton in the same breath — never narrate the next pickup into chat.
 - **Hand off / save a resume prompt:** `runlist baton [<plan-or-slug>] @<draft-file>` — write the resume to a file first; saves the prompt and releases the in-session plan (a slug with no plan just saves `resume-<slug>`). Never paste a "here's how to resume" block into chat.
+- **Record a decision:** `runlist new decision <plan> --question "…" @<record-file>`; if the repo configures a decisions register, also pass `--answers "Yes: … No: …"`. `runlist decisions --check` reports incomplete records.
 - **Saved prompts are session-local:** consume with `runlist use` (no arg = oldest pending), peek with `runlist prompts show` (`--all` surveys the whole queue in one call). Never read them with file tools, never commit `docs/prompts/*.md`.
 - **Flag what the person should know:** `runlist flag add <file[:line]> "<what is wrong>"` puts a problem you found but are not fixing on the flags list (`--severity problem|warn|info`); `runlist flags` lists what is open. A flag says what is wrong and where, never what to do about it.
 <!-- runlist:canonical-workflow:end -->
 
 `runlist set <status> [<file>]` is the single status verb. It handles starting, transitioning, and closing a plan based on the target status.
 
-1. Get oriented: `runlist briefing`
+1. Get oriented: `runlist plans` for a compact view; use `runlist agent-context` when structured state is needed.
 2. Start work on a plan: `runlist use <plan-file>` (marks in-session + prints the plan card). To set the status without printing, `runlist set in-session <plan-file>`.
 3. When done — pick the closure status that matches reality:
    - Fully shipped → `runlist set archived <plan-file>` (also: `runlist archive <plan-file>`)

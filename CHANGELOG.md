@@ -2,6 +2,14 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- Failed `check` and `decisions --check` runs now record the count and first located finding in `runlist errors`, while retaining their full normal output and exit status.
+- A duplicate `baton` now points to the existing pending handoff and gives the safe inspect, keep, or archive sequence. The skill and `/baton` command carry the same guidance.
+- The Claude workflow and `/plans` command use the compact `runlist plans` view for initial orientation. The skill includes the complete `new decision` form and authored-draft behavior, reducing repeated help lookups.
+
 ## 0.87.1 — 2026-09-23
 
 ### Added

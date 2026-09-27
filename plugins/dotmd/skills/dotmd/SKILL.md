@@ -6,23 +6,24 @@ allowed-tools: "Bash(runlist:*), Bash(rl:*), Bash(dotmd:*), Read"
 
 # runlist workflow
 
-This repo's plans, reference docs, and saved prompts are managed by the **runlist** CLI (markdown + YAML frontmatter; installed from the `dotmd-cli` package, and `dotmd` still works as an alias). Always drive them through `runlist` — never hand-edit frontmatter, never read prompts with the file tools, never commit session-local prompts. The session-start hook prints the live verb sheet and a bounded plan-status vocabulary; if it truncates, use the printed `runlist statuses list --type plan` fallback. Run `runlist briefing` any time to refresh live state.
+This repo's plans, reference docs, and saved prompts are managed by the **runlist** CLI (markdown + YAML frontmatter; installed from the `dotmd-cli` package, and `dotmd` still works as an alias). Always drive them through `runlist` — never hand-edit frontmatter, never read prompts with the file tools, never commit session-local prompts. The session-start hook prints the live verb sheet and a bounded plan-status vocabulary; if it truncates, use the printed `runlist statuses list --type plan` fallback. Use `runlist plans` for a compact plan dashboard, `runlist agent-context` for structured agent orientation, and `runlist briefing` only when the comprehensive view is needed; its output grows with the corpus.
 
 **Workflow contract** — the irreducible verbs at a glance; the sections below expand each one.
 
 <!-- runlist:canonical-workflow:start -->
-- **Orient:** `runlist briefing` — active / paused / ready work, with ages and next steps.
+- **Orient:** `runlist plans` — compact plan dashboard; use `runlist agent-context` when an agent needs structured state across the repo.
 - **Start a plan:** `runlist use <plan-file>` — marks it `in-session` and prints the plan card.
 - **Single status verb:** `runlist set <status> [<file>]` writes the status, validates it against the doc's type, runs lifecycle hooks, fixes refs, and syncs the index. **Never hand-edit a `status:` line.** Add `--note "why"` to record the reason in `## Version History` in the same call.
 - **Close to match reality:** `archived` (shipped) · `partial` (tail deferred — link the successor) · `active` (more work later) · `awaiting` (needs a human decision) · `blocked` (external arrival you can't speed up). Parking a plan with a known next step? Leave a baton in the same breath — never narrate the next pickup into chat.
 - **Hand off / save a resume prompt:** `runlist baton [<plan-or-slug>] @<draft-file>` — write the resume to a file first; saves the prompt and releases the in-session plan (a slug with no plan just saves `resume-<slug>`). Never paste a "here's how to resume" block into chat.
+- **Record a decision:** `runlist new decision <plan> --question "…" @<record-file>`; if the repo configures a decisions register, also pass `--answers "Yes: … No: …"`. `runlist decisions --check` reports incomplete records.
 - **Saved prompts are session-local:** consume with `runlist use` (no arg = oldest pending), peek with `runlist prompts show` (`--all` surveys the whole queue in one call). Never read them with file tools, never commit `docs/prompts/*.md`.
 - **Flag what the person should know:** `runlist flag add <file[:line]> "<what is wrong>"` puts a problem you found but are not fixing on the flags list (`--severity problem|warn|info`); `runlist flags` lists what is open. A flag says what is wrong and where, never what to do about it.
 <!-- runlist:canonical-workflow:end -->
 
 ## Order of operations
 
-1. **Orient** — `runlist briefing` (or `runlist plans`) to see active / paused / ready work, ages, and next steps.
+1. **Orient** — `runlist plans` for the compact dashboard, or `runlist agent-context` for structured state. Use `runlist briefing` only for the comprehensive view.
 2. **Start work on a plan** — `runlist use <plan-file>` marks it `in-session` and prints the plan card. (`runlist set in-session <file>` sets the status without printing.)
 3. **Do the work.**
 4. **Close it** — pick the status that matches reality (see the decision tree below). Handing off mid-work instead? `runlist baton @/tmp/draft.md` is the whole closeout: it saves the resume prompt, flips the plan back to `active` (`--status` to override), and prints the exact `git commit` to run. Don't add status changes or triage on top of it.
@@ -48,6 +49,7 @@ Valid statuses are type-aware and project-specific — the SessionStart primer l
 - `runlist new plan auth-revamp` → `docs/plans/auth-revamp.md`, created `planned` (`--status <s>` to override; `runlist use` starts it)
 - `runlist new doc token-refresh-design` → `docs/token-refresh-design.md`
 - Body input modes (all types): `@path` (preferred for multi-line), `-` (stdin), `--message "…"`, or inline (one-liners only).
+- Draft a full document with `## ` sections before calling `new`, then pass it as `@path`: those sections become the body instead of being appended to the template outline. A draft opening with `---` frontmatter can supply `current_state`, `next_step`, `surfaces`, and other scaffold fields in the same call; `type` stays fixed by the command.
 - Plan body variants (plans only, mutually exclusive with each other and `--runlist`/`--coordination`): `--lite`/`--minimal` (Problem → Phases → Version History) and `--audit`/`--findings` (Problem → Findings (ranked) → Suggested order → Open Questions).
 
 **Plan frontmatter field lengths — write them right the first time.** `current_state` is a 2-4 sentence summary (cap 1500 chars); `next_step` is a 1-2 sentence pointer (cap 800). Everything longer goes in the body. If a cap warning fires anyway, run `runlist doctor --frontmatter-fix` ONCE (it mechanically moves the overflow into the body) — do not hand-trim, re-run `runlist check` in a loop, or audit other docs' warnings you didn't touch.
@@ -62,7 +64,12 @@ Saved prompts (`docs/prompts/*.md`) are **session-local handoff artifacts**, not
 - **Peek without consuming.** Triaging or surveying pending prompts (not acting on one)? `runlist prompts show <file>` prints the body read-only — no archive, safe to repeat. Never `runlist use` a prompt you only meant to look at, and never `use` a prompt you just saved (that destroys the handoff).
 - **Survey the whole queue in ONE call.** `runlist prompts show --all` peeks every pending prompt (`--limit N` to cap, or pass several names: `runlist prompts show a b c`). Reaching for Read once per file is the single most common wrong-move in the guard log — the bulk verb exists so you never need to.
 - **Don't commit them.** The prompts dir is often gitignored; committing a pending prompt is wrong and may fail. No `git add` / `git commit` of `docs/prompts/*.md`.
-- **"Save a resume prompt" = `runlist baton`**, any time, plan or no plan — never paste a "here's how to resume" block into chat. With a plan in-session, `runlist baton @/tmp/draft.md` saves the prompt AND releases the plan; with no plan, `runlist baton <slug> @/tmp/draft.md` just saves `resume-<slug>` and touches nothing else (reference the relevant plans/docs in the draft body). The next session sees it at SessionStart. Baton refuses, saving nothing, when a handoff for that work is already pending: consume or archive the waiting prompt first, then re-run.
+- **"Save a resume prompt" = `runlist baton`**, any time, plan or no plan — never paste a "here's how to resume" block into chat. With a plan in-session, `runlist baton @/tmp/draft.md` saves the prompt AND releases the plan; with no plan, `runlist baton <slug> @/tmp/draft.md` just saves `resume-<slug>` and touches nothing else (reference the relevant plans/docs in the draft body). The next session sees it at SessionStart. Baton refuses, saving nothing, when a handoff for that work is already pending: inspect that prompt and keep it if current, or archive it before writing a replacement.
+- **Before a second handoff for the same work**, run `runlist prompts show <resume-slug>` to inspect the pending prompt. If it already carries the current next step, keep it and do not call baton again. If it is stale, archive that named prompt with `runlist prompts archive <resume-slug>`, then write the new draft and call baton. Do not consume a prompt merely to replace it.
+
+## Decisions
+
+`runlist new decision <plan> --question "What must be decided?" @/tmp/decision.md` adds one decision to the owning plan. Write the record file first: situation, current behavior, and the consequence of each answer. Repos with `decisions.register` require `--answers "Yes: … No: …"` too; include it on the first call. Read pending decisions with `runlist decisions [<plan>]`, and validate the record with `runlist decisions --check`.
 
 ## Guardrails (the guard hook enforces these)
 

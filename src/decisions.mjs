@@ -689,7 +689,7 @@ export function runDecisions(args, config) {
       process.stdout.write(`${items.length} decision items in ${docs.length} documents; ${defects.length} defects.\n`);
     }
     if (defects.length) process.exitCode = 1;
-    return;
+    return { defects };
   }
 
   let docFilter = null;

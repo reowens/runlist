@@ -676,10 +676,11 @@ Options:
   --json                 Output as JSON ({ owned, prompts, errors, previousSelf,
                          fleet, recentRejections, misuseRecap, drift })`,
 
-  briefing: `runlist briefing — compact summary for session start
+  briefing: `runlist briefing — comprehensive live-work summary
 
-Shows plan statuses with next steps, doc/research counts, and health
-in 5-10 lines. Designed for LLM context injection.
+Shows every live plan with its next step, plus doc/research counts and health.
+Output grows with the corpus; use \`runlist plans\` for compact orientation or
+\`runlist agent-context\` for structured agent context.
 
 Options:
   --json                 Output as JSON`,
@@ -1983,7 +1984,15 @@ async function main() {
   if (command === 'glossary') { const { runGlossary } = await import('../src/glossary.mjs'); runGlossary(restArgs, config); return; }
   if (command === 'model') { const { runModel } = await import('../src/model.mjs'); await runModel(restArgs, config); return; }
   if (command === 'show') { const { runShow } = await import('../src/show.mjs'); runShow(restArgs, config); return; }
-  if (command === 'decisions') { const { runDecisions } = await import('../src/decisions.mjs'); runDecisions(restArgs, config); return; }
+  if (command === 'decisions') {
+    const { runDecisions } = await import('../src/decisions.mjs');
+    const result = runDecisions(restArgs, config);
+    if (result?.defects?.length) {
+      const first = result.defects[0];
+      _exitFailureMessage = `${result.defects.length} decision defect(s); first: ${first.doc}:${first.line} ${first.message}`;
+    }
+    return;
+  }
   if (command === 'export') { const { runExport } = await import('../src/export.mjs'); runExport(restArgs, config, { dryRun, root: rootArg, type: typeArg }); return; }
 
   // Lifecycle commands
@@ -2175,7 +2184,10 @@ async function main() {
         writeCheckPreviewNote();
         process.stdout.write('\n' + renderCheck(freshIndex, config, { errorsOnly, noCollapse, verbose }));
       }
-      if (freshIndex.errors.length > 0) process.exitCode = 1;
+      if (freshIndex.errors.length > 0) {
+        process.exitCode = 1;
+        _exitFailureMessage = checkFailureSummary(freshIndex.errors);
+      }
       return;
     }
 
@@ -2185,13 +2197,19 @@ async function main() {
 
     if (args.includes('--json')) {
       process.stdout.write(JSON.stringify(checkJson(index), null, 2) + '\n');
-      if (index.errors.length > 0) process.exitCode = 1;
+      if (index.errors.length > 0) {
+        process.exitCode = 1;
+        _exitFailureMessage = checkFailureSummary(index.errors);
+      }
       return;
     }
 
     writeCheckPreviewNote();
     process.stdout.write(renderCheck(index, config, { errorsOnly, noCollapse, verbose }));
-    if (index.errors.length > 0) process.exitCode = 1;
+    if (index.errors.length > 0) {
+      process.exitCode = 1;
+      _exitFailureMessage = checkFailureSummary(index.errors);
+    }
     return;
   }
 
@@ -2416,8 +2434,14 @@ async function main() {
 let _resolvedConfig = null;
 let _resolvedCommand = null;
 let _suppressObservability = false;
+let _exitFailureMessage = null;
 const _startMs = Date.now();
 const _invocationArgs = process.argv.slice(2);
+
+function checkFailureSummary(errors) {
+  const first = errors[0];
+  return `${errors.length} check error(s); first: ${first.path ? `${first.path}: ` : ''}${first.message}`;
+}
 
 function _journalExit(err) {
   if (_suppressObservability || _resolvedCommand === 'hud' || _invocationArgs.includes('--dry-run') || _invocationArgs.includes('-n')) return;
@@ -2433,7 +2457,7 @@ function _journalExit(err) {
   // A command that reports its own failure through the exit code (check with
   // errors, a failed update step) is a failure too.
   const code = Number(process.exitCode ?? 0);
-  const failure = err ?? (code !== 0 ? { name: 'ExitStatus', message: `exited with status ${code}` } : null);
+  const failure = err ?? (code !== 0 ? { name: 'ExitStatus', message: _exitFailureMessage ?? `exited with status ${code}` } : null);
   if (failure) {
     try {
       recordGlobalError({

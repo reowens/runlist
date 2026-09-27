@@ -309,8 +309,18 @@ describe('runlist errors: the read verb over the error log', () => {
     strictEqual(r.status, 1, r.stdout + r.stderr);
     const entry = JSON.parse(readFileSync(errorLogFile, 'utf8').trim().split('\n').pop());
     strictEqual(entry.argv[0], 'check');
-    strictEqual(entry.err, 'exited with status 1');
+    match(entry.err, /1 check error\(s\); first: docs\/bad\.md:.*Unknown status/);
     strictEqual(entry.errName, 'ExitStatus');
+  });
+
+  it('records the first decision defect when decisions --check exits nonzero', () => {
+    writeFileSync(path.join(tmpDir, 'docs', 'decisions.md'),
+      '---\ntype: plan\nstatus: planned\n---\n# Decisions\n\n## Decisions\n\n- **D1 — Which shelf?**\n');
+    const r = run(['decisions', '--check']);
+    strictEqual(r.status, 1, r.stdout + r.stderr);
+    const entry = JSON.parse(readFileSync(errorLogFile, 'utf8').trim().split('\n').pop());
+    match(entry.err, /decision defect\(s\); first: docs\/decisions\.md:\d+/);
+    ok(!entry.err.includes('exited with status'), entry.err);
   });
 
   it('prints the newest failures first as { at, command, message, repo, exit }', () => {

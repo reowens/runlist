@@ -527,8 +527,8 @@ describe('runlist baton', () => {
     const r = run(['baton', 'docs/plans/auth-revamp.md', '--message', 'newer handoff']);
     ok(r.status !== 0, 'refused');
     match(r.stderr, /already pending:\n  docs\/prompts\/resume-auth-revamp\.md/);
-    match(r.stderr, /runlist use resume-auth-revamp/);
     match(r.stderr, /runlist prompts archive docs\/prompts\/resume-auth-revamp\.md/);
+    match(r.stderr, /runlist prompts show resume-auth-revamp/);
     ok(!existsSync(path.join(docsDir, 'prompts', 'resume-auth-revamp-2.md')), 'no -2 copy');
     ok(readFileSync(older, 'utf8').includes('older handoff'), 'older prompt untouched');
     ok(readFileSync(path.join(plansDir, 'auth-revamp.md'), 'utf8').includes('status: in-session'), 'plan untouched');

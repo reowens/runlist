@@ -97,20 +97,21 @@ Restart Claude Code, or run `/reload-plugins`, after a plugin update.
 ```bash
 runlist init                    # create config, docs/, and the generated index
 runlist new plan auth-refresh  # scaffold a typed document
-runlist briefing               # compact active-work orientation
-runlist plans                  # live plan dashboard
+runlist plans                  # compact live plan dashboard
+runlist briefing               # comprehensive active-work view
 runlist check                  # validate schema, references, and lifecycle shape
 runlist doctor                 # preview repairs; add --apply to write
 ```
 
-`runlist briefing` is the compact orientation view. `runlist context` is the fuller
+`runlist plans` is the compact orientation view. `runlist briefing` lists live
+plans with next steps and grows with the corpus. `runlist context` is the fuller
 human/LLM briefing, while `runlist agent-context` emits bounded structured JSON for
 agent integrations.
 
 ## Core Workflow
 
 ```bash
-runlist briefing
+runlist plans
 runlist use docs/plans/auth-refresh.md
 runlist set awaiting docs/plans/auth-refresh.md --note "Need API owner decision"
 runlist set active docs/plans/auth-refresh.md --note "Decision received"
