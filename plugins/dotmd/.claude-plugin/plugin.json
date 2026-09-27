@@ -1,6 +1,6 @@
 {
   "name": "dotmd",
-  "version": "0.89.1",
+  "version": "0.89.2",
   "description": "Primes sessions and subagents with the runlist workflow and guards common mistakes. Requires `runlist` on PATH (npm i -g runlist).",
   "author": {
     "name": "Robert Owens",
