@@ -80,6 +80,16 @@ function runAsync(args, sid = 'test-sid') {
   });
 }
 
+async function withSessionIdentity(fn, sid = 'test-sid') {
+  const previous = process.env.RUNLIST_SESSION_ID;
+  process.env.RUNLIST_SESSION_ID = sid;
+  try { return await fn(); }
+  finally {
+    if (previous === undefined) delete process.env.RUNLIST_SESSION_ID;
+    else process.env.RUNLIST_SESSION_ID = previous;
+  }
+}
+
 afterEach(() => {
   if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
 });
@@ -679,9 +689,9 @@ describe('runlist baton', () => {
     const original = '---\ntype: prompt\nstatus: pending\nplan: ../plans/replace-rollback.md\n---\nold pending\n';
     writeFileSync(prompt, original);
     const config = await resolveConfig(tmpDir, configPath);
-    await rejects(runBaton([plan, '--replace', '--message', 'new pending'], config, {
+    await withSessionIdentity(() => rejects(runBaton([plan, '--replace', '--message', 'new pending'], config, {
       testHooks: { afterSetCommit: count => { if (count === 2) throw new Error('abort replacement'); } },
-    }), /abort replacement/);
+    }), /abort replacement/));
     strictEqual(readFileSync(prompt, 'utf8'), original);
     match(readFileSync(plan, 'utf8'), /^status: in-session$/m);
     ok(!existsSync(path.join(docsDir, 'prompts', 'archived', 'resume-replace-rollback.md')));
@@ -693,9 +703,9 @@ describe('runlist baton', () => {
     const prompt = path.join(docsDir, 'prompts', 'resume-slug-rollback.md');
     const original = readFileSync(prompt, 'utf8');
     const config = await resolveConfig(tmpDir, configPath);
-    await rejects(runBaton(['slug-rollback', '--replace', '--message', 'new pending'], config, {
+    await withSessionIdentity(() => rejects(runBaton(['slug-rollback', '--replace', '--message', 'new pending'], config, {
       testHooks: { afterSetCommit: count => { if (count === 2) throw new Error('abort slug replacement'); } },
-    }), /abort slug replacement/);
+    }), /abort slug replacement/));
     strictEqual(readFileSync(prompt, 'utf8'), original);
     ok(!existsSync(path.join(docsDir, 'prompts', 'archived', 'resume-slug-rollback.md')));
 
