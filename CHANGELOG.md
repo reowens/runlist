@@ -2,6 +2,12 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- Rollback tests provide an explicit session identity, so they pass in CI environments without an agent host session.
+
 ## 0.88.0 — 2026-09-27
 
 ### Added
