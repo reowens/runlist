@@ -11,7 +11,7 @@ import { codexStatus } from './codex-integration.mjs';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
 
-const NPM_PKG = 'dotmd-cli';
+const NPM_PKG = 'runlist';
 const DEFAULT_PLUGIN_ID = 'dotmd@dotmd';
 
 // Parse an x.y.z prefix; returns [major, minor, patch] or null.

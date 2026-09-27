@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-Only the latest published version of `dotmd-cli` receives security updates.
+Only the latest published version of `runlist` receives security updates.
 
 ## Reporting a Vulnerability
 

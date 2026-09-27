@@ -8,9 +8,9 @@ import { codexStatus, installCodexPlugin } from '../src/codex-integration.mjs';
 
 let home;
 const root = path.resolve(import.meta.dirname, '..');
+const version = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version;
 const bin = path.join(root, 'bin', 'runlist.mjs');
 const hook = path.join(root, 'plugins', 'runlist-codex', 'bin', 'runlist-hook');
-const version = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version;
 const fresh = () => { home = mkdtempSync(path.join(os.tmpdir(), 'runlist-codex-')); return home; };
 afterEach(() => { if (home) rmSync(home, { recursive: true, force: true }); home = null; });
 
@@ -53,7 +53,7 @@ describe('Codex plugin distribution', () => {
     const packed = spawnSync('npm', ['pack', '--dry-run', '--json'], { cwd: root, encoding: 'utf8' });
     strictEqual(packed.status, 0, packed.stderr);
     const output = JSON.parse(packed.stdout);
-    const p = Array.isArray(output) ? output[0] : output['dotmd-cli'];
+    const p = Array.isArray(output) ? output[0] : output.runlist;
     const files = new Set(p.files.map(f => f.path));
     ok(files.has('plugins/runlist-codex/.codex-plugin/plugin.json'));
     ok(files.has('plugins/runlist-codex/hooks/hooks.json'));
@@ -117,6 +117,6 @@ describe('Codex hook payloads', () => {
     strictEqual(unrelated.stdout.trim(), '{}');
     const absent = spawnSync('sh', [hook, '--hint', 'hud'], { cwd: h, env: { PATH: '/usr/bin:/bin' }, encoding: 'utf8' });
     strictEqual(absent.status, 0);
-    match(absent.stdout, /npm i -g dotmd-cli/);
+    match(absent.stdout, /npm i -g runlist/);
   });
 });

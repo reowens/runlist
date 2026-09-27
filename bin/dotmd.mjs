@@ -196,7 +196,7 @@ reports a missing integration but never installs one.`,
 
   update: `runlist update — update the runlist CLI and the Claude Code plugin together
 
-  runlist update                 npm i -g dotmd-cli  +  claude plugin update dotmd@dotmd
+  runlist update                 npm i -g runlist  +  claude plugin update dotmd@dotmd
   runlist update --check         report CLI vs plugin versions, do nothing (network-free)
   runlist update --cli-only      only the npm CLI
   runlist update --plugin-only   only the plugin

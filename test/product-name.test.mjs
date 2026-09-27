@@ -21,7 +21,7 @@ const ROOT = path.resolve(import.meta.dirname, '..');
 
 const ALLOWED = [
   // 1. IDENTITY
-  { re: /dotmd-cli/g, why: 'npm package name (renamed in a later phase)' },
+  { re: /dotmd-cli/g, why: 'legacy npm dependency name still recognized' },
   { re: /dotmd@dotmd/g, why: 'Claude Code plugin id' },
   { re: /reowens\/dotmd/g, why: 'GitHub repository / plugin marketplace source' },
   { re: /\bdotmd\.js\b/g, why: 'installed OpenCode plugin file name' },

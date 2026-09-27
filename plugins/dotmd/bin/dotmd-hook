@@ -3,7 +3,7 @@
 #
 # The plugin's hooks drive the whole workflow through the PATH `runlist` binary
 # (`runlist hud`, `runlist guard`), falling back to the legacy `dotmd` alias. If a user enables the plugin but hasn't run
-# `npm i -g dotmd-cli`, the binary is missing, the hook errors `command not
+# `npm i -g runlist`, the binary is missing, the hook errors `command not
 # found`, and the session is primed with *silent nothing* — no signal that the
 # whole workflow is one install away. dotmd can't warn about its own absence
 # (it's the thing that's missing), so the check lives here, outside the binary.
@@ -29,7 +29,7 @@ elif command -v dotmd >/dev/null 2>&1; then
   CLI=dotmd
 else
   if [ "$hint" = "1" ]; then
-    echo "runlist plugin: neither \`runlist\` nor \`dotmd\` is on PATH, so its hooks are no-ops. Enable the workflow with: npm i -g dotmd-cli"
+    echo "runlist plugin: neither \`runlist\` nor \`dotmd\` is on PATH, so its hooks are no-ops. Enable the workflow with: npm i -g runlist"
   fi
   exit 0
 fi

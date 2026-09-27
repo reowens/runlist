@@ -103,11 +103,11 @@ describe('removed product surfaces', () => {
 
       const tree = runNpm(['ls', '--omit=dev', '--json'], { cwd: installRoot, encoding: 'utf8' });
       strictEqual(tree.status, 0, tree.stderr);
-      const installedPackage = JSON.parse(tree.stdout).dependencies?.['dotmd-cli'];
+      const installedPackage = JSON.parse(tree.stdout).dependencies?.runlist;
       ok(installedPackage, tree.stdout);
       strictEqual(installedPackage.dependencies, undefined, tree.stdout);
 
-      const packageRoot = path.join(installRoot, 'node_modules', 'dotmd-cli');
+      const packageRoot = path.join(installRoot, 'node_modules', 'runlist');
       for (const productPath of [
         'package.json', 'README.md', 'runlist.config.example.mjs',
         'bin/runlist.mjs', 'bin/dotmd.mjs', 'src/commands.mjs', 'src/completions.mjs', 'src/config.mjs',

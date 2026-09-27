@@ -25,6 +25,7 @@ release_failed() {
 trap release_failed ERR
 
 VERSION="${npm_package_version:-$(node -p "require('./package.json').version")}"
+PACKAGE="$(node -p "require('./package.json').name")"
 TAG="v${VERSION}"
 node scripts/release-intent.mjs verify "${VERSION}"
 SHA="$(git rev-list -n 1 "${TAG}" 2>/dev/null || true)"
@@ -113,22 +114,26 @@ fi
 
 # CI's `npm publish` succeeding doesn't guarantee the registry serves the
 # version to us yet. Poll until the exact version resolves before installing.
-echo "→ waiting for registry to serve dotmd-cli@${VERSION} (up to ~120s)"
+echo "→ waiting for registry to serve ${PACKAGE}@${VERSION} (up to ~120s)"
 for _ in $(seq 1 40); do
-  if npm view "dotmd-cli@${VERSION}" version >/dev/null 2>&1; then
+  if npm view "${PACKAGE}@${VERSION}" version >/dev/null 2>&1; then
     break
   fi
   sleep 3
 done
-if ! npm view "dotmd-cli@${VERSION}" version >/dev/null 2>&1; then
-  echo "✗ dotmd-cli@${VERSION} not resolvable on the registry after waiting." >&2
+if ! npm view "${PACKAGE}@${VERSION}" version >/dev/null 2>&1; then
+  echo "✗ ${PACKAGE}@${VERSION} not resolvable on the registry after waiting." >&2
   echo "  Publish CI passed, so this is registry lag. Resume without bumping:" >&2
   echo "    npm run release:resume" >&2
   exit 1
 fi
 
-echo "→ installing dotmd-cli@${VERSION} globally"
-npm install -g "dotmd-cli@${VERSION}"
+if npm ls -g --depth=0 dotmd-cli >/dev/null 2>&1; then
+  echo "→ removing legacy dotmd-cli global install before installing ${PACKAGE}"
+  npm uninstall -g dotmd-cli
+fi
+echo "→ installing ${PACKAGE}@${VERSION} globally"
+npm install -g "${PACKAGE}@${VERSION}"
 
 # A release shell and an agent host can resolve different Node installations
 # from PATH (for example NVM first during release, Homebrew first in OpenCode).
@@ -162,8 +167,8 @@ fi
 node scripts/release-intent.mjs clear
 trap - ERR
 if [ -n "${PLUGIN_VERIFIED}" ]; then
-  echo "✓ released dotmd-cli@${VERSION}; all visible Node prefixes and the plugin are in sync"
+  echo "✓ released ${PACKAGE}@${VERSION}; all visible Node prefixes and the plugin are in sync"
 else
-  echo "✓ released and installed dotmd-cli@${VERSION} across all visible Node prefixes"
+  echo "✓ released and installed ${PACKAGE}@${VERSION} across all visible Node prefixes"
   echo "⚠ local plugin verification remains incomplete; the published CLI release is complete." >&2
 fi

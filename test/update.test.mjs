@@ -129,7 +129,7 @@ test('verifyInstalledPluginVersion rejects alternate or mixed installed scopes',
 test('planUpdate: both halves when tools present and plugin installed', () => {
   const steps = planUpdate({}, { plugin: { id: 'dotmd@dotmd', version: '0.53.0' }, hasClaude: true, hasNpm: true });
   assert.deepEqual(steps.map(s => s.kind), ['cli', 'plugin']);
-  assert.deepEqual(steps[0].cmd, ['npm', 'i', '-g', 'dotmd-cli@latest']);
+  assert.deepEqual(steps[0].cmd, ['npm', 'i', '-g', 'runlist@latest']);
   assert.deepEqual(steps[1].cmd, ['claude', 'plugin', 'update', 'dotmd@dotmd']);
 });
 

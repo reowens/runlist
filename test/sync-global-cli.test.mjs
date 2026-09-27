@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import {
   buildSyncPlan,
   cleanNpmEnv,
+  installWithSiblingNpm,
   isNpmManagedGlobalPath,
+  npmManagedPackageForPath,
   parseExecutablePaths,
   prefixForDotmd,
   syncGlobalCliCopies,
@@ -40,8 +42,14 @@ test('isNpmManagedGlobalPath rejects a tool-manager shim outside npm prefix', { 
     '/opt/homebrew/bin/dotmd',
     '/opt/homebrew',
     '/opt/homebrew/lib/node_modules',
-    { realpath: () => '/opt/homebrew/lib/node_modules/dotmd-cli/bin/dotmd.mjs' },
+    { realpath: () => '/opt/homebrew/lib/node_modules/runlist/bin/dotmd.mjs' },
   ), true);
+  assert.equal(npmManagedPackageForPath(
+    '/opt/homebrew/bin/dotmd',
+    '/opt/homebrew',
+    '/opt/homebrew/lib/node_modules',
+    { realpath: () => '/opt/homebrew/lib/node_modules/dotmd-cli/bin/dotmd.mjs' },
+  ), 'dotmd-cli');
   assert.equal(isNpmManagedGlobalPath(
     '/opt/homebrew/bin/dotmd',
     '/opt/homebrew',
@@ -53,6 +61,28 @@ test('isNpmManagedGlobalPath rejects a tool-manager shim outside npm prefix', { 
     '/Users/me/.volta/tools/image/node/22',
     '/Users/me/.volta/tools/image/node/22/lib/node_modules',
   ), false);
+});
+
+test('buildSyncPlan migrates an installed legacy package even when its version matches', () => {
+  const [entry] = buildSyncPlan([{
+    dotmdPath: '/a/dotmd', version: '0.89.1', runlistVersion: '0.89.1', rlVersion: '0.89.1',
+    packageName: 'dotmd-cli', npmPath: '/a/npm', prefix: '/a',
+  }], '0.89.1');
+  assert.equal(entry.needsInstall, true);
+});
+
+test('legacy global package is removed before installing runlist in the same prefix', () => {
+  const calls = [];
+  const entry = { packageName: 'dotmd-cli', npmPath: '/a/bin/npm', prefix: '/a' };
+  const result = installWithSiblingNpm(entry, '0.89.1', (command, args) => {
+    calls.push([command, ...args]);
+    return { status: 0 };
+  });
+  assert.equal(result.status, 0);
+  assert.deepEqual(calls, [
+    ['/a/bin/npm', 'uninstall', '-g', '--prefix', '/a', 'dotmd-cli'],
+    ['/a/bin/npm', 'install', '-g', '--prefix', '/a', 'runlist@0.89.1'],
+  ]);
 });
 
 test('syncGlobalCliCopies updates each stale PATH-visible prefix and verifies again', () => {

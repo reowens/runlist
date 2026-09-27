@@ -1,4 +1,4 @@
-// Runs after `npm install dotmd-cli`. Because the dotmd Claude Code plugin is a
+// Runs after `npm install runlist`. Because the Claude Code plugin is a
 // separate artifact from this CLI, upgrading the CLI alone leaves the plugin
 // (hooks/skill/commands) on its old version. This script bridges that — but
 // conservatively:
@@ -9,7 +9,7 @@
 //     agent's plugin cache is surprising; opt in with RUNLIST_AUTO_PLUGIN_UPDATE=1
 //     to actually run the refresh.
 //   - NEVER fail the install: everything is swallowed and we always exit 0. A
-//     nonzero postinstall would break `npm i -g dotmd-cli`.
+//     nonzero postinstall would break `npm i -g runlist`.
 //   - Skipped entirely under `npm install --ignore-scripts`.
 import { spawnSync } from 'node:child_process';
 

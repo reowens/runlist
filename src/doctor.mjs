@@ -421,7 +421,9 @@ function findWorkflowDrift(config) {
 function runDoctorProject(config, { json = false } = {}) {
   const cliPackage = readJsonIfPresent(new URL('../package.json', import.meta.url));
   const repoPackage = readJsonIfPresent(path.join(config.repoRoot, 'package.json'));
-  const depVersion = repoPackage?.dependencies?.['dotmd-cli']
+  const depVersion = repoPackage?.dependencies?.runlist
+    ?? repoPackage?.devDependencies?.runlist
+    ?? repoPackage?.dependencies?.['dotmd-cli']
     ?? repoPackage?.devDependencies?.['dotmd-cli']
     ?? repoPackage?.dependencies?.dotmd
     ?? repoPackage?.devDependencies?.dotmd

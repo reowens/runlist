@@ -6,7 +6,8 @@ import { delimiter } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const PACKAGE = 'dotmd-cli';
+const PACKAGE = 'runlist';
+const LEGACY_PACKAGE = 'dotmd-cli';
 
 export function parseExecutablePaths(output) {
   return [...new Set(String(output ?? '')
@@ -18,7 +19,7 @@ export function parseExecutablePaths(output) {
 export function buildSyncPlan(entries, targetVersion) {
   return entries.map(entry => ({
     ...entry,
-    needsInstall: entry.version !== targetVersion
+    needsInstall: entry.packageName === LEGACY_PACKAGE || entry.version !== targetVersion
       || entry.runlistVersion !== targetVersion
       || entry.rlVersion !== targetVersion,
     canInstall: entry.managed !== false && Boolean(entry.npmPath && entry.prefix),
@@ -86,32 +87,39 @@ function npmGlobalRoot(npmPath) {
   return result.status === 0 && result.stdout.trim() ? path.resolve(result.stdout.trim()) : null;
 }
 
-export function isNpmManagedGlobalPath(dotmdPath, prefix, globalRoot, opts = {}) {
-  if (!prefix || !globalRoot) return false;
+export function npmManagedPackageForPath(dotmdPath, prefix, globalRoot, opts = {}) {
+  if (!prefix || !globalRoot) return null;
   const normalize = value => process.platform === 'win32' ? value.toLowerCase() : value;
   const actual = normalize(path.resolve(dotmdPath));
   const candidates = process.platform === 'win32'
     ? ['dotmd', 'dotmd.cmd', 'dotmd.ps1'].map(name => normalize(path.resolve(prefix, name)))
     : [path.resolve(prefix, 'bin', 'dotmd')];
-  if (!candidates.includes(actual)) return false;
+  if (!candidates.includes(actual)) return null;
 
-  const packageRoot = normalize(path.resolve(globalRoot, PACKAGE));
+  const packages = [PACKAGE, LEGACY_PACKAGE];
   if (process.platform === 'win32') {
     try {
-      return normalize(readFileSync(dotmdPath, 'utf8')).includes(normalize(path.join('node_modules', PACKAGE)));
+      const wrapper = normalize(readFileSync(dotmdPath, 'utf8'));
+      return packages.find(name => wrapper.includes(normalize(path.join('node_modules', name)))) ?? null;
     } catch {
-      return false;
+      return null;
     }
   }
 
   try {
     const resolveRealpath = opts.realpath ?? realpathSync;
     const target = normalize(resolveRealpath(dotmdPath));
-    const rel = path.relative(packageRoot, target);
-    return rel !== '' && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
+    return packages.find(name => {
+      const rel = path.relative(normalize(path.resolve(globalRoot, name)), target);
+      return rel !== '' && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
+    }) ?? null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+export function isNpmManagedGlobalPath(dotmdPath, prefix, globalRoot, opts = {}) {
+  return npmManagedPackageForPath(dotmdPath, prefix, globalRoot, opts) !== null;
 }
 
 export function prefixForDotmd(dotmdPath) {
@@ -126,6 +134,7 @@ export function inspectGlobalCliCopies() {
     const rlPath = siblingExecutable(dotmdPath, 'rl');
     const prefix = npmGlobalPrefix(npmPath);
     const globalRoot = npmGlobalRoot(npmPath);
+    const packageName = npmManagedPackageForPath(dotmdPath, prefix, globalRoot);
     return {
       dotmdPath,
       version: readVersion(dotmdPath),
@@ -136,17 +145,24 @@ export function inspectGlobalCliCopies() {
       npmPath,
       prefix,
       globalRoot,
-      managed: isNpmManagedGlobalPath(dotmdPath, prefix, globalRoot),
+      managed: packageName !== null,
+      packageName,
     };
   });
 }
 
-function installWithSiblingNpm(entry, targetVersion) {
+export function installWithSiblingNpm(entry, targetVersion, run = spawnSync) {
   // Same inheritance problem as the probes above: npm_config_prefix from the
   // release lifecycle would redirect this install back to the release shell's
   // prefix, silently "installing" into the copy that was already current.
   const env = cleanNpmEnv(path.dirname(entry.npmPath));
-  return spawnSync(entry.npmPath, ['install', '-g', '--prefix', entry.prefix, `${PACKAGE}@${targetVersion}`], {
+  if (entry.packageName === LEGACY_PACKAGE) {
+    const removed = run(entry.npmPath, ['uninstall', '-g', '--prefix', entry.prefix, LEGACY_PACKAGE], {
+      env, stdio: 'inherit',
+    });
+    if (removed.status !== 0) return removed;
+  }
+  return run(entry.npmPath, ['install', '-g', '--prefix', entry.prefix, `${PACKAGE}@${targetVersion}`], {
     env,
     stdio: 'inherit',
   });
@@ -185,7 +201,7 @@ export function syncGlobalCliCopies(targetVersion, deps = {}) {
   }
 
   const final = inspect();
-  const mismatches = final.filter(entry => entry.version !== targetVersion
+  const mismatches = final.filter(entry => entry.packageName === LEGACY_PACKAGE || entry.version !== targetVersion
     || entry.runlistVersion !== targetVersion
     || entry.rlVersion !== targetVersion);
   if (mismatches.length > 0) {

@@ -38,7 +38,7 @@ export function detectVersionDrift(env = process.env) {
     const cmp = compareVersions(pluginVersion, pkg.version);
     if (cmp === null || cmp === 0) return null;
     if (cmp < 0) return `runlist plugin ${pluginVersion} is behind the CLI ${pkg.version} — run \`runlist update\` then restart.`;
-    return `runlist CLI ${pkg.version} is behind the plugin ${pluginVersion} — run \`runlist update\` (or npm i -g dotmd-cli).`;
+    return `runlist CLI ${pkg.version} is behind the plugin ${pluginVersion} — run \`runlist update\` (or npm i -g runlist).`;
   } catch {
     return null;
   }

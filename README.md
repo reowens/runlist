@@ -15,16 +15,24 @@ safe to mutate.
 ## Install
 
 ```bash
-npm install -g dotmd-cli    # global CLI and Claude Code plugin hooks
-npm install -D dotmd-cli    # project scripts via node_modules/.bin
-npx dotmd-cli init          # try it without installing
+npm install -g runlist      # global CLI and agent-host hooks
+npm install -D runlist      # project scripts via node_modules/.bin
+npx runlist init            # try it without installing
 ```
 
 `runlist` is the canonical executable, `rl` is its short convenience alias, and
 `dotmd` remains supported during the compatibility window. All three invoke the
-same CLI. The package is still published as `dotmd-cli`, and the Claude Code
-plugin is still `dotmd@dotmd`; those names change in a later release. Legacy
+same CLI. The npm package is `runlist`; existing `dotmd-cli` installs should be
+replaced with `runlist`. The Claude Code plugin is still `dotmd@dotmd`. Legacy
 `dotmd.config.*` files, `DOTMD_*` variables and `.dotmd/` state keep working.
+
+If you installed the old package globally, remove it before installing the new
+one because both packages provide the same executable names:
+
+```bash
+npm uninstall -g dotmd-cli
+npm install -g runlist
+```
 
 Maintainer release automation is POSIX-only because it uses Bash and POSIX
 command-line tools. The published Node.js CLI remains cross-platform.

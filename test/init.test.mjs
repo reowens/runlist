@@ -508,7 +508,7 @@ describe('init Claude integration', () => {
     ok(!existsSync(path.join(tmpDir, '.claude')), 'init must not create a project .claude/');
     ok(result.stdout.includes('/plugin install dotmd'),
       `greenfield Claude user should still get the plugin nudge; got: ${result.stdout}`);
-    ok(/npm i -g dotmd-cli/.test(result.stdout),
+    ok(/npm i -g runlist/.test(result.stdout),
       `should call out the global-install requirement; got: ${result.stdout}`);
   });
 

@@ -32,7 +32,7 @@ describe('plugin hook wrapper (missing dotmd binary)', { skip: process.platform 
     try {
       const r = runHook(['--hint', 'hud'], emptyDir);
       strictEqual(r.status, 0, `expected exit 0; stderr: ${r.stderr}`);
-      match(r.stdout, /npm i -g dotmd-cli/, `expected install hint; got: ${r.stdout}`);
+      match(r.stdout, /npm i -g runlist/, `expected install hint; got: ${r.stdout}`);
       strictEqual(r.stdout.trim().split('\n').length, 1, 'hint is a single line');
     } finally {
       rmSync(emptyDir, { recursive: true, force: true });

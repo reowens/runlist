@@ -6,7 +6,7 @@ allowed-tools: "Bash(runlist:*), Bash(rl:*), Bash(dotmd:*), Read"
 
 # runlist workflow
 
-This repo's plans, reference docs, and saved prompts are managed by the **runlist** CLI (markdown + YAML frontmatter; installed from the `dotmd-cli` package, and `dotmd` still works as an alias). Always drive them through `runlist` — never hand-edit frontmatter, never read prompts with the file tools, never commit session-local prompts. The session-start hook prints the live verb sheet and a bounded plan-status vocabulary; if it truncates, use the printed `runlist statuses list --type plan` fallback. Use `runlist plans` for a compact plan dashboard, `runlist agent-context` for structured agent orientation, and `runlist briefing` only when the comprehensive view is needed; its output grows with the corpus.
+This repo's plans, reference docs, and saved prompts are managed by the **runlist** CLI (markdown + YAML frontmatter; installed from the `runlist` package, and `dotmd` still works as an alias). Always drive them through `runlist` — never hand-edit frontmatter, never read prompts with the file tools, never commit session-local prompts. The session-start hook prints the live verb sheet and a bounded plan-status vocabulary; if it truncates, use the printed `runlist statuses list --type plan` fallback. Use `runlist plans` for a compact plan dashboard, `runlist agent-context` for structured agent orientation, and `runlist briefing` only when the comprehensive view is needed; its output grows with the corpus.
 
 **Workflow contract** — the irreducible verbs at a glance; the sections below expand each one.
 

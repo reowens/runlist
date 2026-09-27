@@ -5,7 +5,7 @@ description: Manage a repository's plans, docs, decisions, and saved prompts wit
 
 # Runlist workflow
 
-Use this skill in repositories with `runlist.config.mjs` or `dotmd.config.mjs`. The CLI is `runlist` (from `dotmd-cli`; `dotmd` remains an alias). The session hook prints a short live orientation. `CODEX_THREAD_ID` is the session identity used for plan claims; do not replace it with a process ID.
+Use this skill in repositories with `runlist.config.mjs` or `dotmd.config.mjs`. The CLI is `runlist` (from the `runlist` package; `dotmd` remains an alias). The session hook prints a short live orientation. `CODEX_THREAD_ID` is the session identity used for plan claims; do not replace it with a process ID.
 
 - Orient with `runlist plans`. Use `runlist agent-context` for structured state; `runlist briefing` is the comprehensive view and can be large.
 - Start plan work with `runlist use <plan-file>`. It claims the plan, marks it `in-session`, and prints the card.
