@@ -147,9 +147,9 @@ const DEFAULTS = {
   // and users who want usage observability flip this on (or set RUNLIST_JOURNAL=1).
   journal: false,
 
-  // PreToolUse guard behavior. `deny: false` drops the status-edit rules from
-  // deny (block the tool call) back to warn-only teaching context.
-  guard: { deny: true },
+  // PreToolUse guard behavior. `deny: false` drops status edits to warnings;
+  // `promptReads: 'deny'` blocks direct reads of existing pending prompts.
+  guard: { deny: true, promptReads: 'warn' },
 
   presets: {
     stale: ['--status', 'active,ready,planned,blocked,scoping', '--stale', '--sort', 'updated', '--all'],
@@ -678,7 +678,10 @@ export async function resolveConfig(cwd, explicitConfigPath) {
     presets: config.presets,
     configuredPresetNames: new Set(Object.keys(userConfig.presets ?? {})),
     journal: config.journal === true,
-    guard: { deny: config.guard?.deny !== false },
+    guard: {
+      deny: config.guard?.deny !== false,
+      promptReads: config.guard?.promptReads === 'deny' ? 'deny' : 'warn',
+    },
     hooks,
     configWarnings,
   };

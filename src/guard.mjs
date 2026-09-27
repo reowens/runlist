@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { inspectGitCommandPaths } from './git.mjs';
+import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { recordGuardEvent } from './journal.mjs';
 import { readEnv } from './naming.mjs';
 
@@ -241,7 +242,25 @@ const STREAM_EDITOR_INPLACE = [
   /\bg?awk\b[^|;&<>]*\binplace\b/,
 ];
 
-function evalBash(command, config, inspectGitPaths, baseCwd) {
+function promptReadDecision(filePath, config, deps = {}) {
+  if (config?.guard?.promptReads !== 'deny') return 'warn';
+  if (!isManagedDoc(filePath, config)) return 'warn';
+  const readFile = deps.readFile ?? ((p) => readFileSync(p, 'utf8'));
+  try {
+    const absolute = path.resolve(deps.gitCwd ?? process.cwd(), filePath);
+    const roots = config.docsRoots || (config.docsRoot ? [config.docsRoot] : ['docs']);
+    const insideRoot = roots.some(root => {
+      const base = path.resolve(config.repoRoot ?? process.cwd(), root);
+      const relative = path.relative(base, absolute);
+      return relative && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+    });
+    if (!insideRoot) return 'warn';
+    const fm = parseSimpleFrontmatter(extractFrontmatter(readFile(absolute)).frontmatter);
+    return fm.type === 'prompt' && fm.status === 'pending' ? 'deny' : 'warn';
+  } catch { return 'warn'; }
+}
+
+function evalBash(command, config, inspectGitPaths, baseCwd, deps = {}) {
   const segments = shellSegments(command);
   let cwd = baseCwd;
 
@@ -279,7 +298,7 @@ function evalBash(command, config, inspectGitPaths, baseCwd) {
     // Rule B — reading a prompt through the shell instead of consuming it.
     if (SHELL_READERS.has(cmd0) && promptTokens.length) {
       return {
-        decision: 'warn',
+        decision: promptReadDecision(promptTokens[0], config, { ...deps, gitCwd: cwd }),
         rule: 'cat-prompt',
         detail: `${cmd0} ${promptTokens.join(' ')}`,
         reason:
@@ -301,10 +320,10 @@ function evalBash(command, config, inspectGitPaths, baseCwd) {
   return null;
 }
 
-function evalRead(filePath, config) {
+function evalRead(filePath, config, deps = {}) {
   if (!isPromptPath(filePath, config)) return null;
   return {
-    decision: 'warn',
+    decision: promptReadDecision(filePath, config, deps),
     rule: 'read-prompt',
     detail: filePath,
     reason:
@@ -312,6 +331,31 @@ function evalRead(filePath, config) {
       `Just peeking or triaging (not consuming)? \`runlist prompts show ${filePath}\` reads it without archiving. ` +
       `Surveying the whole queue? \`runlist prompts show --all\` peeks every pending prompt in one call — don't Read them file by file.`,
   };
+}
+
+// Codex and OpenCode expose patch edits as one string. Only +/- hunk lines
+// count: context mentioning status is an anchor, not an edit. New files are
+// creation, and status on a deleted file is not a hand-edited transition.
+function evalPatch(command, config) {
+  if (typeof command !== 'string') return null;
+  let target = null;
+  let removed = [];
+  let added = [];
+  const changed = () => target && statusLines(removed.join('\n')).join('\n') !== statusLines(added.join('\n')).join('\n');
+  for (const line of command.split('\n')) {
+    const update = line.match(/^\*\*\* Update File: (.+)$/);
+    if (update || /^\*\*\* (?:Add|Delete) File: /.test(line) || line === '*** End Patch') {
+      if (changed()) return editStatusResult(target, config, target);
+      target = update && isManagedDoc(update[1], config) ? update[1] : null;
+      removed = [];
+      added = [];
+      continue;
+    }
+    if (!target || line.startsWith('***')) continue;
+    if (line.startsWith('+')) added.push(line.slice(1));
+    else if (line.startsWith('-')) removed.push(line.slice(1));
+  }
+  return changed() ? editStatusResult(target, config, target) : null;
 }
 
 // Every `status:` line in a snippet, normalized for comparison.
@@ -359,8 +403,16 @@ export function evaluateGuard(payload, config, deps = {}) {
   const inspectGitPaths = deps.inspectGitPaths
     || ((subcommand, args, cwd) => inspectGitCommandPaths(subcommand, args, cwd ?? deps.gitCwd ?? process.cwd()));
 
-  if (tool === 'Bash') return evalBash(input.command || '', config, inspectGitPaths, deps.gitCwd ?? process.cwd());
-  if (tool === 'Read') return evalRead(input.file_path || '', config);
+  if (tool === 'Bash') return evalBash(input.command || input.cmd || '', config, inspectGitPaths, input.workdir ?? deps.gitCwd ?? process.cwd(), deps);
+  if (tool === 'Read') return evalRead(input.file_path || '', config, deps);
+  if (tool === 'apply_patch') return evalPatch(input.command || input.patchText || '', config);
+  if (/^mcp__.*__(?:read_file|read_text_file|read_media_file|read_multiple_files)$/.test(tool ?? '')) {
+    const paths = Array.isArray(input.paths) ? input.paths : [input.path ?? input.file_path];
+    for (const p of paths) {
+      const result = evalRead(p, config, deps);
+      if (result) return result;
+    }
+  }
   if (tool === 'Edit' || tool === 'Write' || tool === 'MultiEdit') return evalEdit(input, config, deps);
   return null;
 }

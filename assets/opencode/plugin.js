@@ -11,10 +11,8 @@
 //     that isn't one — so an exported helper wouldn't just be untidy, it would
 //     be *called* as a second plugin. Helpers stay module-local.
 //
-//  2. NO HOOK MAY THROW. OpenCode awaits hook callbacks inside the request it
-//     is serving; a rejected promise fails the user's chat turn. Every hook
-//     body is wrapped, and a failure degrades to "runlist does nothing here"
-//     rather than to a broken session.
+//  2. Only a deliberate guard denial may throw. OpenCode awaits hooks inside
+//     the chat request, so every other failure degrades to a no-op.
 //
 // Runs under Bun inside the OpenCode process. Node builtins only, no deps.
 
@@ -64,12 +62,9 @@ function runCli(directory, args, input = null) {
   });
 }
 
-// OpenCode runs no Claude Code hooks, so `runlist guard` never sees its tool
-// calls, and sessions opened pending prompts with the read tool, which prints a
-// prompt without archiving it. The guard's answer for a prompt read is a
-// warning, not a block, so it is applied after the call: the teaching text is
-// appended to what the agent sees. Only calls that name a prompt file reach
-// the CLI; everything else costs a regex.
+// OpenCode runs no Claude Code hooks. Evaluate recognized prompt reads before
+// the tool so opt-in strict mode can block them. Its V1 before hook cannot
+// return model context, so ordinary warnings are appended to the result.
 const PROMPT_FILE = /(^|[\\/])prompts[\\/]\S*\.md\b/;
 
 function guardPayload(tool, args) {
@@ -86,6 +81,14 @@ export default async function dotmdOpencodePlugin({ directory }) {
   // Keyed by session so a subagent session primes independently, the way
   // SubagentStart does under Claude Code.
   const primers = new Map();
+  const guardDecisions = new Map();
+
+  async function guardFor(tool, args) {
+    const payload = guardPayload(tool, args);
+    if (!payload) return null;
+    const raw = await runCli(directory, ['guard'], JSON.stringify(payload));
+    return raw ? JSON.parse(raw)?.hookSpecificOutput ?? null : null;
+  }
 
   async function primerFor(sessionId) {
     const key = sessionId ?? '';
@@ -101,6 +104,18 @@ export default async function dotmdOpencodePlugin({ directory }) {
   }
 
   return {
+    'tool.execute.before': async (input, output) => {
+      let refusal = null;
+      try {
+        const decision = await guardFor(input?.tool, output?.args);
+        if (input?.callID && decision) guardDecisions.set(input.callID, decision);
+        if (decision?.permissionDecision === 'deny') {
+          if (input?.callID) guardDecisions.delete(input.callID);
+          refusal = decision.permissionDecisionReason;
+        }
+      } catch { /* a missing/broken guard must not fail the chat turn */ }
+      if (refusal) throw new Error(`[runlist] ${refusal}`);
+    },
     // Ownership identity. OpenCode sets no session-id variable of its own, and
     // `OPENCODE_PID` — what runlist falls back to without this plugin — names the
     // OpenCode *process*, so every session in one TUI shares it and can release
@@ -126,10 +141,10 @@ export default async function dotmdOpencodePlugin({ directory }) {
     // nothing left to refuse.
     'tool.execute.after': async (input, output) => {
       try {
-        const payload = guardPayload(input?.tool, input?.args);
-        if (!payload || typeof output?.output !== 'string') return;
-        const raw = await runCli(directory, ['guard'], JSON.stringify(payload));
-        const note = raw ? JSON.parse(raw)?.hookSpecificOutput?.additionalContext : null;
+        if (typeof output?.output !== 'string') return;
+        const decision = input?.callID ? guardDecisions.get(input.callID) : null;
+        if (input?.callID) guardDecisions.delete(input.callID);
+        const note = (decision ?? await guardFor(input?.tool, input?.args))?.additionalContext;
         if (typeof note === 'string' && note) output.output += `\n\n${note}`;
       } catch { /* a guard failure never touches the tool result */ }
     },

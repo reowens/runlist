@@ -147,8 +147,9 @@ with a one-line recap naming the habit to break.`,
 
   runlist install                report what is installed for each known host
   runlist install claude         install the Claude Code plugin (marketplace + plugin)
+  runlist install codex          install/refresh the Codex plugin (personal marketplace)
   runlist install opencode       install/refresh the OpenCode plugin (global config dir)
-  runlist install <host> --remove
+  runlist install opencode --remove
   runlist install opencode --path <dir>   write to a specific plugin directory
   runlist install opencode --force        overwrite a runlist.js runlist did not write
 
@@ -167,6 +168,12 @@ host gets that a different way:
             Claude refuses the marketplace, ~/.claude/settings.json declares it
             under extraKnownMarketplaces with a source that no longer matches;
             runlist names the field but never edits that file.
+
+  codex     Copies the npm-packaged runlist-codex plugin into the personal
+            marketplace and invokes \`codex plugin add\`. It supplies a compact
+            skill, SessionStart orientation, and a PreToolUse guard. Codex
+            requires a separate hook trust review; start a new thread after
+            installing. CODEX_THREAD_ID remains the ownership identity.
 
   opencode  Writes one auto-discovered plugin file. OpenCode has no plugin
             registry but globs \`{plugin,plugins}/*.{ts,js}\` under its global
@@ -302,7 +309,7 @@ Create & Export:
 
 Setup:
   init                              Create starter config + docs directory
-  install [opencode]                Install the agent-host integration (no arg = status)
+  install [claude|codex|opencode]  Install the agent-host integration (no arg = status)
   update [--check|--cli-only|--plugin-only]  Update the CLI + Claude Code plugin (--check reports skew, no network)
   statuses [list|add|set|remove|migrate]  Manage per-project status taxonomy
   help statuses                     Full status vocabulary + unstuck-actions + transitions
@@ -849,7 +856,7 @@ Modes:
   --migrate-prompts      Retrofit pre-existing markdown files under any docs
                          root's prompts/ subdirectory with proper prompt
                          frontmatter (type, status, created from git
-                         history, dotmd_version, context, related_plans).
+                         history, runlist_version, context, related_plans).
                          Skips files that already have frontmatter.
   --migrate-template <file>  Migrate just one plan.
   --migrate-template --include-archived

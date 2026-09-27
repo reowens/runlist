@@ -37,13 +37,28 @@ integration for whichever host you run:
 ```bash
 runlist install             # what's installed for each host
 runlist install claude      # Claude Code plugin (marketplace + plugin)
+runlist install codex       # Codex skill and hooks (personal marketplace)
 runlist install opencode    # OpenCode plugin (one auto-discovered file)
 runlist doctor --session    # what identity runlist sees here, and from where
 ```
 
-Both are one-time and global; `runlist update` keeps them in step with the CLI.
-Codex needs no install for identity: it exports `CODEX_THREAD_ID` to every tool
-shell, and runlist reads it as a per-session identity automatically.
+The integrations are one-time and global. Codex exports `CODEX_THREAD_ID` to
+every tool shell, so its identity works without the plugin; the plugin adds a
+workflow skill, session orientation, and the tool guard.
+
+### Codex Plugin
+
+`runlist install codex` copies the plugin included in the npm package into the
+personal Codex marketplace and runs `codex plugin add runlist-codex@personal`.
+Codex asks you to review and trust plugin hooks separately. Start a new thread
+after installation so the skill and SessionStart primer load. The hooks use
+the globally installed `runlist` CLI; a missing CLI produces one install hint
+and otherwise leaves tool calls alone. `CODEX_THREAD_ID` stays the ownership
+source. The CLI refuses to overwrite a plugin directory it did not generate.
+
+Direct prompt reads warn by default in Codex and Claude. A repository can set
+`export const guard = { promptReads: 'deny' };` to block reads of existing
+pending prompts; `runlist prompts show` remains the read-only inspection verb.
 
 ### Claude Code Plugin
 
@@ -72,6 +87,9 @@ supplies the two things the CLI cannot get on its own:
 - **A session-start briefing**, the equivalent of Claude Code's SessionStart
   hook. OpenCode's Claude Code compatibility covers skills and the system
   prompt, not hooks, so nothing else runs `runlist hud`.
+- **Prompt-read guardrails.** Recognized reads are checked before execution so
+  the opt-in strict policy can stop them. Default warnings are attached to the
+  result because OpenCode's before hook cannot return model context.
 
 Restart OpenCode after installing. The file is version-stamped (`runlist-generated:`, or
 `dotmd-generated:` from older releases); a `dotmd.js` without either stamp is

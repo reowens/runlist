@@ -25,6 +25,11 @@ function manifestTargets(projectRoot, version) {
       && j.plugins[0]?.name === 'dotmd' && typeof j.plugins[0]?.version === 'string',
     set: (j) => { j.plugins[0].version = version; },
   },
+  {
+    file: path.join(projectRoot, 'plugins', 'runlist-codex', '.codex-plugin', 'plugin.json'),
+    validate: (j) => j && !Array.isArray(j) && j.name === 'runlist-codex' && typeof j.version === 'string',
+    set: (j) => { j.version = version; },
+  },
   ];
 }
 
@@ -38,7 +43,7 @@ export function preparePluginVersionUpdates(projectRoot = root) {
       throw new Error(`Cannot sync plugin version in ${path.relative(projectRoot, target.file)}: ${err.message}`);
     }
     if (!target.validate(json)) {
-      throw new Error(`Cannot sync plugin version in ${path.relative(projectRoot, target.file)}: invalid dotmd plugin manifest shape`);
+      throw new Error(`Cannot sync plugin version in ${path.relative(projectRoot, target.file)}: invalid plugin manifest shape`);
     }
     target.set(json);
     return { file: target.file, content: JSON.stringify(json, null, 2) + '\n' };

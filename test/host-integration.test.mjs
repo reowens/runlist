@@ -1,5 +1,5 @@
 import { afterEach, describe, it } from 'node:test';
-import { deepStrictEqual, match, ok, strictEqual } from 'node:assert';
+import { deepStrictEqual, match, ok, rejects, strictEqual } from 'node:assert';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
@@ -277,12 +277,12 @@ describe('the generated opencode plugin module', () => {
 describe('the opencode plugin read-prompt warning', () => {
   // A stand-in `runlist` that runs this checkout's CLI, so the plugin talks to
   // the real guard instead of whatever version is installed globally.
-  function withRepo(fn) {
+  function withRepo(fn, { strict = false } = {}) {
     return async () => {
       const home = setup();
       const repo = path.join(home, 'repo');
       mkdirSync(path.join(repo, 'docs', 'prompts', 'archived'), { recursive: true });
-      writeFileSync(path.join(repo, 'dotmd.config.mjs'), "export const root = 'docs';\n");
+      writeFileSync(path.join(repo, 'dotmd.config.mjs'), `export const root = 'docs';\n${strict ? "export const guard = { promptReads: 'deny' };\n" : ''}`);
       writeFileSync(path.join(repo, 'docs', 'prompts', 'resume-x.md'), '---\ntype: prompt\nstatus: pending\n---\nbody\n');
       spawnSync('git', ['init', '-q'], { cwd: repo });
       const fakeBin = path.join(home, 'bin');
@@ -310,7 +310,12 @@ describe('the opencode plugin read-prompt warning', () => {
     return output.output;
   };
 
+  const before = async (hooks, tool, args) => hooks['tool.execute.before'](
+    { tool, sessionID: 's', callID: 'c' }, { args },
+  );
+
   it('appends the guard warning when the read tool opens a pending prompt', withRepo(async (hooks, repo) => {
+    await before(hooks, 'read', { filePath: path.join(repo, 'docs', 'prompts', 'resume-x.md') });
     const out = await after(hooks, 'read', { filePath: path.join(repo, 'docs', 'prompts', 'resume-x.md') });
     ok(out.startsWith('file contents\n\n[runlist] '), out);
     match(out, /saved runlist prompt/);
@@ -318,9 +323,17 @@ describe('the opencode plugin read-prompt warning', () => {
   }));
 
   it('appends the warning when a shell command cats a pending prompt', withRepo(async (hooks) => {
+    await before(hooks, 'bash', { command: 'cat docs/prompts/resume-x.md' });
     const out = await after(hooks, 'bash', { command: 'cat docs/prompts/resume-x.md' });
     match(out, /\[runlist\] .*runlist use docs\/prompts\/resume-x\.md/);
   }));
+
+  it('strict mode refuses a pending read before execution and allows archived reads', withRepo(async (hooks, repo) => {
+    const pending = path.join(repo, 'docs', 'prompts', 'resume-x.md');
+    await rejects(before(hooks, 'read', { filePath: pending }), /runlist use/);
+    await before(hooks, 'read', { filePath: path.join(repo, 'docs', 'prompts', 'archived', 'resume-x.md') });
+    await before(hooks, 'bash', { command: 'runlist prompts show docs/prompts/resume-x.md' });
+  }, { strict: true }));
 
   it('leaves archived prompts and unrelated reads untouched', withRepo(async (hooks, repo) => {
     strictEqual(await after(hooks, 'read', { filePath: path.join(repo, 'docs', 'prompts', 'archived', 'resume-x.md') }), 'file contents');
@@ -335,6 +348,7 @@ describe('the opencode plugin read-prompt warning', () => {
     await hooks['tool.execute.after'](undefined, undefined);
     await hooks['tool.execute.after']({ tool: 'read', args: { filePath: 'docs/prompts/a.md' } }, {});
     await hooks['tool.execute.after']({ tool: 'read', args: null }, { output: 'x' });
+    await hooks['tool.execute.before'](undefined, undefined);
   });
 });
 
@@ -521,6 +535,20 @@ describe('update keeps the opencode file in lockstep', () => {
   it('never installs an absent integration', () => {
     const steps = planUpdate({}, { ...ctx, opencode: { exists: false, stale: false, path: '/x/dotmd.js' } });
     ok(!steps.some(step => step.kind === 'opencode'));
+  });
+});
+
+describe('update refreshes an installed Codex plugin', () => {
+  const ctx = { plugin: null, opencode: null, hasClaude: false, hasNpm: true };
+  it('runs the newly installed CLI to refresh a managed Codex plugin', () => {
+    const steps = planUpdate({}, { ...ctx, codex: { exists: true, stale: false, plugin: '/p/runlist-codex' } });
+    ok(steps.some(step => step.kind === 'codex' && step.cmd.join(' ') === 'runlist install codex'));
+    const pluginOnly = planUpdate({ pluginOnly: true }, { ...ctx, codex: { exists: true, stale: true } });
+    ok(pluginOnly.some(step => step.kind === 'codex'));
+  });
+  it('does not adopt an absent or foreign Codex plugin', () => {
+    ok(!planUpdate({}, { ...ctx, codex: { exists: false } }).some(step => step.kind === 'codex'));
+    ok(!planUpdate({}, { ...ctx, codex: { exists: true, foreign: true, plugin: '/foreign' } }).some(step => step.kind === 'codex'));
   });
 });
 

@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { green, dim, yellow } from './color.mjs';
 import { executableName, which } from './util.mjs';
 import { CLAUDE_MARKETPLACE, claudeMarketplaceRefusalHint, installOpencodePlugin, opencodeStatus } from './host-integration.mjs';
+import { codexStatus } from './codex-integration.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
@@ -129,6 +130,11 @@ export function planUpdate(opts, ctx) {
     } else if (ctx.opencode?.foreign) {
       steps.push({ kind: 'skip', reason: `${ctx.opencode.path} was not written by runlist — leaving it alone` });
     }
+    if (ctx.codex?.foreign) {
+      steps.push({ kind: 'skip', reason: `${ctx.codex.plugin} was not written by runlist — leaving it alone` });
+    } else if (ctx.codex?.exists && (ctx.codex.stale || (!opts.pluginOnly && ctx.hasNpm))) {
+      steps.push({ kind: 'codex', cmd: ['runlist', 'install', 'codex'] });
+    }
   }
   return steps;
 }
@@ -158,11 +164,16 @@ export function runUpdate(argv, _config, opts = {}) {
     if (!oc.exists) process.stdout.write(dim('runlist opencode: not installed\n'));
     else if (oc.foreign) process.stdout.write(`runlist opencode: ${yellow('unmanaged file — not written by runlist')}\n`);
     else process.stdout.write(`runlist opencode: ${oc.version} ${oc.stale ? yellow('behind — run `runlist update`') : green('in sync')}\n`);
+    const cx = codexStatus({ version: pkg.version });
+    if (!cx.exists) process.stdout.write(dim('runlist codex: not installed\n'));
+    else if (cx.foreign) process.stdout.write(`runlist codex: ${yellow('unmanaged plugin directory')}\n`);
+    else process.stdout.write(`runlist codex: ${cx.version} ${cx.stale ? yellow('behind — run `runlist update`') : green('in sync')}\n`);
     return;
   }
 
   const opencode = opencodeStatus({ version: pkg.version });
-  const steps = planUpdate({ cliOnly, pluginOnly }, { plugin, opencode, hasClaude: which('claude'), hasNpm: which('npm') });
+  const codex = codexStatus({ version: pkg.version });
+  const steps = planUpdate({ cliOnly, pluginOnly }, { plugin, opencode, codex, hasClaude: which('claude'), hasNpm: which('npm') });
   if (opts.dryRun) {
     for (const step of steps) {
       if (step.kind === 'skip') process.stdout.write(dim(`[dry-run] skip: ${step.reason}\n`));

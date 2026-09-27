@@ -26,6 +26,7 @@ function setupRepo() {
   git(['config', 'user.email', 'test@test.com']);
   git(['config', 'user.name', 'Test']);
   mkdirSync(path.join(root, 'plugins', 'dotmd', '.claude-plugin'), { recursive: true });
+  mkdirSync(path.join(root, 'plugins', 'runlist-codex', '.codex-plugin'), { recursive: true });
   mkdirSync(path.join(root, '.claude-plugin'), { recursive: true });
   writeFileSync(path.join(root, 'package.json'), JSON.stringify({ version: '1.0.0' }, null, 2) + '\n');
   writeFileSync(path.join(root, 'package-lock.json'), JSON.stringify({ version: '1.0.0' }, null, 2) + '\n');
@@ -33,6 +34,8 @@ function setupRepo() {
     JSON.stringify({ name: 'dotmd', version: '1.0.0' }, null, 2) + '\n');
   writeFileSync(path.join(root, '.claude-plugin', 'marketplace.json'),
     JSON.stringify({ plugins: [{ name: 'dotmd', version: '1.0.0' }] }, null, 2) + '\n');
+  writeFileSync(path.join(root, 'plugins', 'runlist-codex', '.codex-plugin', 'plugin.json'),
+    JSON.stringify({ name: 'runlist-codex', version: '1.0.0' }, null, 2) + '\n');
   git(['add', '.']);
   git(['commit', '-m', 'init']);
   git(['remote', 'add', 'origin', root]);
@@ -180,6 +183,8 @@ test('release recovery recreates a missing tag after the npm version commit succ
     JSON.stringify({ name: 'dotmd', version: '1.0.1' }, null, 2) + '\n');
   writeFileSync(path.join(root, '.claude-plugin', 'marketplace.json'),
     JSON.stringify({ plugins: [{ name: 'dotmd', version: '1.0.1' }] }, null, 2) + '\n');
+  writeFileSync(path.join(root, 'plugins', 'runlist-codex', '.codex-plugin', 'plugin.json'),
+    JSON.stringify({ name: 'runlist-codex', version: '1.0.1' }, null, 2) + '\n');
   git(['add', '.']);
   git(['commit', '-m', 'v1.0.1']);
 
@@ -279,5 +284,5 @@ test('version preparation still works in a repo with no changelog', () => {
 
   assert.doesNotThrow(() => prepareVersionCommit(root));
   assert.equal(git(['diff', '--cached', '--name-only']).stdout.trim().split('\n').sort().join(','),
-    '.claude-plugin/marketplace.json,plugins/dotmd/.claude-plugin/plugin.json');
+    '.claude-plugin/marketplace.json,plugins/dotmd/.claude-plugin/plugin.json,plugins/runlist-codex/.codex-plugin/plugin.json');
 });

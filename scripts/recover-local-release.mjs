@@ -9,6 +9,7 @@ const RELEASE_PATHS = [
   'package-lock.json',
   'plugins/dotmd/.claude-plugin/plugin.json',
   '.claude-plugin/marketplace.json',
+  'plugins/runlist-codex/.codex-plugin/plugin.json',
 ];
 
 function git(projectRoot, args) {

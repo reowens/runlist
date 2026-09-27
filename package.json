@@ -16,6 +16,7 @@
     "bin/",
     "src/",
     "assets/",
+    "plugins/runlist-codex/",
     "scripts/postinstall.mjs",
     "runlist.config.example.mjs"
   ],

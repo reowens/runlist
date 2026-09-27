@@ -9,6 +9,7 @@ import { syncPluginVersions } from './sync-plugin-version.mjs';
 const MANIFEST_PATHS = [
   'plugins/dotmd/.claude-plugin/plugin.json',
   '.claude-plugin/marketplace.json',
+  'plugins/runlist-codex/.codex-plugin/plugin.json',
 ];
 const CHANGELOG_PATH = 'CHANGELOG.md';
 const RELEASE_PATHS = ['package.json', 'package-lock.json', ...MANIFEST_PATHS];

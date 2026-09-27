@@ -75,6 +75,7 @@ Saved prompts (`docs/prompts/*.md`) are **session-local handoff artifacts**, not
 
 - ❌ `git add/commit docs/prompts/*.md` → ✅ they're session-local; the next session runs `runlist use`. (Merely *mentioning* a prompt path in a commit message or a sibling command is fine — the guard only blocks commits whose pathspec includes a prompt.)
 - ❌ `cat`/Read a `docs/prompts/*.md` → ✅ `runlist use <file>` to consume, `runlist prompts show <file>` to peek, `runlist prompts show --all` to survey the queue. Reading them one file at a time is still the wrong move — there is a bulk verb.
+- Direct reads warn by default. Repositories can set `guard: { promptReads: 'deny' }` to block reads of existing pending prompts; archived prompts and `runlist prompts show` remain readable.
 - ❌ change a `status:` line by hand (Edit, Write, `sed -i`, `perl -pi`) → ✅ `runlist set <status> <file>`. This one is **blocked**, not just warned (config `guard: { deny: false }` for warn-only).
 
 ## Querying

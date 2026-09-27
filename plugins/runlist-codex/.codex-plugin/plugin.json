@@ -1,0 +1,18 @@
+{
+  "name": "runlist-codex",
+  "version": "0.88.1",
+  "description": "Runlist workflow skill, session orientation, and tool guard for Codex",
+  "author": {
+    "name": "Reo Owens"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Runlist Codex",
+    "shortDescription": "Plan, handoff, and document workflow for Codex.",
+    "longDescription": "Adds a concise runlist skill, session primer, and prompt/status guard hooks for managed Markdown repositories.",
+    "developerName": "Reo Owens",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Show my runlist plans and pending handoffs."
+  }
+}

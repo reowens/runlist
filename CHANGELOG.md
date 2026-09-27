@@ -2,6 +2,18 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- `runlist install codex` installs the npm-packaged workflow skill and hooks through the personal Codex marketplace. `runlist update` refreshes an installed Codex integration.
+- `guard: { promptReads: 'deny' }` opts into blocking direct reads of existing pending prompts while leaving archived prompts and `runlist prompts show` readable.
+
+### Fixed
+
+- The guard understands Codex patch and MCP read payloads. OpenCode checks recognized prompt reads before execution so strict mode can refuse them.
+- New indexes, prompts, and HTML exports use runlist names. Existing index markers, prompt version stamps, and export directories remain usable; plugin descriptions and release guidance use the current CLI name.
+
 ## 0.88.1 — 2026-09-27
 
 ### Fixed

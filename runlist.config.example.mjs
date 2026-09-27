@@ -13,6 +13,11 @@ export const archiveDir = 'archived';
 // Directories to skip when scanning
 export const excludeDirs = ['evidence'];
 
+// Agent-host tool guard: direct reads of existing pending prompts warn by
+// default. Set promptReads to 'deny' to block those reads before execution;
+// `runlist prompts show` and archived prompt reads remain available.
+// export const guard = { promptReads: 'deny' };
+
 // Floor under the scan surface. `runlist check` fails when it scans fewer docs than
 // this, so a broken root or an over-eager exclude can't read as a clean estate —
 // zero errors and zero docs look identical otherwise. Off when unset. Set it well

@@ -1,0 +1,86 @@
+#!/bin/sh
+# runlist Codex plugin hook wrapper.
+#
+# The plugin's hooks drive the whole workflow through the PATH `runlist` binary
+# (`runlist hud`, `runlist guard`), falling back to the legacy `dotmd` alias. If a user enables the plugin but hasn't run
+# `npm i -g dotmd-cli`, the binary is missing, the hook errors `command not
+# found`, and the session is primed with *silent nothing* — no signal that the
+# whole workflow is one install away. runlist can't warn about its own absence
+# (it's the thing that's missing), so the check lives here, outside the binary.
+#
+# Usage: runlist-hook [--hint] <runlist-subcommand> [args...]
+#   --hint  emit a one-line install hint to stdout when no CLI is on PATH.
+#           Only SessionStart passes this, so the hint surfaces once per hook
+#           invocation (stdout becomes session context), never on a tool call.
+#
+# When the CLI is missing we always exit 0 with no further output: hooks must
+# stay non-blocking, and the PreToolUse guard in particular must never deny a
+# tool just because the optional CLI isn't installed.
+hint=0
+if [ "$1" = "--hint" ]; then
+  hint=1
+  shift
+fi
+
+if command -v runlist >/dev/null 2>&1; then
+  CLI=runlist
+elif command -v dotmd >/dev/null 2>&1; then
+  CLI=dotmd
+else
+  if [ "$hint" = "1" ]; then
+    echo "runlist plugin: neither \`runlist\` nor \`dotmd\` is on PATH, so its hooks are no-ops. Enable the workflow with: npm i -g dotmd-cli"
+  fi
+  exit 0
+fi
+
+# PreToolUse fast path: the guard fires on matched Bash, apply_patch, and MCP
+# read calls, and
+# a full Node boot (~100ms: CLI startup + config discovery) is pure overhead for
+# the vast majority of payloads no guard rule can possibly match. Every rule
+# needs a `.md` path AND either a prompts/ path (commit/cat/read-prompt) or the
+# word `status` (edit-status) somewhere in the payload — a cheap shell glob
+# decides that without leaving sh. Anything else gets the no-opinion reply
+# (`{}`) directly. False positives here just pay the old cost (Node runs and
+# returns {}); false negatives are impossible because the globs are strictly
+# weaker than the rules they gate.
+if [ "$1" = "guard" ]; then
+  payload=$(cat)
+  # Broad Git forms do not name a .md file in the payload; Node inspects the
+  # actual eligible/staged path set before deciding whether a live prompt is
+  # included. Always route those forms through the guard.
+  case "$payload" in
+    *git*add*|*git*stage*|*git*commit*)
+      printf '%s' "$payload" | "$CLI" "$@"
+      exit $?
+      ;;
+  esac
+  case "$payload" in
+    *.md*)
+      case "$payload" in
+        *prompts/*|*prompts\\*|*status*)
+          printf '%s' "$payload" | "$CLI" "$@"
+          exit $?
+          ;;
+      esac
+      ;;
+  esac
+  printf '{}\n'
+  exit 0
+fi
+
+# UserPromptSubmit fast path is retained for compatibility with the Claude
+# wrapper; Codex does not register that hook here. It would fire on every
+# message that asks for a handoff gets an answer. The glob is strictly weaker
+# than the Node-side match, so a skipped payload could never have matched.
+if [ "$1" = "hud" ] && [ "$2" = "--prompt-submit" ]; then
+  payload=$(cat)
+  case "$payload" in
+    *[Bb][Aa][Tt][Oo][Nn]*|*[Hh][Aa][Nn][Dd]*[Oo][Ff][Ff]*|*[Rr][Ee][Ss][Uu][Mm][Ee]*|*[Pp][Ii][Cc][Kk]*[Uu][Pp]*)
+      printf '%s' "$payload" | "$CLI" "$@"
+      exit 0
+      ;;
+  esac
+  exit 0
+fi
+
+exec "$CLI" "$@"

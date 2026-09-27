@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [{ "type": "command", "command": "sh \"${PLUGIN_ROOT}/bin/runlist-hook\" --hint hud", "timeout": 5 }]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|apply_patch|mcp__.*__(read_file|read_text_file|read_media_file|read_multiple_files)",
+        "hooks": [{ "type": "command", "command": "sh \"${PLUGIN_ROOT}/bin/runlist-hook\" guard", "timeout": 5 }]
+      }
+    ]
+  }
+}

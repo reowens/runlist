@@ -120,6 +120,45 @@ test('Read tool on a prompt warns', () => {
   assert.equal(r.rule, 'read-prompt');
 });
 
+test('Codex patch checks changed status lines but ignores context and new files', () => {
+  const update = (hunk) => evaluateGuard({
+    tool_name: 'apply_patch',
+    tool_input: { command: `*** Begin Patch\n*** Update File: docs/plans/x.md\n@@\n${hunk}\n*** End Patch` },
+  }, config, notIncluded);
+  assert.equal(update('-status: active\n+status: paused')?.rule, 'edit-status');
+  assert.equal(update(' status: active\n+summary: added'), null);
+  assert.equal(update('-status: active\n+status: active'), null);
+  assert.equal(evaluateGuard({
+    tool_name: 'apply_patch',
+    tool_input: { command: '*** Begin Patch\n*** Add File: docs/plans/new.md\n+status: planned\n*** End Patch' },
+  }, config), null);
+});
+
+test('Codex MCP read tools use path and paths arguments', () => {
+  const one = evaluateGuard({ tool_name: 'mcp__filesystem__read_text_file', tool_input: { path: 'docs/prompts/x.md' } }, config);
+  assert.equal(one?.rule, 'read-prompt');
+  const many = evaluateGuard({ tool_name: 'mcp__filesystem__read_multiple_files', tool_input: { paths: ['README.md', 'docs/prompts/x.md'] } }, config);
+  assert.equal(many?.rule, 'read-prompt');
+});
+
+test('strict prompt reads deny only an existing managed pending prompt', () => {
+  const strict = { ...config, guard: { promptReads: 'deny' } };
+  const pending = '---\ntype: prompt\nstatus: pending\n---\nbody\n';
+  const archived = pending.replace('status: pending', 'status: archived');
+  const read = (filePath, content) => evaluateGuard({ tool_name: 'Read', tool_input: { file_path: filePath } }, strict, {
+    gitCwd: '/repo', readFile: () => content,
+  });
+  assert.equal(read('docs/prompts/x.md', pending)?.decision, 'deny');
+  assert.equal(read('/other/docs/prompts/x.md', pending)?.decision, 'warn');
+  assert.equal(read('docs/prompts/x.md', archived)?.decision, 'warn');
+  assert.equal(read('docs/prompts/archived/x.md', pending), null);
+  assert.equal(read('docs/prompts/x.md', '')?.decision, 'warn');
+  assert.equal(evaluateGuard({ tool_name: 'Bash', tool_input: { command: 'cat docs/prompts/x.md' } }, strict, {
+    inspectGitPaths: () => [], readFile: () => pending, gitCwd: '/repo',
+  })?.decision, 'deny');
+  assert.equal(evaluateGuard({ tool_name: 'Bash', tool_input: { command: 'runlist prompts show docs/prompts/x.md' } }, strict, notIncluded), null);
+});
+
 test('Edit changing a status: line in a managed doc is denied by default', () => {
   const r = evaluateGuard(
     { tool_name: 'Edit', tool_input: { file_path: 'docs/plans/x.md', old_string: 'status: active\ntitle: X', new_string: 'status: archived\ntitle: X' } },

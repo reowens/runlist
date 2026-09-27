@@ -9,11 +9,12 @@ import {
 } from './host-integration.mjs';
 import { readInstalledPlugin } from './update.mjs';
 import { executableName, which } from './util.mjs';
+import { codexStatus, installCodexPlugin } from './codex-integration.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
 
-const HOSTS = ['claude', 'opencode'];
+const HOSTS = ['claude', 'codex', 'opencode'];
 const ALIASES = { 'claude-code': 'claude', claudecode: 'claude' };
 
 function flagValue(argv, name) {
@@ -33,6 +34,7 @@ function hostStates() {
       marketplaceRegistered: plugin ? plugin.marketplaceRegistered : null,
     },
     opencode: { ...opencodeStatus({ version: pkg.version }), detected: opencodeDetected() },
+    codex: codexStatus({ version: pkg.version }),
   };
 }
 
@@ -42,7 +44,7 @@ function reportStatus(json) {
     process.stdout.write(JSON.stringify({ cli: pkg.version, hosts: states }, null, 2) + '\n');
     return;
   }
-  const { claude, opencode } = states;
+  const { claude, codex, opencode } = states;
   process.stdout.write(`${bold('runlist host integrations')}  ${dim(`CLI ${pkg.version}`)}\n\n`);
 
   const claudeBroken = claude.installed && claude.marketplaceRegistered === false;
@@ -51,6 +53,13 @@ function reportStatus(json) {
     : green(claude.version ?? 'installed');
   process.stdout.write(`  claude    ${claudeState}\n`);
   process.stdout.write(`            ${dim(claude.installed ? claude.id : 'plugin: SessionStart primer, PreToolUse guard, workflow skill')}\n`);
+
+  const codexState = codex.foreign ? yellow('unmanaged directory present')
+    : !codex.exists ? yellow('not installed')
+    : codex.stale ? yellow(`${codex.version} — behind CLI ${pkg.version}`)
+    : green(codex.version);
+  process.stdout.write(`  codex     ${codexState}\n`);
+  process.stdout.write(`            ${dim(codex.plugin)}\n`);
 
   const ocState = opencode.foreign ? yellow('unmanaged file present')
     : !opencode.exists ? yellow('not installed')
@@ -61,6 +70,7 @@ function reportStatus(json) {
 
   const todo = [];
   if (!claude.installed || claudeBroken) todo.push('runlist install claude');
+  if (!codex.exists || codex.stale) todo.push('runlist install codex');
   if (!opencode.exists || opencode.stale) todo.push('runlist install opencode');
   if (todo.length) {
     process.stdout.write('\n');
@@ -70,6 +80,43 @@ function reportStatus(json) {
     process.stdout.write(dim('\nWithout the OpenCode integration, every session in one OpenCode process\n'));
     process.stdout.write(dim('shares one identity — so a session can release another session\'s plan —\n'));
     process.stdout.write(dim('and no session-start primer runs.\n'));
+  }
+}
+
+function installCodex(argv, dryRun, json) {
+  if (argv.includes('--remove')) {
+    process.stderr.write('Codex removal is managed by `codex plugin remove`; the personal marketplace source is left available.\n');
+    process.exitCode = 1;
+    return;
+  }
+  const result = installCodexPlugin({ version: pkg.version, dryRun });
+  if (result.action === 'refused') {
+    if (json) process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+    else process.stderr.write(`refused: ${result.reason}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  if (!json) process.stdout.write(`${dryRun ? '[dry-run] ' : ''}${result.action} codex integration (${pkg.version}) at ${result.plugin}\n`);
+  if (dryRun) {
+    if (json) process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+    return;
+  }
+  const selector = `runlist-codex@${result.marketplaceName}`;
+  if (!which('codex')) {
+    if (json) process.stdout.write(JSON.stringify({ ...result, pluginAdd: 'codex-cli-unavailable' }, null, 2) + '\n');
+    else process.stdout.write(`Install in Codex with: codex plugin add ${selector}\n`);
+    return;
+  }
+  const added = spawnSync(executableName('codex'), ['plugin', 'add', selector], {
+    stdio: json ? 'pipe' : 'inherit', encoding: json ? 'utf8' : undefined,
+    shell: process.platform === 'win32',
+  });
+  if (json) process.stdout.write(JSON.stringify({ ...result, pluginAdd: added.status === 0 ? 'installed' : 'failed', pluginAddExit: added.status }, null, 2) + '\n');
+  if (added.status !== 0) {
+    process.stderr.write(`Codex plugin source is ready; finish installation with: codex plugin add ${selector}\n`);
+    process.exitCode = 1;
+  } else if (!json) {
+    process.stdout.write('Start a new Codex thread and review/trust the plugin hooks to enable the primer and guard.\n');
   }
 }
 
@@ -164,5 +211,6 @@ export function runInstall(argv, _config, opts = {}) {
 
   const dryRun = Boolean(opts.dryRun);
   if (host === 'claude') { installClaude(argv, dryRun, json); return; }
+  if (host === 'codex') { installCodex(argv, dryRun, json); return; }
   installOpencode(argv, dryRun, json);
 }
