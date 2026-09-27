@@ -2,6 +2,12 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- New indexes, prompts, and HTML exports use runlist names. Existing index markers, prompt version stamps, and export directories remain usable; plugin descriptions and release guidance use the current CLI name.
+
 ## 0.89.0 — 2026-09-27
 
 ### Added
@@ -12,7 +18,6 @@ All notable changes to `dotmd-cli` are documented here. Older releases predate t
 ### Fixed
 
 - The guard understands Codex patch and MCP read payloads. OpenCode checks recognized prompt reads before execution so strict mode can refuse them.
-- New indexes, prompts, and HTML exports use runlist names. Existing index markers, prompt version stamps, and export directories remain usable; plugin descriptions and release guidance use the current CLI name.
 
 ## 0.88.1 — 2026-09-27
 

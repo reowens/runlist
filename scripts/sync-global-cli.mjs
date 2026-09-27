@@ -194,7 +194,7 @@ export function syncGlobalCliCopies(targetVersion, deps = {}) {
       .join('\n')}`);
   }
 
-  write(`✓ all ${final.length} PATH-visible dotmd/runlist/rl installation set${final.length === 1 ? '' : 's'} report ${targetVersion}\n`);
+  write(`✓ all ${final.length} PATH-visible runlist CLI installation set${final.length === 1 ? '' : 's'} report ${targetVersion}\n`);
   return final;
 }
 

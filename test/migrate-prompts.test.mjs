@@ -73,6 +73,13 @@ describe('migrateOnePrompt (pure)', () => {
     ok(newRaw.includes('created: 2026-04-01T10:00:00Z'));
     ok(newRaw.includes('context: "Resume — foo"'), 'uses existing title as context');
   });
+
+  it('preserves a legacy version stamp when completing partial frontmatter', () => {
+    const raw = '---\ndotmd_version: 0.70.0\n---\n\nbody\n';
+    const { newRaw } = migrateOnePrompt(raw, { created: '2026-04-01T10:00:00Z' });
+    ok(newRaw.includes('dotmd_version: 0.70.0'));
+    ok(!newRaw.includes('runlist_version:'), 'does not add a second version stamp');
+  });
 });
 
 describe('dotmd doctor --migrate-prompts (CLI)', () => {
@@ -85,7 +92,7 @@ describe('dotmd doctor --migrate-prompts (CLI)', () => {
     ok(after.startsWith('---\n'));
     ok(after.includes('type: prompt'));
     ok(after.includes('status: pending'));
-    ok(after.includes('dotmd_version:'));
+    ok(after.includes('runlist_version:'));
     ok(/created: \d{4}-\d{2}-\d{2}T/.test(after), 'has ISO created timestamp');
   });
 

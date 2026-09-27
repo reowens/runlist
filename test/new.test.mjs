@@ -188,7 +188,7 @@ describe('dotmd new — type-first CLI', () => {
       const content = readFileSync(promptPath, 'utf8');
       ok(content.includes('type: prompt'));
       ok(content.includes('status: pending'));
-      ok(content.includes('dotmd_version:'), 'has dotmd_version stamp');
+      ok(content.includes('runlist_version:'), 'has runlist_version stamp');
       ok(content.includes('look at X tomorrow'), 'body content present');
       ok(/created: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/.test(content), 'ISO timestamp');
     });

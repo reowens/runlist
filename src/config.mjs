@@ -667,8 +667,8 @@ export async function resolveConfig(cwd, explicitConfigPath) {
     moduleRequiredStatuses,
 
     indexPath,
-    indexStartMarker: config.index?.startMarker ?? '<!-- GENERATED:dotmd:start -->',
-    indexEndMarker: config.index?.endMarker ?? '<!-- GENERATED:dotmd:end -->',
+    indexStartMarker: config.index?.startMarker ?? '<!-- GENERATED:runlist:start -->',
+    indexEndMarker: config.index?.endMarker ?? '<!-- GENERATED:runlist:end -->',
     indexSnapshot: config.index?.snapshot ?? 'status',
     archivedHighlightLimit: config.index?.archivedLimit ?? 8,
 

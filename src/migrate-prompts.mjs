@@ -64,7 +64,7 @@ export function migrateOnePrompt(raw, opts = {}) {
       'type: prompt',
       'status: pending',
       `created: ${created}`,
-      `dotmd_version: ${pkg.version}`,
+      `runlist_version: ${pkg.version}`,
       `context: "${context.replace(/"/g, '\\"')}"`,
       'related_plans: []',
     ].join('\n');
@@ -86,7 +86,7 @@ export function migrateOnePrompt(raw, opts = {}) {
   if (!parsed.type) needed.push(['type', 'prompt']);
   if (!parsed.status) needed.push(['status', 'pending']);
   if (!parsed.created) needed.push(['created', created]);
-  if (!parsed.dotmd_version) needed.push(['dotmd_version', pkg.version]);
+  if (!parsed.runlist_version && !parsed.dotmd_version) needed.push(['runlist_version', pkg.version]);
   if (!parsed.context) {
     // Prefer existing `title:` if present, else derive from body/filename.
     const ctx = typeof parsed.title === 'string' ? parsed.title : deriveContext(rawBody || raw, opts.filePath || 'unknown');

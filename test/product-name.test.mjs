@@ -41,7 +41,6 @@ const ALLOWED = [
   { re: /migrated-from-dotmd\.json/g, why: 'state-migration marker, keeps its name' },
   { re: /dotmd:canonical-workflow/g, why: 'legacy canonical-workflow marker, still read' },
   { re: /GENERATED:dotmd:(?:start|end)/g, why: 'index block markers already present in existing docs' },
-  { re: /\bdotmd_version\b/g, why: 'prompt frontmatter key already present in existing prompts' },
 ];
 
 // A literal that is exactly `dotmd`, in these files only.

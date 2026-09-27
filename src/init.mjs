@@ -53,8 +53,8 @@ export const root = 'docs';
 
 export const index = {
   path: 'docs/docs.md',
-  startMarker: '<!-- GENERATED:dotmd:start -->',
-  endMarker: '<!-- GENERATED:dotmd:end -->',
+  startMarker: '<!-- GENERATED:runlist:start -->',
+  endMarker: '<!-- GENERATED:runlist:end -->',
   archivedLimit: 8,
 };
 
@@ -118,11 +118,11 @@ against the type, and runs the lifecycle hooks.
 
 const STARTER_INDEX = `# Docs
 
-<!-- GENERATED:dotmd:start -->
+<!-- GENERATED:runlist:start -->
 
 _No docs yet. Run \`runlist list\` after creating your first document._
 
-<!-- GENERATED:dotmd:end -->
+<!-- GENERATED:runlist:end -->
 `;
 
 function scanExistingDocs(dir) {
@@ -263,8 +263,8 @@ function generateDetectedConfig(scan, rootPath) {
 
   lines.push('export const index = {');
   lines.push(`  path: '${rootPath}/docs.md',`);
-  lines.push(`  startMarker: '<!-- GENERATED:dotmd:start -->',`);
-  lines.push(`  endMarker: '<!-- GENERATED:dotmd:end -->',`);
+  lines.push(`  startMarker: '<!-- GENERATED:runlist:start -->',`);
+  lines.push(`  endMarker: '<!-- GENERATED:runlist:end -->',`);
   lines.push(`  snapshot: 'status',`);
   lines.push('};');
   lines.push('');

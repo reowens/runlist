@@ -5,15 +5,29 @@ import { formatSnapshot } from './render.mjs';
 import { authorizeRepoGeneratedPath } from './managed-path.mjs';
 import { mutateFile } from './atomic-mutation.mjs';
 
+function indexMarkers(current, config) {
+  const start = config.indexStartMarker;
+  const end = config.indexEndMarker;
+  if (current.includes(start) && current.includes(end)) return { start, end };
+  // A config that omitted markers may point at an index from an older release.
+  // Keep updating that block in place; newly initialized indexes use runlist.
+  if (start === '<!-- GENERATED:runlist:start -->' && end === '<!-- GENERATED:runlist:end -->'
+    && current.includes('<!-- GENERATED:dotmd:start -->') && current.includes('<!-- GENERATED:dotmd:end -->')) {
+    return { start: '<!-- GENERATED:dotmd:start -->', end: '<!-- GENERATED:dotmd:end -->' };
+  }
+  return { start, end };
+}
+
 export function renderIndexFile(index, config, current = readFileSync(config.indexPath, 'utf8')) {
-  const start = current.indexOf(config.indexStartMarker);
-  const end = current.indexOf(config.indexEndMarker);
+  const markers = indexMarkers(current, config);
+  const start = current.indexOf(markers.start);
+  const end = current.indexOf(markers.end);
 
   if (start === -1 || end === -1 || end < start) {
     throw new Error(`${config.indexPath} is missing generated block markers.`);
   }
 
-  const before = current.slice(0, start + config.indexStartMarker.length);
+  const before = current.slice(0, start + markers.start.length);
   const after = current.slice(end);
   const generated = `\n\n${renderGeneratedBlock(index, config)}\n`;
   return `${before}${generated}${after}`;
@@ -130,8 +144,9 @@ export function checkIndex(docs, config, opts = {}) {
   }
 
   const current = readFileSync(config.indexPath, 'utf8');
-  const start = current.indexOf(config.indexStartMarker);
-  const end = current.indexOf(config.indexEndMarker);
+  const markers = indexMarkers(current, config);
+  const start = current.indexOf(markers.start);
+  const end = current.indexOf(markers.end);
 
   if (start === -1 || end === -1 || end < start) {
     errors.push({ path: config.indexPath, level: 'error', message: 'Missing generated index block markers.' });

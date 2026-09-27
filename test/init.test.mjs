@@ -54,8 +54,8 @@ describe('init basic', () => {
     mkdirSync(path.join(tmpDir, '.git'));
     run(['init']);
     const content = readFileSync(path.join(tmpDir, 'docs', 'docs.md'), 'utf8');
-    ok(content.includes('GENERATED:dotmd:start'));
-    ok(content.includes('GENERATED:dotmd:end'));
+    ok(content.includes('GENERATED:runlist:start'));
+    ok(content.includes('GENERATED:runlist:end'));
   });
 
   it('--dry-run does not actually write anything', () => {

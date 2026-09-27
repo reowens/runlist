@@ -99,7 +99,7 @@ export function runExport(argv, config, opts = {}) {
       }
     }
   } else if (format === 'html') {
-    const outDir = output ?? 'dotmd-export';
+    const outDir = output ?? (existsSync('dotmd-export') ? 'dotmd-export' : 'runlist-export');
     const identities = allocateOutputIdentities(index.docs);
     exportHtml(docsWithBody, config, outDir, identities, { dryRun });
     if (dryRun) {

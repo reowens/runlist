@@ -1,7 +1,7 @@
 {
   "name": "dotmd",
   "version": "0.89.0",
-  "description": "Primes sessions and subagents with the dotmd workflow + guards the wrong-moves. Requires the `dotmd` CLI on PATH (npm i -g dotmd-cli).",
+  "description": "Primes sessions and subagents with the runlist workflow and guards common mistakes. Requires `runlist` on PATH (npm i -g dotmd-cli).",
   "author": {
     "name": "Robert Owens",
     "email": "78518764+reowens@users.noreply.github.com"

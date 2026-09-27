@@ -25,7 +25,7 @@ if (path.resolve(process.argv[1] || '') === fileURLToPath(import.meta.url)) {
   } else {
     const result = verifyInstalledPluginVersion(expectedVersion);
     if (result.ok) {
-      process.stdout.write(`dotmd plugin ${result.plugin.version} (${result.plugin.id}) verified\n`);
+      process.stdout.write(`runlist plugin ${result.plugin.version} (${result.plugin.id}) verified\n`);
     } else {
       process.stderr.write(`${result.reason}\n`);
       process.exitCode = 1;

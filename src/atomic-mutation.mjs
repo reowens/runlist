@@ -1159,7 +1159,7 @@ function reserveExclusive(filePath, mode, content, testHooks = {}) {
     fd = openSync(filePath, 'wx', mode);
     const opened = fstatSync(fd, { bigint: true });
     openedIdentity = { dev: opened.dev, ino: opened.ino };
-    const reservationContent = content ?? JSON.stringify({ dotmdReservation: true, pid: process.pid, createdAt: new Date().toISOString() }) + '\n';
+    const reservationContent = content ?? JSON.stringify({ runlistReservation: true, pid: process.pid, createdAt: new Date().toISOString() }) + '\n';
     writeFileSync(fd, reservationContent, 'utf8');
     testHooks.afterReserveWrite?.(filePath);
     testHooks.beforeReserveFsync?.(filePath);
@@ -1357,7 +1357,7 @@ export function moveFileAtomic(sourcePath, targetPath, render, options) {
       for (const item of creations) ensureTransactionDirectory(path.dirname(item.path), transaction, options, item.path);
       try {
         reservation = reserveExclusive(targetPath, source.identity.mode, JSON.stringify({
-          dotmdReservation: true,
+          runlistReservation: true,
           transactionId,
           sourcePath,
           backup,

@@ -237,7 +237,7 @@ Status markers (put in heading text):
       `status: ${s}`,
       `created: ${d}`,
       `updated: ${d}`,
-      `dotmd_version: ${pkg.version}`,
+      `runlist_version: ${pkg.version}`,
       `context: ${ctx?.title ? `"${ctx.title.replace(/"/g, '\\"')}"` : ''}`,
       'related_plans:',
     ].join('\n'),

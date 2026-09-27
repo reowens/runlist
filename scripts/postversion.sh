@@ -133,7 +133,7 @@ npm install -g "dotmd-cli@${VERSION}"
 # A release shell and an agent host can resolve different Node installations
 # from PATH (for example NVM first during release, Homebrew first in OpenCode).
 # Update every visible copy and verify them all before claiming local success.
-echo "→ checking every PATH-visible dotmd installation"
+echo "→ checking every PATH-visible runlist installation"
 node scripts/sync-global-cli.mjs "${VERSION}"
 
 # The Claude Code plugin ships from this repo in lockstep with the CLI, but
@@ -150,13 +150,13 @@ if command -v claude >/dev/null 2>&1; then
       PLUGIN_VERIFIED=1
       echo "  restart your Claude Code session (or /reload-plugins) to apply."
     else
-      echo "⚠ plugin command completed but installed version is not ${VERSION}; run \`dotmd update --plugin-only\`." >&2
+      echo "⚠ plugin command completed but installed version is not ${VERSION}; run \`runlist update --plugin-only\`." >&2
     fi
   else
-    echo "⚠ plugin refresh failed — run \`dotmd update --plugin-only\` manually." >&2
+    echo "⚠ plugin refresh failed — run \`runlist update --plugin-only\` manually." >&2
   fi
 else
-  echo "⚠ \`claude\` not on PATH — plugin not refreshed; run \`dotmd update --plugin-only\`." >&2
+  echo "⚠ \`claude\` not on PATH — plugin not refreshed; run \`runlist update --plugin-only\`." >&2
 fi
 
 node scripts/release-intent.mjs clear

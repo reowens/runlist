@@ -108,11 +108,20 @@ describe('export: html', () => {
     ok(docHtml.includes('<strong>bold</strong>'), 'body converted to HTML');
   });
 
-  it('defaults output to dotmd-export/', () => {
+  it('defaults output to runlist-export/', () => {
     setupProject();
     const result = run(['export', '--format', 'html']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-    ok(existsSync(path.join(tmpDir, 'dotmd-export', 'index.html')), 'default dir used');
+    ok(existsSync(path.join(tmpDir, 'runlist-export', 'index.html')), 'default dir used');
+  });
+
+  it('continues writing an existing legacy export directory', () => {
+    setupProject();
+    mkdirSync(path.join(tmpDir, 'dotmd-export'));
+    const result = run(['export', '--format', 'html']);
+    strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+    ok(existsSync(path.join(tmpDir, 'dotmd-export', 'index.html')));
+    ok(!existsSync(path.join(tmpDir, 'runlist-export')));
   });
 
   it('preserves nested identity and rewrites only emitted Markdown document links', () => {

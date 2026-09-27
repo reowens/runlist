@@ -43,6 +43,17 @@ afterEach(() => {
 });
 
 describe('renderIndexFile', () => {
+  it('keeps legacy generated markers when the config omits marker names', async () => {
+    const docsDir = setup();
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), "export const root = 'docs'; export const index = { path: 'docs/docs.md' };\n");
+    writeFileSync(path.join(docsDir, 'docs.md'), '# Docs\n\n<!-- GENERATED:dotmd:start -->\nold\n<!-- GENERATED:dotmd:end -->\n');
+    const config = await resolveConfig(tmpDir);
+    const rendered = renderIndexFile({ docs: [] }, config);
+    ok(rendered.includes('<!-- GENERATED:dotmd:start -->'));
+    ok(rendered.includes('<!-- GENERATED:dotmd:end -->'));
+    ok(!rendered.includes('<!-- GENERATED:runlist:start -->'));
+  });
+
   it('renders generated block between markers', async () => {
     const docsDir = setup();
     writeDoc(docsDir, 'a.md', 'status: active\nupdated: 2025-01-01', '# A\n\n**Status:** Working on it.');
