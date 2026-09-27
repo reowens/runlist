@@ -2,6 +2,18 @@
 
 All notable changes to `dotmd-cli` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- `runlist baton --replace` refreshes exactly one pending handoff, preserving its old text under `docs/prompts/archived/` while releasing an owned plan in the same transaction. It supports plan and slug modes, reports both paths in JSON and dry-run output, and refuses ambiguous matches.
+- Repositories can export `batonCommitCommand(message, paths)` to format baton's printed commit command as an argv array. The default remains `git commit -m ... -- <paths>`; arguments are shell-quoted and session prompt files stay out of the pathspec.
+
+### Fixed
+
+- A baton that files a plan now stamps the prompt's final `plan:` link inside the move transaction. A failed move rolls the prompt and plan back together.
+- Lifecycle status transitions now forward companion updates and read-only guards, including when the status is already current, so a handoff cannot publish after its prerequisite document changes.
+
 ## 0.87.2 — 2026-09-27
 
 ### Fixed

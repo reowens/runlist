@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter, normalizeEol } from './frontmatter.mjs';
-import { asString, toRepoPath, die, warn, resolveDocPath, escapeRegex, nowIso, suggestCandidates, emitFilesFooter, isArchivedPath, currentSessionId } from './util.mjs';
+import { asString, toRepoPath, die, warn, resolveDocPath, resolveRefPath, escapeRegex, nowIso, suggestCandidates, emitFilesFooter, isArchivedPath, currentSessionId } from './util.mjs';
 import { readJournalEntries } from './journal.mjs';
 import { captureGitIndexGeneration, getGitLastModifiedBatch, getGitLastSubstantiveModifiedBatch, isTracked } from './git.mjs';
 import { buildIndex, collectDocFiles, resolveDocArg } from './index.mjs';
@@ -78,6 +78,22 @@ function commitLifecycleMutation(filePath, targetPath, config, updates, historyF
     };
   };
   if (targetPath) {
+    // A companion prompt created or refreshed by baton links this plan before
+    // its status transition decides whether to file it elsewhere. Stamp the
+    // destination into that companion before publishing any transaction path.
+    const newRepoPath = toRepoPath(targetPath, config.repoRoot);
+    const retargetPrompt = item => {
+      if (typeof item.content !== 'string') return item;
+      const { frontmatter, body } = extractFrontmatter(item.content);
+      if (!frontmatter) return item;
+      const fm = parseSimpleFrontmatter(frontmatter);
+      const linked = asString(fm.plan);
+      const resolved = linked ? resolveRefPath(linked, path.dirname(item.path), config.repoRoot) : null;
+      if (asString(fm.type) !== 'prompt' || !resolved || path.resolve(resolved) !== path.resolve(filePath)) return item;
+      const rewritten = frontmatter.replace(/^plan:[ \t]*\S.*$/m, `plan: ${newRepoPath}`);
+      return { ...item, content: `---\n${rewritten}\n---\n${body}` };
+    };
+    const creations = (options.creations ?? []).map(retargetPrompt);
     let result;
     const tracked = isTracked(filePath, config.repoRoot);
     const gitIndex = tracked ? captureGitIndexGeneration(config.repoRoot) : null;
@@ -89,8 +105,8 @@ function commitLifecycleMutation(filePath, targetPath, config, updates, historyF
     const identities = createReferenceIdentitySet([filePath, ...allFiles]);
     const referenceFields = configuredReferenceFields(config);
     const additionalUpdates = options.skipInboundRefs
-      ? (options.additionalUpdates ?? [])
-      : (options.additionalUpdates ?? []).map(item => ({
+      ? (options.additionalUpdates ?? []).map(retargetPrompt)
+      : (options.additionalUpdates ?? []).map(item => retargetPrompt({
           ...item,
           content: item.content === undefined ? undefined : rewriteDocumentReferences(item.content, {
             sourcePath: item.path, repoRoot: config.repoRoot, identities, oldPath: filePath, newPath: targetPath, referenceFields,
@@ -108,7 +124,7 @@ function commitLifecycleMutation(filePath, targetPath, config, updates, historyF
           sourcePath: docFile, repoRoot: config.repoRoot, identities, oldPath: filePath, newPath: targetPath, referenceFields,
         }),
       })), ...additionalUpdates],
-      creations: options.creations ?? [],
+      creations,
       guards: options.guards ?? [],
       gitMove: tracked,
       gitIndex,
@@ -506,7 +522,7 @@ export async function runStatus(argv, config, opts = {}) {
       process.stdout.write(`${prefix} Would append Version History: - **${today}** Status: ${oldStatus ?? 'unknown'} → ${newStatus} — ${note}\n`);
     }
     process.stdout.write(`${prefix} ${toRepoPath(finalPath, config.repoRoot)}: ${oldStatus ?? 'unknown'} → ${newStatus}\n`);
-    return;
+    return { dryRun: true, oldRepoPath: toRepoPath(filePath, config.repoRoot), newRepoPath: toRepoPath(finalPath, config.repoRoot), touched: [] };
   }
 
   const mutationResult = commitLifecycleMutation(filePath, targetPath, config, { status: newStatus, updated: today }, currentOld => {
@@ -516,6 +532,7 @@ export async function runStatus(argv, config, opts = {}) {
     createSection: Boolean(note),
     additionalUpdates: opts.additionalUpdates,
     creations: opts.creations,
+    guards: opts.guards,
     testHooks: opts.testHooks,
   });
 
@@ -845,7 +862,7 @@ export function runArchive(argv, config, opts = {}) {
     if (config.hooks?.onArchive) {
       out.write(`${prefix} Would fire hook: onArchive\n`);
     }
-    return;
+    return { dryRun: true, oldRepoPath, newRepoPath, touched: [] };
   }
 
   const mutationResult = commitLifecycleMutation(filePath, targetPath, config, { status: targetStatus, updated: today },
@@ -1008,6 +1025,7 @@ export async function runSet(argv, config, opts = {}) {
       dryRun, note, archiveStatus: newStatus, force, testHooks: opts.testHooks, deferIndex: opts.deferIndex,
       additionalUpdates: opts.additionalUpdates,
       creations: opts.creations,
+      guards: opts.guards,
     });
   }
 
@@ -1059,8 +1077,9 @@ export async function runSet(argv, config, opts = {}) {
     dryRun,
     suppressDeprecation: true,
     note,
-    additionalUpdates: releaseUpdate ? [releaseUpdate] : [],
+    additionalUpdates: [...(opts.additionalUpdates ?? []), ...(releaseUpdate ? [releaseUpdate] : [])],
     creations: opts.creations,
+    guards: opts.guards,
     testHooks: opts.testHooks,
     deferIndex: opts.deferIndex,
   });

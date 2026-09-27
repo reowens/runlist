@@ -1271,13 +1271,21 @@ Options:
   --note "why"           Append the reason to ## Version History (plan mode only)
   --message / --body     Inline body (one-liners; prefer @path or stdin)
   --force                Recover another session's plan (explicit path required)
+  --replace              Replace exactly one pending handoff; archive its prior text
   --json                 Structured repository/session/generated file result
   --dry-run, -n          Preview without writing
+
+Repo-specific commit hint (dotmd.config.mjs):
+  export function batonCommitCommand(message, paths) {
+    return ['just', 'commit', message, ...paths];
+  }
+The function returns argv; baton shell-quotes each argument before printing.
 
 Examples:
   runlist baton @/tmp/draft.md
   runlist baton checkout-fixes @/tmp/draft.md
   runlist baton docs/plans/auth.md @/tmp/draft.md
+  runlist baton docs/plans/auth.md @/tmp/new-draft.md --replace
   runlist baton --status paused --note "blocked on review" @/tmp/d.md
   cat /tmp/draft.md | runlist baton
 
@@ -1296,11 +1304,13 @@ cooperating transaction:
   grant ownership. A live pickup-hook delivery lease blocks release and force
   takeover; hooks are at-least-once and deduplicate the stable operationId.
 
-Slug mode (no plan involved) saves resume-<slug> and touches nothing else: no
-status change, no commit. A bare word that names a plan is treated as that plan.
+Slug mode (no plan involved) saves resume-<slug> without a status change or
+commit. A bare word that names a plan is treated as that plan.
 
 Baton saves nothing while a handoff for the same work is pending (resume-<name>,
-or a pending prompt linked to the plan): consume or archive it, then re-run.
+or a pending prompt linked to the plan): inspect it with \`runlist prompts show\`.
+Keep it if current; use \`--replace\` with a new draft if stale. Replacement
+preserves the prior text under archived/ and refuses multiple matches.
 With no @file, \`-\` or --message, baton reads stdin only when something is piped
 in; an open pipe that sends nothing is given up on after a moment.`,
 

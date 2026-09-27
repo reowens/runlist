@@ -22,7 +22,7 @@ Save a resume prompt for the work in flight. Two steps, one command:
 
    If baton printed a `git commit` command, run it as-is. If it didn't, nothing repo-tracked changed — you're done. Tell the user the prompt name baton printed.
 
-   Always pass the draft (`@<file>`). A bare `runlist baton` saves nothing: it prints these same forms and exits. If a handoff may already be pending, inspect it with `runlist prompts show <resume-slug>` first. Keep it if current; if stale, archive it with `runlist prompts archive <resume-slug>` and then run baton. Never consume a prompt merely to replace it. If baton refuses, it names the pending prompt to inspect.
+   Always pass the draft (`@<file>`). A bare `runlist baton` saves nothing: it prints these same forms and exits. If a handoff may already be pending, inspect it with `runlist prompts show <resume-slug>` first. Keep it if current; if stale, pass `--replace` with the new draft. Baton archives the prior text and refreshes exactly one pending handoff with the plan release. Never consume a prompt merely to replace it. If baton refuses, it names the pending prompt to inspect.
 
 **Scope guard — baton is the whole closeout. Do NOT:**
 - run `runlist use` (that *consumes* prompts / *starts* plans — the wrong direction during a handoff; running it on your own freshly saved prompt destroys the handoff),

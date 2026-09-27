@@ -1,9 +1,11 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
-import { ok, strictEqual, match } from 'node:assert';
+import { ok, strictEqual, match, rejects } from 'node:assert';
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync, rmSync, appendFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
+import { resolveConfig } from '../src/config.mjs';
+import { runBaton } from '../src/baton.mjs';
 
 const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
 
@@ -67,6 +69,17 @@ function run(args, { input, sid = 'test-sid' } = {}) {
   });
 }
 
+function runAsync(args, sid = 'test-sid') {
+  return new Promise(resolve => {
+    const child = spawn('node', [bin, ...args, '--config', configPath], {
+      cwd: tmpDir, env: { ...process.env, NO_COLOR: '1', CLAUDE_CODE_SESSION_ID: sid, RUNLIST_ERROR_LOG_DIR: path.join(tmpDir, '.logs') },
+    });
+    let stderr = '';
+    child.stderr.on('data', chunk => { stderr += chunk; });
+    child.on('close', status => resolve({ status, stderr }));
+  });
+}
+
 afterEach(() => {
   if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
 });
@@ -91,6 +104,15 @@ describe('runlist baton', () => {
     match(r.stderr, /Baton passed/);
     match(r.stderr, /git commit -m "baton: auth-revamp in-session → active" -- docs\/plans\/auth-revamp\.md/);
     ok(!r.stderr.includes('prompts/resume-auth-revamp.md --'), 'prompt not in pathspec');
+  });
+
+  it('formats a configured commit argv with shell-safe message and plan path', () => {
+    const plan = writePlan('quote $PATH');
+    appendFileSync(configPath, '\nexport function batonCommitCommand(message, paths) { return ["just", "commit", message, ...paths]; }\n');
+    const r = run(['baton', plan, '--message', 'resume']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(r.stderr.includes('just commit "baton: quote \\$PATH in-session → active" "docs/plans/quote \\$PATH.md"'), r.stderr);
+    ok(!r.stderr.includes('docs/prompts/'), 'session prompt excluded from commit command');
   });
 
   // Regression: a prompt-refresh pass named a plan slug to re-save its handoff
@@ -439,8 +461,7 @@ describe('runlist baton', () => {
 
   it('a release status that files the plan elsewhere repoints the prompt link', () => {
     // `paused` files into docs/plans/held/ (lifecycle.filedStatuses). The
-    // prompt is created inside the same transaction as that move, so its link
-    // carried the pre-move path and was stale on arrival.
+    // prompt is created inside the same transaction with its final plan link.
     writePlan('filed', { status: 'active' });
     run(['use', 'docs/plans/filed.md'], { sid: 'first' });
     strictEqual(run(['baton', '--status', 'paused', '--message', 'x'], { sid: 'first' }).status, 0);
@@ -448,6 +469,29 @@ describe('runlist baton', () => {
     ok(existsSync(path.join(plansDir, 'held', 'filed.md')), 'precondition: paused files the plan');
     const prompt = readFileSync(path.join(docsDir, 'prompts', 'resume-filed.md'), 'utf8');
     match(prompt, /^plan: docs\/plans\/held\/filed\.md$/m, 'link points at where the plan actually is');
+  });
+
+  it('publishes the filed plan link inside the move transaction and rolls both back on failure', async () => {
+    const source = writePlan('filed-atomic', { status: 'active' });
+    strictEqual(run(['use', 'docs/plans/filed-atomic.md'], { sid: 'first' }).status, 0);
+    const config = await resolveConfig(tmpDir, configPath);
+    const promptPath = path.join(docsDir, 'prompts', 'resume-filed-atomic.md');
+    const previous = process.env.DOTMD_SESSION_ID;
+    process.env.DOTMD_SESSION_ID = 'first';
+    try {
+      await rejects(runBaton([source, '--status', 'paused', '--message', 'continue'], config, {
+        testHooks: { afterMovePublish: () => {
+          match(readFileSync(promptPath, 'utf8'), /^plan: docs\/plans\/held\/filed-atomic\.md$/m);
+          throw new Error('abort filed baton');
+        } },
+      }), /abort filed baton/);
+    } finally {
+      if (previous === undefined) delete process.env.DOTMD_SESSION_ID;
+      else process.env.DOTMD_SESSION_ID = previous;
+    }
+    match(readFileSync(source, 'utf8'), /^status: in-session$/m);
+    ok(!existsSync(path.join(plansDir, 'held', 'filed-atomic.md')));
+    ok(!existsSync(promptPath));
   });
 
   it('an unclaimable link does not stop a startable one from being claimed', () => {
@@ -527,11 +571,182 @@ describe('runlist baton', () => {
     const r = run(['baton', 'docs/plans/auth-revamp.md', '--message', 'newer handoff']);
     ok(r.status !== 0, 'refused');
     match(r.stderr, /already pending:\n  docs\/prompts\/resume-auth-revamp\.md/);
-    match(r.stderr, /runlist prompts archive docs\/prompts\/resume-auth-revamp\.md/);
+    match(r.stderr, /--replace/);
     match(r.stderr, /runlist prompts show resume-auth-revamp/);
     ok(!existsSync(path.join(docsDir, 'prompts', 'resume-auth-revamp-2.md')), 'no -2 copy');
     ok(readFileSync(older, 'utf8').includes('older handoff'), 'older prompt untouched');
     ok(readFileSync(path.join(plansDir, 'auth-revamp.md'), 'utf8').includes('status: in-session'), 'plan untouched');
+  });
+
+  it('--replace archives one old handoff and refreshes the pending prompt with the plan release', () => {
+    const plan = writePlan('replace-plan');
+    const prompt = path.join(docsDir, 'prompts', 'resume-replace-plan.md');
+    writeFileSync(prompt, '---\ntype: prompt\nstatus: pending\nplan: ../plans/replace-plan.md\n---\nold notes\n');
+    const r = run(['baton', plan, '--replace', '--message', 'new notes']);
+    strictEqual(r.status, 0, r.stderr);
+    match(readFileSync(plan, 'utf8'), /^status: active$/m);
+    match(readFileSync(prompt, 'utf8'), /new notes/);
+    const archived = readFileSync(path.join(docsDir, 'prompts', 'archived', 'resume-replace-plan.md'), 'utf8');
+    match(archived, /^status: archived$/m);
+    match(archived, /old notes/);
+  });
+
+  it('--replace refuses when there is no pending handoff', () => {
+    const plan = writePlan('nothing-to-replace');
+    const before = readFileSync(plan, 'utf8');
+    const r = run(['baton', plan, '--replace', '--message', 'new notes']);
+    ok(r.status !== 0);
+    match(r.stderr, /No pending handoff matches this work/);
+    strictEqual(readFileSync(plan, 'utf8'), before);
+    ok(!existsSync(path.join(docsDir, 'prompts', 'resume-nothing-to-replace.md')));
+  });
+
+  it('--replace respects a live plan claim and releases it only for the owner', () => {
+    writePlan('claimed-replace', { status: 'active' });
+    strictEqual(run(['use', 'docs/plans/claimed-replace.md'], { sid: 'owner' }).status, 0);
+    const prompt = path.join(docsDir, 'prompts', 'resume-claimed-replace.md');
+    writeFileSync(prompt, '---\ntype: prompt\nstatus: pending\nplan: ../plans/claimed-replace.md\n---\nold notes\n');
+    const denied = run(['baton', 'docs/plans/claimed-replace.md', '--replace', '--message', 'new notes'], { sid: 'other' });
+    ok(denied.status !== 0);
+    match(denied.stderr, /busy in another session/);
+    match(readFileSync(prompt, 'utf8'), /old notes/);
+    ok(!existsSync(path.join(docsDir, 'prompts', 'archived', 'resume-claimed-replace.md')));
+    const owner = run(['baton', 'docs/plans/claimed-replace.md', '--replace', '--message', 'new notes'], { sid: 'owner' });
+    strictEqual(owner.status, 0, owner.stderr);
+    match(readFileSync(prompt, 'utf8'), /new notes/);
+    match(readFileSync(path.join(plansDir, 'claimed-replace.md'), 'utf8'), /^status: active$/m);
+  });
+
+  it('--replace keeps a differently named pending prompt and refuses ambiguous matches', () => {
+    const plan = writePlan('replace-alias');
+    const first = path.join(docsDir, 'prompts', 'resume-replace-alias-5.md');
+    writeFileSync(first, '---\ntype: prompt\nstatus: pending\nplan: ../plans/replace-alias.md\n---\nold notes\n');
+    const replaced = run(['baton', plan, '--replace', '--message', 'new notes']);
+    strictEqual(replaced.status, 0, replaced.stderr);
+    match(readFileSync(first, 'utf8'), /new notes/);
+    ok(!existsSync(path.join(docsDir, 'prompts', 'resume-replace-alias.md')));
+    const second = path.join(docsDir, 'prompts', 'resume-replace-alias-extra.md');
+    writeFileSync(second, '---\ntype: prompt\nstatus: pending\nplan: ../plans/replace-alias.md\n---\nother notes\n');
+    const refused = run(['baton', plan, '--replace', '--message', 'third notes']);
+    ok(refused.status !== 0);
+    match(refused.stderr, /requires exactly one pending handoff/);
+    match(readFileSync(first, 'utf8'), /new notes/);
+    match(readFileSync(second, 'utf8'), /other notes/);
+  });
+
+  it('--replace works in slug mode and an identical retry keeps one archive', () => {
+    const old = run(['baton', 'quick-task', '--message', 'first notes']);
+    strictEqual(old.status, 0, old.stderr);
+    const prompt = path.join(docsDir, 'prompts', 'resume-quick-task.md');
+    const replacement = run(['baton', 'quick-task', '--replace', '--message', 'second notes']);
+    strictEqual(replacement.status, 0, replacement.stderr);
+    match(readFileSync(prompt, 'utf8'), /second notes/);
+    const archivedDir = path.join(docsDir, 'prompts', 'archived');
+    strictEqual(readFileSync(path.join(archivedDir, 'resume-quick-task.md'), 'utf8').includes('first notes'), true);
+    const retry = run(['baton', 'quick-task', '--replace', '--message', 'second notes']);
+    strictEqual(retry.status, 0, retry.stderr);
+    ok(!existsSync(path.join(archivedDir, 'resume-quick-task-2.md')));
+  });
+
+  it('--replace preserves an existing archive name and reports the replacement in JSON', () => {
+    const plan = writePlan('collision');
+    const prompt = path.join(docsDir, 'prompts', 'resume-collision.md');
+    const archivedDir = path.join(docsDir, 'prompts', 'archived');
+    mkdirSync(archivedDir, { recursive: true });
+    writeFileSync(prompt, '---\ntype: prompt\nstatus: pending\nplan: ../plans/collision.md\n---\nold pending\n');
+    writeFileSync(path.join(archivedDir, 'resume-collision.md'), 'historic archive');
+    const preview = run(['baton', plan, '--replace', '--message', 'new pending', '--dry-run', '--json']);
+    strictEqual(preview.status, 0, preview.stderr);
+    const predicted = JSON.parse(preview.stdout);
+    strictEqual(predicted.replacement.previousPrompt, 'docs/prompts/resume-collision.md');
+    strictEqual(predicted.replacement.archivedPrompt, 'docs/prompts/archived/resume-collision-2.md');
+    strictEqual(predicted.replacement.pendingPrompt, 'docs/prompts/resume-collision.md');
+    match(readFileSync(prompt, 'utf8'), /old pending/);
+    ok(!existsSync(path.join(archivedDir, 'resume-collision-2.md')));
+
+    const applied = run(['baton', plan, '--replace', '--message', 'new pending', '--json']);
+    strictEqual(applied.status, 0, applied.stderr);
+    const result = JSON.parse(applied.stdout);
+    strictEqual(result.replacement.archivedPrompt, 'docs/prompts/archived/resume-collision-2.md');
+    ok(result.sessionFiles.includes('docs/prompts/archived/resume-collision-2.md'));
+    strictEqual(readFileSync(path.join(archivedDir, 'resume-collision.md'), 'utf8'), 'historic archive');
+    match(readFileSync(path.join(archivedDir, 'resume-collision-2.md'), 'utf8'), /old pending/);
+  });
+
+  it('--replace rolls the pending prompt, archive copy, and plan back on a transaction failure', async () => {
+    const plan = writePlan('replace-rollback');
+    const prompt = path.join(docsDir, 'prompts', 'resume-replace-rollback.md');
+    const original = '---\ntype: prompt\nstatus: pending\nplan: ../plans/replace-rollback.md\n---\nold pending\n';
+    writeFileSync(prompt, original);
+    const config = await resolveConfig(tmpDir, configPath);
+    await rejects(runBaton([plan, '--replace', '--message', 'new pending'], config, {
+      testHooks: { afterSetCommit: count => { if (count === 2) throw new Error('abort replacement'); } },
+    }), /abort replacement/);
+    strictEqual(readFileSync(prompt, 'utf8'), original);
+    match(readFileSync(plan, 'utf8'), /^status: in-session$/m);
+    ok(!existsSync(path.join(docsDir, 'prompts', 'archived', 'resume-replace-rollback.md')));
+  });
+
+  it('--replace in slug mode rolls back and refuses a plan-linked handoff', async () => {
+    const first = run(['baton', 'slug-rollback', '--message', 'old pending']);
+    strictEqual(first.status, 0, first.stderr);
+    const prompt = path.join(docsDir, 'prompts', 'resume-slug-rollback.md');
+    const original = readFileSync(prompt, 'utf8');
+    const config = await resolveConfig(tmpDir, configPath);
+    await rejects(runBaton(['slug-rollback', '--replace', '--message', 'new pending'], config, {
+      testHooks: { afterSetCommit: count => { if (count === 2) throw new Error('abort slug replacement'); } },
+    }), /abort slug replacement/);
+    strictEqual(readFileSync(prompt, 'utf8'), original);
+    ok(!existsSync(path.join(docsDir, 'prompts', 'archived', 'resume-slug-rollback.md')));
+
+    writeFileSync(prompt, original.replace('status: pending', 'status: pending\nplan: ../plans/some-plan.md'));
+    const linked = run(['baton', 'slug-rollback', '--replace', '--message', 'new pending']);
+    ok(linked.status !== 0);
+    match(linked.stderr, /links a plan/);
+    match(readFileSync(prompt, 'utf8'), /old pending/);
+  });
+
+  it('--replace with a filed plan links both the refreshed and archived prompts to the final path', () => {
+    writePlan('replace-filed', { status: 'active' });
+    strictEqual(run(['use', 'docs/plans/replace-filed.md'], { sid: 'first' }).status, 0);
+    const alias = path.join(docsDir, 'prompts', 'resume-replace-filed-5.md');
+    writeFileSync(alias, '---\ntype: prompt\nstatus: pending\nplan: ../plans/replace-filed.md\n---\nold pending\n');
+    const preview = run(['baton', 'docs/plans/replace-filed.md', '--status', 'paused', '--replace', '--message', 'new pending', '--dry-run', '--json'], { sid: 'first' });
+    strictEqual(preview.status, 0, preview.stderr);
+    const predicted = JSON.parse(preview.stdout);
+    strictEqual(predicted.planMovement.to, 'docs/plans/held/replace-filed.md');
+    strictEqual(predicted.claimRelease.wouldRelease, true);
+    ok(!existsSync(path.join(plansDir, 'held', 'replace-filed.md')));
+    const r = run(['baton', 'docs/plans/replace-filed.md', '--status', 'paused', '--replace', '--message', 'new pending'], { sid: 'first' });
+    strictEqual(r.status, 0, r.stderr);
+    const archived = path.join(docsDir, 'prompts', 'archived', 'resume-replace-filed-5.md');
+    match(readFileSync(alias, 'utf8'), /^plan: docs\/plans\/held\/replace-filed\.md$/m);
+    match(readFileSync(archived, 'utf8'), /^plan: docs\/plans\/held\/replace-filed\.md$/m);
+    ok(existsSync(path.join(plansDir, 'held', 'replace-filed.md')));
+  });
+
+  it('--replace refreshes a filed plan link even when the draft body is unchanged', () => {
+    writePlan('same-body-filed', { status: 'active' });
+    strictEqual(run(['use', 'docs/plans/same-body-filed.md'], { sid: 'first' }).status, 0);
+    const prompt = path.join(docsDir, 'prompts', 'resume-same-body-filed.md');
+    writeFileSync(prompt, '---\ntype: prompt\nstatus: pending\nplan: ../plans/same-body-filed.md\n---\nsame text\n');
+    const r = run(['baton', 'docs/plans/same-body-filed.md', '--status', 'paused', '--replace', '--message', 'same text'], { sid: 'first' });
+    strictEqual(r.status, 0, r.stderr);
+    match(readFileSync(prompt, 'utf8'), /^plan: docs\/plans\/held\/same-body-filed\.md$/m);
+  });
+
+  it('concurrent --replace writers leave one complete pending handoff', async () => {
+    const plan = writePlan('replace-race', { status: 'awaiting' });
+    const prompt = path.join(docsDir, 'prompts', 'resume-replace-race.md');
+    writeFileSync(prompt, '---\ntype: prompt\nstatus: pending\nplan: ../plans/replace-race.md\n---\nold notes\n');
+    const results = await Promise.all([
+      runAsync(['baton', plan, '--replace', '--message', 'writer alpha']),
+      runAsync(['baton', plan, '--replace', '--message', 'writer beta']),
+    ]);
+    ok(results.some(result => result.status === 0), results.map(result => result.stderr).join('\n'));
+    const pending = readFileSync(prompt, 'utf8');
+    ok(pending.includes('writer alpha') !== pending.includes('writer beta'), 'one whole writer body published');
+    ok(!existsSync(path.join(docsDir, 'prompts', 'resume-replace-race-2.md')));
   });
 
   it('refuses a plan handoff when a differently named pending prompt links the same plan', () => {

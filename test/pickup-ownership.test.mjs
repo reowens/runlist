@@ -474,6 +474,27 @@ describe('durable lifecycle ownership', () => {
     strictEqual(JSON.parse(readFileSync(ownershipFile(), 'utf8')).state, 'released');
   });
 
+  it('baton --replace can reclaim a dead owner without losing the old handoff', async () => {
+    setup();
+    const file = plan('dead-owner-replace');
+    const victim = spawnVictim();
+    try {
+      const started = run(['use', file], 'A', { DOTMD_SESSION_PID: String(victim.pid) });
+      strictEqual(started.status, 0, started.stderr);
+      const prompt = path.join(tmp, 'docs', 'prompts', 'resume-dead-owner-replace.md');
+      writeFileSync(prompt, '---\ntype: prompt\nstatus: pending\nplan: ../plans/dead-owner-replace.md\n---\nold notes\n');
+      await reap(victim);
+      const replaced = run(['baton', file, '--replace', '--message', 'new notes'], 'B');
+      strictEqual(replaced.status, 0, replaced.stderr);
+      match(readFileSync(prompt, 'utf8'), /new notes/);
+      match(readFileSync(path.join(tmp, 'docs', 'prompts', 'archived', 'resume-dead-owner-replace.md'), 'utf8'), /old notes/);
+      match(readFileSync(file, 'utf8'), /^status: active$/m);
+      strictEqual(JSON.parse(readFileSync(ownershipFile(), 'utf8')).state, 'released');
+    } finally {
+      if (victim.exitCode === null) victim.kill('SIGKILL');
+    }
+  });
+
   it('use adopts a plan left in-session by a dead process', async () => {
     setup();
     const file = plan('dead-owner-pickup');
@@ -553,6 +574,42 @@ describe('durable lifecycle ownership', () => {
     }
     strictEqual(readFileSync(file, 'utf8'), beforePlan);
     strictEqual(readFileSync(ownershipFile(), 'utf8'), beforeOwner);
+  });
+
+  it('forwards companion updates and guards through set before publishing a prompt', async () => {
+    setup();
+    const file = plan('guarded-companions', 'awaiting');
+    const witness = path.join(tmp, 'docs', 'witness.md');
+    const companion = path.join(tmp, 'docs', 'companion.md');
+    const prompt = path.join(tmp, 'docs', 'prompts', 'resume-guarded-companions.md');
+    writeFileSync(witness, 'current');
+    writeFileSync(companion, 'old');
+    const config = await resolveConfig(tmp, path.join(tmp, 'dotmd.config.mjs'));
+    const options = {
+      additionalUpdates: [{ path: companion, expectedContent: 'old', content: 'new' }],
+      creations: [{ path: prompt, content: 'pending prompt' }],
+      guards: [{ path: witness, expectedContent: 'stale' }],
+      deferIndex: true,
+    };
+    await rejects(runSet(['active', file], config, options), /File changed/);
+    match(readFileSync(file, 'utf8'), /^status: awaiting$/m);
+    strictEqual(readFileSync(companion, 'utf8'), 'old');
+    ok(!existsSync(prompt));
+
+    options.guards[0].expectedContent = 'current';
+    await runSet(['active', file], config, options);
+    match(readFileSync(file, 'utf8'), /^status: active$/m);
+    strictEqual(readFileSync(companion, 'utf8'), 'new');
+    strictEqual(readFileSync(prompt, 'utf8'), 'pending prompt');
+
+    const unchangedPlan = plan('unchanged-guard', 'awaiting');
+    const secondPrompt = path.join(tmp, 'docs', 'prompts', 'resume-unchanged-guard.md');
+    await rejects(runSet(['awaiting', unchangedPlan], config, {
+      creations: [{ path: secondPrompt, content: 'should not publish' }],
+      guards: [{ path: unchangedPlan, expectedContent: 'stale plan generation' }],
+      deferIndex: true,
+    }), /File changed/);
+    ok(!existsSync(secondPrompt));
   });
 
   it('rolls archive move and ownership release back together on ordinary failure', async () => {

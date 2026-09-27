@@ -77,6 +77,8 @@ runlist baton @/tmp/draft.md        # saves resume-<plan-slug>, flips the plan
 
 `--status paused|awaiting|partial|blocked` overrides the release status; `--note "why"` records the reason. Baton resolves *your* plan from its local, gitignored ownership record (or takes it explicitly: `runlist baton <plan-file> @<draft-file>`); journal entries and global in-session counts never grant ownership. It is the whole closeout — prompt creation, status/history, and ownership release commit together, with no extra status changes or repo triage on the way out.
 
+If a handoff is already pending, inspect it with `runlist prompts show <slug>`. Keep it if current; for stale text, call baton with the new draft and `--replace`. It archives the old text and refreshes one pending prompt atomically. Do not consume the prompt merely to replace it.
+
 No plan involved? Same verb, slug mode — saves `resume-<slug>` and touches nothing else:
 
 ```bash

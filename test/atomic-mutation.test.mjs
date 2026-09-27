@@ -358,6 +358,21 @@ describe('atomic mutation substrate', () => {
     strictEqual(existsSync(created), false);
   });
 
+  it('locks an absent guard path and refuses either mutation form if it appears', () => {
+    const root = setup();
+    const source = path.join(root, 'source.md');
+    const target = path.join(root, 'target.md');
+    const conflicting = path.join(root, 'conflicting.md');
+    writeFileSync(source, 'original');
+    writeFileSync(conflicting, 'other writer');
+    const guards = [{ path: conflicting, absent: true }];
+    throws(() => mutateFileSet({ updates: [{ path: source, content: 'new' }], guards }, { repoRoot: root }), /File appeared/);
+    strictEqual(readFileSync(source, 'utf8'), 'original');
+    throws(() => moveFileAtomic(source, target, 'new', { repoRoot: root, guards }), /File appeared/);
+    strictEqual(readFileSync(source, 'utf8'), 'original');
+    ok(!existsSync(target));
+  });
+
   it('does not remove a concurrently replaced published target during rollback', () => {
     const root = setup();
     const source = path.join(root, 'source.md');

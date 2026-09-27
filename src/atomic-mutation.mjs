@@ -1310,6 +1310,10 @@ export function moveFileAtomic(sourcePath, targetPath, render, options) {
     // transaction manifest exists, so a guard conflict can never leave a
     // transaction to recover from.
     for (const guard of guards) {
+      if (guard.absent) {
+        if (existsSync(guard.path)) throw new MutationConflictError(`File appeared while the move mutation set was being prepared: ${path.resolve(guard.path)}`);
+        continue;
+      }
       const snapshot = snapshotFile(guard.path);
       if (guard.expectedContent !== undefined && snapshot.content !== guard.expectedContent) {
         throw new MutationConflictError(`File changed while the move mutation set was being prepared: ${snapshot.path}`);
@@ -1657,6 +1661,10 @@ export function mutateFileSet({ updates = [], creations = [], guards = [] }, opt
     // is created — a guard conflict must leave the tree byte-identical, not even
     // an empty directory behind.
     for (const guard of guards) {
+      if (guard.absent) {
+        if (existsSync(guard.path)) throw new MutationConflictError(`File appeared while the mutation set was being prepared: ${path.resolve(guard.path)}`);
+        continue;
+      }
       const snapshot = snapshotFile(guard.path);
       if (guard.expectedContent !== undefined && snapshot.content !== guard.expectedContent) {
         throw new MutationConflictError(`File changed while the mutation set was being prepared: ${snapshot.path}`);

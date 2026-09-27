@@ -131,7 +131,15 @@ runlist baton @/tmp/resume.md
 ```
 
 Baton refuses when a handoff for the same work is already pending, so one piece
-of work never has two resume prompts.
+of work never has two resume prompts. Inspect the pending handoff with
+`runlist prompts show <slug>`. Keep it if current; if stale, pass `--replace`
+with a new draft. Baton archives the previous text and refreshes the pending
+prompt in the same operation as any plan release.
+
+Repositories with a commit wrapper can export `batonCommitCommand(message, paths)`
+from `dotmd.config.mjs` and return an argv array such as
+`['just', 'commit', message, ...paths]`. Baton quotes the printed command and
+excludes session prompts from `paths`.
 
 Saved prompts are local session state. Consume them with `runlist use`; inspect
 without consuming via `runlist prompts show`. Consuming a baton prompt also claims

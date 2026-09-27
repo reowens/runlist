@@ -123,7 +123,7 @@ const definitions = [
   ], { aliases: ['prompt'] }),
   command('use', mutates('managed source when starting/consuming; docs remain read-only'), 'workflow', [form('[file]', { args: positionals(0, 1), options: [flag('--json'), flag('--full'), flag('--no-index'), flag('--show-files'), flag('--force'), flag('--no-claim')] })]),
   command('next', mutates('managed prompt source and same-root archive destination'), 'workflow', [form('', { options: [flag('--json'), flag('--no-index'), flag('--show-files'), flag('--force'), flag('--no-claim')] })]),
-  command('baton', mutates('managed plan/prompt sources and managed prompt destination'), 'workflow', [form('[plan|slug] <@<file>|->', { args: positionals(0, 2), options: [value('--status'), value('--note'), value('--body', '--message'), flag('--force'), flag('--json')] })]),
+  command('baton', mutates('managed plan/prompt sources and managed prompt destination'), 'workflow', [form('[plan|slug] <@<file>|->', { args: positionals(0, 2), options: [value('--status'), value('--note'), value('--body', '--message'), flag('--force'), flag('--replace'), flag('--json')] })]),
   command('runlist', mutates('managed hubs/children and managed scaffold destinations'), 'workflow', [
     form('<hub>', { args: positionals(1, 1), options: [flag('--json')] }),
     form('next <hub>', { subcommands: ['next'], args: positionals(1, 1), options: [flag('--json'), flag('--full'), flag('--no-index'), flag('--show-files')] }),
