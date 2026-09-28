@@ -50,7 +50,9 @@ describe('Codex plugin distribution', () => {
   });
 
   it('ships the Codex plugin files in the npm tarball', () => {
-    const packed = spawnSync('npm', ['pack', '--dry-run', '--json'], { cwd: root, encoding: 'utf8' });
+    const packed = spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['pack', '--dry-run', '--json'], {
+      cwd: root, encoding: 'utf8', shell: process.platform === 'win32',
+    });
     strictEqual(packed.status, 0, packed.stderr);
     const output = JSON.parse(packed.stdout);
     const p = Array.isArray(output) ? output[0] : output.runlist;
@@ -65,11 +67,15 @@ describe('Codex plugin distribution', () => {
     const fakeBin = path.join(h, 'bin');
     mkdirSync(fakeBin);
     const calls = path.join(h, 'codex-calls');
-    const stub = path.join(fakeBin, 'codex');
-    writeFileSync(stub, `#!/bin/sh\nprintf '%s\\n' "$*" >> "$CODEX_CALLS"\n`);
-    chmodSync(stub, 0o755);
+    const stub = path.join(fakeBin, process.platform === 'win32' ? 'codex.cmd' : 'codex');
+    if (process.platform === 'win32') {
+      writeFileSync(stub, '@echo off\r\necho %*>>"%CODEX_CALLS%"\r\n');
+    } else {
+      writeFileSync(stub, `#!/bin/sh\nprintf '%s\\n' "$*" >> "$CODEX_CALLS"\n`);
+      chmodSync(stub, 0o755);
+    }
     const run = spawnSync(process.execPath, [bin, 'install', 'codex', '--json'], {
-      cwd: root, encoding: 'utf8', env: { ...process.env, HOME: h, PATH: `${fakeBin}${path.delimiter}${process.env.PATH}`, CODEX_CALLS: calls },
+      cwd: root, encoding: 'utf8', env: { ...process.env, HOME: h, USERPROFILE: h, PATH: `${fakeBin}${path.delimiter}${process.env.PATH}`, CODEX_CALLS: calls },
     });
     strictEqual(run.status, 0, run.stderr);
     strictEqual(JSON.parse(run.stdout).pluginAdd, 'installed');
@@ -115,7 +121,10 @@ describe('Codex hook payloads', () => {
     });
     strictEqual(unrelated.status, 0);
     strictEqual(unrelated.stdout.trim(), '{}');
-    const absent = spawnSync('sh', [hook, '--hint', 'hud'], { cwd: h, env: { PATH: '/usr/bin:/bin' }, encoding: 'utf8' });
+    const shell = process.platform === 'win32'
+      ? spawnSync('where', ['sh'], { encoding: 'utf8' }).stdout.trim().split(/\r?\n/)[0]
+      : 'sh';
+    const absent = spawnSync(shell, [hook, '--hint', 'hud'], { cwd: h, env: { PATH: '/usr/bin:/bin' }, encoding: 'utf8' });
     strictEqual(absent.status, 0);
     match(absent.stdout, /npm i -g runlist/);
   });

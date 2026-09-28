@@ -2,6 +2,12 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- Codex integration tests use Windows command shims and a discoverable shell so the cross-platform CI job checks the plugin without a Unix-only test environment.
+
 ## 0.89.3 — 2026-09-27
 
 ### Changed
