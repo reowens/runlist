@@ -1,6 +1,6 @@
 // Installing dotmd's integration into agent hosts other than Claude Code.
 //
-// Claude Code gets its integration through a real plugin (`plugins/dotmd/`,
+// Claude Code gets its integration through a real plugin (`plugins/runlist/`,
 // installed by `claude plugin`). OpenCode has no equivalent registry, but it
 // auto-discovers plugin files: it globs `{plugin,plugins}/*.{ts,js}` under the
 // global config dir and under a project's `.opencode/`, with no config entry
@@ -23,7 +23,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { hostSessionSource } from './util.mjs';
 import { readEnv, stateDir } from './naming.mjs';
-import { planMarketplaceRepair } from './update.mjs';
+import { LEGACY_PLUGIN_ID, planMarketplaceRepair } from './update.mjs';
 
 // New files carry the current banner. Every reader accepts both: files written
 // by dotmd-cli 0.78.0 and earlier carry the legacy banner, and those must stay
@@ -32,7 +32,8 @@ import { planMarketplaceRepair } from './update.mjs';
 export const GENERATED_MARKER = 'runlist-generated:';
 export const LEGACY_GENERATED_MARKER = 'dotmd-generated:';
 const GENERATED_MARKERS = [GENERATED_MARKER, LEGACY_GENERATED_MARKER];
-const PLUGIN_FILENAME = 'dotmd.js';
+const PLUGIN_FILENAME = 'runlist.js';
+const LEGACY_PLUGIN_FILENAME = 'dotmd.js';
 const ASSET = path.resolve(fileURLToPath(import.meta.url), '..', '..', 'assets', 'opencode', 'plugin.js');
 
 // OpenCode's own resolution order for its global config directory. Verified
@@ -59,6 +60,12 @@ export function opencodePluginPath(opts = {}) {
   const { env = process.env, homedir = os.homedir(), dir } = opts;
   if (dir) return path.join(path.resolve(dir), PLUGIN_FILENAME);
   return path.join(opencodePluginDir(opencodeConfigDir(env, homedir)), PLUGIN_FILENAME);
+}
+
+function legacyOpencodePluginPath(opts = {}) {
+  const { env = process.env, homedir = os.homedir(), dir } = opts;
+  if (dir) return path.join(path.resolve(dir), LEGACY_PLUGIN_FILENAME);
+  return path.join(opencodePluginDir(opencodeConfigDir(env, homedir)), LEGACY_PLUGIN_FILENAME);
 }
 
 function banner(version) {
@@ -98,20 +105,25 @@ export function installedVersion(filePath) {
 export function opencodeStatus(opts = {}) {
   const { version, ...rest } = opts;
   const filePath = opencodePluginPath(rest);
-  const exists = existsSync(filePath);
-  const generated = exists ? readGeneratedBanner(filePath) : null;
-  const installed = generated?.version ?? null;
-  const legacyBanner = generated?.marker === LEGACY_GENERATED_MARKER;
+  const legacyPath = legacyOpencodePluginPath(rest);
+  const currentExists = existsSync(filePath);
+  const oldExists = existsSync(legacyPath);
+  const generated = currentExists ? readGeneratedBanner(filePath) : null;
+  const oldGenerated = oldExists ? readGeneratedBanner(legacyPath) : null;
+  const installed = generated?.version ?? oldGenerated?.version ?? null;
+  const legacyGenerated = Boolean(oldGenerated);
+  const legacyBanner = generated?.marker === LEGACY_GENERATED_MARKER || oldGenerated?.marker === LEGACY_GENERATED_MARKER;
   return {
     path: filePath,
-    exists,
+    legacyPath,
+    exists: currentExists || oldExists,
     version: installed,
-    // Present but unmarked: the user put a `dotmd.js` there themselves.
-    foreign: exists && installed === null,
-    // A legacy banner is stale even at the same version, so the next install or
-    // update rewrites it in place with the current banner.
-    stale: installed !== null && ((version !== undefined && installed !== version) || legacyBanner),
+    // Generated legacy files migrate to runlist.js. Unmarked files remain user-owned.
+    foreign: (currentExists && !generated) || (!currentExists && oldExists && !oldGenerated),
+    foreignPath: currentExists && !generated ? filePath : oldExists && !oldGenerated ? legacyPath : null,
+    stale: installed !== null && ((version !== undefined && installed !== version) || legacyBanner || legacyGenerated),
     legacyBanner,
+    legacyGenerated,
   };
 }
 
@@ -129,7 +141,7 @@ export function installOpencodePlugin(opts = {}) {
   const { version, dryRun = false, force = false, ...rest } = opts;
   const status = opencodeStatus({ version, ...rest });
   if (status.foreign && !force) {
-    return { ...status, action: 'refused', reason: 'a dotmd.js without a generated banner is already there — it was not written by runlist' };
+    return { ...status, action: 'refused', reason: 'an OpenCode plugin file without a generated banner is already there — it was not written by runlist' };
   }
   if (status.exists && !status.stale && !status.foreign) {
     return { ...status, action: 'current' };
@@ -138,6 +150,7 @@ export function installOpencodePlugin(opts = {}) {
   if (!dryRun) {
     mkdirSync(path.dirname(status.path), { recursive: true });
     writeFileSync(status.path, renderOpencodePlugin(version), 'utf8');
+    if (status.legacyGenerated) rmSync(status.legacyPath);
   }
   return { ...status, action, version };
 }
@@ -250,15 +263,15 @@ export function degradedIdentityNotice(repoRoot, opts = {}) {
 // only work from inside a session. So a user who installed the CLI from npm had
 // no way to discover, from the CLI, that the plugin exists.
 
-export const CLAUDE_MARKETPLACE = 'reowens/dotmd';
-export const CLAUDE_PLUGIN_ID = 'dotmd@dotmd';
+export const CLAUDE_MARKETPLACE = 'reowens/runlist';
+export const CLAUDE_PLUGIN_ID = 'runlist@runlist';
 
 // Why `claude plugin marketplace add` can refuse a marketplace that is not
 // even registered: settings.json may still DECLARE it (extraKnownMarketplaces),
 // and Claude rejects an add whose source differs from that declaration in any
 // fetch-shaping field. dotmd never writes that declaration and will not edit
 // it, so the most it can do is name the field.
-export function claudeMarketplaceRefusalHint(marketplace = 'dotmd') {
+export function claudeMarketplaceRefusalHint(marketplace = 'runlist') {
   return [
     `Claude refused to register marketplace "${marketplace}". If ~/.claude/settings.json declares it under`,
     `extraKnownMarketplaces, its source must be exactly {"source":"github","repo":"${CLAUDE_MARKETPLACE}"} —`,
@@ -268,12 +281,29 @@ export function claudeMarketplaceRefusalHint(marketplace = 'dotmd') {
 
 // Pure planner, mirroring planUpdate: the orchestration is unit-testable and
 // the side effects stay in the caller.
-export function planClaudeInstall({ installed, hasClaude, remove = false } = {}) {
+export function planClaudeInstall({ installed, legacyInstalled, hasClaude, remove = false } = {}) {
   if (remove) {
     if (!installed) return [{ kind: 'skip', reason: 'runlist plugin is not installed' }];
+    const ids = installed.id === LEGACY_PLUGIN_ID || !legacyInstalled
+      ? [installed.id] : [installed.id, LEGACY_PLUGIN_ID];
     return hasClaude
-      ? [{ kind: 'run', cmd: ['claude', 'plugin', 'uninstall', installed.id] }]
-      : [{ kind: 'manual', lines: [`/plugin uninstall ${installed.id}`] }];
+      ? ids.map(id => ({ kind: 'run', cmd: ['claude', 'plugin', 'uninstall', id] }))
+      : [{ kind: 'manual', lines: ids.map(id => `/plugin uninstall ${id}`) }];
+  }
+  if (installed?.id === LEGACY_PLUGIN_ID) {
+    const lines = [`/plugin marketplace add ${CLAUDE_MARKETPLACE}`, `/plugin install ${CLAUDE_PLUGIN_ID}`, `/plugin uninstall ${LEGACY_PLUGIN_ID}`];
+    return hasClaude
+      ? [
+        { kind: 'run', cmd: ['claude', 'plugin', 'marketplace', 'add', CLAUDE_MARKETPLACE] },
+        { kind: 'run', cmd: ['claude', 'plugin', 'install', CLAUDE_PLUGIN_ID] },
+        { kind: 'run', cmd: ['claude', 'plugin', 'uninstall', LEGACY_PLUGIN_ID] },
+      ]
+      : [{ kind: 'manual', reason: 'Migrate the legacy Claude plugin', lines }];
+  }
+  if (installed?.id === CLAUDE_PLUGIN_ID && legacyInstalled) {
+    return hasClaude
+      ? [{ kind: 'run', cmd: ['claude', 'plugin', 'uninstall', LEGACY_PLUGIN_ID] }]
+      : [{ kind: 'manual', reason: 'Remove the legacy Claude plugin', lines: [`/plugin uninstall ${LEGACY_PLUGIN_ID}`] }];
   }
   // An install record whose marketplace registration is gone is not an
   // installed plugin — Claude lists it as "failed to load". Skipping here with
@@ -301,6 +331,9 @@ export function removeOpencodePlugin(opts = {}) {
   if (status.foreign && !force) {
     return { ...status, action: 'refused', reason: 'not a runlist-generated file' };
   }
-  if (!dryRun) rmSync(status.path, { force: true });
+  if (!dryRun) {
+    rmSync(status.path, { force: true });
+    if (status.legacyGenerated || force) rmSync(status.legacyPath, { force: true });
+  }
   return { ...status, action: 'removed' };
 }

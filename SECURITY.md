@@ -6,7 +6,7 @@ Only the latest published version of `runlist` receives security updates.
 
 ## Reporting a Vulnerability
 
-Please report security vulnerabilities through [GitHub's private vulnerability reporting](https://github.com/reowens/dotmd/security/advisories/new).
+Please report security vulnerabilities through [GitHub's private vulnerability reporting](https://github.com/reowens/runlist/security/advisories/new).
 
 Do **not** open a public issue for security vulnerabilities.
 

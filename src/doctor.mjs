@@ -228,7 +228,7 @@ function runDoctorSession(argv) {
   for (const line of identity.advice) process.stdout.write(`    → ${line}\n`);
 
   process.stdout.write('\n' + bold('Host integration\n'));
-  if (oc.foreign) process.stdout.write(`  ${yellow('!')} opencode: a dotmd.js runlist did not write — ${oc.path}\n`);
+  if (oc.foreign) process.stdout.write(`  ${yellow('!')} opencode: a plugin file runlist did not write — ${oc.foreignPath}\n`);
   else if (!oc.exists) process.stdout.write(`  ${dim('·')} opencode: not installed — ${dim(oc.path)}\n`);
   else process.stdout.write(`  ${oc.stale ? yellow('!') : green('✓')} opencode: ${oc.version}${oc.stale ? ` (CLI is ${dotmdVersion()} — run \`runlist update\`)` : ''}\n`);
   process.stdout.write(dim('  Claude Code ships as a plugin — `runlist install` reports both hosts.\n'));

@@ -9,9 +9,8 @@ import path from 'node:path';
 // legacy behavior — and fails on any `dotmd` the allowlist below does not name.
 //
 // A `dotmd` is allowed for one of two reasons only:
-//   1. IDENTITY — something that still exists under that name (the npm
-//      package, the GitHub repo, the Claude Code plugin and its files, the
-//      `dotmd` executable alias, the OpenCode file name).
+//   1. IDENTITY — something that still exists under that name (the
+//      `dotmd` executable alias and OpenCode file name).
 //   2. LEGACY READER — a name an older build wrote and this one must keep
 //      reading (config files, env vars, state dir, banners, logs, markers).
 // Adding an entry for any other reason is how the old name creeps back into
@@ -22,8 +21,7 @@ const ROOT = path.resolve(import.meta.dirname, '..');
 const ALLOWED = [
   // 1. IDENTITY
   { re: /dotmd-cli/g, why: 'legacy npm dependency name still recognized' },
-  { re: /dotmd@dotmd/g, why: 'Claude Code plugin id' },
-  { re: /reowens\/dotmd/g, why: 'GitHub repository / plugin marketplace source' },
+  { re: /dotmd@dotmd/g, why: 'legacy Claude Code plugin id during migration' },
   { re: /\bdotmd\.js\b/g, why: 'installed OpenCode plugin file name' },
   { re: /\/dotmd\.mjs\b/g, why: 'bin/dotmd.mjs, the shared implementation file' },
   { re: /\brl dotmd\b/g, why: 'shell completions register the `dotmd` executable alias' },
@@ -46,9 +44,6 @@ const ALLOWED = [
 // A literal that is exactly `dotmd`, in these files only.
 const BARE_ALLOWED = new Map([
   ['src/naming.mjs', 'LEGACY_PRODUCT_NAME'],
-  ['src/skill-drift.mjs', 'plugins/dotmd/skills/dotmd/SKILL.md path segments'],
-  ['src/update.mjs', 'plugin marketplace name'],
-  ['src/host-integration.mjs', 'plugin marketplace name'],
   ['bin/dotmd.mjs', 'tolerates a doubled `dotmd use` prefix typed via the alias'],
 ]);
 

@@ -1,5 +1,5 @@
 ---
-name: dotmd
+name: runlist
 description: Manage this repo's plans, docs, and prompts with the runlist CLI (formerly dotmd). Use when the user asks what's on the plate, references a plan/doc/prompt (or a slug under docs/), queues work, or wants to start, transition, or close one. Covers the order of operations (briefing → use → set → archive) and the rules for handling saved prompts.
 allowed-tools: "Bash(runlist:*), Bash(rl:*), Bash(dotmd:*), Read"
 ---

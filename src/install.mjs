@@ -7,7 +7,7 @@ import {
   CLAUDE_MARKETPLACE, CLAUDE_PLUGIN_ID, claudeMarketplaceRefusalHint, installOpencodePlugin, opencodeDetected,
   opencodeStatus, planClaudeInstall, removeOpencodePlugin,
 } from './host-integration.mjs';
-import { readInstalledPlugin } from './update.mjs';
+import { LEGACY_PLUGIN_ID, readInstalledPlugin, readInstalledPluginRecords } from './update.mjs';
 import { executableName, which } from './util.mjs';
 import { codexStatus, installCodexPlugin } from './codex-integration.mjs';
 
@@ -122,7 +122,7 @@ function installCodex(argv, dryRun, json) {
 
 function installClaude(argv, dryRun, json) {
   const remove = argv.includes('--remove');
-  const steps = planClaudeInstall({ installed: readInstalledPlugin(), hasClaude: which('claude'), remove });
+  const steps = planClaudeInstall({ installed: readInstalledPlugin(), legacyInstalled: readInstalledPluginRecords({ id: LEGACY_PLUGIN_ID }), hasClaude: which('claude'), remove });
   if (json) {
     process.stdout.write(JSON.stringify({ host: 'claude', dryRun, steps }, null, 2) + '\n');
     return;

@@ -7,7 +7,7 @@ import { writeReleaseIntent } from './release-intent.mjs';
 import { syncPluginVersions } from './sync-plugin-version.mjs';
 
 const MANIFEST_PATHS = [
-  'plugins/dotmd/.claude-plugin/plugin.json',
+  'plugins/runlist/.claude-plugin/plugin.json',
   '.claude-plugin/marketplace.json',
   'plugins/runlist-codex/.codex-plugin/plugin.json',
 ];

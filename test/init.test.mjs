@@ -78,7 +78,7 @@ describe('init basic', () => {
   });
 
   it('removes a retired generated slash-command file on init', () => {
-    // Per-repo scaffolding is retired (the dotmd plugin owns the workflow now);
+    // Per-repo scaffolding is retired (the runlist plugin owns the workflow now);
     // init sweeps any leftover banner-stamped command files and reports it.
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
     mkdirSync(path.join(tmpDir, '.git'));
@@ -457,7 +457,7 @@ describe('init bulk-tag hint', () => {
 
 describe('init Claude integration', () => {
   it('does NOT scaffold .claude/commands on init — points at the plugin instead', () => {
-    // Per-repo slash-command scaffolding is retired. The dotmd plugin's
+    // Per-repo slash-command scaffolding is retired. The runlist plugin's
     // SKILL.md is the canonical agent-facing workflow now, so init writes the
     // starter config but no .claude/commands/* files; it recommends the plugin.
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
@@ -471,8 +471,8 @@ describe('init Claude integration', () => {
       'init must not scaffold plans.md');
     ok(!existsSync(path.join(tmpDir, '.claude', 'commands', 'docs.md')),
       'init must not scaffold docs.md');
-    ok(result.stdout.includes('/plugin install dotmd'),
-      `init should recommend installing the dotmd plugin; got: ${result.stdout}`);
+    ok(result.stdout.includes('/plugin install runlist'),
+      `init should recommend installing the runlist plugin; got: ${result.stdout}`);
   });
 
   it('does NOT scaffold .claude/commands when .claude/ exists and config found', () => {
@@ -506,7 +506,7 @@ describe('init Claude integration', () => {
     rmSync(home, { recursive: true, force: true });
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(!existsSync(path.join(tmpDir, '.claude')), 'init must not create a project .claude/');
-    ok(result.stdout.includes('/plugin install dotmd'),
+    ok(result.stdout.includes('/plugin install runlist'),
       `greenfield Claude user should still get the plugin nudge; got: ${result.stdout}`);
     ok(/npm i -g runlist/.test(result.stdout),
       `should call out the global-install requirement; got: ${result.stdout}`);
@@ -519,12 +519,12 @@ describe('init Claude integration', () => {
     const result = run(['init'], tmpDir, { home });
     rmSync(home, { recursive: true, force: true });
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-    ok(!result.stdout.includes('/plugin install dotmd'),
+    ok(!result.stdout.includes('/plugin install runlist'),
       `no Claude anywhere → no plugin nudge; got: ${result.stdout}`);
   });
 
   it('recommends the plugin (and a manual SessionStart fallback) when .claude/ exists and hook is unwired', () => {
-    // Init now leads with the dotmd plugin — its bundled hooks + skill travel
+    // Init now leads with the runlist plugin — its bundled hooks + skill travel
     // to every session automatically. The hand-wired `dotmd hud` SessionStart
     // snippet remains as a no-plugin fallback for users who want it.
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
@@ -532,7 +532,7 @@ describe('init Claude integration', () => {
     mkdirSync(path.join(tmpDir, '.claude'));
     const result = run(['init']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
-    ok(result.stdout.includes('/plugin install dotmd'),
+    ok(result.stdout.includes('/plugin install runlist'),
       `expected plugin-install recommendation; got: ${result.stdout}`);
     ok(result.stdout.includes('SessionStart'),
       `expected SessionStart fallback snippet; got: ${result.stdout}`);

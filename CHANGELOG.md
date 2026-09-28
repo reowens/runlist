@@ -2,6 +2,12 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Changed
+
+- Rename the GitHub repository and Claude marketplace/plugin to `runlist`, and migrate generated OpenCode plugins to `runlist.js`. Existing `dotmd@dotmd` installations migrate through `runlist install claude` or `runlist update --plugin-only`.
+
 ## 0.89.2 — 2026-09-27
 
 ### Fixed

@@ -4,7 +4,7 @@ import path from 'node:path';
 // dotmd used to scaffold per-repo `.claude/commands/{plans,docs}.md` slash
 // commands — version-stamped, generated from each repo's status vocab, and
 // self-healed by `dotmd hud`. That mechanism is RETIRED. The dotmd Claude Code
-// plugin (plugins/dotmd/skills/dotmd/SKILL.md + bundled hooks) now carries the
+// plugin (plugins/runlist/skills/runlist/SKILL.md + bundled hooks) now carries the
 // canonical agent-facing workflow into every repo and every subagent, and
 // `dotmd hud` injects the dynamic per-project status vocab at runtime. A static
 // skill + a runtime hook covers the full picture with no per-repo file to drift.

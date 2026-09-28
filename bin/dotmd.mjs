@@ -156,8 +156,8 @@ with a one-line recap naming the habit to break.`,
 The CLI on its own gives an agent no orientation and no session identity. Each
 host gets that a different way:
 
-  claude    Drives \`claude plugin marketplace add ${'reowens/dotmd'}\` +
-            \`claude plugin install dotmd@dotmd\`. This is the FIRST install;
+  claude    Drives \`claude plugin marketplace add ${'reowens/runlist'}\` +
+            \`claude plugin install runlist@runlist\`. This is the FIRST install;
             \`runlist update\` only refreshes a plugin already present (it skips
             with "plugin not installed"), and the README's slash commands only
             work from inside a session. Without the \`claude\` CLI on PATH the
@@ -196,7 +196,7 @@ reports a missing integration but never installs one.`,
 
   update: `runlist update — update the runlist CLI and the Claude Code plugin together
 
-  runlist update                 npm i -g runlist  +  claude plugin update dotmd@dotmd
+  runlist update                 npm i -g runlist  +  claude plugin update runlist@runlist
   runlist update --check         report CLI vs plugin versions, do nothing (network-free)
   runlist update --cli-only      only the npm CLI
   runlist update --plugin-only   only the plugin

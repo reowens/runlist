@@ -8,7 +8,7 @@
 # whole workflow is one install away. dotmd can't warn about its own absence
 # (it's the thing that's missing), so the check lives here, outside the binary.
 #
-# Usage: dotmd-hook [--hint] <runlist-subcommand> [args...]
+# Usage: runlist-hook [--hint] <runlist-subcommand> [args...]
 #   --hint  emit a one-line install hint to stdout when no CLI is on PATH.
 #           Only SessionStart passes this, so the hint surfaces exactly once
 #           per session (stdout from a SessionStart hook becomes context the

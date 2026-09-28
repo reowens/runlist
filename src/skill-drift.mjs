@@ -30,7 +30,7 @@ export const LEGACY_CANONICAL_MARKERS = {
 const MARKER_SETS = [CANONICAL_MARKERS, LEGACY_CANONICAL_MARKERS];
 
 const CLAUDE_MD = 'CLAUDE.md';
-const SKILL_MD = path.join('plugins', 'dotmd', 'skills', 'dotmd', 'SKILL.md');
+const SKILL_MD = path.join('plugins', 'runlist', 'skills', 'runlist', 'SKILL.md');
 
 // Pull the inner text between the canonical markers. Returns null when the
 // markers are absent or malformed — callers treat null as "this surface doesn't

@@ -468,8 +468,8 @@ export async function runInit(cwd, config, opts = {}) {
     } else {
       process.stdout.write(`\n  ${yellow('hint')}    install the runlist Claude Code plugin so its hooks + workflow skill\n`);
       process.stdout.write(`            travel to every session and subagent automatically:\n\n`);
-      process.stdout.write(`              /plugin marketplace add reowens/dotmd\n`);
-      process.stdout.write(`              /plugin install dotmd@dotmd\n\n`);
+      process.stdout.write(`              /plugin marketplace add reowens/runlist\n`);
+      process.stdout.write(`              /plugin install runlist@runlist\n\n`);
       process.stdout.write(`            The plugin's hooks call \`runlist\` on your PATH, so install the CLI\n`);
       process.stdout.write(`            globally too — ${green('npm i -g runlist')} (a project devDependency won't power them).\n\n`);
       process.stdout.write(`            Or, without the plugin, wire \`runlist hud\` at SessionStart by hand —\n`);

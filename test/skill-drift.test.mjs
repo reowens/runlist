@@ -11,7 +11,7 @@ import {
 } from '../src/skill-drift.mjs';
 
 // dotmd guarding its own plugin surface: the canonical workflow block must stay
-// identical across CLAUDE.md and plugins/dotmd/skills/dotmd/SKILL.md. The guard
+// identical across CLAUDE.md and plugins/runlist/skills/runlist/SKILL.md. The guard
 // only fires when BOTH files exist AND BOTH carry the block — zero false
 // positives in a user repo that has its own CLAUDE.md but no plugin source.
 
@@ -30,7 +30,7 @@ function writeClaude(body) {
 }
 
 function writeSkill(body) {
-  const dir = path.join(tmpDir, 'plugins', 'dotmd', 'skills', 'dotmd');
+  const dir = path.join(tmpDir, 'plugins', 'runlist', 'skills', 'runlist');
   mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, 'SKILL.md'), body);
 }
@@ -105,7 +105,7 @@ describe('checkSkillDrift', () => {
   it('returns [] when both blocks match', () => {
     setup();
     writeClaude(`# CLAUDE\n\n${BLOCK}\n`);
-    writeSkill(`---\nname: dotmd\n---\n\n${BLOCK}\n`);
+    writeSkill(`---\nname: runlist\n---\n\n${BLOCK}\n`);
     deepStrictEqual(checkSkillDrift({ repoRoot: tmpDir }), []);
   });
 
@@ -125,7 +125,7 @@ describe('checkSkillDrift', () => {
     const warnings = checkSkillDrift({ repoRoot: tmpDir });
     strictEqual(warnings.length, 1);
     strictEqual(warnings[0].level, 'warning');
-    strictEqual(warnings[0].path, path.join('plugins', 'dotmd', 'skills', 'dotmd', 'SKILL.md'));
+    strictEqual(warnings[0].path, path.join('plugins', 'runlist', 'skills', 'runlist', 'SKILL.md'));
     strictEqual(warnings[0].message.includes('drifted'), true);
   });
 

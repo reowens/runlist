@@ -23,7 +23,7 @@ npx runlist init            # try it without installing
 `runlist` is the canonical executable, `rl` is its short convenience alias, and
 `dotmd` remains supported during the compatibility window. All three invoke the
 same CLI. The npm package is `runlist`; existing `dotmd-cli` installs should be
-replaced with `runlist`. The Claude Code plugin is still `dotmd@dotmd`. Legacy
+replaced with `runlist`. The Claude Code plugin is `runlist@runlist`. Legacy
 `dotmd.config.*` files, `DOTMD_*` variables and `.dotmd/` state keep working.
 
 If you installed the old package globally, remove it before installing the new
@@ -73,9 +73,13 @@ pending prompts; `runlist prompts show` remains the read-only inspection verb.
 `runlist install claude` runs the two steps below for you. From inside a session:
 
 ```text
-/plugin marketplace add reowens/dotmd
-/plugin install dotmd@dotmd
+/plugin marketplace add reowens/runlist
+/plugin install runlist@runlist
 ```
+
+Existing `dotmd@dotmd` installs can be migrated with `runlist install claude`
+or `runlist update --plugin-only`. The command installs `runlist@runlist` and
+then uninstalls the old plugin, so its hooks do not run twice.
 
 The plugin provides SessionStart and SubagentStart orientation, a
 UserPromptSubmit hint that gives the exact `runlist baton` form when you ask for
@@ -99,9 +103,10 @@ supplies the two things the CLI cannot get on its own:
   the opt-in strict policy can stop them. Default warnings are attached to the
   result because OpenCode's before hook cannot return model context.
 
-Restart OpenCode after installing. The file is version-stamped (`runlist-generated:`, or
-`dotmd-generated:` from older releases); a `dotmd.js` without either stamp is
-treated as hand-authored and is never overwritten.
+Restart OpenCode after installing. The generated file is `runlist.js` and is
+version-stamped (`runlist-generated:`). `runlist install opencode` migrates a
+generated `dotmd.js` from older releases; an unmarked file is treated as
+hand-authored and is never overwritten.
 
 The plugin requires a global CLI install because its hooks resolve `runlist` (or `dotmd`) from
 `PATH`. A project devDependency is useful for npm scripts but does not put the

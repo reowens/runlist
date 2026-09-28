@@ -74,12 +74,12 @@ describe('opencode plugin install', () => {
     strictEqual(installedVersion(bumped.path), '1.1.0');
   });
 
-  // A dotmd.js without the banner is the user's own file. Same rule the retired
+  // A runlist.js without the banner is the user's own file. Same rule the retired
   // slash-command scaffolding followed: dotmd only ever removes what it wrote.
   it('refuses to overwrite or remove an unbannered file unless forced', () => {
     const dir = path.join(setup(), 'plugin');
     mkdirSync(dir, { recursive: true });
-    const target = path.join(dir, 'dotmd.js');
+    const target = path.join(dir, 'runlist.js');
     writeFileSync(target, 'export default async () => ({})\n');
 
     const refused = installOpencodePlugin({ version: '1.0.0', dir });
@@ -99,13 +99,13 @@ describe('opencode plugin install', () => {
     strictEqual(removeOpencodePlugin({ dir }).action, 'absent');
     installOpencodePlugin({ version: '1.0.0', dir });
     strictEqual(removeOpencodePlugin({ dir }).action, 'removed');
-    ok(!existsSync(path.join(dir, 'dotmd.js')));
+    ok(!existsSync(path.join(dir, 'runlist.js')));
   });
 
   it('dry-run reports the action without writing', () => {
     const dir = path.join(setup(), 'plugin');
     strictEqual(installOpencodePlugin({ version: '1.0.0', dir, dryRun: true }).action, 'installed');
-    ok(!existsSync(path.join(dir, 'dotmd.js')));
+    ok(!existsSync(path.join(dir, 'runlist.js')));
   });
 
   it('status flags a stale install against the running CLI version', () => {
@@ -136,6 +136,20 @@ describe('opencode files stamped with the legacy dotmd banner', () => {
     ok(renderOpencodePlugin('1.0.0').startsWith('// runlist-generated:1.0.0\n'));
   });
 
+  it('migrates the 0.89.2 generated dotmd.js even though it has a runlist banner', () => {
+    const dir = path.join(setup(), 'plugin');
+    mkdirSync(dir, { recursive: true });
+    const legacy = path.join(dir, 'dotmd.js');
+    writeFileSync(legacy, renderOpencodePlugin('0.89.2'));
+    const before = opencodeStatus({ version: '0.89.2', dir });
+    strictEqual(before.stale, true);
+    strictEqual(before.legacyGenerated, true);
+    const result = installOpencodePlugin({ version: '0.89.3', dir });
+    strictEqual(result.action, 'updated');
+    ok(!existsSync(legacy));
+    strictEqual(installedVersion(path.join(dir, 'runlist.js')), '0.89.3');
+  });
+
   it('still parses the version and is not foreign', () => {
     const dir = path.join(setup(), 'plugin');
     const file = writeLegacy(dir, '0.78.0');
@@ -147,15 +161,16 @@ describe('opencode files stamped with the legacy dotmd banner', () => {
     strictEqual(status.stale, true);
   });
 
-  it('install rewrites it in place with the current banner — one file, not two', () => {
+  it('install migrates the generated file to runlist.js without leaving two plugins', () => {
     const dir = path.join(setup(), 'plugin');
     const file = writeLegacy(dir, '0.78.0');
     const result = installOpencodePlugin({ version: '0.79.0', dir });
     strictEqual(result.action, 'updated');
-    const after = readFileSync(file, 'utf8');
+    const after = readFileSync(result.path, 'utf8');
     ok(after.startsWith('// runlist-generated:0.79.0\n'), after.slice(0, 80));
     ok(!after.includes(LEGACY_GENERATED_MARKER));
-    deepStrictEqual(readdirSync(dir), ['dotmd.js']);
+    ok(!existsSync(file));
+    deepStrictEqual(readdirSync(dir), ['runlist.js']);
     strictEqual(opencodeStatus({ version: '0.79.0', dir }).stale, false);
   });
 
@@ -163,7 +178,8 @@ describe('opencode files stamped with the legacy dotmd banner', () => {
     const dir = path.join(setup(), 'plugin');
     const file = writeLegacy(dir, '0.79.0');
     strictEqual(installOpencodePlugin({ version: '0.79.0', dir }).action, 'updated');
-    ok(readFileSync(file, 'utf8').startsWith('// runlist-generated:0.79.0\n'));
+    ok(!existsSync(file));
+    ok(readFileSync(path.join(dir, 'runlist.js'), 'utf8').startsWith('// runlist-generated:0.79.0\n'));
   });
 
   it('update plans a refresh for it', () => {
@@ -476,16 +492,31 @@ describe('claude code install planning', () => {
       `claude plugin install ${CLAUDE_PLUGIN_ID}`,
     ]);
 
-    const present = planClaudeInstall({ installed: { id: CLAUDE_PLUGIN_ID, version: '1.2.3', marketplace: 'dotmd', marketplaceRegistered: true }, hasClaude: true });
+    const present = planClaudeInstall({ installed: { id: CLAUDE_PLUGIN_ID, version: '1.2.3', marketplace: 'runlist', marketplaceRegistered: true }, hasClaude: true });
     strictEqual(present[0].kind, 'skip');
     match(present[0].reason, /already installed \(1\.2\.3\)/);
+  });
+
+  it('installs the renamed plugin before removing the legacy plugin', () => {
+    const old = { id: 'dotmd@dotmd', version: '0.89.2', marketplace: 'dotmd', marketplaceRegistered: true };
+    const steps = planClaudeInstall({ installed: old, hasClaude: true });
+    deepStrictEqual(steps.map(s => s.cmd.join(' ')), [
+      'claude plugin marketplace add reowens/runlist',
+      'claude plugin install runlist@runlist',
+      'claude plugin uninstall dotmd@dotmd',
+    ]);
+    const cleanup = planClaudeInstall({
+      installed: { id: 'runlist@runlist', version: '0.89.2' },
+      legacyInstalled: { id: 'dotmd@dotmd' }, hasClaude: true,
+    });
+    deepStrictEqual(cleanup.map(s => s.cmd.join(' ')), ['claude plugin uninstall dotmd@dotmd']);
   });
 
   // "Installed" used to mean "has an install record", so a plugin Claude
   // itself listed as failed-to-load was skipped as already installed — and no
   // dotmd verb could repair it.
   it('repairs an install record whose marketplace registration is gone instead of skipping it', () => {
-    const broken = { id: CLAUDE_PLUGIN_ID, version: '1.2.3', marketplace: 'dotmd', marketplaceRegistered: false };
+    const broken = { id: CLAUDE_PLUGIN_ID, version: '1.2.3', marketplace: 'runlist', marketplaceRegistered: false };
     const steps = planClaudeInstall({ installed: broken, hasClaude: true });
     deepStrictEqual(steps.map(s => s.cmd.join(' ')), [
       `claude plugin marketplace add ${CLAUDE_MARKETPLACE}`,
@@ -511,29 +542,29 @@ describe('claude code install planning', () => {
 
   it('removes only an installed plugin', () => {
     strictEqual(planClaudeInstall({ installed: null, hasClaude: true, remove: true })[0].kind, 'skip');
-    const removal = planClaudeInstall({ installed: { id: 'dotmd@dotmd' }, hasClaude: true, remove: true });
-    deepStrictEqual(removal[0].cmd, ['claude', 'plugin', 'uninstall', 'dotmd@dotmd']);
+    const removal = planClaudeInstall({ installed: { id: 'runlist@runlist' }, hasClaude: true, remove: true });
+    deepStrictEqual(removal[0].cmd, ['claude', 'plugin', 'uninstall', 'runlist@runlist']);
   });
 });
 
 describe('update keeps the opencode file in lockstep', () => {
-  const ctx = { plugin: { id: 'dotmd@dotmd', version: '1.0.0' }, hasClaude: true, hasNpm: true };
+  const ctx = { plugin: { id: 'runlist@runlist', version: '1.0.0' }, hasClaude: true, hasNpm: true };
 
   it('refreshes a stale generated file and leaves a foreign one alone', () => {
-    const stale = planUpdate({}, { ...ctx, opencode: { exists: true, stale: true, path: '/x/dotmd.js' } });
+    const stale = planUpdate({}, { ...ctx, opencode: { exists: true, stale: true, path: '/x/runlist.js' } });
     ok(stale.some(step => step.kind === 'opencode'));
 
-    const current = planUpdate({}, { ...ctx, opencode: { exists: true, stale: false, path: '/x/dotmd.js' } });
+    const current = planUpdate({}, { ...ctx, opencode: { exists: true, stale: false, path: '/x/runlist.js' } });
     ok(!current.some(step => step.kind === 'opencode'));
 
-    const foreign = planUpdate({}, { ...ctx, opencode: { exists: true, foreign: true, path: '/x/dotmd.js' } });
+    const foreign = planUpdate({}, { ...ctx, opencode: { exists: true, foreign: true, path: '/x/runlist.js' } });
     ok(!foreign.some(step => step.kind === 'opencode'));
     match(foreign.find(step => step.kind === 'skip')?.reason ?? '', /not written by runlist/);
   });
 
   // `update` keeps hosts in step; adopting a new one stays `dotmd install`'s job.
   it('never installs an absent integration', () => {
-    const steps = planUpdate({}, { ...ctx, opencode: { exists: false, stale: false, path: '/x/dotmd.js' } });
+    const steps = planUpdate({}, { ...ctx, opencode: { exists: false, stale: false, path: '/x/runlist.js' } });
     ok(!steps.some(step => step.kind === 'opencode'));
   });
 });
@@ -564,11 +595,11 @@ describe('runlist install command', () => {
     const installed = run(['opencode', '--path', dir]);
     strictEqual(installed.status, 0, installed.stderr);
     match(installed.stdout, /installed opencode integration/);
-    ok(existsSync(path.join(dir, 'dotmd.js')));
+    ok(existsSync(path.join(dir, 'runlist.js')));
 
     match(run(['opencode', '--path', dir]).stdout, /already current/);
     match(run(['opencode', '--path', dir, '--remove']).stdout, /removed/);
-    ok(!existsSync(path.join(dir, 'dotmd.js')));
+    ok(!existsSync(path.join(dir, 'runlist.js')));
   });
 
   it('reports status as JSON without a host argument', () => {

@@ -10,7 +10,7 @@ import { spawnSync } from 'node:child_process';
 //   - dotmd off PATH, no --hint (SubagentStart…)  → silent, exit 0
 //   - dotmd off PATH, guard (PreToolUse)          → silent, exit 0 (never block)
 //   - dotmd on PATH                               → execs the real binary
-const wrapper = path.resolve(import.meta.dirname, '..', 'plugins', 'dotmd', 'bin', 'dotmd-hook');
+const wrapper = path.resolve(import.meta.dirname, '..', 'plugins', 'runlist', 'bin', 'runlist-hook');
 
 // Invoke exactly as Claude Code would: `sh <wrapper> <args...>`. `pathDir` goes
 // first on PATH (so a planted fake `dotmd` wins); the trailing system dirs only

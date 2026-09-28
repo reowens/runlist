@@ -14,14 +14,14 @@ afterEach(() => {
 
 function setup() {
   root = mkdtempSync(path.join(os.tmpdir(), 'dotmd-plugin-sync-'));
-  mkdirSync(path.join(root, 'plugins', 'dotmd', '.claude-plugin'), { recursive: true });
+  mkdirSync(path.join(root, 'plugins', 'runlist', '.claude-plugin'), { recursive: true });
   mkdirSync(path.join(root, 'plugins', 'runlist-codex', '.codex-plugin'), { recursive: true });
   mkdirSync(path.join(root, '.claude-plugin'), { recursive: true });
   writeFileSync(path.join(root, 'package.json'), JSON.stringify({ version: '1.2.3' }));
-  writeFileSync(path.join(root, 'plugins', 'dotmd', '.claude-plugin', 'plugin.json'),
-    JSON.stringify({ name: 'dotmd', version: '1.0.0' }, null, 2) + '\n');
+  writeFileSync(path.join(root, 'plugins', 'runlist', '.claude-plugin', 'plugin.json'),
+    JSON.stringify({ name: 'runlist', version: '1.0.0' }, null, 2) + '\n');
   writeFileSync(path.join(root, '.claude-plugin', 'marketplace.json'),
-    JSON.stringify({ plugins: [{ name: 'dotmd', version: '1.0.0' }] }, null, 2) + '\n');
+    JSON.stringify({ plugins: [{ name: 'runlist', version: '1.0.0' }] }, null, 2) + '\n');
   writeFileSync(path.join(root, 'plugins', 'runlist-codex', '.codex-plugin', 'plugin.json'),
     JSON.stringify({ name: 'runlist-codex', version: '1.0.0' }, null, 2) + '\n');
 }
@@ -30,7 +30,7 @@ test('syncPluginVersions updates all validated manifests', () => {
   setup();
   syncPluginVersions(root);
 
-  const plugin = JSON.parse(readFileSync(path.join(root, 'plugins', 'dotmd', '.claude-plugin', 'plugin.json')));
+  const plugin = JSON.parse(readFileSync(path.join(root, 'plugins', 'runlist', '.claude-plugin', 'plugin.json')));
   const marketplace = JSON.parse(readFileSync(path.join(root, '.claude-plugin', 'marketplace.json')));
   const codex = JSON.parse(readFileSync(path.join(root, 'plugins', 'runlist-codex', '.codex-plugin', 'plugin.json')));
   assert.equal(plugin.version, '1.2.3');
@@ -40,7 +40,7 @@ test('syncPluginVersions updates all validated manifests', () => {
 
 test('syncPluginVersions validates every manifest before writing either one', () => {
   setup();
-  const pluginPath = path.join(root, 'plugins', 'dotmd', '.claude-plugin', 'plugin.json');
+  const pluginPath = path.join(root, 'plugins', 'runlist', '.claude-plugin', 'plugin.json');
   const originalPlugin = readFileSync(pluginPath, 'utf8');
   writeFileSync(path.join(root, '.claude-plugin', 'marketplace.json'), JSON.stringify({ plugins: [] }));
 
@@ -50,7 +50,7 @@ test('syncPluginVersions validates every manifest before writing either one', ()
 
 test('syncPluginVersions rejects malformed JSON before writing either manifest', () => {
   setup();
-  const pluginPath = path.join(root, 'plugins', 'dotmd', '.claude-plugin', 'plugin.json');
+  const pluginPath = path.join(root, 'plugins', 'runlist', '.claude-plugin', 'plugin.json');
   const originalPlugin = readFileSync(pluginPath, 'utf8');
   writeFileSync(path.join(root, '.claude-plugin', 'marketplace.json'), '{');
 

@@ -25,15 +25,15 @@ function setupRepo() {
   git(['init', '-b', 'main']);
   git(['config', 'user.email', 'test@test.com']);
   git(['config', 'user.name', 'Test']);
-  mkdirSync(path.join(root, 'plugins', 'dotmd', '.claude-plugin'), { recursive: true });
+  mkdirSync(path.join(root, 'plugins', 'runlist', '.claude-plugin'), { recursive: true });
   mkdirSync(path.join(root, 'plugins', 'runlist-codex', '.codex-plugin'), { recursive: true });
   mkdirSync(path.join(root, '.claude-plugin'), { recursive: true });
   writeFileSync(path.join(root, 'package.json'), JSON.stringify({ version: '1.0.0' }, null, 2) + '\n');
   writeFileSync(path.join(root, 'package-lock.json'), JSON.stringify({ version: '1.0.0' }, null, 2) + '\n');
-  writeFileSync(path.join(root, 'plugins', 'dotmd', '.claude-plugin', 'plugin.json'),
-    JSON.stringify({ name: 'dotmd', version: '1.0.0' }, null, 2) + '\n');
+  writeFileSync(path.join(root, 'plugins', 'runlist', '.claude-plugin', 'plugin.json'),
+    JSON.stringify({ name: 'runlist', version: '1.0.0' }, null, 2) + '\n');
   writeFileSync(path.join(root, '.claude-plugin', 'marketplace.json'),
-    JSON.stringify({ plugins: [{ name: 'dotmd', version: '1.0.0' }] }, null, 2) + '\n');
+    JSON.stringify({ plugins: [{ name: 'runlist', version: '1.0.0' }] }, null, 2) + '\n');
   writeFileSync(path.join(root, 'plugins', 'runlist-codex', '.codex-plugin', 'plugin.json'),
     JSON.stringify({ name: 'runlist-codex', version: '1.0.0' }, null, 2) + '\n');
   git(['add', '.']);
@@ -106,11 +106,11 @@ test('version artifact failure restores package and plugin trees to HEAD', () =>
   seedIntent();
   writeFileSync(path.join(root, 'package.json'), JSON.stringify({ version: '1.0.1' }, null, 2) + '\n');
   writeFileSync(path.join(root, 'package-lock.json'), JSON.stringify({ version: '1.0.1' }, null, 2) + '\n');
-  const pluginPath = path.join(root, 'plugins', 'dotmd', '.claude-plugin', 'plugin.json');
+  const pluginPath = path.join(root, 'plugins', 'runlist', '.claude-plugin', 'plugin.json');
 
   assert.throws(() => prepareVersionCommit(root, {
     sync: () => {
-      writeFileSync(pluginPath, JSON.stringify({ name: 'dotmd', version: '1.0.1' }));
+      writeFileSync(pluginPath, JSON.stringify({ name: 'runlist', version: '1.0.1' }));
       throw new Error('injected second-manifest failure');
     },
   }), /restored package and plugin version files to HEAD/);
@@ -126,8 +126,8 @@ test('version preparation preserves concurrent plugin edits when refusing them',
   seedIntent();
   writeFileSync(path.join(root, 'package.json'), JSON.stringify({ version: '1.0.1' }, null, 2) + '\n');
   writeFileSync(path.join(root, 'package-lock.json'), JSON.stringify({ version: '1.0.1' }, null, 2) + '\n');
-  const pluginPath = path.join(root, 'plugins', 'dotmd', '.claude-plugin', 'plugin.json');
-  writeFileSync(pluginPath, JSON.stringify({ name: 'dotmd', version: 'concurrent-edit' }));
+  const pluginPath = path.join(root, 'plugins', 'runlist', '.claude-plugin', 'plugin.json');
+  writeFileSync(pluginPath, JSON.stringify({ name: 'runlist', version: 'concurrent-edit' }));
 
   assert.throws(() => prepareVersionCommit(root), /unexpected files changed after release preflight/);
   assert.equal(JSON.parse(readFileSync(pluginPath)).version, 'concurrent-edit');
@@ -179,10 +179,10 @@ test('release recovery recreates a missing tag after the npm version commit succ
   for (const file of ['package.json', 'package-lock.json']) {
     writeFileSync(path.join(root, file), JSON.stringify({ version: '1.0.1' }, null, 2) + '\n');
   }
-  writeFileSync(path.join(root, 'plugins', 'dotmd', '.claude-plugin', 'plugin.json'),
-    JSON.stringify({ name: 'dotmd', version: '1.0.1' }, null, 2) + '\n');
+  writeFileSync(path.join(root, 'plugins', 'runlist', '.claude-plugin', 'plugin.json'),
+    JSON.stringify({ name: 'runlist', version: '1.0.1' }, null, 2) + '\n');
   writeFileSync(path.join(root, '.claude-plugin', 'marketplace.json'),
-    JSON.stringify({ plugins: [{ name: 'dotmd', version: '1.0.1' }] }, null, 2) + '\n');
+    JSON.stringify({ plugins: [{ name: 'runlist', version: '1.0.1' }] }, null, 2) + '\n');
   writeFileSync(path.join(root, 'plugins', 'runlist-codex', '.codex-plugin', 'plugin.json'),
     JSON.stringify({ name: 'runlist-codex', version: '1.0.1' }, null, 2) + '\n');
   git(['add', '.']);
@@ -284,5 +284,5 @@ test('version preparation still works in a repo with no changelog', () => {
 
   assert.doesNotThrow(() => prepareVersionCommit(root));
   assert.equal(git(['diff', '--cached', '--name-only']).stdout.trim().split('\n').sort().join(','),
-    '.claude-plugin/marketplace.json,plugins/dotmd/.claude-plugin/plugin.json,plugins/runlist-codex/.codex-plugin/plugin.json');
+    '.claude-plugin/marketplace.json,plugins/runlist-codex/.codex-plugin/plugin.json,plugins/runlist/.claude-plugin/plugin.json');
 });

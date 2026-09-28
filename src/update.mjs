@@ -12,7 +12,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
 
 const NPM_PKG = 'runlist';
-const DEFAULT_PLUGIN_ID = 'dotmd@dotmd';
+const DEFAULT_PLUGIN_ID = 'runlist@runlist';
+export const LEGACY_PLUGIN_ID = 'dotmd@dotmd';
 
 // Parse an x.y.z prefix; returns [major, minor, patch] or null.
 function parseVer(v) {
@@ -42,7 +43,9 @@ export function readInstalledPluginRecords(opts = {}) {
       ? (plugins[opts.id] ? opts.id : null)
       : plugins[DEFAULT_PLUGIN_ID]
         ? DEFAULT_PLUGIN_ID
-        : Object.keys(plugins).find(k => /^dotmd@/.test(k));
+        : plugins[LEGACY_PLUGIN_ID]
+          ? LEGACY_PLUGIN_ID
+          : Object.keys(plugins).find(k => /^(?:runlist|dotmd)@/.test(k));
     if (!id) return null;
     const entries = Array.isArray(plugins[id]) ? plugins[id] : [plugins[id]];
     return { id, entries: entries.filter(Boolean) };
@@ -89,7 +92,7 @@ export function readInstalledPlugin(opts = {}) {
 // plugin installed from some other marketplace names a source we cannot guess.
 export function planMarketplaceRepair(plugin, { hasClaude, verb }) {
   const reason = `marketplace "${plugin.marketplace}" is not registered, so the installed plugin cannot load`;
-  if (plugin.marketplace !== 'dotmd') {
+  if (plugin.marketplace !== 'runlist') {
     return [{ kind: 'skip', reason: `${reason} — re-add that marketplace (runlist does not know its source), then rerun` }];
   }
   if (!hasClaude) {
@@ -114,12 +117,29 @@ export function planUpdate(opts, ctx) {
   if (!opts.cliOnly) {
     if (!ctx.plugin) {
       steps.push({ kind: 'skip', reason: 'runlist plugin not installed — skipping plugin update' });
+    } else if (ctx.plugin.id === LEGACY_PLUGIN_ID) {
+      if (ctx.hasClaude) {
+        steps.push({ kind: 'marketplace', cmd: ['claude', 'plugin', 'marketplace', 'add', CLAUDE_MARKETPLACE] });
+        steps.push({ kind: 'plugin', needs: 'marketplace', cmd: ['claude', 'plugin', 'install', DEFAULT_PLUGIN_ID] });
+        steps.push({ kind: 'legacy', needs: 'plugin', cmd: ['claude', 'plugin', 'uninstall', LEGACY_PLUGIN_ID] });
+      } else {
+        steps.push({ kind: 'manual', reason: 'Claude CLI not found', lines: [
+          `/plugin marketplace add ${CLAUDE_MARKETPLACE}`,
+          `/plugin install ${DEFAULT_PLUGIN_ID}`,
+          `/plugin uninstall ${LEGACY_PLUGIN_ID}`,
+        ] });
+      }
     } else if (ctx.plugin.marketplaceRegistered === false) {
       steps.push(...planMarketplaceRepair(ctx.plugin, { hasClaude: ctx.hasClaude, verb: 'update' }));
     } else if (!ctx.hasClaude) {
       steps.push({ kind: 'skip', reason: `claude CLI not found — run \`/plugin update ${ctx.plugin.id}\` from a session instead` });
     } else {
       steps.push({ kind: 'plugin', cmd: ['claude', 'plugin', 'update', ctx.plugin.id] });
+    }
+    if (ctx.legacyPlugin && ctx.plugin?.id !== LEGACY_PLUGIN_ID) {
+      steps.push(ctx.hasClaude
+        ? { kind: 'legacy', needs: 'plugin', cmd: ['claude', 'plugin', 'uninstall', LEGACY_PLUGIN_ID] }
+        : { kind: 'manual', reason: 'Legacy Claude plugin also installed', lines: [`/plugin uninstall ${LEGACY_PLUGIN_ID}`] });
     }
     // The OpenCode integration is a file dotmd wrote, so it goes stale silently
     // the moment the CLI moves on. Refresh it here — but only if it is already
@@ -144,10 +164,14 @@ export function runUpdate(argv, _config, opts = {}) {
   const cliOnly = argv.includes('--cli-only');
   const pluginOnly = argv.includes('--plugin-only');
   const plugin = readInstalledPlugin();
+  const legacyPlugin = readInstalledPluginRecords({ id: LEGACY_PLUGIN_ID });
 
   if (check) {
     process.stdout.write(`runlist CLI:    ${pkg.version}\n`);
     if (plugin) {
+      if (plugin.id === LEGACY_PLUGIN_ID || (legacyPlugin && plugin.id !== LEGACY_PLUGIN_ID)) {
+        process.stdout.write(yellow(`  legacy Claude plugin ${LEGACY_PLUGIN_ID} is installed — run \`runlist update --plugin-only\` to migrate.\n`));
+      }
       const cmp = compareVersions(plugin.version, pkg.version);
       const tag = cmp === 0 ? green('in sync')
         : cmp === null ? dim('(unknown)')
@@ -173,7 +197,7 @@ export function runUpdate(argv, _config, opts = {}) {
 
   const opencode = opencodeStatus({ version: pkg.version });
   const codex = codexStatus({ version: pkg.version });
-  const steps = planUpdate({ cliOnly, pluginOnly }, { plugin, opencode, codex, hasClaude: which('claude'), hasNpm: which('npm') });
+  const steps = planUpdate({ cliOnly, pluginOnly }, { plugin, legacyPlugin, opencode, codex, hasClaude: which('claude'), hasNpm: which('npm') });
   if (opts.dryRun) {
     for (const step of steps) {
       if (step.kind === 'skip') process.stdout.write(dim(`[dry-run] skip: ${step.reason}\n`));

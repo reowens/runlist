@@ -1,20 +1,21 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
-  "name": "dotmd",
+  "name": "runlist",
+  "description": "Runlist workflow plugin for Claude Code",
   "owner": {
     "name": "Robert Owens"
   },
   "plugins": [
     {
-      "name": "dotmd",
-      "source": "./plugins/dotmd",
+      "name": "runlist",
+      "source": "./plugins/runlist",
       "description": "Teaches Claude Code sessions the runlist document workflow and guards against committing session-local prompts, reading prompts directly, and hand-editing status. Primes the main session and every subagent.",
       "version": "0.89.2",
       "author": {
         "name": "Robert Owens"
       },
       "skills": [
-        "./skills/dotmd"
+        "./skills/runlist"
       ]
     }
   ]

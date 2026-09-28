@@ -15,14 +15,14 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 function manifestTargets(projectRoot, version) {
   return [
   {
-    file: path.join(projectRoot, 'plugins', 'dotmd', '.claude-plugin', 'plugin.json'),
-    validate: (j) => j && !Array.isArray(j) && j.name === 'dotmd' && typeof j.version === 'string',
+    file: path.join(projectRoot, 'plugins', 'runlist', '.claude-plugin', 'plugin.json'),
+    validate: (j) => j && !Array.isArray(j) && j.name === 'runlist' && typeof j.version === 'string',
     set: (j) => { j.version = version; },
   },
   {
     file: path.join(projectRoot, '.claude-plugin', 'marketplace.json'),
     validate: (j) => j && !Array.isArray(j) && Array.isArray(j.plugins)
-      && j.plugins[0]?.name === 'dotmd' && typeof j.plugins[0]?.version === 'string',
+      && j.plugins[0]?.name === 'runlist' && typeof j.plugins[0]?.version === 'string',
     set: (j) => { j.plugins[0].version = version; },
   },
   {

@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/dotmd-hook\" --hint hud",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/runlist-hook\" --hint hud",
             "timeout": 5
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/dotmd-hook\" hud --prompt-submit",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/runlist-hook\" hud --prompt-submit",
             "timeout": 5
           }
         ]
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/dotmd-hook\" hud --subagent",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/runlist-hook\" hud --subagent",
             "timeout": 5
           }
         ]
@@ -38,7 +38,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/dotmd-hook\" hud --subagent",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/runlist-hook\" hud --subagent",
             "timeout": 5
           }
         ]
@@ -50,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/dotmd-hook\" guard",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/runlist-hook\" guard",
             "timeout": 5
           }
         ]

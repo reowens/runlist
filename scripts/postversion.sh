@@ -149,8 +149,8 @@ node scripts/sync-global-cli.mjs "${VERSION}"
 # installed plugin record agrees with the released version.
 PLUGIN_VERIFIED=""
 if command -v claude >/dev/null 2>&1; then
-  echo "→ refreshing Claude Code plugin dotmd@dotmd"
-  if claude plugin update dotmd@dotmd; then
+  echo "→ installing or refreshing Claude Code plugin runlist@runlist"
+  if runlist install claude && claude plugin update runlist@runlist; then
     if node scripts/verify-installed-plugin.mjs "${VERSION}"; then
       PLUGIN_VERIFIED=1
       echo "  restart your Claude Code session (or /reload-plugins) to apply."

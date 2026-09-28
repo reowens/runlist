@@ -3,9 +3,9 @@ import { fileURLToPath } from 'node:url';
 import { readInstalledPluginRecords } from '../src/update.mjs';
 
 export function verifyInstalledPluginVersion(expectedVersion, opts = {}) {
-  const plugin = readInstalledPluginRecords({ ...opts, id: 'dotmd@dotmd' });
+  const plugin = readInstalledPluginRecords({ ...opts, id: 'runlist@runlist' });
   if (!plugin || plugin.entries.length === 0) {
-    return { ok: false, reason: 'dotmd@dotmd plugin is not installed' };
+    return { ok: false, reason: 'runlist@runlist plugin is not installed' };
   }
   const mismatches = plugin.entries.filter(entry => entry.version !== expectedVersion);
   if (mismatches.length > 0) {

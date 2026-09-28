@@ -27,11 +27,11 @@ describe('isAllowed', () => {
     ok(isAllowed('docs/plans/foo.md'));
     ok(isAllowed('.claude/commands/plans.md'));
     // Plugin artifacts ship in lockstep with the CLI.
-    ok(isAllowed('plugins/dotmd/skills/dotmd/SKILL.md'));
-    ok(isAllowed('plugins/dotmd/commands/plans.md'));
-    ok(isAllowed('plugins/dotmd/hooks.json'));
-    ok(isAllowed('plugins/dotmd/bin/dotmd-hook'));
-    ok(isAllowed('plugins/dotmd/.claude-plugin/plugin.json'));
+    ok(isAllowed('plugins/runlist/skills/runlist/SKILL.md'));
+    ok(isAllowed('plugins/runlist/commands/plans.md'));
+    ok(isAllowed('plugins/runlist/hooks.json'));
+    ok(isAllowed('plugins/runlist/bin/runlist-hook'));
+    ok(isAllowed('plugins/runlist/.claude-plugin/plugin.json'));
     ok(isAllowed('.claude-plugin/marketplace.json'));
     ok(isAllowed('package.json'));
     ok(isAllowed('package-lock.json'));
@@ -192,8 +192,8 @@ describe('dotmd ship (--dry-run, end-to-end)', () => {
 
   it('stages dirty plugin artifacts (plugin ships in lockstep)', () => {
     setupRepo();
-    mkdirSync(path.join(tmpDir, 'plugins', 'dotmd', 'skills', 'dotmd'), { recursive: true });
-    writeFileSync(path.join(tmpDir, 'plugins', 'dotmd', 'skills', 'dotmd', 'SKILL.md'), '# skill\n');
+    mkdirSync(path.join(tmpDir, 'plugins', 'runlist', 'skills', 'runlist'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'plugins', 'runlist', 'skills', 'runlist', 'SKILL.md'), '# skill\n');
     mkdirSync(path.join(tmpDir, '.claude-plugin'), { recursive: true });
     writeFileSync(path.join(tmpDir, '.claude-plugin', 'marketplace.json'), '{}\n');
     // Outside the allowlist — must stay skipped even with plugin files present.
@@ -201,7 +201,7 @@ describe('dotmd ship (--dry-run, end-to-end)', () => {
 
     const result = run(['ship', '--dry-run']);
     strictEqual(result.status, 0, `dry-run should succeed: ${result.stderr}`);
-    ok(/plugins\/dotmd\/skills\/dotmd\/SKILL\.md/.test(result.stdout),
+    ok(/plugins\/runlist\/skills\/runlist\/SKILL\.md/.test(result.stdout),
       `plugin SKILL.md should be queued for staging, got:\n${result.stdout}`);
     ok(/\.claude-plugin\/marketplace\.json/.test(result.stdout),
       `marketplace manifest should be queued for staging, got:\n${result.stdout}`);

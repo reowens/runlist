@@ -35,11 +35,34 @@ function writeInstalled(home, plugins, marketplaces) {
   writeFileSync(path.join(dir, 'known_marketplaces.json'), JSON.stringify(known));
 }
 
-test('readInstalledPlugin finds dotmd@dotmd', () => {
+test('readInstalledPlugin finds runlist@runlist', () => {
   withHome((home) => {
-    writeInstalled(home, { 'dotmd@dotmd': [{ version: '0.54.0' }], 'grepmax@grepmax': [{ version: '0.17.17' }] });
-    assert.deepEqual(readInstalledPlugin({ home }), { id: 'dotmd@dotmd', version: '0.54.0', marketplace: 'dotmd', marketplaceRegistered: true });
+    writeInstalled(home, { 'runlist@runlist': [{ version: '0.54.0' }], 'grepmax@grepmax': [{ version: '0.17.17' }] });
+    assert.deepEqual(readInstalledPlugin({ home }), { id: 'runlist@runlist', version: '0.54.0', marketplace: 'runlist', marketplaceRegistered: true });
   });
+});
+
+test('readInstalledPlugin recognizes the old ID and prefers the renamed plugin when both exist', () => {
+  withHome((home) => {
+    writeInstalled(home, { 'dotmd@dotmd': [{ version: '0.89.2' }] });
+    assert.equal(readInstalledPlugin({ home }).id, 'dotmd@dotmd');
+    writeInstalled(home, {
+      'dotmd@dotmd': [{ version: '0.89.2' }],
+      'runlist@runlist': [{ version: '0.89.3' }],
+    });
+    assert.equal(readInstalledPlugin({ home }).id, 'runlist@runlist');
+  });
+});
+
+test('planUpdate migrates the old Claude plugin before uninstalling it', () => {
+  const plugin = { id: 'dotmd@dotmd', version: '0.89.2', marketplace: 'dotmd', marketplaceRegistered: true };
+  const steps = planUpdate({ pluginOnly: true }, { plugin, hasClaude: true, hasNpm: true });
+  assert.deepEqual(steps.map(s => s.cmd.join(' ')), [
+    'claude plugin marketplace add reowens/runlist',
+    'claude plugin install runlist@runlist',
+    'claude plugin uninstall dotmd@dotmd',
+  ]);
+  assert.equal(steps[2].needs, 'plugin');
 });
 
 test('readInstalledPlugin falls back to any dotmd@* marketplace', () => {
@@ -54,7 +77,7 @@ test('readInstalledPlugin falls back to any dotmd@* marketplace', () => {
 // that "installed" is what made `dotmd install claude` skip the repair.
 test('readInstalledPlugin reports an install record whose marketplace is unregistered', () => {
   withHome((home) => {
-    writeInstalled(home, { 'dotmd@dotmd': [{ version: '0.77.1' }] }, ['grepmax']);
+    writeInstalled(home, { 'runlist@runlist': [{ version: '0.77.1' }] }, ['grepmax']);
     assert.equal(readInstalledPlugin({ home }).marketplaceRegistered, false);
     // No registry file at all reads the same way — nothing can load from it.
     rmSync(path.join(home, '.claude', 'plugins', 'known_marketplaces.json'));
@@ -63,16 +86,16 @@ test('readInstalledPlugin reports an install record whose marketplace is unregis
 });
 
 test('planMarketplaceRepair re-adds the marketplace before the plugin verb, and only for a source it knows', () => {
-  const broken = { id: 'dotmd@dotmd', version: '0.77.1', marketplace: 'dotmd', marketplaceRegistered: false };
+  const broken = { id: 'runlist@runlist', version: '0.77.1', marketplace: 'runlist', marketplaceRegistered: false };
   const steps = planMarketplaceRepair(broken, { hasClaude: true, verb: 'update' });
   assert.deepEqual(steps.map(s => s.kind), ['marketplace', 'plugin']);
-  assert.deepEqual(steps[0].cmd, ['claude', 'plugin', 'marketplace', 'add', 'reowens/dotmd']);
-  assert.deepEqual(steps[1].cmd, ['claude', 'plugin', 'update', 'dotmd@dotmd']);
+  assert.deepEqual(steps[0].cmd, ['claude', 'plugin', 'marketplace', 'add', 'reowens/runlist']);
+  assert.deepEqual(steps[1].cmd, ['claude', 'plugin', 'update', 'runlist@runlist']);
   assert.equal(steps[1].needs, 'marketplace');
 
   const manual = planMarketplaceRepair(broken, { hasClaude: false, verb: 'update' });
   assert.equal(manual[0].kind, 'manual');
-  assert.deepEqual(manual[0].lines, ['/plugin marketplace add reowens/dotmd', '/plugin update dotmd@dotmd']);
+  assert.deepEqual(manual[0].lines, ['/plugin marketplace add reowens/runlist', '/plugin update runlist@runlist']);
 
   const foreign = planMarketplaceRepair({ ...broken, id: 'dotmd@other', marketplace: 'other' }, { hasClaude: true, verb: 'update' });
   assert.equal(foreign[0].kind, 'skip');
@@ -80,7 +103,7 @@ test('planMarketplaceRepair re-adds the marketplace before the plugin verb, and 
 });
 
 test('planUpdate: unregistered marketplace → re-add it, then update', () => {
-  const plugin = { id: 'dotmd@dotmd', version: '0.77.1', marketplace: 'dotmd', marketplaceRegistered: false };
+  const plugin = { id: 'runlist@runlist', version: '0.77.1', marketplace: 'runlist', marketplaceRegistered: false };
   const steps = planUpdate({ pluginOnly: true }, { plugin, hasClaude: true, hasNpm: true });
   assert.deepEqual(steps.map(s => s.kind), ['marketplace', 'plugin']);
 });
@@ -95,11 +118,11 @@ test('readInstalledPlugin returns null when absent', () => {
 
 test('verifyInstalledPluginVersion requires an exact installed version', () => {
   withHome((home) => {
-    writeInstalled(home, { 'dotmd@dotmd': [{ version: '0.69.0' }] });
+    writeInstalled(home, { 'runlist@runlist': [{ version: '0.69.0' }] });
     assert.equal(verifyInstalledPluginVersion('0.69.0', { home }).ok, true);
     assert.deepEqual(verifyInstalledPluginVersion('0.70.0', { home }), {
       ok: false,
-      reason: 'dotmd@dotmd has 0.69.0, expected 0.70.0',
+      reason: 'runlist@runlist has 0.69.0, expected 0.70.0',
     });
   });
 });
@@ -108,7 +131,7 @@ test('verifyInstalledPluginVersion reports a missing plugin', () => {
   withHome((home) => {
     assert.deepEqual(verifyInstalledPluginVersion('0.69.0', { home }), {
       ok: false,
-      reason: 'dotmd@dotmd plugin is not installed',
+      reason: 'runlist@runlist plugin is not installed',
     });
   });
 });
@@ -118,31 +141,31 @@ test('verifyInstalledPluginVersion rejects alternate or mixed installed scopes',
     writeInstalled(home, { 'dotmd@other': [{ version: '0.69.0' }] });
     assert.equal(verifyInstalledPluginVersion('0.69.0', { home }).ok, false);
 
-    writeInstalled(home, { 'dotmd@dotmd': [{ version: '0.69.0' }, { version: '0.68.0' }] });
+    writeInstalled(home, { 'runlist@runlist': [{ version: '0.69.0' }, { version: '0.68.0' }] });
     assert.deepEqual(verifyInstalledPluginVersion('0.69.0', { home }), {
       ok: false,
-      reason: 'dotmd@dotmd has 0.68.0, expected 0.69.0',
+      reason: 'runlist@runlist has 0.68.0, expected 0.69.0',
     });
   });
 });
 
 test('planUpdate: both halves when tools present and plugin installed', () => {
-  const steps = planUpdate({}, { plugin: { id: 'dotmd@dotmd', version: '0.53.0' }, hasClaude: true, hasNpm: true });
+  const steps = planUpdate({}, { plugin: { id: 'runlist@runlist', version: '0.53.0' }, hasClaude: true, hasNpm: true });
   assert.deepEqual(steps.map(s => s.kind), ['cli', 'plugin']);
   assert.deepEqual(steps[0].cmd, ['npm', 'i', '-g', 'runlist@latest']);
-  assert.deepEqual(steps[1].cmd, ['claude', 'plugin', 'update', 'dotmd@dotmd']);
+  assert.deepEqual(steps[1].cmd, ['claude', 'plugin', 'update', 'runlist@runlist']);
 });
 
 test('planUpdate: --cli-only / --plugin-only restrict the steps', () => {
-  const ctx = { plugin: { id: 'dotmd@dotmd', version: '0.53.0' }, hasClaude: true, hasNpm: true };
+  const ctx = { plugin: { id: 'runlist@runlist', version: '0.53.0' }, hasClaude: true, hasNpm: true };
   assert.deepEqual(planUpdate({ cliOnly: true }, ctx).map(s => s.kind), ['cli']);
   assert.deepEqual(planUpdate({ pluginOnly: true }, ctx).map(s => s.kind), ['plugin']);
 });
 
 test('planUpdate: missing claude → plugin step becomes a skip with guidance', () => {
-  const steps = planUpdate({ pluginOnly: true }, { plugin: { id: 'dotmd@dotmd', version: '0.53.0' }, hasClaude: false, hasNpm: true });
+  const steps = planUpdate({ pluginOnly: true }, { plugin: { id: 'runlist@runlist', version: '0.53.0' }, hasClaude: false, hasNpm: true });
   assert.equal(steps[0].kind, 'skip');
-  assert.match(steps[0].reason, /\/plugin update dotmd@dotmd/);
+  assert.match(steps[0].reason, /\/plugin update runlist@runlist/);
 });
 
 test('planUpdate: plugin not installed → skip', () => {
@@ -153,7 +176,7 @@ test('planUpdate: plugin not installed → skip', () => {
 
 test('update --dry-run previews global commands without executing them', () => {
   withHome((home) => {
-    writeInstalled(home, { 'dotmd@dotmd': [{ version: '0.69.0' }] });
+    writeInstalled(home, { 'runlist@runlist': [{ version: '0.69.0' }] });
     const fakeBin = path.join(home, 'bin');
     mkdirSync(fakeBin, { recursive: true });
     const sentinel = path.join(home, 'executed');
@@ -183,7 +206,7 @@ test('update --dry-run previews global commands without executing them', () => {
 // output never said so.
 test('update runs every host step past a failed one, then exits 1 naming the failure', () => {
   withHome((home) => {
-    writeInstalled(home, { 'dotmd@dotmd': [{ version: '0.1.0' }] });
+    writeInstalled(home, { 'runlist@runlist': [{ version: '0.1.0' }] });
     const fakeBin = path.join(home, 'bin');
     mkdirSync(fakeBin, { recursive: true });
     const claude = path.join(fakeBin, process.platform === 'win32' ? 'claude.cmd' : 'claude');
@@ -206,7 +229,7 @@ test('update runs every host step past a failed one, then exits 1 naming the fai
     assert.equal(result.status, 1, result.stdout + result.stderr);
     assert.match(result.stdout, /claude exited 1/);
     assert.match(result.stdout, /refreshed opencode integration/);
-    assert.match(result.stdout, /1 step failed: claude plugin update dotmd@dotmd/);
+    assert.match(result.stdout, /1 step failed: claude plugin update runlist@runlist/);
     assert.notEqual(installedVersion(stale.path), '0.1.0');
   });
 });
@@ -216,10 +239,10 @@ test('update runs every host step past a failed one, then exits 1 naming the fai
 function withPluginRoot(version, underCache, fn) {
   const base = mkdtempSync(path.join(os.tmpdir(), 'dotmd-pr-'));
   const root = underCache
-    ? path.join(base, '.claude', 'plugins', 'cache', 'dotmd', 'dotmd', version)
-    : path.join(base, 'dev', 'plugins', 'dotmd');
+    ? path.join(base, '.claude', 'plugins', 'cache', 'runlist', 'runlist', version)
+    : path.join(base, 'dev', 'plugins', 'runlist');
   mkdirSync(path.join(root, '.claude-plugin'), { recursive: true });
-  writeFileSync(path.join(root, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'dotmd', version }));
+  writeFileSync(path.join(root, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'runlist', version }));
   try { return fn(root); } finally { rmSync(base, { recursive: true, force: true }); }
 }
 

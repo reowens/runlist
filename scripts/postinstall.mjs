@@ -35,8 +35,10 @@ try {
   })();
 
   if ((process.env.RUNLIST_AUTO_PLUGIN_UPDATE ?? process.env.DOTMD_AUTO_PLUGIN_UPDATE) === '1' && hasClaude) {
-    spawnSync('claude', ['plugin', 'update', 'dotmd@dotmd'], { stdio: 'ignore', timeout: 60000 });
-    process.stdout.write('runlist: refreshed the Claude Code plugin — restart your session (or /reload-plugins) to apply.\n');
+    const updated = spawnSync('claude', ['plugin', 'update', 'runlist@runlist'], { stdio: 'ignore', timeout: 60000 });
+    process.stdout.write(updated.status === 0
+      ? 'runlist: refreshed the Claude Code plugin — restart your session (or /reload-plugins) to apply.\n'
+      : 'runlist: install the renamed Claude Code plugin with `runlist install claude`.\n');
   } else {
     // The CLI just installed fresh, so only the plugin can be stale — point at
     // the targeted refresh rather than the full `dotmd update` (CLI + plugin).

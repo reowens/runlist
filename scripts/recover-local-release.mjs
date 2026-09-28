@@ -7,7 +7,7 @@ import { clearReleaseIntent, readReleaseIntent } from './release-intent.mjs';
 const RELEASE_PATHS = [
   'package.json',
   'package-lock.json',
-  'plugins/dotmd/.claude-plugin/plugin.json',
+  'plugins/runlist/.claude-plugin/plugin.json',
   '.claude-plugin/marketplace.json',
   'plugins/runlist-codex/.codex-plugin/plugin.json',
 ];
