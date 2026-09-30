@@ -543,7 +543,13 @@ export function analyzeDecisions(docs, settings = DEFAULTS) {
     if (!byId.has(item.id)) byId.set(item.id, []);
     byId.get(item.id).push(item);
   }
-  const linked = (a, b) => a !== b && a.file !== b.file && (a.points.has(b.file) || b.points.has(a.file));
+  // A register or table row names every document on its line, so its link to
+  // a register row is only a pairing when the register row points back: a
+  // table citing a register for something else, with an id that happens to
+  // match, is not that register's record.
+  const indexRow = i => i.kind === 'register' || i.kind === 'table';
+  const points = (a, b) => a.points.has(b.file) && !(indexRow(a) && b.kind === 'register' && !b.points.has(a.file));
+  const linked = (a, b) => a !== b && a.file !== b.file && (points(a, b) || points(b, a));
 
   for (const item of items) {
     item.peers = item.id ? byId.get(item.id).filter(p => linked(item, p)) : [];

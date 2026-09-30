@@ -159,6 +159,15 @@ describe('pendingRows', () => {
     ok(defects.some(d => d.id === 'D7' && /open here, ruled at docs\/plans\/arc\.md:4/.test(d.message)));
   });
 
+  it('does not pair a table row with a register row it cites for something else', () => {
+    const pair = [
+      { path: 'docs/plans/arc.md', text: '```\nOpen, waiting on you:\n\nD7  OPEN 2025-04-01: Which lamp? Record: bins.md.\n```\n' },
+      { path: 'docs/plans/shelf.md', text: '## Decisions\n\n| ID | Question | Answer |\n|---|---|---|\n| D7 | Which door? | **RULED 2025-03-01**, in line with [arc.md](arc.md). |\n' },
+    ];
+    const defects = decisionDefects(analyzeDecisions(pair, settings));
+    ok(!defects.some(d => /here, ruled at/.test(d.message)), JSON.stringify(defects));
+  });
+
   it('names items with no id, no disposition, or an id used twice', () => {
     const items = analyzeDecisions([{ path: 'docs/plans/p.md', text: '## Decisions\n\n- **Decision: the shelf.**\n- **D1 x.** A note.\n- **D1 y.** Ruled 2025-01-01: z.\n' }], settings);
     const messages = decisionDefects(items).map(d => `${d.id ?? '-'} ${d.message}`);

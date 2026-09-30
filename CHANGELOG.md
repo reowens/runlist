@@ -11,6 +11,7 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ### Fixed
 
+- A table or register row that links a register for something else is no longer paired with that register's row of the same id unless the register row links back, so two unrelated decisions sharing an id are not reported as disagreeing.
 - Codex integration tests use Windows command shims and a discoverable shell so the cross-platform CI job checks the plugin without a Unix-only test environment.
 
 ## 0.89.3 — 2026-09-27
