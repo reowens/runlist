@@ -293,6 +293,15 @@ export function xrefDoc(abs, config, ctx = {}) {
   };
 }
 
+// A citation with a removal word beside it (`a.ts is split and deleted`,
+// `deleted a.ts`) records the removal; it is history, not a pointer.
+const REMOVAL = /\b(?:deleted|removed|retired|split|renamed|moved|gone|dropped)\b/i;
+export function narratesRemoval(line, cited) {
+  const at = line.indexOf(cited);
+  if (at === -1) return false;
+  return REMOVAL.test(line.slice(Math.max(0, at - 40), at + cited.length + 60));
+}
+
 /** The corpus-wide findings `--check` reports, as flag findings. */
 export function xrefFindings(config, ctx = {}) {
   const index = ctx.index ?? buildIndex(config, { fast: true });
@@ -304,6 +313,7 @@ export function xrefFindings(config, ctx = {}) {
     const text = readFileSync(path.join(config.repoRoot, doc.path), 'utf8');
     for (const work of openWorkLines(text)) {
       for (const cited of codeCitations(work.text)) {
+        if (narratesRemoval(work.text, cited)) continue;
         const r = resolveCitation(cited, repo);
         if (r.state === 'renamed') findings.push({ file: doc.path, line: work.line, severity: 'warn', text: `Open work names ${cited}, which was renamed to ${r.to}.` });
         else if (r.state === 'removed') findings.push({ file: doc.path, line: work.line, severity: 'warn', text: `Open work names ${cited}, which was removed.` });

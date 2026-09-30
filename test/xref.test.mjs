@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync, existsSync
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { codeCitations, resolveCitation, openWorkLines } from '../src/xref.mjs';
+import { codeCitations, resolveCitation, openWorkLines, narratesRemoval } from '../src/xref.mjs';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
 let tmpDir;
@@ -106,6 +106,13 @@ describe('resolveCitation', () => {
     deepStrictEqual(resolveCitation('old.ts', repo), { state: 'renamed', from: 'a/old.ts', to: 'a/new.ts' });
     strictEqual(resolveCitation('gone.ts', repo).state, 'removed');
     strictEqual(resolveCitation('a/never.ts', repo).state, 'unknown');
+  });
+});
+
+describe('narratesRemoval', () => {
+  it('reads a removal word beside the citation, not elsewhere on the line', () => {
+    strictEqual(narratesRemoval('and `src/a.ts` is split across three files', 'src/a.ts'), true);
+    strictEqual(narratesRemoval('edit `src/a.ts` next' + ' '.repeat(80) + 'the old one was removed', 'src/a.ts'), false);
   });
 });
 
