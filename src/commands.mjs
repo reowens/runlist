@@ -98,6 +98,9 @@ const definitions = [
     form('cap <gb>', { subcommands: ['cap'], args: positionals(1, 1) }),
   ]),
   command('show', none, 'read', [form('<file...>', { args: positionals(1, Infinity), options: [flag('--json')] })]),
+  command('xref', mutates('the flags log under the state directory with --check --flag; otherwise read-only'), 'read', [
+    form('<file...> | --check [--flag]', { args: positionals(0, Infinity), options: [flag('--json'), flag('--check'), flag('--flag')] }),
+  ]),
   command('decisions', none, 'read', [form('[doc-or-id]', { args: positionals(0, 1), options: [flag('--all'), flag('--json'), flag('--check')] })]),
   command('modules', none, 'read', [form('', { options: [value('--sort'), value('--limit'), flag('--all'), flag('--json')] })]),
   command('module', none, 'read', [form('<name>', { args: positionals(1, 1), options: [value('--sort'), flag('--json')] })]),

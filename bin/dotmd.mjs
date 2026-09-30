@@ -272,6 +272,7 @@ Analyze:
   glossary <term> [--list] [--json] Look up domain terms + related docs
   decisions [doc|id] [--all|--check] Open and held decisions, read from the corpus
   show <file...> [--json]           One document's card: status, next step, related plans and docs, links
+  xref <file...> | --check [--flag] Cross-references: what names it, its decisions, its cited code
 
 Validate & Fix:
   doctor [--apply]                  Auto-fix everything: refs, membership, lint, long fields, dates, index (preview by default)
@@ -1389,6 +1390,26 @@ checklist item (kind "item") or frontmatter blocker (kind "blocker") that
 names its id, alone or inside a written range such as \`A2 to A12\`. In
 another document the id has to sit beside a link to the decision's document.`,
 
+  xref: `runlist xref <file...> — one document's cross-references, read before it is edited
+
+  runlist xref <file>           named by: every document pointing at it, and whether it points back
+                                names: what it points at, with status, missing and one-way entries
+                                decisions: its records with disposition and any linked peer that
+                                  disagrees, and records elsewhere it cites beside their document
+                                code: every cited file live, renamed (to where) or removed, and the
+                                  commits since its last commit that touched a cited file
+                                flags: what is open on it
+  runlist xref <file> --json    the same card as data
+  runlist xref --check          across the plans: open work (an unticked item, a blocker,
+                                next_step) naming a removed or renamed file, and a decision open
+                                or held in one document and ruled or closed at a linked peer;
+                                exit 1 if any
+  runlist xref --check --flag   the same findings synced into \`runlist flags\` as check \`xref\`,
+                                resolving what it no longer reports
+
+Code changing under a live plan is shown, never flagged: it is the normal
+state of a live plan.`,
+
   show: `runlist show <file...> — one document's card, read-only
 
   runlist show <file>           title, status, next step, blockers, checklist,
@@ -2001,6 +2022,7 @@ async function main() {
   if (command === 'glossary') { const { runGlossary } = await import('../src/glossary.mjs'); runGlossary(restArgs, config); return; }
   if (command === 'model') { const { runModel } = await import('../src/model.mjs'); await runModel(restArgs, config); return; }
   if (command === 'show') { const { runShow } = await import('../src/show.mjs'); runShow(restArgs, config); return; }
+  if (command === 'xref') { const { runXref } = await import('../src/xref.mjs'); runXref(restArgs, config); return; }
   if (command === 'decisions') {
     const { runDecisions } = await import('../src/decisions.mjs');
     const result = runDecisions(restArgs, config);

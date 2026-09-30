@@ -18,6 +18,7 @@ This repo's plans, reference docs, and saved prompts are managed by the **runlis
 - **Hand off / save a resume prompt:** `runlist baton [<plan-or-slug>] @<draft-file>` — write the resume to a file first; saves the prompt and releases the in-session plan (a slug with no plan just saves `resume-<slug>`). Never paste a "here's how to resume" block into chat.
 - **Record a decision:** `runlist new decision <plan> --question "…" @<record-file>`; if the repo configures a decisions register, also pass `--answers "Yes: … No: …"`. `runlist decisions --check` reports incomplete records.
 - **Saved prompts are session-local:** consume with `runlist use` (no arg = oldest pending), peek with `runlist prompts show` (`--all` surveys the whole queue in one call). Never read them with file tools, never commit `docs/prompts/*.md`.
+- **Cross-reference before touching a plan:** `runlist xref <plan-file>` shows what names it, its decisions and any linked record that disagrees, and the code it cites (renamed, removed, or changed since its last commit); `runlist xref --check --flag` puts moved-code and disagreeing-decision findings on the flags list.
 - **Flag what the person should know:** `runlist flag add <file[:line]> "<what is wrong>"` puts a problem you found but are not fixing on the flags list (`--severity problem|warn|info`); `runlist flags` lists what is open. A flag says what is wrong and where, never what to do about it.
 <!-- runlist:canonical-workflow:end -->
 

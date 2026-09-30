@@ -4,6 +4,11 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ## Unreleased
 
+### Added
+
+- `runlist xref <file>`: one document's cross-references in one read: the documents that name it and whether it names them back, what it names, its decisions with any linked record that disagrees, the records elsewhere it cites, every code file it cites as live, renamed (with the new path) or removed, the commits since its last commit that touched a cited file, and its open flags. `--json` returns the card as data.
+- `runlist xref --check [--flag]`: across the plans, open work (an unticked item, a blocker, `next_step`) naming a file git shows removed or renamed, and a decision open or held in one document and ruled or closed at a linked peer. `--flag` syncs the findings into `runlist flags` as check `xref`. The history walk is cached in the state directory against the commit it read up to.
+
 ### Fixed
 
 - Codex integration tests use Windows command shims and a discoverable shell so the cross-platform CI job checks the plugin without a Unix-only test environment.

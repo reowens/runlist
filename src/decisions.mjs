@@ -374,7 +374,7 @@ export function idPointedDocs(text, id, kind) {
 const idPattern = id => new RegExp(`(?<![\\w.-])${escapeRe(id)}(?![\\w]|[-.][A-Z0-9])`, 'g');
 
 /** The documents, by basename, linked within a few characters of `id` on one line. */
-function linksBesideId(line, id) {
+export function linksBesideId(line, id) {
   const out = new Set();
   const at = [...line.matchAll(idPattern(id))].map(m => [m.index, m.index + m[0].length]);
   if (!at.length) return out;
