@@ -62,8 +62,8 @@ const definitions = [
   command('graph', none, 'read', [form('', { options: [flag('--dot'), flag('--json'), value('--status'), value('--module'), value('--surface')] })]),
   command('deps', none, 'read', [form('[file]', { args: positionals(0, 1), options: [flag('--json'), value('--depth')] })]),
   command('briefing', none, 'read', [form('', { options: [flag('--json')] })]),
-  command('context', none, 'read', [form('', { options: [flag('--json'), flag('--compact'), flag('--summarize'), value('--model')] })]),
-  command('agent-context', none, 'read', [form('', { options: [flag('--json')] })]),
+  command('context', none, 'read', [form('', { options: [flag('--json'), flag('--compact'), flag('--summarize'), value('--model'), value('--sections'), value('--max-bytes')] })]),
+  command('agent-context', none, 'read', [form('', { options: [flag('--json'), value('--sections'), value('--max-bytes')] })]),
   command('hud', none, 'read', [form('', { options: [flag('--json'), flag('--subagent'), flag('--prompt-submit')] })]),
   command('focus', none, 'read', [form('[status]', { args: positionals(0, 1), options: [flag('--json')] })]),
   command('query', none, 'read', [form('[terms...]', { args: positionals(0, Infinity), options: QUERY_OPTIONS })]),
@@ -105,8 +105,8 @@ const definitions = [
   command('modules', none, 'read', [form('', { options: [value('--sort'), value('--limit'), flag('--all'), flag('--json')] })]),
   command('module', none, 'read', [form('<name>', { args: positionals(1, 1), options: [value('--sort'), flag('--json')] })]),
   command('surfaces', none, 'read', [form('', { options: [flag('--json')] })]),
-  command('journal', none, 'read', [form('', { options: [value('--tail'), flag('--errors'), value('--session'), value('--since'), flag('--by-command'), flag('--json')] })]),
-  command('errors', none, 'read', [form('', { options: [flag('--json'), value('--limit'), value('--tail'), value('--repo')] })]),
+  command('journal', none, 'read', [form('', { options: [value('--tail'), flag('--errors'), value('--session'), value('--since'), flag('--by-command'), flag('--help-topics'), flag('--json')] })]),
+  command('errors', none, 'read', [form('', { options: [flag('--json'), flag('--by-family'), value('--limit'), value('--tail'), value('--repo')] })]),
   command('misuse', none, 'read', [form('', { options: [flag('--json'), value('--tail'), flag('--by-rule'), value('--repo')] })]),
 
   command('roadmap', mutates('managed source when `next`; otherwise read-only'), 'workflow', [

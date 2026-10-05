@@ -160,6 +160,22 @@ describe('runlist xref', () => {
     ok(findings.every(f => f.file === 'docs/plans/lamp.md'));
   });
 
+  it('persists a located validation summary rather than a generic exit status', () => {
+    setup();
+    const logDir = path.join(tmpDir, 'telemetry');
+    const result = spawnSync('node', [BIN, 'xref', '--check', '--json'], {
+      cwd: tmpDir, encoding: 'utf8',
+      env: { ...process.env, RUNLIST_ERROR_LOG_DIR: logDir, RUNLIST_JOURNAL: '1' },
+    });
+    strictEqual(result.status, 1);
+    const error = JSON.parse(readFileSync(path.join(logDir, 'runlist-errors.log'), 'utf8').trim());
+    const journal = JSON.parse(readFileSync(path.join(tmpDir, '.runlist/journal.jsonl'), 'utf8').trim());
+    match(error.err, /3 cross-reference finding\(s\); first: docs\/plans\/lamp\.md:\d+: Open work names/);
+    strictEqual(error.family, 'validation');
+    strictEqual(journal.outcome, 'validation');
+    ok(!journal.err.includes('exited with status'));
+  });
+
   it('--check --flag syncs the findings into the flags list and resolves fixed ones', () => {
     setup();
     run(['xref', '--check', '--flag']);
@@ -169,6 +185,16 @@ describe('runlist xref', () => {
     writeFileSync(file, readFileSync(file, 'utf8').replace('`src/lamp/bulb.ts`', '`src/light/bulb.ts`'));
     run(['xref', '--check', '--flag']);
     strictEqual(open().length, 2);
+  });
+
+  it('a preview check never changes flag history', () => {
+    setup();
+    run(['xref', '--check', '--flag']);
+    const file = path.join(tmpDir, '.runlist', 'flags.jsonl');
+    const before = readFileSync(file, 'utf8');
+    const result = run(['xref', '--check', '--flag', '--dry-run']);
+    strictEqual(result.status, 1);
+    strictEqual(readFileSync(file, 'utf8'), before);
   });
 
   it('keeps the history walk in the state directory and reads only new commits after', () => {

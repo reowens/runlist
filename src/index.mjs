@@ -32,7 +32,10 @@ export function buildIndex(config, opts = {}) {
   const gitStaleness = opts.gitStaleness ?? config._execution?.gitStaleness ?? true;
   const skipWarningOnlyChecks = fast || errorsOnly;
   const cache = openParseCache(config);
-  const docs = collectDocFiles(config).map(f => parseDocFile(f, config, { fast, cache }));
+  const scanFailures = [];
+  const docs = collectDocFiles(config, { onError: (directory, err) => {
+    scanFailures.push({ path: null, level: 'error', message: `Could not read scan directory ${toRepoPath(directory, config.repoRoot)}: ${err.message}`, meta: { kind: 'scan-failure' } });
+  } }).map(f => parseDocFile(f, config, { fast, cache }));
   if (cache && !config._execution?.suppressSideEffects) cache.save();
   if (!fast) {
     // Per-file validation (validateDoc) ran during parse without sibling
@@ -43,7 +46,7 @@ export function buildIndex(config, opts = {}) {
     enrichRefErrorSuggestions(docs, config);
   }
   const warnings = [];
-  const errors = [];
+  const errors = [...scanFailures];
 
   for (const doc of docs) {
     warnings.push(...doc.warnings);
@@ -64,7 +67,8 @@ export function buildIndex(config, opts = {}) {
           warnings.push(...result.warnings);
         }
       } catch (err) {
-        const hookError = { path: doc.path, level: 'error', message: `Hook 'validate' threw: ${err.message}` };
+        const hookError = { path: doc.path, level: 'error', message: `Hook 'validate' threw: ${err.message}`, meta: { kind: 'hook-failure' } };
+        scanFailures.push(hookError);
         doc.errors.push(hookError);
         errors.push(hookError);
       }
@@ -75,7 +79,9 @@ export function buildIndex(config, opts = {}) {
     ? docs.map(d => {
         try { return config.hooks.transformDoc(d) ?? d; }
         catch (err) {
-          warnings.push({ path: d.path, level: 'warning', message: `Hook 'transformDoc' threw: ${err.message}` });
+          const failure = { path: d.path, level: 'warning', message: `Hook 'transformDoc' threw: ${err.message}`, meta: { kind: 'hook-failure' } };
+          warnings.push(failure);
+          scanFailures.push(failure);
           return d;
         }
       })
@@ -114,7 +120,7 @@ export function buildIndex(config, opts = {}) {
     // runs after `buildIndex` returns, so a rewrite is safe. Off by default
     // so dry-run / print modes never mutate disk as a side effect.
     const indexCheck = checkIndex(transformedDocs, config, {
-      autoHeal: autoHealIndex,
+      autoHeal: autoHealIndex && scanFailures.length === 0,
       rebuildDocs: autoHealIndex ? () => buildIndex(config, { fast: true }).docs : null,
       testHooks: opts.testHooks,
     });
@@ -190,17 +196,18 @@ export function buildIndex(config, opts = {}) {
     countsByType,
     warnings,
     errors,
+    scanCoverage: { complete: scanFailures.length === 0 },
   };
 }
 
-export function collectDocFiles(config) {
+export function collectDocFiles(config, { onError = null } = {}) {
   const files = [];
   const skipPaths = new Set();
   if (config.indexPath) skipPaths.add(config.indexPath);
   const roots = config.docsRoots || [config.docsRoot];
   const seen = new Set();
   for (const root of roots) {
-    walkMarkdownFiles(root, files, config.excludeDirs, skipPaths, seen);
+    walkMarkdownFiles(root, files, config.excludeDirs, skipPaths, seen, onError);
   }
   return files.sort((a, b) => a.localeCompare(b));
 }
@@ -253,18 +260,19 @@ export function docArgMissMessage(input, config, files = collectDocFiles(config)
   return msg;
 }
 
-function walkMarkdownFiles(directory, files, excludedDirs, skipPaths, seen = new Set()) {
+function walkMarkdownFiles(directory, files, excludedDirs, skipPaths, seen = new Set(), onError = null) {
   let entries;
   try {
     entries = readdirSync(directory, { withFileTypes: true });
   } catch (err) {
+    onError?.(directory, err);
     warn(`Could not read directory ${directory}: ${err.message}`);
     return;
   }
   for (const entry of entries) {
     if (entry.isDirectory()) {
       if (excludedDirs && excludedDirs.has(entry.name)) continue;
-      walkMarkdownFiles(path.join(directory, entry.name), files, excludedDirs, skipPaths, seen);
+      walkMarkdownFiles(path.join(directory, entry.name), files, excludedDirs, skipPaths, seen, onError);
       continue;
     }
     const fullPath = path.join(directory, entry.name);

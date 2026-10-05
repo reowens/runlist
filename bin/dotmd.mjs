@@ -215,13 +215,14 @@ marketplace re-added before the update (see \`runlist install claude\`).`,
 Every runlist command that fails (an error, or a non-zero exit such as
 \`check\` finding errors) appends one line to ~/.claude/logs/runlist-errors.log
 (RUNLIST_ERROR_LOG_DIR moves it): when, the command with secrets redacted, and
-the error's one-line message. It rolls over to runlist-errors.log.1 at 5 MB or
-a new runlist version; this reads both. Dry runs and the session-start hud are
+the error's one-line message. It rolls over at 5 MB or a new version, retaining
+up to eight backups for 30 days; this reads all retained files. Dry runs and the session-start hud are
 never logged.
 
   runlist errors                 last 20
   runlist errors --limit 50      last N (--tail is the same)
   runlist errors --repo <name>   only failures in a matching repo
+  runlist errors --by-family     group all retained failures by actionable family
   runlist errors --json          [{ at, command, message, repo, exit }]`,
 
   misuse: `runlist misuse — read the cross-repo guard log (~/.claude/logs/runlist-misuse.log,
@@ -452,19 +453,22 @@ Reader options:
   --session <id>      Only entries from one session
   --since <iso>       Only entries with ts >= iso
   --by-command        Group by argv[0]: count, median ms, error rate
+  --help-topics       Help topic counts, sessions, versions, retained denominator
   --json              Emit selected entries as a JSON array
 
 Storage:
   Rotates to .runlist/journal.jsonl.1 on runlist version change, at >5MB,
   or when the oldest entry is >30 days.
-  Single backup retained for up to 30 days; older history is dropped on
-  rotation or pruned after the retention window.
+  Up to eight backups are retained for 30 days; readers include them.
+  Help calls record only topic and outcome, without authored arguments.
+  Passive context, HUD, and dry runs remain excluded from the journal.
 
 Examples:
   RUNLIST_JOURNAL=1 runlist plans
   runlist journal --tail 5
   runlist journal --errors
   runlist journal --by-command
+  runlist journal --help-topics --json
   runlist journal --since 2025-01-01 --json`,
 
   query: `runlist query — filtered document search
@@ -702,13 +706,25 @@ agent-safe JSON.
 Options:
   --json                 Output as JSON
   --compact              With --json, return counts + bounded next-action lists
+  --sections <names>      With --json --compact, select agent-context sections
+  --max-bytes <N>         With --json --compact, cap UTF-8 JSON bytes (default 16384)
   --summarize            Add AI summaries for expanded docs
   --model <name>         Model for AI summaries`,
 
   'agent-context': `runlist agent-context — compact bounded JSON for agents
 
 Equivalent to \`runlist context --json --compact\`. Returns counts,
-validation totals, pending prompt next item, and bounded plan action lists.`,
+validation totals, pending prompt next item, and bounded plan action lists.
+
+Options:
+  --sections <names>      Comma-separated statusVocabulary,counts,prompts,plans,issues
+  --max-bytes <N>         Maximum UTF-8 JSON bytes, including formatting (default 16384;
+                         minimum 2048). Keeps claims, next prompt, and first action;
+                         fails explicitly if protected information cannot fit.
+
+Collections retain total, shown, truncated, and items. Budget metadata reports
+the actual emitted bytes and whether the byte budget reduced the item lists.
+Ownership claims remain local state, distinct from a plan's accountable owner.`,
 
   stats: `runlist stats — doc health dashboard
 
@@ -1699,6 +1715,12 @@ async function main() {
   const parsed = splitGlobalArgs(args);
   let { command, explicitConfig, rootArg, typeArg, dryRun, verbose } = parsed;
   let restArgs = parsed.rest;
+  const captureHelpConfig = async topic => {
+    _resolvedCommand = 'help';
+    _helpTopic = topic;
+    _suppressObservability = dryRun;
+    try { _resolvedConfig = await resolveConfig(process.cwd(), explicitConfig); } catch { /* help works with broken config */ }
+  };
 
   // Tolerate accidentally pasting the command prefix twice, while leaving all
   // remaining arguments to the normal `use` grammar and path validation.
@@ -1748,12 +1770,14 @@ async function main() {
 
   if (command === 'help' || command === '--help' || command === '-h') {
     const topic = restArgs[0];
+    await captureHelpConfig(topic ? (HELP[topic] || HELP[`help:${topic}`] ? topic : '(unknown)') : '_main');
     if (topic) {
       const key = `help:${topic}`;
       if (HELP[key]) { process.stdout.write(`${HELP[key]}\n`); return; }
       if (HELP[topic]) { process.stdout.write(`${HELP[topic]}\n`); return; }
       process.stderr.write(`Unknown help topic: ${topic}\n\nAvailable topics: all, statuses\nPer-command help: runlist <cmd> --help\n`);
       process.exitCode = 1;
+      _exitFailureMessage = 'Unknown help topic';
       return;
     }
     process.stdout.write(`${HELP._main}\n`);
@@ -1780,12 +1804,13 @@ async function main() {
   // Per-command help
   if (args.includes('--help') || args.includes('-h')) {
     requireCommandPolicy(command, dispatchPolicy);
+    await captureHelpConfig(command);
     process.stdout.write(`${HELP[command] ?? commandUsage(command)}\n`);
     if (command === 'new') {
       // Best effort: outside a runlist repo, or with a broken config, the
       // static help above is the whole answer.
       try {
-        const repoConfig = await resolveConfig(process.cwd(), explicitConfig);
+        const repoConfig = _resolvedConfig;
         if (repoConfig?.configFound !== false) {
           const { newHelpForRepo } = await import('../src/new.mjs');
           process.stdout.write(`\n${newHelpForRepo(repoConfig)}\n`);
@@ -2022,7 +2047,15 @@ async function main() {
   if (command === 'glossary') { const { runGlossary } = await import('../src/glossary.mjs'); runGlossary(restArgs, config); return; }
   if (command === 'model') { const { runModel } = await import('../src/model.mjs'); await runModel(restArgs, config); return; }
   if (command === 'show') { const { runShow } = await import('../src/show.mjs'); runShow(restArgs, config); return; }
-  if (command === 'xref') { const { runXref } = await import('../src/xref.mjs'); runXref(restArgs, config); return; }
+  if (command === 'xref') {
+    const { runXref } = await import('../src/xref.mjs');
+    const findings = runXref(restArgs, config);
+    if (restArgs.includes('--check') && findings.length) {
+      const first = findings[0];
+      _exitFailureMessage = `${findings.length} cross-reference finding(s); first: ${first.file}:${first.line}: ${first.text}`;
+    }
+    return;
+  }
   if (command === 'decisions') {
     const { runDecisions } = await import('../src/decisions.mjs');
     const result = runDecisions(restArgs, config);
@@ -2092,6 +2125,9 @@ async function main() {
   if (command === 'statuses') { const { runStatuses } = await import('../src/statuses.mjs'); await runStatuses(restArgs, config, { dryRun, type: typeArg }); return; }
 
   // All remaining commands need the index + render modules
+  if (command === 'check' && restArgs.includes('--flag') && !dryRun && (rootArg || typeArg)) {
+    die('`--flag` runs on the whole repository; drop the --root / --type filters.');
+  }
   const { buildIndex } = await import('../src/index.mjs');
   const { renderCompactList, renderVerboseList, renderContext, renderBriefing, renderCheck, renderCoverage, buildCoverage, buildReferenceValidationCoverage } = await import('../src/render.mjs');
   const { runFocus, runQuery } = await import('../src/query.mjs');
@@ -2159,12 +2195,13 @@ async function main() {
       if (checkTargets.length > 0) die('`--flag` runs on the whole repository; drop the path arguments.');
       const { syncCheckFlags } = await import('../src/flags.mjs');
       const findings = checkIndex.errors.filter(e => e.path).map(e => ({ file: e.path, text: e.message }));
-      const { added, resolved } = syncCheckFlags(config, 'runlist check', findings);
+      const complete = checkIndex.scanCoverage?.complete !== false && skippedCheckHooks.length === 0 && !checkIndex.errors.some(e => !e.path);
+      const { added, resolved } = syncCheckFlags(config, 'runlist check', findings, { complete });
       process.stderr.write(`flags: ${added} added, ${resolved} resolved\n`);
     };
     const checkJson = (checkIndex) => {
       const builtInPassed = checkIndex.errors.length === 0;
-      const complete = skippedCheckHooks.length === 0;
+      const complete = skippedCheckHooks.length === 0 && checkIndex.scanCoverage?.complete !== false;
       return {
         docsScanned: checkIndex.docs.length,
         errors: checkIndex.errors,
@@ -2175,7 +2212,7 @@ async function main() {
         passed: complete ? builtInPassed : null,
         ...(complete ? {} : {
           builtInPassed,
-          validationPreview: { status: 'built-in-only', skippedHooks: skippedCheckHooks },
+          validationPreview: { status: skippedCheckHooks.length ? 'built-in-only' : 'incomplete', skippedHooks: skippedCheckHooks },
         }),
       };
     };
@@ -2226,6 +2263,7 @@ async function main() {
       if (freshIndex.errors.length > 0) {
         process.exitCode = 1;
         _exitFailureMessage = checkFailureSummary(freshIndex.errors);
+        _exitFailureFamily = checkFailureFamily(freshIndex);
       }
       return;
     }
@@ -2239,6 +2277,7 @@ async function main() {
       if (index.errors.length > 0) {
         process.exitCode = 1;
         _exitFailureMessage = checkFailureSummary(index.errors);
+        _exitFailureFamily = checkFailureFamily(index);
       }
       return;
     }
@@ -2248,6 +2287,7 @@ async function main() {
     if (index.errors.length > 0) {
       process.exitCode = 1;
       _exitFailureMessage = checkFailureSummary(index.errors);
+      _exitFailureFamily = checkFailureFamily(index);
     }
     return;
   }
@@ -2336,9 +2376,10 @@ async function main() {
   }
 
   if (command === 'agent-context') {
-    const { buildAgentContext } = await import('../src/agent-context.mjs');
+    const { buildAgentContext, parseAgentContextOptions } = await import('../src/agent-context.mjs');
     const skippedHooks = ['validate', 'transformDoc', 'formatSnapshot'].filter(name => typeof config.hooks?.[name] === 'function');
     process.stdout.write(JSON.stringify(buildAgentContext(index, config, {
+      ...parseAgentContextOptions(restArgs),
       roots: rootArg ? [rootArg] : null,
       types: typeArg ? typeArg.split(',').map(value => value.trim()).filter(Boolean) : null,
       skippedHooks,
@@ -2381,9 +2422,10 @@ async function main() {
 
     if (args.includes('--json')) {
       if (compact) {
-        const { buildAgentContext } = await import('../src/agent-context.mjs');
+        const { buildAgentContext, parseAgentContextOptions } = await import('../src/agent-context.mjs');
         const skippedHooks = ['validate', 'transformDoc', 'formatSnapshot'].filter(name => typeof config.hooks?.[name] === 'function');
         process.stdout.write(JSON.stringify(buildAgentContext(index, config, {
+          ...parseAgentContextOptions(restArgs),
           roots: rootArg ? [rootArg] : null,
           types: typeArg ? typeArg.split(',').map(value => value.trim()).filter(Boolean) : null,
           skippedHooks,
@@ -2474,6 +2516,8 @@ let _resolvedConfig = null;
 let _resolvedCommand = null;
 let _suppressObservability = false;
 let _exitFailureMessage = null;
+let _exitFailureFamily = null;
+let _helpTopic = null;
 const _startMs = Date.now();
 const _invocationArgs = process.argv.slice(2);
 
@@ -2482,21 +2526,26 @@ function checkFailureSummary(errors) {
   return `${errors.length} check error(s); first: ${first.path ? `${first.path}: ` : ''}${first.message}`;
 }
 
+function checkFailureFamily(index) {
+  return index.scanCoverage?.complete === false || index.errors.some(e => e.meta?.kind === 'scan-floor') ? 'command-error' : 'validation';
+}
+
 function _journalExit(err) {
   if (_suppressObservability || _resolvedCommand === 'hud' || _invocationArgs.includes('--dry-run') || _invocationArgs.includes('-n')) return;
+  const code = Number(process.exitCode ?? 0);
+  const failure = err ?? (code !== 0 ? { name: 'ExitStatus', message: _exitFailureMessage ?? `exited with status ${code}`, family: _exitFailureFamily } : null);
   try {
     recordCliInvocation({
       config: _resolvedConfig,
       startMs: _startMs,
       args: _invocationArgs,
-      err,
+      err: failure,
       version: pkg.version,
+      helpTopic: _helpTopic,
     });
   } catch { /* never break exit on journal failure */ }
   // A command that reports its own failure through the exit code (check with
   // errors, a failed update step) is a failure too.
-  const code = Number(process.exitCode ?? 0);
-  const failure = err ?? (code !== 0 ? { name: 'ExitStatus', message: _exitFailureMessage ?? `exited with status ${code}` } : null);
   if (failure) {
     try {
       recordGlobalError({

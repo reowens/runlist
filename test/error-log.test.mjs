@@ -303,6 +303,26 @@ describe('runlist errors: the read verb over the error log', () => {
   const version = JSON.parse(readFileSync(path.resolve(import.meta.dirname, '..', 'package.json'), 'utf8')).version;
   const line = (argv, err, ts) => JSON.stringify({ schema: 2, ts, repo: tmpDir, sid: 's', pid: 0, argv, exit: 1, ms: 1, v: version, err });
 
+  it('groups validation, command skew, ownership, handoffs and exceptions without erasing raw entries', () => {
+    const cases = [
+      [['check'], '1 check error(s); first: docs/bad.md: invalid'],
+      [['xref','--check'], '3 cross-reference finding(s); first: docs/p.md:8: removed'],
+      [['new'], 'Usage: runlist new'],
+      [['old-verb'], 'Unknown command: old-verb'],
+      [['baton'], 'There is already a pending handoff for this work'],
+      [['use'], 'Plan owned by another session'],
+    ];
+    writeFileSync(errorLogFile, cases.map(([args,message])=>line(args,message,new Date().toISOString())).join('\n')+'\n'+JSON.stringify({schema:2,ts:new Date().toISOString(),repo:tmpDir,sid:'s',v:version,argv:['check'],exit:1,err:'boom',errName:'TypeError'})+'\n');
+    const grouped = run(['errors','--by-family','--json']);
+    strictEqual(grouped.status,0,grouped.stderr);
+    const summary=JSON.parse(grouped.stdout);
+    strictEqual(summary.total,7);
+    const counts=Object.fromEntries(summary.groups.map(g=>[g.family,g.total]));
+    deepStrictEqual(counts, {'command-error':1,'handoff-conflict':1,'ownership-conflict':1,'unexpected-exception':1,'unknown-command':1,validation:2});
+    strictEqual(JSON.parse(run(['errors','--json']).stdout).length,7);
+    strictEqual(JSON.parse(run(['errors','--by-family','--limit','2','--json']).stdout).total,2);
+  });
+
   it('logs a command that fails through its exit code, not only by throwing', () => {
     writeFileSync(path.join(tmpDir, 'docs', 'bad.md'), '---\ntype: plan\nstatus: not-a-status\ntitle: Bad\n---\n# Bad\n');
     const r = run(['check']);
@@ -311,6 +331,15 @@ describe('runlist errors: the read verb over the error log', () => {
     strictEqual(entry.argv[0], 'check');
     match(entry.err, /1 check error\(s\); first: docs\/bad\.md:.*Unknown status/);
     strictEqual(entry.errName, 'ExitStatus');
+  });
+
+  it('classifies failed validation execution separately from a validation verdict', () => {
+    writeFileSync(configPath, "export const root = 'docs';\nexport function validate() { throw new Error('validation crashed'); }\n");
+    writeFileSync(path.join(tmpDir,'docs/p.md'),'---\ntype: plan\nstatus: active\nupdated: 2026-10-05\n---\n# P\n');
+    strictEqual(run(['check']).status,1);
+    const entry=JSON.parse(readFileSync(errorLogFile,'utf8').trim().split('\n').at(-1));
+    strictEqual(entry.family,'command-error');
+    match(entry.err,/Hook 'validate' threw/);
   });
 
   it('records the first decision defect when decisions --check exits nonzero', () => {
@@ -352,7 +381,7 @@ describe('runlist errors: the read verb over the error log', () => {
     ok(run(['errors', '--limit', '0']).status !== 0, '--limit 0 is refused');
   });
 
-  it('rolls the log over once at 5 MB: the full file becomes .1 and the old .1 is replaced', () => {
+  it('rolls the full log to .1 at 5 MB and retains its previous rollover as .2', () => {
     writeFileSync(errorLogBackup, line(['oldest'], 'oldest', new Date().toISOString()) + '\n');
     const filler = line(['filler'], 'x'.repeat(400), new Date().toISOString()) + '\n';
     writeFileSync(errorLogFile, filler.repeat(Math.ceil((5 * 1024 * 1024 + 1) / filler.length)));
@@ -362,8 +391,9 @@ describe('runlist errors: the read verb over the error log', () => {
     strictEqual(JSON.parse(current[0]).argv[0], 'definitely-not-a-command');
     const backup = readFileSync(errorLogBackup, 'utf8');
     ok(backup.length > 5 * 1024 * 1024, 'the full file is the rollover');
-    ok(!backup.includes('"oldest"'), 'only one rollover is kept');
-    ok(!existsSync(`${errorLogBackup}.1`) && !existsSync(path.join(logDir, 'runlist-errors.log.2')));
+    ok(!backup.includes('"oldest"'), 'previous rollover is separate');
+    ok(readFileSync(path.join(logDir, 'runlist-errors.log.2'), 'utf8').includes('"oldest"'));
+    ok(!existsSync(`${errorLogBackup}.1`));
   });
 
   it('says there is nothing when no command has failed', () => {

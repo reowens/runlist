@@ -157,28 +157,34 @@ export function openFlags(config) {
 
 // A check's flags follow what the check reports: each error it reports is
 // flagged once, and a flag it raised earlier that it no longer reports is
-// resolved, so the list never holds a problem the check has stopped seeing.
+// resolved only when the caller explicitly confirms complete scan coverage.
+// Without that confirmation a partial/failed scan may add observations, but
+// absence from its findings is not evidence that an earlier flag was fixed.
 // A finding is matched to its open flag on file and text, not line: a check
 // reports the same problem at a new line after an edit above it, and that is
 // still one flag.
-export function syncCheckFlags(config, checkName, findings) {
+export function syncCheckFlags(config, checkName, findings, { complete = false, files = null } = {}) {
   const by = { kind: 'check', name: checkName };
   const keyOf = f => `${f.file}\0${normalizeText(f.text)}`;
   const current = new Set(findings.map(keyOf));
   const open = new Set(openFlags(config).filter(f => f.by?.kind === 'check' && f.by?.name === checkName).map(keyOf));
   let added = 0;
   let resolved = 0;
+  let additionsComplete = true;
   for (const finding of findings) {
     if (open.has(keyOf(finding))) continue;
-    if (!existsSync(path.resolve(config.repoRoot, finding.file))) continue;
+    if (!existsSync(path.resolve(config.repoRoot, finding.file))) { additionsComplete = false; continue; }
     const place = finding.line ? `${finding.file}:${finding.line}` : finding.file;
     const severity = SEVERITIES.includes(finding.severity) ? finding.severity : 'problem';
     try {
       if (addFlag(config, { place, text: finding.text, severity, by }).added) { added++; open.add(keyOf(finding)); }
-    } catch { /* a line the file no longer has: the next run reports it again */ }
+    } catch { additionsComplete = false; /* retry on the next complete scan */ }
   }
+  if (!complete || !additionsComplete) return { added, resolved };
+  const covered = files === null ? null : new Set(files);
   for (const flag of openFlags(config)) {
     if (flag.by?.kind !== 'check' || flag.by?.name !== checkName) continue;
+    if (covered && !covered.has(flag.file)) continue;
     if (current.has(`${flag.file}\0${normalizeText(flag.text)}`)) continue;
     triageFlag(config, { id: flag.id, event: 'resolve', note: `no longer reported by ${checkName}`, by });
     resolved++;
@@ -282,7 +288,8 @@ export function runFlag(argv, config) {
     if (!Array.isArray(findings) || findings.some(f => typeof f?.file !== 'string' || typeof f?.text !== 'string')) {
       die('The findings are a JSON array of { file, line?, text, severity? }.');
     }
-    const { added, resolved } = syncCheckFlags(config, name, findings);
+    // `flag sync` supplies a complete snapshot for this named external check.
+    const { added, resolved } = syncCheckFlags(config, name, findings, { complete: true });
     process.stdout.write(`flags from ${name}: ${added} added, ${resolved} resolved\n`);
     return;
   }

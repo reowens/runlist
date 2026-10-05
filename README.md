@@ -137,7 +137,21 @@ runlist doctor                 # preview repairs; add --apply to write
 `runlist plans` is the compact orientation view. `runlist briefing` lists live
 plans with next steps and grows with the corpus. `runlist context` is the fuller
 human/LLM briefing, while `runlist agent-context` emits bounded structured JSON for
-agent integrations.
+agent integrations. Its default response is capped at 16,384 UTF-8 bytes,
+including JSON formatting and the final newline. Each collection reports
+`total`, `shown`, and `truncated`; `budget` reports emitted bytes. Claims, the
+next pending prompt, and the first plan action are retained. If protected
+information cannot fit, the command reports the required budget rather than
+silently dropping it.
+
+```bash
+runlist agent-context --sections plans,prompts,counts --max-bytes 8192
+runlist context --json --compact --sections plans,issues
+```
+
+Available sections are `statusVocabulary`, `counts`, `prompts`, `plans`, and
+`issues`. Section selection is explicit in the response's scope. Passive
+context reads continue to skip custom side effects and expensive Git history.
 
 ## Core Workflow
 
@@ -372,14 +386,29 @@ every other document the body links to.
 Every runlist command that fails, by an error or a non-zero exit, appends one
 line to `~/.claude/logs/runlist-errors.log` (`RUNLIST_ERROR_LOG_DIR` moves it)
 with the time, the command with secrets redacted, and the error's one-line
-message. It rolls over once, to `runlist-errors.log.1`, at 5 MB or a new
-runlist version. Dry runs and the session-start `hud` are never logged.
+message. It rotates at 5 MB, a new runlist version, or 30 days of active
+history, retaining up to eight numbered backups for 30 days. Readers include
+the retained backups. Dry runs and the session-start `hud` are never logged.
 
 ```bash
 runlist errors                # the newest 20 failures, newest first
 runlist errors --limit 50     # the newest N
 runlist errors --json         # [{ at, command, message, repo, exit }]
+runlist errors --by-family --json  # validation, unknown-command, conflicts, exceptions
 ```
+
+Validation findings remain non-zero results and remain in the raw chronological
+view. Grouping distinguishes those findings from command errors and unexpected
+exceptions. Failed `xref --check` entries include the first finding's file,
+line, and message.
+
+The repository invocation journal remains opt-in through
+`export const journal = true;` in config or `RUNLIST_JOURNAL=1`. It uses the same retention policy.
+Top-level and per-command help calls record their topic and outcome without
+authored arguments. Use `runlist journal --help-topics --json` to see topic,
+session, version, and retained invocation counts. These denominators cover the
+retained opt-in window; passive context, HUD, dry runs, disabled journaling,
+and pruned history are excluded. They are not machine-wide usage rates.
 
 ## Safety Model
 

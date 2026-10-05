@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, appendFileSync, statSync, renameSync, readFileSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, appendFileSync, statSync, renameSync, readFileSync, unlinkSync, openSync, readSync, closeSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { currentSessionId } from './util.mjs';
@@ -9,6 +9,7 @@ const JOURNAL_BACKUP = 'journal.jsonl.1';
 const ROTATE_SIZE_BYTES = 5 * 1024 * 1024;
 const ROTATE_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const BACKUP_RETENTION_MS = ROTATE_AGE_MS;
+export const TELEMETRY_BACKUPS = 8;
 
 // New writes go to the runlist-* names. The dotmd-* names are what dotmd-cli
 // 0.78.0 and earlier wrote, and what an older CLI still installed elsewhere on
@@ -24,7 +25,7 @@ const LEGACY_MISUSE_LOG_BACKUP = 'dotmd-misuse.log.1';
 const TELEMETRY_SCHEMA = 2;
 const REDACTED = '[redacted]';
 const SENSITIVE_VALUE_FLAGS = new Set([
-  '--body', '--message', '--note',
+  '--body', '--message', '--note', '--question', '--answers', '--title',
   '--token', '--password', '--passphrase', '--secret', '--api-key', '--apikey',
   '--auth', '--authorization', '--cookie', '--header',
 ]);
@@ -92,8 +93,9 @@ function sanitizeArgvWithSecrets(args) {
     return positions;
   };
   if (command === 'new') {
-    const positions = collectPositionals(new Set(['--status', '--title', '--runlist', '--body', '--message', '--root']), 2);
-    if (positions.length >= 3 && input[positions[0]] === 'prompt') positions.slice(2).forEach(redactAt);
+    const positions = collectPositionals(new Set(['--status', '--title', '--question', '--answers', '--runlist', '--body', '--message', '--root']), 2);
+    if (positions.length >= 3) positions.slice(2).forEach(redactAt);
+    else if (positions.length === 2 && !['doc','plan','prompt','hub','decision','research','rfc','adr'].includes(input[positions[0]])) redactAt(positions[1]);
   } else if (command === 'prompts' || command === 'prompt') {
     const positions = collectPositionals(new Set(['--status', '--body', '--message', '--title']), 2);
     if (positions.length >= 3 && input[positions[0]] === 'new') positions.slice(2).forEach(redactAt);
@@ -138,22 +140,46 @@ export function journalBackupPath(config) {
 }
 
 function firstEntry(file) {
+  let fd;
   try {
-    const sample = readFileSync(file, 'utf8');
-    const nl = sample.indexOf('\n');
-    const first = nl >= 0 ? sample.slice(0, nl) : sample;
+    fd = openSync(file, 'r');
+    const chunks = [];
+    const buffer = Buffer.alloc(4096);
+    for (;;) {
+      const bytes = readSync(fd, buffer, 0, buffer.length, null);
+      if (!bytes) break;
+      const chunk = buffer.subarray(0, bytes);
+      const nl = chunk.indexOf(10);
+      chunks.push(Buffer.from(nl >= 0 ? chunk.subarray(0, nl) : chunk));
+      if (nl >= 0) break;
+    }
+    const first = Buffer.concat(chunks).toString('utf8');
     if (!first.trim()) return null;
     const obj = JSON.parse(first);
     return obj;
   } catch {
     return null;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
+
+function logSources(file, backup) {
+  return [file, backup, ...Array.from({ length: TELEMETRY_BACKUPS - 1 }, (_, i) => `${file}.${i + 2}`)];
+}
+
+function rotateLog(file, backup) {
+  const sources = logSources(file, backup);
+  try { unlinkSync(sources.at(-1)); } catch {}
+  for (let i = sources.length - 2; i >= 0; i--) {
+    if (existsSync(sources[i])) renameSync(sources[i], sources[i + 1]);
   }
 }
 
 function maybeRotate(file, backup, nextEntry = null) {
-  pruneStaleBackup(backup);
+  for (const candidate of logSources(file, backup).slice(1)) pruneStaleBackup(candidate);
   if (nextEntry?.schema != null) {
-    for (const candidate of [file, backup]) {
+    for (const candidate of logSources(file, backup)) {
       if (!existsSync(candidate)) continue;
       const existingSchema = firstEntry(candidate)?.schema;
       if (existingSchema !== nextEntry.schema) {
@@ -167,26 +193,21 @@ function maybeRotate(file, backup, nextEntry = null) {
   if (nextEntry?.v) {
     const existingVersion = firstEntry(file)?.v;
     if (existingVersion !== String(nextEntry.v)) {
-      try { renameSync(file, backup); } catch {}
+      try { rotateLog(file, backup); } catch {}
       return;
     }
   }
   if (st.size > ROTATE_SIZE_BYTES) {
-    try { renameSync(file, backup); } catch {}
+    try { rotateLog(file, backup); } catch {}
     return;
   }
   if (st.size === 0) return;
   // Age check: only the first line's ts matters for "oldest entry" — cheap
   // peek instead of streaming the whole file.
   try {
-    const sample = readFileSync(file, 'utf8');
-    const nl = sample.indexOf('\n');
-    const first = nl >= 0 ? sample.slice(0, nl) : sample;
-    if (!first) return;
-    const obj = JSON.parse(first);
-    const t = new Date(obj.ts).getTime();
+    const t = new Date(firstEntry(file)?.ts).getTime();
     if (!Number.isNaN(t) && (Date.now() - t) > ROTATE_AGE_MS) {
-      try { renameSync(file, backup); } catch {}
+      try { rotateLog(file, backup); } catch {}
     }
   } catch {}
 }
@@ -226,7 +247,7 @@ export function appendJournalEntry(config, entry) {
 }
 
 function purgeLegacyTelemetry(file, backup) {
-  for (const candidate of [file, backup]) {
+  for (const candidate of logSources(file, backup)) {
     if (!existsSync(candidate)) continue;
     if (firstEntry(candidate)?.schema !== TELEMETRY_SCHEMA) {
       try { unlinkSync(candidate); } catch {}
@@ -237,18 +258,26 @@ function purgeLegacyTelemetry(file, backup) {
 export function readJournalEntries(config) {
   const file = journalFilePath(config);
   purgeLegacyTelemetry(file, journalBackupPath(config));
-  if (!existsSync(file)) return [];
-  let raw;
-  try { raw = readFileSync(file, 'utf8'); } catch { return []; }
-  const out = [];
-  for (const line of raw.split('\n')) {
-    if (!line) continue;
-    try { out.push(JSON.parse(line)); } catch { /* skip malformed */ }
-  }
-  return out;
+  const sources = logSources(file, journalBackupPath(config));
+  for (const candidate of sources.slice(1)) pruneStaleBackup(candidate);
+  return sources.reverse().flatMap(readLogLines);
 }
 
-export function recordCliInvocation({ config, startMs, args, err, version }) {
+export function classifyFailure({ args = [], err } = {}) {
+  if (!err) return null;
+  const message = String(err.message ?? err);
+  const command = sanitizeTelemetryArgv(args)[0];
+  if (err.family) return err.family;
+  if (/^Unknown command:/i.test(message)) return 'unknown-command';
+  if (/pending handoff|pending prompt.*already|handoff.*already|already.*pending (?:handoff|prompt)/i.test(message)) return 'handoff-conflict';
+  if (/owned by|another session|claimed by|ownership|plan is busy/i.test(message)) return 'ownership-conflict';
+  if ((err.name === 'ExitStatus' && (command === 'check' || (['xref','decisions'].includes(command) && args.includes('--check'))))
+      || /^\d+ (?:check error|decision defect|cross-reference finding)/.test(message)) return 'validation';
+  if (err.name && !['DotmdError','ExitStatus'].includes(err.name)) return 'unexpected-exception';
+  return 'command-error';
+}
+
+export function recordCliInvocation({ config, startMs, args, err, version, helpTopic = null }) {
   if (!config) return;
   const sanitized = sanitizeArgvWithSecrets(args);
   const entry = {
@@ -256,11 +285,13 @@ export function recordCliInvocation({ config, startMs, args, err, version }) {
     ts: new Date().toISOString(),
     sid: currentSessionId(),
     pid: process.pid,
-    argv: sanitized.argv,
+    argv: helpTopic ? (helpTopic === '_main' ? ['--help'] : sanitized.argv[0] === 'help' ? ['help', helpTopic] : [helpTopic, '--help']) : sanitized.argv,
     exit: process.exitCode ?? 0,
     ms: Date.now() - startMs,
     v: version,
   };
+  if (helpTopic) entry.helpTopic = helpTopic;
+  entry.outcome = helpTopic && entry.exit === 0 ? 'help' : (err ? classifyFailure({ args, err }) : 'success');
   if (err) {
     // Normalize whitespace so multi-line error messages (e.g. unknown-command
     // hints) render as a single line in `dotmd journal --tail`. Cap at 200
@@ -303,6 +334,7 @@ export function recordGlobalError({ config, startMs, args, err, version }) {
     ms: typeof startMs === 'number' ? Date.now() - startMs : null,
     v: version,
     err: flatMsg.length > 500 ? flatMsg.slice(0, 497) + '...' : flatMsg,
+    family: classifyFailure({ args, err }),
   };
   if (err && err.name) entry.errName = err.name;
   if (err && err.stack) {
@@ -323,15 +355,16 @@ export function recordGlobalError({ config, startMs, args, err, version }) {
 }
 
 // The newest failures first, as `{ at, command, message, repo, exit }`: the
-// current file, then its one rollover. Reads what `recordGlobalError` wrote
+// current file, then its retained rollovers. Reads what `recordGlobalError` wrote
 // (argv and message already sanitized there); nothing else is kept per line.
-export function readGlobalErrors({ limit = 20, repo = null } = {}) {
+export function readGlobalErrors({ limit = 20, repo = null, includeFamily = false } = {}) {
   const file = globalErrorLogPath();
   const backup = globalErrorLogBackupPath();
   purgeLegacyTelemetry(file, backup);
-  pruneStaleBackup(backup);
+  const sources = logSources(file, backup);
+  for (const candidate of sources.slice(1)) pruneStaleBackup(candidate);
   const out = [];
-  for (const source of [file, backup]) {
+  for (const source of sources) {
     const lines = readLogLines(source).reverse();
     for (const e of lines) {
       if (repo && !String(e.repo ?? '').includes(repo)) continue;
@@ -341,6 +374,11 @@ export function readGlobalErrors({ limit = 20, repo = null } = {}) {
         message: e.err ?? null,
         repo: e.repo ?? null,
         exit: e.exit ?? null,
+        ...(includeFamily ? {
+          family: e.family ?? classifyFailure({ args: e.argv, err: { name: e.errName, message: e.err } }),
+          session: e.sid ?? null,
+          version: e.v ?? null,
+        } : {}),
       });
       if (limit && out.length >= limit) return out;
     }
@@ -418,8 +456,10 @@ export function readMisuseEntries() {
   const entries = [];
   for (const [file, backup] of pairs) {
     purgeLegacyTelemetry(file, backup);
-    pruneStaleBackup(backup);
-    entries.push(...readLogLines(file));
+    for (const source of logSources(file, backup).reverse()) {
+      if (source !== file) pruneStaleBackup(source);
+      entries.push(...readLogLines(source));
+    }
   }
   const time = (entry) => {
     const t = Date.parse(entry?.ts);

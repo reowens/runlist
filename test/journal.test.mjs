@@ -1,10 +1,10 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
-import { ok, strictEqual } from 'node:assert';
+import { deepStrictEqual, ok, strictEqual } from 'node:assert';
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync, rmSync, statSync, utimesSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { sanitizeTelemetryArgv, sanitizeTelemetryText } from '../src/journal.mjs';
+import { appendJournalEntry, readJournalEntries, sanitizeTelemetryArgv, sanitizeTelemetryText, TELEMETRY_BACKUPS } from '../src/journal.mjs';
 
 const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
 
@@ -107,6 +107,10 @@ describe('telemetry sanitizer', () => {
       ['--config', 'dotmd.config.mjs', 'new', 'prompt', '--status', 'pending', 'resume-work', secret],
       ['new', 'prompt', 'resume-work', secret, `${secret}_SECOND`],
       ['new', 'prompt', 'resume-work', `---\n${secret}`],
+      ['new', 'doc', 'overview', secret],
+      ['new', 'plan', 'work', secret],
+      ['new', 'overview', secret],
+      ['new', 'decision', 'work', '--question', secret, '--answers', `${secret}_OPTIONS`, '@record.md'],
       ['prompts', 'new', 'resume-work', `---\n${secret}`],
       ['new', 'prompt', '--config', 'dotmd.config.mjs', 'resume-work', secret],
       ['baton', 'work', secret],
@@ -132,6 +136,29 @@ describe('journal: enabled via config', () => {
     ok(existsSync(journalFile), 'journal file should exist');
     const lines = readFileSync(journalFile, 'utf8').trim().split('\n');
     strictEqual(lines.length, 1);
+  });
+
+  it('records top-level and per-command help topics without authored arguments or hook calls', () => {
+    writeFileSync(configPath, `export const root = 'docs';\nexport const journal = true;\nexport function validate() { throw new Error('help must not validate'); }\nexport function transformDoc() { throw new Error('help must not transform'); }\n`);
+    for (const args of [['--help'], ['help', 'statuses'], ['new', 'decision', 'work', '--question', 'PRIVATE_AUTHORED_QUESTION', '--help'], ['agent-context', '--help'], ['doctor', '--help']]) {
+      const result = run(args);
+      strictEqual(result.status, 0, result.stderr);
+    }
+    const raw = readFileSync(journalFile, 'utf8');
+    ok(!raw.includes('PRIVATE_AUTHORED_QUESTION'));
+    deepStrictEqual(raw.trim().split('\n').map(line => JSON.parse(line).helpTopic), ['_main','statuses','new','agent-context','doctor']);
+    const before = raw;
+    strictEqual(run(['new','--help','--dry-run']).status, 0);
+    strictEqual(readFileSync(journalFile,'utf8'),before);
+  });
+
+  it('help stays usable with a broken config and disabled help never creates a journal', () => {
+    writeFileSync(configPath, "throw new Error('broken config');\n");
+    strictEqual(run(['new','--help']).status, 0);
+    ok(!existsSync(journalFile));
+    writeFileSync(configPath, "export const root = 'docs';\nexport const journal = true;\n");
+    strictEqual(run(['--help'], { RUNLIST_JOURNAL: '0' }).status, 0);
+    ok(!existsSync(journalFile));
   });
 
   it('does not write entries for dry-run or passive HUD invocations', () => {
@@ -172,6 +199,22 @@ describe('journal: concurrent writes', () => {
 
 describe('journal: rotation', () => {
   beforeEach(() => setupProject());
+
+  it('retains and reads bounded multi-version cohorts without overwriting the prior release', () => {
+    const config = { repoRoot: tmpDir, journal: true };
+    for (let i = 0; i < TELEMETRY_BACKUPS + 3; i++) {
+      appendJournalEntry(config, { ts:new Date().toISOString(), sid:'s', argv:['plans'], exit:0, v:`test-${i}` });
+    }
+    const entries = readJournalEntries(config);
+    strictEqual(entries.length, TELEMETRY_BACKUPS + 1);
+    deepStrictEqual(entries.map(e => e.v), Array.from({length:TELEMETRY_BACKUPS + 1},(_,i) => `test-${i+2}`));
+    ok(existsSync(`${journalFile}.${TELEMETRY_BACKUPS}`));
+    ok(!existsSync(`${journalFile}.${TELEMETRY_BACKUPS + 1}`));
+    const stale = new Date(Date.now() - 45 * 86400000);
+    utimesSync(`${journalFile}.2`,stale,stale);
+    strictEqual(readJournalEntries(config).length, TELEMETRY_BACKUPS);
+    ok(!existsSync(`${journalFile}.2`));
+  });
 
   it('rotates to .1 backup when file exceeds 5MB', () => {
     mkdirSync(path.dirname(journalFile), { recursive: true });
@@ -265,6 +308,23 @@ describe('journal: rotation', () => {
 
 describe('dotmd journal (reader)', () => {
   beforeEach(() => setupProject());
+
+  it('summarizes help with retained invocation and session denominators', () => {
+    run(['plans'], { DOTMD_JOURNAL:'1' });
+    run(['new','--help'], { DOTMD_JOURNAL:'1' });
+    run(['help','new'], { DOTMD_JOURNAL:'1' });
+    const result=run(['journal','--help-topics','--json']);
+    strictEqual(result.status,0,result.stderr);
+    const summary=JSON.parse(result.stdout);
+    strictEqual(summary.totalInvocations,3);
+    strictEqual(summary.helpInvocations,2);
+    strictEqual(summary.observedInvocations,3);
+    strictEqual(summary.legacyInvocations,0);
+    strictEqual(summary.topics[0].topic,'new');
+    strictEqual(summary.topics[0].total,2);
+    ok(summary.versions.length);
+    ok(summary.coverage.includes('passive context'));
+  });
 
   it('--tail N --json returns last N entries as a JSON array', () => {
     for (let i = 0; i < 5; i++) run(['plans'], { DOTMD_JOURNAL: '1' });

@@ -379,9 +379,13 @@ function renderCard(c) {
 export function runXref(args, config) {
   const json = args.includes('--json');
   if (args.includes('--check')) {
-    const findings = xrefFindings(config);
-    if (args.includes('--flag')) {
-      const { added, resolved } = syncCheckFlags(config, 'xref', findings);
+    const index = buildIndex(config, { fast: true });
+    if (index.scanCoverage?.complete === false) {
+      die(`Cross-reference scan incomplete: ${index.errors[0]?.message ?? index.warnings[0]?.message ?? 'a scan hook failed'}`);
+    }
+    const findings = xrefFindings(config, { index });
+    if (args.includes('--flag') && !config._execution?.suppressSideEffects) {
+      const { added, resolved } = syncCheckFlags(config, 'xref', findings, { complete: true });
       process.stderr.write(`flags: ${added} added, ${resolved} resolved\n`);
     }
     if (json) process.stdout.write(`${JSON.stringify(findings, null, 2)}\n`);

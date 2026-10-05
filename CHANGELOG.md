@@ -8,11 +8,21 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 - `runlist xref <file>`: one document's cross-references in one read: the documents that name it and whether it names them back, what it names, its decisions with any linked record that disagrees, the records elsewhere it cites, every code file it cites as live, renamed (with the new path) or removed, the commits since its last commit that touched a cited file, and its open flags. `--json` returns the card as data.
 - `runlist xref --check [--flag]`: across the plans, open work (an unticked item, a blocker, `next_step`) naming a file git shows removed or renamed, and a decision open or held in one document and ruled or closed at a linked peer. `--flag` syncs the findings into `runlist flags` as check `xref`. The history walk is cached in the state directory against the commit it read up to.
+- `agent-context` and `context --json --compact` support `--sections` and `--max-bytes`, with a 16,384-byte default UTF-8 budget. Collection counts remain visible; claims, the next prompt, and the first action survive budget reduction. An insufficient budget produces an explicit error.
+- `journal --help-topics` summarizes opt-in top-level and per-command help calls with retained invocation, session, and version counts. Help entries omit authored arguments; the summary identifies legacy entries that predate help capture.
+- `errors --by-family` groups validation findings, command errors, unknown commands, ownership and handoff conflicts, and unexpected exceptions. The raw chronological view and existing exit codes remain available.
+
+### Changed
+
+- Journal, error, and guard telemetry retain up to eight numbered backups for 30 days. Readers include retained history, and rotation checks read only the first entry instead of loading each log.
 
 ### Fixed
 
 - A table or register row that links a register for something else is no longer paired with that register's row of the same id unless the register row links back, so two unrelated decisions sharing an id are not reported as disagreeing.
 - Codex integration tests use Windows command shims and a discoverable shell so the cross-platform CI job checks the plugin without a Unix-only test environment.
+- Filtered `check --flag` invocations are refused before synchronization or fixes. Missing roots, failed or skipped hooks, scan-floor failures, and failed flag additions cannot resolve unseen findings; synchronization requires explicit complete scan coverage.
+- Failed `xref --check` invocations retain the count and first finding's file, line, and message in both telemetry logs. Dry-run xref checks do not write flag history.
+- Document creation telemetry redacts authored bodies and decision question, answer, and title arguments.
 
 ## 0.89.3 — 2026-09-27
 

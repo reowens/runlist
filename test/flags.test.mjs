@@ -108,12 +108,71 @@ describe('flags', () => {
 
   it("a check's flags follow what it reports", async () => {
     const config = await setup();
-    const first = syncCheckFlags(config, 'c', [{ file: 'docs/a.md', text: 'broken link' }, { file: 'docs/a.md', text: 'bad status' }]);
+    const complete = { complete: true };
+    const first = syncCheckFlags(config, 'c', [{ file: 'docs/a.md', text: 'broken link' }, { file: 'docs/a.md', text: 'bad status' }], complete);
     deepStrictEqual(first, { added: 2, resolved: 0 });
-    deepStrictEqual(syncCheckFlags(config, 'c', [{ file: 'docs/a.md', text: 'broken link' }, { file: 'docs/a.md', text: 'bad status' }]), { added: 0, resolved: 0 });
+    deepStrictEqual(syncCheckFlags(config, 'c', [{ file: 'docs/a.md', text: 'broken link' }, { file: 'docs/a.md', text: 'bad status' }], complete), { added: 0, resolved: 0 });
     addFlag(config, { place: 'docs/a.md', text: 'a person noticed this', by });
-    deepStrictEqual(syncCheckFlags(config, 'c', [{ file: 'docs/a.md', text: 'broken link' }]), { added: 0, resolved: 1 });
+    deepStrictEqual(syncCheckFlags(config, 'c', [{ file: 'docs/a.md', text: 'broken link' }], complete), { added: 0, resolved: 1 });
     deepStrictEqual(openFlags(config).map(f => f.text).sort(), ['a person noticed this', 'broken link']);
+  });
+
+  it('resolves only explicitly completed scope, retaining unseen and failed observations', async () => {
+    const config = await setup();
+    writeFileSync(path.join(tmpDir, 'docs/b.md'), '# B\n');
+    syncCheckFlags(config, 'c', [{ file: 'docs/a.md', text: 'a finding' }, { file: 'docs/b.md', text: 'b finding' }]);
+    deepStrictEqual(syncCheckFlags(config, 'c', []), { added: 0, resolved: 0 });
+    deepStrictEqual(syncCheckFlags(config, 'c', [], { complete: false }), { added: 0, resolved: 0 });
+    deepStrictEqual(syncCheckFlags(config, 'c', [{ file: 'missing.md', text: 'unreadable' }], { complete: true }), { added: 0, resolved: 0 });
+    deepStrictEqual(syncCheckFlags(config, 'c', [], { complete: true, files: ['docs/a.md'] }), { added: 0, resolved: 1 });
+    deepStrictEqual(openFlags(config).map(f => f.file), ['docs/b.md']);
+  });
+
+  it('refuses global type/root filters before syncing or fixing, preserving existing flags', async () => {
+    const config = await setup();
+    writeFileSync(path.join(tmpDir, 'docs/p.md'), '---\ntype: plan\nstatus: planned\n---\n# P\n');
+    run(['check', '--flag']);
+    const before = readFileSync(flagsFile(config), 'utf8');
+    for (const args of [
+      ['--type', 'plan', 'check', '--flag', '--json'],
+      ['check', '--flag', '--type', 'plan'],
+      ['--root', 'docs', 'check', '--flag'],
+      ['check', '--root', 'docs', '--flag', '--fix'],
+    ]) {
+      const result = run(args);
+      strictEqual(result.status, 1, result.stdout + result.stderr);
+      match(result.stderr, /whole repository.*--root.*--type/);
+      strictEqual(readFileSync(flagsFile(config), 'utf8'), before);
+    }
+    ok(openFlags(config).some(f => f.file === 'docs/a.md'));
+  });
+
+  it('a failed scan floor or skipped custom validation cannot clear earlier flags', async () => {
+    const config = await setup();
+    run(['check', '--flag']);
+    const before = readFileSync(flagsFile(config), 'utf8');
+    writeFileSync(path.join(tmpDir, 'docs/a.md'), '---\ntype: doc\nstatus: active\nupdated: 2026-10-05\nsummary: A\n---\n# A\n');
+    strictEqual(run(['check', '--flag', '--min-docs', '10']).status, 1);
+    strictEqual(readFileSync(flagsFile(config), 'utf8'), before);
+    writeFileSync(path.join(tmpDir, 'runlist.config.mjs'), "export const root = 'docs';\nexport function validate() { throw new Error('scan failed'); }\n");
+    const dry = run(['check', '--flag', '--dry-run', '--json']);
+    strictEqual(dry.status, 0, dry.stderr);
+    ok(JSON.parse(dry.stdout).validationPreview.skippedHooks.includes('validate'));
+    strictEqual(readFileSync(flagsFile(config), 'utf8'), before);
+    strictEqual(run(['check', '--flag']).status, 1);
+    strictEqual(openFlags(config).find(f => f.id === 'F1').state, 'open');
+    ok(!readFlagEvents(flagsFile(config)).some(e => e.event === 'resolve'));
+  });
+
+  it('an unreadable or vanished scan root cannot resolve earlier findings', async () => {
+    const config = await setup();
+    run(['check','--flag']);
+    const before=readFileSync(flagsFile(config),'utf8');
+    rmSync(path.join(tmpDir,'docs'),{recursive:true});
+    const result=run(['check','--flag','--json']);
+    strictEqual(result.status,1,result.stdout+result.stderr);
+    ok(JSON.parse(result.stdout).errors.some(e=>e.meta?.kind==='scan-failure'));
+    strictEqual(readFileSync(flagsFile(config),'utf8'),before);
   });
 
   it('`check --flag` puts check errors on the list and refuses a scoped run', async () => {
