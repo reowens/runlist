@@ -10,7 +10,7 @@
       "name": "runlist",
       "source": "./plugins/runlist",
       "description": "Teaches Claude Code sessions the runlist document workflow and guards against committing session-local prompts, reading prompts directly, and hand-editing status. Primes the main session and every subagent.",
-      "version": "0.89.3",
+      "version": "0.90.0",
       "author": {
         "name": "Robert Owens"
       },
