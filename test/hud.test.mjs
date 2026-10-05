@@ -410,6 +410,17 @@ describe('runlist hud --prompt-submit', () => {
     ok(!r.stdout.includes('theirs.md'), 'another session’s in-session plan is not offered');
   });
 
+  it('is silent for a background agent report that names its handoff file', () => {
+    const docsDir = setupProject();
+    writeDoc(docsDir, 'mine.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# Mine\n');
+    strictEqual(runCli(['use', 'docs/mine.md']).status, 0);
+    const report = '<system-reminder>\n[SYSTEM NOTIFICATION - NOT USER INPUT]\n<task-notification>\n<status>completed</status>\n'
+      + '<result>Stopped at the context budget. The handoff is at scratch/b07-handoff.md.</result>\n</task-notification>\n</system-reminder>';
+    const r = runCli(['hud', '--prompt-submit'], { input: ask(report) });
+    strictEqual(r.status, 0, r.stderr);
+    strictEqual(r.stdout, '', r.stdout);
+  });
+
   it('is silent for an unrelated message, bad input, and outside a runlist repo', () => {
     setupProject();
     for (const input of [ask('fix the flaky test'), ask('the batons are in the drawer'), 'not json', '']) {

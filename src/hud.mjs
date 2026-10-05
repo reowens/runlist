@@ -329,8 +329,12 @@ export function buildPlanStatusPrimer(config, { maxChars = 220 } = {}) {
 // form depends on whether this session owns a plan, which only runlist knows.
 const HANDOFF_ASK = /\bbaton\b|\bhand[\s-]?off\b|\bresume[\s-]prompt\b|\bsave (?:a |the )?resume\b|\bpick (?:it|this|that) (?:back )?up (?:next time|later|tomorrow)\b/i;
 
+// The harness hands background-task events to UserPromptSubmit as if typed.
+// A finished agent's report that names its handoff file is not a request.
+const SYSTEM_EVENT = /<task-notification>|\[SYSTEM NOTIFICATION\b/;
+
 export function isHandoffAsk(prompt) {
-  return typeof prompt === 'string' && HANDOFF_ASK.test(prompt);
+  return typeof prompt === 'string' && !SYSTEM_EVENT.test(prompt) && HANDOFF_ASK.test(prompt);
 }
 
 export function buildHandoffContext(config) {
