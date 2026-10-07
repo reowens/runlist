@@ -253,7 +253,7 @@ just a pointer to its line range.
       'type: plan\nstatus: planned\nupdated: 2025-01-01', '# Sibling\n');
     // Main plan refs the sibling by bare basename (the natural shorthand).
     const planPath = writeDoc(docsDir, 'plans/foo.md',
-      'type: plan\nstatus: active\nupdated: 2025-01-01\nrelated_plans:\n  - sibling.md',
+      'type: plan\nstatus: active\nupdated: 2025-01-01\nrelated_plans:\n  - "> sibling.md"',
       '# Foo\n');
 
     const r = runCli(['use', planPath]);
