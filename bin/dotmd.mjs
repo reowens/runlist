@@ -84,6 +84,14 @@ function applyPathScopeToIndex(index, config, inputs) {
     selected.add(repoPath);
   }
 
+  if (index.scanCoverage?.failures) {
+    const failures = index.scanCoverage.failures;
+    index.scanCoverage = {
+      complete: !failures.some(f => !f.path || selected.has(f.path)),
+      failures: failures.filter(f => !f.path || selected.has(f.path)),
+      excludedFailures: failures.filter(f => f.path && !selected.has(f.path)),
+    };
+  }
   index.docs = index.docs.filter(d => selected.has(d.path));
   index.errors = index.errors.filter(e => selected.has(e.path));
   index.warnings = index.warnings.filter(w => selected.has(w.path));
@@ -2205,6 +2213,8 @@ async function main() {
       const complete = skippedCheckHooks.length === 0 && checkIndex.scanCoverage?.complete !== false;
       return {
         docsScanned: checkIndex.docs.length,
+        documentsChecked: checkIndex.docs.map(doc => doc.path),
+        scanCoverage: checkIndex.scanCoverage,
         errors: checkIndex.errors,
         warnings: errorsOnly ? [] : checkIndex.warnings,
         errorCount: checkIndex.errors.length,

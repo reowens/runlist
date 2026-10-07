@@ -227,7 +227,21 @@ function destinationParts(raw) {
 
 function rewriteDestination(raw, args) {
   const parsed = destinationParts(raw);
-  if (!/\.md$/i.test(parsed.path.replace(/\\./g, 'x'))) return raw;
+  if (!/\.md$/i.test(parsed.path.replace(/\\./g, 'x'))) {
+    if (!args[6]) return raw;
+    // The moving document carries relative image/directory evidence too.
+    // Do not interpret URLs or missing paths as repository documents.
+    const clean = parsed.path.replace(/\\([\s()[\]<>])/g, '$1');
+    if (!clean || /^(?:[a-z][a-z\d+.-]*:|\/\/|\/|#)/i.test(clean)) return raw;
+    const [sourcePath, outputPath, repoRoot] = args;
+    const target = path.resolve(path.dirname(sourcePath), clean);
+    const relativeToRepo = path.relative(repoRoot, target);
+    if (relativeToRepo.startsWith('..' + path.sep) || path.isAbsolute(relativeToRepo)) return raw;
+    try { statSync(target); } catch { return raw; }
+    const next = slash(path.relative(path.dirname(outputPath), target));
+    const rendered = (parsed.angle ? next : next.replace(/([\s()[\]<>])/g, '\\$1')) + parsed.suffix;
+    return parsed.angle ? `<${rendered}>` : rendered;
+  }
   const next = rewriteToken(parsed.path, ...args, parsed.angle ? 'plain' : 'escaped');
   if (next === parsed.path) return raw;
   const rendered = `${next}${parsed.suffix}`;

@@ -181,3 +181,20 @@ describe('reference rewrite candidate prefilter', () => {
     }
   });
 });
+
+
+it('a moved document rebases local image and directory evidence and preserves URLs', () => {
+  const root=mkdtempSync(path.join(os.tmpdir(),'reference-assets-'));
+  try {
+    const source=path.join(root,'docs','note.md'), dest=path.join(root,'docs','archived','note.md');
+    const image=path.join(root,'docs','assets','screen image.png');
+    mkdirSync(path.dirname(image),{recursive:true}); mkdirSync(path.dirname(dest),{recursive:true});
+    writeFileSync(image,'image');
+    const content='---\ntype: doc\nstatus: active\n---\n# Note\n![Image](<assets/screen image.png>)\n[Folder](assets/)\n[Web](https://example.test/image.png)\n';
+    writeFileSync(source,content);
+    const actual=rewriteDocumentReferences(content,{sourcePath:source,outputPath:dest,repoRoot:root,identities:createReferenceIdentitySet([source]),oldPath:source,newPath:dest,rebaseAll:true});
+    ok(actual.includes('(<../assets/screen image.png>)'),actual);
+    ok(actual.includes('[Folder](../assets)'),actual);
+    ok(actual.includes('(https://example.test/image.png)'),actual);
+  } finally {rmSync(root,{recursive:true,force:true});}
+});

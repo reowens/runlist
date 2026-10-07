@@ -1,0 +1,21 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+const cli=path.resolve('bin/dotmd.mjs');
+test('a targeted check survives an unrelated file disappearing between scan and read', t=>{
+  const root=mkdtempSync(path.join(tmpdir(),'runlist-disappear-'));
+  t.after(()=>rmSync(root,{recursive:true,force:true}));
+  mkdirSync(path.join(root,'.git')); mkdirSync(path.join(root,'docs'));
+  writeFileSync(path.join(root,'runlist.config.mjs'),"export const root='docs';");
+  for (const name of ['target.md','vanishing.md']) writeFileSync(path.join(root,'docs',name),'---\ntype: doc\nstatus: active\nupdated: 2026-10-06\n---\n# Document\n');
+  const preload=path.join(root,'preload.mjs');
+  writeFileSync(preload,`import fs from 'node:fs'; import {syncBuiltinESMExports} from 'node:module'; const read=fs.readFileSync;fs.readFileSync=function(file,...args){if(String(file).endsWith('/docs/vanishing.md')){try{fs.unlinkSync(file);}catch{}}return read.call(this,file,...args);};syncBuiltinESMExports();`);
+  const result=spawnSync(process.execPath,['--import',preload,cli,'check','docs/target.md','--json'],{cwd:root,encoding:'utf8'});
+  assert.equal(result.status,0,result.stderr + result.stdout);
+  const verdict=JSON.parse(result.stdout); assert.equal(verdict.passed,true);
+  assert.deepEqual(verdict.documentsChecked,['docs/target.md']);
+  assert.equal(verdict.scanCoverage.excludedFailures[0].meta.kind,'scan-disappeared');
+});

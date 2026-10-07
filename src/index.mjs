@@ -36,7 +36,14 @@ export function buildIndex(config, opts = {}) {
   const scanFailures = [];
   const docs = collectDocFiles(config, { onError: (directory, err) => {
     scanFailures.push({ path: null, level: 'error', message: `Could not read scan directory ${toRepoPath(directory, config.repoRoot)}: ${err.message}`, meta: { kind: 'scan-failure' } });
-  } }).map(f => parseDocFile(f, config, { fast, cache }));
+  } }).flatMap(f => {
+    try { return [parseDocFile(f, config, { fast, cache })]; }
+    catch (err) {
+      if (err.code !== 'ENOENT') throw err;
+      scanFailures.push({ path: toRepoPath(f, config.repoRoot), level: 'warning', message: 'Document disappeared after discovery; it was not checked.', meta: { kind: 'scan-disappeared' } });
+      return [];
+    }
+  });
   if (cache && !config._execution?.suppressSideEffects) cache.save();
   if (!fast) {
     // Per-file validation (validateDoc) ran during parse without sibling
@@ -46,8 +53,8 @@ export function buildIndex(config, opts = {}) {
     // below pick up the enriched messages.
     enrichRefErrorSuggestions(docs, config);
   }
-  const warnings = [];
-  const errors = [...scanFailures];
+  const warnings = scanFailures.filter(f => f.level === 'warning');
+  const errors = scanFailures.filter(f => f.level === 'error');
 
   for (const doc of docs) {
     warnings.push(...doc.warnings);
@@ -197,7 +204,7 @@ export function buildIndex(config, opts = {}) {
     countsByType,
     warnings,
     errors,
-    scanCoverage: { complete: scanFailures.length === 0 },
+    scanCoverage: { complete: scanFailures.length === 0, failures: scanFailures },
   };
 }
 
