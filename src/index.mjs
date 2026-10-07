@@ -1,3 +1,4 @@
+import { referenceValues } from './reference-values.mjs';
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
@@ -378,19 +379,7 @@ export function parseDocFile(filePath, config, opts = {}) {
   const refFields = {};
   const refFieldDirections = {};
   for (const field of [...(config.referenceFields.bidirectional || []), ...(config.referenceFields.unidirectional || [])]) {
-    const raw = normalizeStringList(parsedFrontmatter[field]);
-    const paths = [];
-    const directions = [];
-    for (const entry of raw) {
-      const oneWay = entry.match(/^>\s*(.+)$/);
-      if (oneWay) {
-        paths.push(oneWay[1].trim());
-        directions.push('one-way');
-      } else {
-        paths.push(entry);
-        directions.push('two-way');
-      }
-    }
+    const { paths, directions } = referenceValues(parsedFrontmatter[field]);
     refFields[field] = paths;
     refFieldDirections[field] = directions;
   }

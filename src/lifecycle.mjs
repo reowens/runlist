@@ -610,7 +610,7 @@ export async function startPlan(argv, config, opts = {}) {
   let filePath = resolveDocArg(input, config);
   filePath = authorizeManagedSource(filePath, config, { kind: 'Plan start source' }).path;
 
-  const raw = readFileSync(filePath, 'utf8');
+  let raw = readFileSync(filePath, 'utf8');
   let fmRaw, body, parsedFm;
   try {
     ({ frontmatter: fmRaw, body } = extractFrontmatter(raw));
@@ -684,6 +684,8 @@ export async function startPlan(argv, config, opts = {}) {
       if (current) updateOwnershipOperation(repoPath, config, current.binding, op => { op.index = 'skipped'; });
     }
     reconcileClaimOperation(repoPath, config, { ...opts, oldStatus });
+    raw = readFileSync(filePath, 'utf8');
+    ({ body } = extractFrontmatter(raw));
   }
 
   if (opts.quiet) {

@@ -278,6 +278,7 @@ just a pointer to its line range.
     const r = runCli(['use', planPath, '--json']);
     strictEqual(r.status, 0);
     const parsed = JSON.parse(r.stdout);
+    strictEqual(parsed.card.status, 'in-session', 'card reflects saved claim status');
     ok(parsed.card, 'json includes card object');
     ok(parsed.body.includes('body'), 'json includes full body');
     strictEqual(parsed.card.activePhase.heading, 'Phase 1 — active 🟡');

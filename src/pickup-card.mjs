@@ -1,3 +1,4 @@
+import { referenceValues } from './reference-values.mjs';
 import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
@@ -37,7 +38,7 @@ function statusSummary(counts) {
 // matches graph's resolver semantics: doc-relative first, then repo-relative;
 // docsRoots-relative is kept as a final fallback for legacy refs.
 function readRelatedSummary(rawList, config, docDir) {
-  const list = Array.isArray(rawList) ? rawList : (typeof rawList === 'string' && rawList.trim() ? [rawList] : []);
+  const list = referenceValues(rawList).paths;
   const out = [];
   for (const ref of list) {
     if (!ref) continue;
