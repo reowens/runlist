@@ -263,17 +263,23 @@ function splitBodyFrontmatter(rawBody) {
 
 // Serialize a single frontmatter key/value pair to a YAML block. Mirrors the
 // scaffold's shape so merged output reads naturally next to scaffold defaults.
+function serializeScalar(value) {
+  if (typeof value !== 'string') return String(value);
+  return !value || /^[\s>|'"\[\]{},&*!%#@`]/.test(value) || /[:#\n\r\t\\]/.test(value) || /^(?:true|false|null)$/i.test(value)
+    ? JSON.stringify(value) : value;
+}
+
 function serializeFmEntry(key, value) {
   if (value === null || value === undefined || value === '') return `${key}:`;
   if (Array.isArray(value)) {
     if (value.length === 0) return `${key}:`;
-    return `${key}:\n${value.map(v => `  - ${v}`).join('\n')}`;
+    return `${key}:\n${value.map(v => `  - ${serializeScalar(v)}`).join('\n')}`;
   }
   if (typeof value === 'string' && value.includes('\n')) {
     const indented = value.split('\n').map(l => `  ${l}`).join('\n');
     return `${key}: |\n${indented}`;
   }
-  return `${key}: ${value}`;
+  return `${key}: ${serializeScalar(value)}`;
 }
 
 // Replace each key in `overrides` within the scaffold-generated frontmatter
@@ -680,8 +686,10 @@ export async function runNew(argv, config, opts = {}) {
   let coordination = false;  // --coordination   → coordination hub skeleton
   let roadmap = false;       // --roadmap        → tier-3 roadmap hub skeleton
   let lite = false;          // --lite/--minimal → trimmed plan body
+  let renderPreview = false;
   let audit = false;         // --audit/--findings → ranked-findings plan body
   for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--render-preview') { renderPreview = true; continue; }
     if (argv[i] === '--status' && argv[i + 1]) { status = argv[++i]; continue; }
     if (argv[i] === '--title' && argv[i + 1]) { title = argv[++i]; continue; }
     if (argv[i] === '--runlist' && argv[i + 1]) { runlistArg = argv[++i]; continue; }
@@ -1014,10 +1022,10 @@ export async function runNew(argv, config, opts = {}) {
     : '';
   const isCustomTemplate = Object.prototype.hasOwnProperty.call(config.raw?.templates ?? {}, typeName);
 
-  if (dryRun) {
+  if (dryRun && !renderPreview) {
     if (isCustomTemplate) {
       process.stdout.write(`${dim('[dry-run]')} Target: ${repoPath}\n`);
-      process.stdout.write(`${dim('[dry-run]')} Custom template rendering skipped; preview cannot confirm creation will succeed.\n`);
+      process.stdout.write(`${dim('[dry-run]')} Custom template rendering skipped; use --render-preview to explicitly execute its JavaScript and inspect the resulting document.\n`);
     } else {
       process.stdout.write(`${dim('[dry-run]')} Would create: ${repoPath}\n`);
     }
@@ -1062,6 +1070,11 @@ export async function runNew(argv, config, opts = {}) {
     else if (isAudit) body = auditPlanBody(docTitle, bodyInput, today);
     else body = template.body(docTitle, tmplCtx);
     content = `---\n${fm}\n---\n${body}`;
+  }
+
+  if (dryRun) {
+    process.stdout.write(`${dim('[dry-run]')} Would create: ${repoPath}\n${content}`);
+    return;
   }
 
   // Ensure parent dir exists (templates with `dir:` may target a new subdirectory)

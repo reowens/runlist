@@ -153,7 +153,7 @@ const definitions = [
   command('touch', mutates('managed source or managed source sweep'), 'mutate', [form('[file...]', { args: positionals(0, Infinity), options: [flag('--git')] })]),
   command('new', mutates('managed document destination; external body input unrestricted'), 'mutate', [form('[type] <name> [body...]', {
     args: positionals(0, Infinity),
-    options: [value('--status'), value('--title'), value('--runlist'), flag('--coordination'), flag('--roadmap'), flag('--lite', '--minimal'), flag('--audit', '--findings'), value('--body', '--message'), value('--root'), flag('--show-files'), flag('--list-templates', '--list-types'), value('--question'), value('--answers'), value('--disposition')],
+    options: [value('--status'), value('--title'), value('--runlist'), flag('--coordination'), flag('--roadmap'), flag('--lite', '--minimal'), flag('--audit', '--findings'), value('--body', '--message'), value('--root'), flag('--show-files'), flag('--list-templates', '--list-types'), flag('--render-preview'), value('--question'), value('--answers'), value('--disposition')],
     dashPositionalsAfter: 1,
   })]),
   command('lint', mutates('managed source sweep with --fix; otherwise read-only'), 'mutate', [form('', { options: [flag('--fix')] })]),

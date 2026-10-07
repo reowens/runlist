@@ -241,13 +241,12 @@ function parseFlowArray(value) {
 }
 
 function parseScalar(value) {
-  let unquoted = value;
-  if (value.length > 1 &&
-      ((value.startsWith("'") && value.endsWith("'")) ||
-       (value.startsWith('"') && value.endsWith('"')))) {
-    unquoted = value.slice(1, -1);
+  if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
+    try { return JSON.parse(value); } catch { return value.slice(1, -1); }
   }
-  if (unquoted === 'true') return true;
-  if (unquoted === 'false') return false;
-  return unquoted;
+  if (value.length >= 2 && value.startsWith("'") && value.endsWith("'")) return value.slice(1, -1).replace(/''/g, "'");
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return value;
 }
+

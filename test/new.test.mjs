@@ -1,3 +1,5 @@
+import { deepStrictEqual } from 'node:assert';
+import { extractFrontmatter, parseSimpleFrontmatter } from '../src/frontmatter.mjs';
 import { describe, it, afterEach } from 'node:test';
 import { strictEqual, ok, rejects } from 'node:assert';
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, existsSync, readdirSync } from 'node:fs';
@@ -1322,5 +1324,28 @@ describe('runlist new — authored body with an overridden plan template', () =>
     const r = run(['new', '--help']);
     strictEqual(r.status, 0, r.stderr);
     ok(!r.stdout.includes('This repo:'), r.stdout);
+  });
+});
+
+
+describe('authored frontmatter and explicit rendering', () => {
+  it('preserves quoted array and scalar values through body-frontmatter merge', () => {
+    const docsDir = setupProject();
+    const values = ['> sibling.md', 'a: b', 'hash # value', 'first\nsecond', 'true', 'quote \" value'];
+    const draft = `---\ntype: doc\nrelated_plans:\n${values.map(v => `  - ${JSON.stringify(v)}`).join('\n')}\nsummary: "a: b # c"\n---\n# Authored\n\nContent.\n`;
+    const r = run(['new', 'doc', 'authored', draft]);
+    strictEqual(r.status, 0, r.stderr);
+    const content = readFileSync(path.join(docsDir, 'authored.md'), 'utf8');
+    const parsed = parseSimpleFrontmatter(extractFrontmatter(content).frontmatter);
+    deepStrictEqual(parsed.related_plans, values);
+    strictEqual(parsed.summary, 'a: b # c');
+  });
+  it('explicit dry-run rendering prints the real custom template and creates no document', () => {
+    const docsDir = setupProject();
+    writeFileSync(path.join(tmpDir,'dotmd.config.mjs'), `export const root='docs'; export const templates={note:{defaultStatus:'active',acceptsBody:true,frontmatter:(s)=>'type: doc\\nstatus: '+s,body:(t,c)=>'# '+t+'\\n'+c.bodyInput}};`);
+    const r = run(['new','note','preview','Authored content','--dry-run','--render-preview']);
+    strictEqual(r.status,0,r.stderr);
+    ok(r.stdout.includes('# Preview\nAuthored content'),r.stdout);
+    ok(!existsSync(path.join(docsDir,'preview.md')));
   });
 });

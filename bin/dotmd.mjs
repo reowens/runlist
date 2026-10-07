@@ -1020,6 +1020,7 @@ Body input (required for prompt, optional for plan/doc):
   @path                  Read body from a file (preferred)
   -                      Read stdin explicitly (heredoc: \`runlist new … - <<'EOF'\`)
   piped stdin            Read when something is piped or redirected in
+  --render-preview      With --dry-run, explicitly execute template JavaScript and print its rendered document
   --body "<text>"        Inline body (alias: --message), one-liners only
   <text>                 Inline body as 3rd positional, one-liners only
 
