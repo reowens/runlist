@@ -2,6 +2,12 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Documentation
+
+- Clarify that older “runlist” organizing documents are hubs. Coordination, ordered and roadmap hubs are optional shapes of that document concept; ordering plans does not add another container. Align README, desktop, editor-contract, agent guidance and generated Markdown scaffolds, with stages/statuses described separately from document structure. Roadmaps can also contain direct plan children. Existing commands, metadata and historical release terminology are unchanged.
+
 ## 0.92.0 — 2026-10-08
 
 ### Added

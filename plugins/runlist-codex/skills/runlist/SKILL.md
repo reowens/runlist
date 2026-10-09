@@ -7,6 +7,8 @@ description: Manage a repository's plans, docs, decisions, and saved prompts wit
 
 Use this skill in repositories with `runlist.config.mjs` or `dotmd.config.mjs`. The CLI is `runlist` (from the `runlist` package; `dotmd` remains an alias). The session hook prints a short live orientation. `CODEX_THREAD_ID` is the session identity used for plan claims; do not replace it with a process ID.
 
+**Document model:** a hub organizes related plans and supporting docs. Older docs and filenames call hubs *runlists*; this is the same document, not another level below a hub. A hub can be a coordination map or hold ordered plans in its `runlist:` array. A roadmap is an optional hub collecting other hubs and rolling up progress, with direct plan children also supported. Hubs currently use `type: plan` with hub metadata. Stage describes when a plan should ship, while status describes progress; neither adds a document level. Existing `runlist` commands, fields and output labels remain unchanged. See the repository README's “Hubs, Ordered Plans, And Roadmaps” section for examples.
+
 - Orient with `runlist plans`. Use `runlist agent-context` for structured state; `runlist briefing` is the comprehensive view and can be large.
 - Start plan work with `runlist use <plan-file>`. It claims the plan, marks it `in-session`, and prints the card.
 - Change status with `runlist set <status> <file> [--note "why"]`; this runs validation, lifecycle hooks, ref repairs, and index updates. Never hand-edit a `status:` field.

@@ -92,9 +92,11 @@ Either way the prompt lands under `docs/prompts/<name>.md` with `status: pending
 
 Use this whenever you'd otherwise print a multi-line "here's how to resume" block.
 
-### Grouping plans into runlists
+### Hubs and ordered plans
 
-When several plans need to ship in a known order (e.g. an "auth revamp" sprint with extract → rewrite → cleanup phases), declare a `runlist:` on a hub plan instead of chaining `queued-after` per pair or maintaining the order in prose:
+A **hub** organizes related plans and supporting docs. Older docs and filenames call these organizing documents **runlists**; this is the same document concept, not another level beneath a hub. **Runlist** is also the product name. A hub can be a prose-first coordination map, an ordered collection of plans, or a roadmap collecting other hubs. These are optional shapes, not a required chain of containers. Existing `runlist` commands, fields and output labels remain unchanged.
+
+When several plans need to ship in a known order (e.g. an "auth revamp" sprint with extract → rewrite → cleanup phases), declare a `runlist:` array on the hub itself. The array holds its ordered child plans; no separate runlist document is needed inside the hub:
 
 ```yaml
 ---
@@ -133,9 +135,15 @@ All three take `--dry-run` / `--json`.
 
 Each child should set `parent_plan:` pointing back at the hub — `runlist doctor` warns when it doesn't (the mutation verbs set it for you). Order is authoritative from `runlist:`; `parent_plan` keeps the existing reverse-link semantics (pickup-card Related:, graph).
 
-#### Coordination runlists (prose-first domain maps)
+#### Coordination hubs (prose-first area maps)
 
-A `runlist:` array suits a small, strictly-ordered *sprint*. For a large, prose-first *coordination map* — a domain hub that points at many plans, carries gating/sequence rationale, and is sometimes unordered — set `execution_mode: coordination` instead (a `*-runlist` slug is the fallback signal). These hubs aren't folded: in `runlist plans` they're lifted out of the leaf-plan flow into a pinned `Runlists` section and pulled out of the active count (so they read as runlists, not active plans). `runlist briefing` and `runlist health` apply the same reclassification — coordination hubs are pulled out of the live/active count into a `runlists` bucket (briefing) or a held-out `Runlists:` tally + section (health), so they never inflate the actionable-plan numbers or aging stats. `runlist runlists` shows that dashboard on its own (`--json`, `--limit N`, `--sort age|recent|related|title|status` — default `age` = most stale first). The per-hub **`done/total` rollup** counts archived vs. resolved `related_plans:` children — the same progress signal sprint `runlist:` hubs show, now extended to coordination hubs (a hint, not a contract: `related_plans` is a *related* cluster that can include peer/parent runlists). `--json` also carries `doneCount`/`total`/`parkedCount`. When a hub encodes its order as **markdown links** — a `## Ranked queue` table or a `## Order of operations` link list — `runlist runlists`/`runlist health` surface a `next → <child>` (first **pickup-able** ranked plan — archived and parked ranks are skipped, resolved to its live status), and `runlist runlist <hub>`/`runlist next <hub>` work on it like a sprint hub. Order encoded only as prose (backtick slugs, narrative priorities) is deliberately *not* guessed at — those hubs show no arrow, like a blank rollup. `runlist check` nudges a `*-runlist` hub that's missing `execution_mode: coordination`.
+Use `execution_mode: coordination` for a prose-first area hub that links plans and explains their scope, dependencies and priorities. Existing `*-runlist` filenames remain a fallback signal. A coordination hub can also order its plans through linked body rows; ordering is not exclusive to the `runlist:` array shape.
+
+Coordination hubs are held out of actionable-plan counts and aging statistics in `runlist plans`, `briefing` and `health`. Their existing `Runlists` section / `runlists` JSON bucket means hubs. `runlist runlists` shows that hub dashboard on its own (`--json`, `--limit N`, `--sort age|recent|related|title|status`; default `age` = most stale first).
+
+The per-hub **`done/total` rollup** counts archived vs. resolved `related_plans:` entries. This is a progress hint: a related cluster can include peer or parent hubs, so a related link alone is not proof of ownership. `--json` also carries `doneCount`/`total`/`parkedCount`.
+
+When a hub encodes its order as **Markdown links** in a `## Ranked queue` table or `## Order of operations` list, `runlist runlists` / `runlist health` show `next → <child>` for the first pickup-able ranked plan. Archived and parked plans are skipped according to their live status. `runlist runlist <hub>` / `runlist next <hub>` walk that same order. Order encoded only in prose (backtick slugs or narrative priorities) is not inferred. `runlist check` nudges a `*-runlist` hub missing explicit hub metadata to set `execution_mode: coordination`.
 
 #### Keeping a hub's printed statuses honest
 
@@ -165,23 +173,23 @@ runlist fix-membership --dry-run --json   # preview the exact child writes
 
 The fixer handles only the safe arrow: one live hub already states the relationship and the live child has no parent. It never generates or edits a hub row, overwrites another parent, or chooses between multiple hubs. `check --fix` and `doctor --apply` include it; bare `doctor` previews it.
 
-#### Roadmaps (tier-3: composing runlists)
+#### Roadmap hubs (optional, collecting other hubs)
 
-A roadmap is the tier *above* runlists: `execution_mode: roadmap` on a hub whose `related_plans:` point at other hubs (runlists / coordination hubs). It exists for the one thing a coordination hub can't do — **roll progress up across runlists**. Where a runlist shows its own `done/total`, a roadmap *sums* its children into a grand total (`master 280/520`), recursively (a child runlist contributes its own rollup; a leaf-plan child counts as one unit). Scaffold with `runlist new plan <hub> --roadmap`.
+A roadmap is a hub with `execution_mode: roadmap` whose `related_plans:` collect other hubs, with direct plan children also supported. It rolls progress up across those children recursively: a child hub contributes its own rollup, while a direct plan child counts as one unit. Scaffold with `runlist new hub <hub> --roadmap`; the existing `runlist new plan <hub> --roadmap` form is equivalent. An ordinary area hub does not need a roadmap parent.
 
-- `runlist roadmap [<hub>]` — one roadmap: each child runlist's `done/total` + that runlist's next-pickup `→`, with the recursive grand total in the header. No arg shows the sole roadmap (or the dashboard when there are several).
+- `runlist roadmap [<hub>]` — one roadmap: each child hub's `done/total` + that hub's next-pickup `→`, with the recursive grand total in the header. No arg shows the sole roadmap (or the dashboard when there are several).
 - `runlist roadmaps` — the dashboard over all roadmap hubs (mirrors `runlist runlists`).
-- `runlist roadmap [<hub>] next` — the cross-runlist next-pickup: walks the child runlists in `related_plans` (priority) order and opens the FIRST startable plan found in any of them — "what do I do next across the whole roadmap?". Skips a child runlist whose only candidates are parked/done, the same pickup gate `runlist next` uses.
+- `runlist roadmap [<hub>] next` — walks the child hubs and direct plans in `related_plans` (priority) order and opens the FIRST startable plan found — "what do I do next across the whole roadmap?". Skips a child hub whose only candidates are parked/done, using the same pickup gate as `runlist next`.
 
-Roadmaps are held out of the active-plan count like coordination hubs, and lifted into their own pinned tier ABOVE the Runlists section in `runlist plans` / `briefing` / `health` (so they never double-count their own child runlists). `runlist check` nudges a coordination hub whose `related_plans:` children are themselves runlists to set `execution_mode: roadmap`. The three-tier picture:
+Roadmaps are held out of the active-plan count like other hubs, and displayed ahead of the CLI's existing `Runlists` section in `runlist plans` / `briefing` / `health`. That output label means hubs; it does not introduce another document level. `runlist check` nudges a coordination hub whose `related_plans:` children are themselves hubs to set `execution_mode: roadmap`. One possible arrangement:
 
 ```
-roadmap   → runlists, progress rolled up         ← execution_mode: roadmap
-  runlist → ordered / clustered plans, done/total ← runlist: array OR execution_mode: coordination
-    plan  → unit of work
+roadmap hub (optional) → other hubs, progress rolled up
+  area or ordered hub → plans and supporting docs
+    plan              → tasks / unit of work
 ```
 
-Time horizons (now/next/later/icebox) are an *optional* body-section flavor, not the organizing axis — the tier composes by domain. (A horizon-grouped `runlist roadmap` view is deliberately deferred until a horizon-organized roadmap actually exists; building it speculatively would repeat the prematurity the roadmap-layer plan's Phase 0 ruled against.)
+Stages (`ships:`) describe when a plan should ship, while status describes progress. Neither is a document level or requires a separate hub per value. Time horizons (now/next/later/icebox) can also be optional body sections; a horizon-grouped roadmap view remains deferred.
 
 ### Creating documents
 
@@ -328,6 +336,6 @@ Release preflight requires a clean `main` that descends from `origin/main`; `--f
 - **Test fixture filenames must be legal on NTFS.** No `*`, `?`, `:`, `"`, `<`, `>`, `|` — a fixture that can't exist on Windows fails the whole Windows leg. `[a-z]` is still real wildmatch pathspec magic and *is* legal on NTFS, so prefer it when a test needs a magic pathspec.
 - **Help text** in `bin/runlist.mjs` HELP object must stay in sync with command capabilities.
 - **Hook paths must fit a 5s timeout in a repo of ~5k docs.** A full `buildIndex` reads every body and took ~10s there, so Claude Code killed `hud` before it printed anything. Text-mode `hud` and `hud --prompt-submit` read only the prompt directory's frontmatter and the ownership records; `hud --json` keeps the full index. Anything added to a hook path must not reach for the index.
-- **Output says `runlist`; legacy identities stay readable.** Every message, hint, help line and newly written artifact names the product `runlist`. The npm package is `runlist`, the repo is `reowens/runlist`, and the Claude plugin is `runlist@runlist`. The `dotmd` executable remains an alias. Existing `dotmd.js` OpenCode files with generated banners migrate to `runlist.js`; unmarked files remain user-owned. Legacy readers remain for `dotmd-cli`, `dotmd@dotmd`, `dotmd.config.*`, `DOTMD_*`, `.dotmd/`, `.dotmd-` artifacts, `dotmd-generated:` banners, `dotmd-misuse.log`, `__dotmd`, and the `dotmd:canonical-workflow` marker. Renaming the "runlist" document concept to `hubs` is a separate phase. `test/product-name.test.mjs` checks string literals under `src/` and `bin/`; extend its allowlist only for a current identity or legacy reader.
+- **Output says `runlist`; legacy identities stay readable.** Every message, hint, help line and newly written artifact names the product `runlist`. The npm package is `runlist`, the repo is `reowens/runlist`, and the Claude plugin is `runlist@runlist`. The `dotmd` executable remains an alias. Existing `dotmd.js` OpenCode files with generated banners migrate to `runlist.js`; unmarked files remain user-owned. Legacy readers remain for `dotmd-cli`, `dotmd@dotmd`, `dotmd.config.*`, `DOTMD_*`, `.dotmd/`, `.dotmd-` artifacts, `dotmd-generated:` banners, `dotmd-misuse.log`, `__dotmd`, and the `dotmd:canonical-workflow` marker. Documentation calls the organizing document a **hub**; existing `runlist` subcommands, metadata and output labels still refer to that same concept. Renaming those interfaces is separate work. `test/product-name.test.mjs` checks string literals under `src/` and `bin/`; extend its allowlist only for a current identity or legacy reader.
 - **Global arg stripping** happens in the CLI dispatcher — `--config <path>`, `--type <t>`, `--root <name>`, `--dry-run`, `-n`, `--verbose` are removed from `restArgs` before passing to commands.
 - Preset aliases in config expand to query filter args and are dispatched as if they were built-in commands.

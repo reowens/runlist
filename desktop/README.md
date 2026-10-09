@@ -166,6 +166,14 @@ files. Saves require review and retain the shared engine's exact revisions,
 claims, history, receipts and compensating undo. Save does not commit or push Git.
 Repository template overrides stay in `runlist.templates.json`.
 
+**Hubs** in the Library are the organizing documents older docs and filenames
+call **runlists**. They collect plans and supporting docs; ordering their plans
+does not require another container. A roadmap is an optional hub collecting
+other hubs and rolling up their progress. Hubs currently use plan metadata,
+but the Library separates them from executable plans. Stage and status are
+labels on plans, not document levels. See the
+[shared document model](../README.md#hubs-ordered-plans-and-roadmaps).
+
 The current source adds **New…** for plans, docs and coordination hubs. Choose a
 template, title, configured folder, filename and initial status, then preview the
 rendered Markdown and validation messages before creating it. Creation is

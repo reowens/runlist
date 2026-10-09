@@ -201,7 +201,10 @@ cross-origin API requests are refused. Static content has a restrictive CSP
 and no external scripts/styles. Markdown is escaped and unsafe link schemes
 are refused. No browser request can select a new repository/config, inject an
 actor/policy, release a claim, or start a lifecycle/domain operation. The adapter
-homes configured hubs, plans and documents in a paged library. Only
+homes configured hubs, plans and documents in a paged library. A hub is the
+organizing document older guidance calls a runlist; its ordered child plans
+live on that same document. Coordination, ordered and roadmap hubs are shapes
+of this concept, not separate required container levels. Only
 unambiguous configured narratives or valid native records are editable; untyped
 and unsupported sources remain read only. Private prompts, excluded corpora and
 generated indexes stay outside this adapter. Domain record views retain separate

@@ -481,7 +481,8 @@ function runlistHubBody(title, hubSlug, children, bodyInput, today) {
   return `
 # ${title}
 
-> One-paragraph problem statement: what this runlist sprints toward, why now.
+> One-paragraph problem statement: what this ordered hub sprints toward, why now.
+> The plans below are ordered on this hub; no separate runlist document is needed.
 
 ## Problem
 
@@ -492,11 +493,12 @@ ${bodyInput?.trim() ?? ''}
 ${steps}
 
 Pick up the next child with \`runlist runlist next ${hubSlug}\` — it targets the
-first non-archived child. \`runlist runlist ${hubSlug}\` shows the sequence + status.
+first startable child, skipping archived and parked plans.
+\`runlist runlist ${hubSlug}\` shows the sequence + status.
 
 ## Version History
 
-- **${today}** Created (runlist hub, ${n} ${n === 1 ? 'child' : 'children'}).
+- **${today}** Created (ordered hub, ${n} ${n === 1 ? 'child' : 'children'}).
 `;
 }
 
@@ -507,6 +509,8 @@ function coordinationHubBody(title, bodyInput, today) {
 # ${title}
 
 > One-paragraph: the domain this hub coordinates and how to read the queue below.
+> Older docs call this organizing document a runlist. Plans and supporting docs
+> belong to this hub; the ranked queue gives its plans an execution order.
 
 ## Scope
 
@@ -528,16 +532,15 @@ graph pick it up. -->
 `;
 }
 
-// Body for a roadmap hub: the tier-3 hub that composes *runlists* (not leaf
-// plans) and rolls their progress up. Mirrors the coordination-hub shape but its
-// ranked rows point at runlists, and `runlist roadmap` reads it. Children are wired
-// via related_plans: (each should be a runlist / coordination hub).
+// Body for an optional roadmap hub that collects other hubs and rolls their
+// progress up. Children are wired via related_plans:; direct plans are supported.
 function roadmapHubBody(title, hubSlug, bodyInput, today) {
   return `
 # ${title}
 
-> One-paragraph: the domain this roadmap composes. A roadmap points at *runlists*
-> (not leaf plans) and rolls their done/total up — see \`runlist roadmap ${hubSlug}\`.
+> One-paragraph: the domain this roadmap coordinates. A roadmap is an optional
+> hub collecting other hubs (called runlists in older docs) and rolling up their
+> progress. Direct plan children are also supported — see \`runlist roadmap ${hubSlug}\`.
 
 ## Scope
 
@@ -545,11 +548,11 @@ ${bodyInput?.trim() ?? ''}
 
 ## Runlists
 
-<!-- One row per child runlist, in priority order. Wire each into related_plans:
-so the rollup + graph pick it up. Children should be runlists / coordination hubs
-(execution_mode: coordination) or sprint runlist: hubs — not leaf plans.
+<!-- One row per child hub or direct plan, in priority order. Wire each into
+related_plans: so the rollup + graph pick it up. This table's Runlists label
+means hubs: coordination maps, ordered hubs or other roadmap hubs.
 Optional horizon flavor: replace this table with ## Now / ## Next / ## Later /
-## Icebox sections, each linking the runlists in that horizon. -->
+## Icebox sections, each linking the hubs or plans in that horizon. -->
 
 | # | Runlist | Why / gating | Progress |
 |---|---------|--------------|----------|
@@ -645,7 +648,7 @@ next_step:
 
 # ${childTitle}
 
-> Runlist child of [${hubTitle}](${hubSlug}.md).
+> Plan in the ordered hub [${hubTitle}](${hubSlug}.md).
 
 ## Problem
 
@@ -653,7 +656,7 @@ next_step:
 
 ## Version History
 
-- **${today}** Created (runlist child of ${hubSlug}).
+- **${today}** Created (child plan of hub ${hubSlug}).
 `;
 }
 
@@ -685,7 +688,7 @@ export async function runNew(argv, config, opts = {}) {
   let showFiles = opts.showFiles ?? false;
   let runlistArg = null;     // --runlist a,b,c  → sprint hub + child stubs
   let coordination = false;  // --coordination   → coordination hub skeleton
-  let roadmap = false;       // --roadmap        → tier-3 roadmap hub skeleton
+  let roadmap = false;       // --roadmap        → roadmap hub skeleton
   let lite = false;          // --lite/--minimal → trimmed plan body
   let renderPreview = false;
   let audit = false;         // --audit/--findings → ranked-findings plan body

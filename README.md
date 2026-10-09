@@ -692,13 +692,42 @@ readable for compatibility and can be migrated with `runlist lint --fix`.
 Status definitions can be customized per type. Rich status objects co-locate
 display, staleness, validation, terminal, and archive behavior in one place.
 
-## Runlists And Roadmaps
+## Hubs, Ordered Plans, And Roadmaps
 
-A sprint runlist is an ordered `runlist:` array on a hub plan. Scaffold a hub
-and children together:
+A **hub** is a Markdown document that organizes related plans and supporting
+docs. Older documentation and existing filenames also call these documents
+**runlists**. Hub and runlist describe the same organizing document; they are
+not two successive levels. **Runlist** is also the product name.
+
+A hub can organize an area through prose and links (**coordination hub**) or
+use a `runlist:` array for an explicit plan sequence (**ordered hub**, also
+called a sprint runlist). Coordination hubs can also rank plans through linked
+body rows or lists. A **roadmap** is an optional hub that collects other hubs and
+rolls up their progress. These are hub shapes, not three containers every
+project must create. A simple arrangement is:
+
+```text
+Repository
+└── Roadmap hub (optional, collects hubs)
+    └── Area or ordered hub
+        ├── Supporting docs
+        └── Plans (optionally ordered)
+            └── Tasks
+```
+
+These are document relationships, not a required folder layout. Plans and
+supporting docs can also stand alone. A plan's **stage** describes when
+it should ship, and its **status** describes progress; neither adds a document
+level. Hubs currently use `type: plan` with hub metadata, while supporting specs,
+ADRs and reference material use `type: doc` or a configured document type.
+
+Existing commands, fields, filenames and CLI labels retain `runlist` terminology.
+The `runlist:` array declares the ordered plans **on the hub itself**. It does
+not create a separate runlist document inside the hub. Scaffold an ordered hub
+and its child plans together:
 
 ```bash
-runlist new plan auth-revamp --runlist extract,rewrite,cleanup
+runlist new hub auth-revamp --runlist extract,rewrite,cleanup
 runlist runlist auth-revamp
 runlist runlist next auth-revamp
 ```
@@ -717,27 +746,29 @@ Archived children count as complete. Parked children (`blocked`, `partial`,
 `paused`, `awaiting`, and `queued-after`) are skipped when choosing the next
 pickup but do not count as done.
 
-For a larger prose-first domain map, create a coordination runlist:
+For a prose-first area map, create a coordination hub:
 
 ```bash
-runlist new plan platform-work --coordination
+runlist new hub platform-work
 runlist runlists
 ```
 
-`runlist new hub platform-work` makes the same coordination hub; add
-`--runlist a,b,c` or `--roadmap` for the other two shapes.
+`runlist new hub` defaults to a coordination hub; add `--runlist a,b,c` for an
+ordered hub or `--roadmap` for a roadmap hub. The existing `new plan` forms with
+`--coordination`, `--runlist` or `--roadmap` create the same respective shapes.
 
-For progress across several runlists, create a roadmap:
+For progress across several hubs, create an optional roadmap hub:
 
 ```bash
-runlist new plan platform-roadmap --roadmap
+runlist new hub platform-roadmap --roadmap
 runlist roadmap platform-roadmap
 runlist roadmap platform-roadmap next
 ```
 
 Roadmaps roll up progress recursively and choose the first startable plan across
-their child runlists. Runlists and roadmaps are held out of actionable plan
-counts so dashboards do not double-count their children.
+their child hubs. They can also link plans directly. Hubs, including roadmaps,
+are held out of actionable plan counts so dashboards do not double-count their
+children.
 
 ## Decisions
 
