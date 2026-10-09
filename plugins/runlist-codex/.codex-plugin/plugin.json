@@ -1,6 +1,6 @@
 {
   "name": "runlist-codex",
-  "version": "0.93.2",
+  "version": "0.94.1",
   "description": "Runlist workflow skill, session orientation, and tool guard for Codex",
   "author": {
     "name": "Reo Owens"
