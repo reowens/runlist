@@ -258,7 +258,7 @@ Workflow: `runlist modules --sort cleanup` → pick the top row → `runlist mod
 ```bash
 npm test                           # run all tests (node:test)
 node --test test/frontmatter.test.mjs  # run a single test file
-node bin/dotmd.mjs <command>       # run CLI locally without installing
+node bin/runlist.mjs <command>       # run CLI locally without installing
 npm version patch                  # release: test → bump → tag → push → publish
 ```
 
@@ -290,11 +290,11 @@ Release preflight requires a clean `main` that descends from `origin/main`; `--f
 
 ## Architecture
 
-**Entry point:** `bin/dotmd.mjs` — CLI arg parser and command dispatcher. Each command delegates to a module in `src/`.
+**Entry point:** `bin/runlist.mjs` — CLI arg parser and command dispatcher. Each command delegates to a module in `src/`. `bin/dotmd.mjs` delegates to this canonical entry point for compatibility.
 
 **Core modules:** `config.mjs` (config discovery + defaults), `frontmatter.mjs` (YAML parser), `index.mjs` (doc scanner + validator), `render.mjs` (display output).
 
-**Feature modules** in `src/` each export a `runX()` function called from the CLI dispatcher. See `bin/dotmd.mjs` imports for the full list.
+**Feature modules** in `src/` each export a `runX()` function called from the CLI dispatcher. See `bin/runlist.mjs` imports for the full list.
 
 **Supporting modules:** `extractors.mjs`, `validate.mjs`, `prompt.mjs`, `git.mjs`, `color.mjs`, `util.mjs`, `ai.mjs` (prompts), `model.mjs` (the local model server, memory checks, `runlist model`), `model-request.mjs` (HTTP in a child process so synchronous callers can wait).
 
@@ -326,7 +326,7 @@ Release preflight requires a clean `main` that descends from `origin/main`; `--f
 - **`docs/` is gitignored and that is deliberate — do not "fix" it.** The planning tree stays on disk and out of the index, because runlist is developed against a large private corpus and this repo is public. So plan edits will never appear in `git status`, `git log` on a plan returns nothing, and `runlist baton` prints `<plan> is gitignored — no commit needed` rather than a commit command. None of that is broken. Every runlist verb still works, since the files never left disk. Content is not unbacked: each plan carries its own `## Version History` and the estate-wide backup script snapshots the tree. Anything that genuinely should be public goes outside `docs/` rather than being carved out as an ignore-rule exception. Rationale and the rejected alternatives are in `.gitignore` itself.
 - **This is a public repo. Fixtures and source comments are synthetic; measurement output is evidence, never fixture material.** runlist is developed by running it against a large private corpus, so measuring it produces real headings, real plan filenames, real module names, real per-plan statistics. Using that output *as* a test fixture or a worked example in a comment publishes it. The step from "measure the corpus" to "write the test from what you just measured" is invisible — it feels like using real data, which is exactly what made the measurement good — so the rule has to be mechanical rather than a judgement call: **preserve the shape, replace the words.** A fixture exists to exercise a shape (marker-before-the-word, qualifier-inverting-a-done-word, commentary-vs-phase), and a neutral vocabulary exercises it identically. What survives contact with the corpus is *aggregates* — "93 of 482 plans", "13 contradictions of 198" — which are ordinary engineering evidence. What does not is anything identifying a single plan, module, product, vendor, or repository. This applies to commit messages and plan documents as much as to code; in one 2026-08-17 pass the same mistake was made in a source comment, a test fixture, and a plan document *about the leak* that reproduced the whole name mapping it was written to remove.
 - **Test fixture filenames must be legal on NTFS.** No `*`, `?`, `:`, `"`, `<`, `>`, `|` — a fixture that can't exist on Windows fails the whole Windows leg. `[a-z]` is still real wildmatch pathspec magic and *is* legal on NTFS, so prefer it when a test needs a magic pathspec.
-- **Help text** in `bin/dotmd.mjs` HELP object must stay in sync with command capabilities.
+- **Help text** in `bin/runlist.mjs` HELP object must stay in sync with command capabilities.
 - **Hook paths must fit a 5s timeout in a repo of ~5k docs.** A full `buildIndex` reads every body and took ~10s there, so Claude Code killed `hud` before it printed anything. Text-mode `hud` and `hud --prompt-submit` read only the prompt directory's frontmatter and the ownership records; `hud --json` keeps the full index. Anything added to a hook path must not reach for the index.
 - **Output says `runlist`; legacy identities stay readable.** Every message, hint, help line and newly written artifact names the product `runlist`. The npm package is `runlist`, the repo is `reowens/runlist`, and the Claude plugin is `runlist@runlist`. The `dotmd` executable remains an alias. Existing `dotmd.js` OpenCode files with generated banners migrate to `runlist.js`; unmarked files remain user-owned. Legacy readers remain for `dotmd-cli`, `dotmd@dotmd`, `dotmd.config.*`, `DOTMD_*`, `.dotmd/`, `.dotmd-` artifacts, `dotmd-generated:` banners, `dotmd-misuse.log`, `__dotmd`, and the `dotmd:canonical-workflow` marker. Renaming the "runlist" document concept to `hubs` is a separate phase. `test/product-name.test.mjs` checks string literals under `src/` and `bin/`; extend its allowlist only for a current identity or legacy reader.
 - **Global arg stripping** happens in the CLI dispatcher — `--config <path>`, `--type <t>`, `--root <name>`, `--dry-run`, `-n`, `--verbose` are removed from `restArgs` before passing to commands.

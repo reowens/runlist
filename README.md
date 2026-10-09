@@ -34,6 +34,61 @@ npm uninstall -g dotmd-cli
 npm install -g runlist
 ```
 
+The desktop app is a separate build with the same Markdown engine; see
+[desktop setup and validation](desktop/README.md). Current source includes
+reviewed plan/doc/hub creation, ⌘/Ctrl+K navigation, on-demand local content
+search, saved library views, checkout-wide recovery and reviewed local Git commits
+for qualified macOS checkouts. Saving writes local Markdown; committing remains
+a separate reviewed action. Current source also has optional grepmax semantic
+search in quick navigation and the library; local chat and push are deferred. The installed signed app and release artifacts
+have their own qualification snapshots.
+
+The delivered Apple Silicon GUI is **0.91.0-rc.3**, personally signed, accepted
+by Apple and installed at `~/Applications/Runlist.app`, with rollback retained.
+Its [public Mac installer](https://github.com/reowens/runlist/releases/tag/desktop-v0.91.0-rc.3)
+is separate from [CLI 0.91.0](https://github.com/reowens/runlist/releases/tag/v0.91.0),
+which now includes `runlist desktop install`. No further Apple checks are selected.
+The earlier development snapshots and qualification notes below are historical;
+see the current release record.
+
+A newer unsigned Mac development package includes guarded local
+commits, configured hooks, noninteractive signing and one-shot clean-filter review.
+Its bundled engine passed **44 checks with networking denied**; source qualification
+covers 49 commit/read cases on each existing Mac/Linux ARM64 matrix, with passing
+focused corrections recorded in the package evidence. It has not
+been installed, signed for distribution or submitted to Apple. The earlier
+Apple request is unchanged and its checks remain stopped.
+
+The remaining work, in order:
+
+1. Expand local-commit qualification to process filters, broader clean-filter
+   command profiles, Windows, Linux x64/other Git versions and additional signing profiles.
+   Configured commit hooks and noninteractive SSH/OpenPGP signing are supported
+   in current source on the qualified macOS/Linux combinations. Push is deferred.
+2. Optional grepmax live retrieval/coverage qualification is parked: the owner
+   reports a watcher issue requiring a reboot. The last check saw gmax 0.26.65
+   ready, but its installed bridge/daemon lacked Runlist's required document-search
+   contract. Watcher recovery and compatibility must be verified before live
+   qualification resumes; preserve the existing safety hold. See the
+   current status and resume gates.
+   The compatibility plan
+   now has steps 1–4 passing against gmax 0.26.66 source and an extracted local
+   npm candidate, including the actual private helper. Deployment and live
+   checks remain separate gates.
+   Large-checkout inventory,
+   unavailable-state memory/latency and bridge cleanup have terminal evidence.
+   The GUI/backend and guarded protocol fixtures are implemented; installed
+   artifacts do not include this change. Optional local model chat follows later.
+3. Complete native plan lifecycle, legacy migration,
+   settings/diagnostics, and stage/filing integration.
+4. Finish platform qualification: a terminal-ready Windows host, Linux x64 and
+   older distributions, real-version upgrades, fresh/minimum-version and Intel
+   Macs, plus native rendering, focus, accessibility and whole-window memory.
+
+Mac GUI delivery and CLI 0.91.0 publication are complete. The supported desktop
+release is Apple Silicon macOS 13.5 or newer. Broader platform work and
+experimental semantic search remain separate follow-up work.
+
 Maintainer release automation is POSIX-only because it uses Bash and POSIX
 command-line tools. The published Node.js CLI remains cross-platform.
 
@@ -182,6 +237,345 @@ runlist context --json --compact --sections plans,issues
 Available sections are `statusVocabulary`, `counts`, `prompts`, `plans`, and
 `issues`. Section selection is explicit in the response's scope. Passive
 context reads continue to skip custom side effects and expensive Git history.
+
+The developing native record format is specified by
+[runlist-record-v1.schema.json](assets/schemas/runlist-record-v1.schema.json).
+It uses flat frontmatter for identity and lifecycle fields, a literal
+`record_data` block containing nested JSON, and native Markdown for narrative
+and anchored plan tasks. The read-only parser in `src/native-record.mjs`
+preserves original source, validates metadata and relationships, and rejects
+ambiguous keys, unsupported versions, incomplete resolution evidence, and
+invalid ruling provenance. Existing CLI writers and migration do not yet use
+this format; ordinary legacy documents and flag logs remain unchanged.
+
+The local source-editing core in `src/source-editor.mjs` provides authenticated
+actor attribution, exact revision saves, durable retry/repair receipts, private
+draft recovery, and compensating undo. It preserves frontmatter and lifecycle
+history, respects CLI claims, and reports conflicts with the current source.
+The [source editing contract](assets/contracts/source-editing-v1.md) describes
+the API and trusted host responsibilities. The local browser adapter below
+uses that core; managed record domain writers remain upcoming work.
+
+Runlist also has a [macOS desktop application](desktop/README.md) built from this
+source checkout. Install `Runlist.app`, open it normally, and choose a trusted
+checkout. It bundles its runtime and uses private pipes; normal desktop work
+needs no installed Node, browser access link or listening server. CLI 0.91.0 provides the desktop commands below.
+The GUI remains optional:
+
+```bash
+runlist desktop install                 # download and install the Mac GUI
+runlist desktop                         # open the installed GUI
+runlist desktop install --from /path/to/Runlist.dmg  # install a local signed DMG
+```
+
+The installer currently supports Apple Silicon Macs. It verifies the published
+download checksum, Runlist developer signature and Apple approval, and installs
+without opening the app. An existing app is kept unless `--from` supplies a
+replacement; replacement keeps a rollback copy. `--dry-run` uses no network and
+changes no files. The [Mac GUI download](https://github.com/reowens/runlist/releases/download/desktop-v0.91.0-rc.3/Runlist-0.91.0-rc.3-macOS-arm64.dmg) is now public in Runlist's GitHub
+releases; `--from` also works with a local approved installer. These commands ship
+in [CLI 0.91.0](https://github.com/reowens/runlist/releases/tag/v0.91.0) and can also
+be used from this checkout as `node bin/runlist.mjs desktop …`. The GUI remains
+separately versioned at **0.91.0-rc.3**; npm installation does not download it.
+
+The optional browser document app is available from this source checkout (unreleased):
+
+```bash
+node bin/runlist.mjs app docs/plans/my-plan.md --port 5173
+```
+
+Open the local access link printed in the terminal. The app homes existing
+hubs, plans and documents in the selected checkout, edits the document inline, exposes source, reviews a
+diff before saving, keeps private recovery drafts, reports intervening edits,
+and undoes a save through a new revision-checked operation. Related legacy
+flags retain their original observation beside their current location; missing
+observed revisions are explicit. Browser sessions identify as the local human
+and respect agent claims. Save writes the Markdown file; Git commit and sharing
+remain separate. Stop the server with Ctrl+C. The published 0.91.0 CLI does not include the browser-app command;
+use this source-checkout invocation.
+
+Click headings, paragraphs, list items, quotes, or code to edit them in place.
+Enter creates the next block; an empty list item exits the list. Type `/` in an
+empty paragraph or use the `+` beside a block to choose a heading, list, task,
+quote, code block, or divider. Task checkboxes are interactive. Select text for
+bold, italic, code, strikethrough, and links; Command/Ctrl+B and +I also work.
+Command/Ctrl+Z undoes draft edits, while **Undo save** reverses a published save.
+Private drafts save automatically; **Review changes → Save changes** publishes
+them to Markdown. Managed lifecycle history stays read only. Tables and complex
+blocks offer a local Markdown editor; **Edit Markdown** opens the full body as a
+fallback. Untouched blocks, comments, and line endings retain their source.
+
+The sidebar provides **All documents**, **Hubs**, **Plans**, **Docs**, **Flags**, **Decisions**, **Changes**, pins, recents,
+and templates. Selecting a category opens its searchable results in the main
+area, with type, status, location, sort and archive controls. Opened documents
+have a **← Library** action; returning to the library retains unsaved drafts.
+On narrow screens, **Navigation** opens the sidebar. Search spans the
+whole configured library; only 50 result rows are returned/rendered per page.
+Header metadata is cached and unchanged files are reused on refresh; Refresh
+explicitly picks up external additions, removals, moves and metadata edits.
+Discovery reads headers in 4 KiB chunks, up to 128 KiB when needed, and detaches
+cached metadata from source buffers. Record refreshes process one document at a
+time, retain decision fragments and flag connection paths, and load linked record
+bodies when opened. To measure a read-only workload on your checkout, run
+`node scripts/measure-app-memory.mjs /path/to/checkout`; adding `--expose-gc`
+before the script also measures retained heap after collection.
+Pinned/recent documents remain browser-local and reachable outside the current
+results. Hub members, parent hubs and related documents remain navigable through
+Connections and preview links, including documents on another page. Membership
+uses the CLI's hub/order definition and parent back-pointers, rather than treating
+every citation as a child. Configured non-plan narratives use the same reviewed
+source save; untyped or unsupported formats open read only. Private prompts,
+excluded corpora and generated indexes stay outside the library.
+
+
+**Changes** reviews saved Markdown against the local Git HEAD, with 100-row
+pages, search, archive inclusion and whole-file selection. Open it from the
+sidebar, quick navigation or **Saved Git changes** in a document review.
+Plans, hubs and other documents use the same configured-root and private-path
+policy. Additions, modifications, deletions and renames include both safe rename
+paths; partially staged files and ignored local-only files explain why selection
+is blocked. Unrelated staging is counted without exposing unrelated source.
+Refresh retains selection and the diff; navigation preserves unsaved drafts, and
+**Return to draft** resumes the current editor without saving it. Git inspection
+runs on demand with bounded asynchronous output and no optional index locks.
+**Review local commit** opens a separate message and exact Git-content review.
+Open each selected file before **Commit locally** becomes available. The review
+uses the actual Git tree, including ordinary EOL normalization, and authorizes
+both paths of a rename. The commit guard checks the actual commit’s tree, parent,
+message, destination branch, saved files, effective Git configuration/attributes
+and owned final-index generation before ref publication. Unrelated staging stays
+staged. Selected partial staging and ignored/private files are never replaced or
+force-added. Runlist initiates no fetch, push or credential operation.
+
+The writable gate supports Apple Silicon macOS with Git 2.54.0 or 2.55.0 and Linux ARM64 with
+Git 2.47.3. Linux was qualified through terminal fixtures on the dev Pi:
+Debian 13.5, glibc 2.41 and the pinned Node 24.21.0 helper runtime; the initial
+baseline passed 19 commit/recovery and 20 native-helper checks with external networking
+disabled. Linux x64, other Linux Git versions and Windows remain unqualified.
+See Linux commit evidence.
+Both gates require an existing named branch, SHA-1 objects and a plain v2/v3
+index (at most 2 MiB; only the ordinary TREE extension).
+One-shot clean filters with a regular executable and literal arguments are supported,
+including a standalone `%f` filename argument and quoted paths. Process filters,
+shell expressions/builtins/globbing, working-tree encoding, sparse/split/fsmonitor/extended
+indexes, unsupported signing profiles and other platforms/versions still require Git.
+These settings are refused before execution, never bypassed. Opening Changes or
+its saved-file diff disables executable filters: filtered candidates may be
+unchanged in Git. **Review exact Git content** explicitly applies the configured
+clean filter in two private indexes and displays the resulting canonical blobs.
+Different outputs, partial staging, changed config/attributes/executable/literal
+file arguments or a final tree/index mismatch block the commit. Saved Markdown
+remains unchanged; unrelated staging is preserved. Git retains required/optional
+filter-failure behavior. Executables and referenced file arguments have a 16 MiB
+inspection bound; the existing 1 MiB combined review bound still applies.
+Filters are trusted checkout code with their own side effects and indirect
+dependencies; Runlist does not sandbox or undo those effects. A filtered private
+Git step that exceeds its time/output limits stops its owned process group and
+retains failure evidence. The read-only view remains independent of the write gate.
+
+Configured commit hooks run at their original paths with Git's arguments, stdin,
+working directory and index/editor context, including relative or absolute
+`core.hooksPath`. Preview and private index preparation never execute them.
+The review lists the enabled hooks, signing format and clean-filter names. Changed hook generations,
+hook rejection or unreviewed tree/message/index changes block publication.
+Post-commit failures retain the known commit; they never trigger another commit.
+Hooks are trusted checkout code and can perform their own side effects; Runlist
+preserves those effects and retained evidence rather than claiming to sandbox or
+undo them. Each hook has a 10-second bound within the existing job limits.
+
+Required signing supports local Ed25519 OpenSSH private-key files through
+`ssh-keygen`, and OpenPGP through GnuPG with an explicit full signing fingerprint
+and a ready agent. SSH agents/hardware, X.509, custom signer commands and
+conflicting OpenPGP program aliases remain unqualified. SSH askpass is disabled;
+GnuPG uses batch/no-tty, error-only pinentry and no agent autostart or automatic
+key retrieval. Encrypted SSH keys and unavailable GPG agents fail without an
+unsigned fallback. The guard verifies the actual signature against the selected
+key before ref publication, alongside the reviewed content and staging checks.
+Private keys/passphrases are never stored in receipts. See
+hook and signing evidence.
+
+Commit jobs return promptly and survive renderer/helper disconnect. **Recovery**
+finds private human/checkout-bound disk receipts even without browser storage.
+**Inspect outcome** checks retained evidence; **Recover owned staging** restores
+only a proven owned generation after its process group has stopped. Foreign or
+unverified locks/indexes are preserved. An uncertain publication is never retried;
+an explicit note can acknowledge fresh inspected ref/index evidence without
+replaying or undoing a commit. Closing a review preserves its receipt and message
+draft. Bounds include a 1 MiB combined review, 8 KiB message, 30-minute review
+expiry, bounded Git command/job deadlines and 500 retained operations. Private
+receipt storage must be ignored, untracked and free of symlinks.
+
+This source work has not replaced the installed desktop app. Native visual/focus
+checks, broader Git compatibility and platform qualification remain separate;
+Apple status checks remain stopped.
+
+**Flags** is the triage queue, with search, severity/status filters, source and
+hub filters, and 50-row pages. Open a flag for its original observation, current
+evidence and append-only history. Accept, reject or resolve with a reason, review,
+then confirm. Accept keeps the flag open; reject closes it; resolve records that
+it was addressed.
+
+**Decisions** brings existing plan sections and registers into one queue. Linked
+register/plan records collapse using the CLI parser's scope rules. Each record
+shows its source, connected work, blocking items, question and recorded outcomes.
+Review a hold, ruling, closure or reopening before saving. A ruling requires a
+selected answer and a reason; the app records the authenticated human and date.
+Earlier outcomes and original text remain in the source. Reviewed requests are
+retained in browser storage so a reload or lost acknowledgement can retry the
+same operation without duplicating it. External edits and claims are checked
+again on save. Native v1 records also support reviewed actions. Flag accept,
+reject, manual resolution and reopening retain original evidence and history.
+Native decision rulings select an existing option ID; changed rulings explicitly
+supersede their predecessor, and reopening or holding a ruled decision records
+a withdrawal. Human authority is required to record or withdraw rulings.
+Duplicate native IDs and invalid records remain read only in the queue.
+
+**New flag** and **New decision** are available in their queues, the New dialog
+and quick actions in current source. A flag asks for a finding, severity and
+context; it starts open and unreviewed. A decision asks for a question and two to
+twelve described alternatives, with optional benefits, costs, risks and follow-up.
+It starts open, without a ruling. Review the canonical fields and exact Markdown,
+then explicitly confirm creation. The authenticated local human owns the creation
+event. Retained operation IDs, exclusive writes and Recovery protect against
+duplicate retries, conflicting files and interrupted publication.
+
+The first record also reviews `runlist.records.json`, containing schema 1, a
+stable `repositoryId`, a root under the configured document roots and
+`shared: false`. The default root is `<catch-all document root>/records`; each
+record lives in its `flags/` or `decisions/` folder. A single existing native
+repository identity is reused; multiple identities require explicit selection.
+Alternatively, set `export const records = { schema: 1, repositoryId:
+'repo:<UUID-v4>', root: 'docs/records', shared: false }` in `runlist.config.mjs`.
+If both settings sources exist, they must agree. `shared: true` requires a working
+Git checkout and a trackable destination; ignored files produce an error without
+changing ignore rules or force-adding anything. To share the identity across
+clones, include its configuration in your own Git commit; the GUI's managed-doc
+selection does not include the root-level JSON file. Existing records and custom
+configuration source are preserved. This feature is source-only and has not
+replaced the installed desktop app. See the
+creation work item.
+
+The companion CLI uses the same native action preparation and editing core:
+
+```bash
+node bin/runlist.mjs record docs/flags/finding.md resolve --note "Manually verified the fix"
+node bin/runlist.mjs record docs/decisions/choice.md ruled --option option:<uuid> --note "Fits the work"
+```
+
+Add `--dry-run` to inspect the prepared source, `--expected-revision sha256:<hash>`
+to check an earlier read, or `--json` for a durable receipt. Legacy migration,
+automated resolution proofs and agent recommendation editing
+remain separate work.
+
+**Change status** opens a lifecycle review for configured documents and plans.
+The application uses the CLI engine for status validation, filing/archive moves,
+reference repairs, history and index updates. The review checks source, claims,
+configuration and destination again before publishing. Save or discard drafts
+first. Claimed sources and native plan lifecycle operations are unavailable;
+native flags and decisions use their domain actions instead. Moves retain
+browser pins and heading bookmarks. Lost acknowledgements can be inspected and
+retried through the retained operation ID. An interrupted runner stays uncertain
+until inspected; acknowledging its outcome records that uncertainty without
+replaying the operation. Retained CLI transactions must be repaired first.
+
+**Semantic · gmax** is an optional search mode in ⌘/Ctrl+K and the library.
+Type a natural-language query, then press **Search**; semantic queries do not run
+on each keystroke. Results use relevance order over plans, hubs and other configured
+Markdown roots. Section links are offered only when the indexed byte hash matches
+the current file; changed sources open at the document. Library results are bounded
+**top matches**, with no claim of full-corpus totals or pagination.
+
+Runlist does not depend on, bundle or install grepmax, copy its index, start its
+services, refresh its index, download/load models, or fall back to cloud search.
+It requires an external gmax provider supporting `mcp --existing-index-only` and
+a compatible already-running daemon with a warm embedding worker. The last
+authorized check on October 7 at 21:36 UTC saw installed gmax 0.26.65 and a ready daemon,
+but the installed document bridge and required daemon capability were absent.
+Runlist's guarded probe returned `tool_unavailable`; the source bridge had
+previously returned `unsupported_daemon` against 0.26.59. A ready ping alone
+does not establish working semantic retrieval or watcher health.
+Authorized steps 1–4 of the
+compatibility plan
+restore and qualify the bridge in gmax 0.26.66 source and an extracted npm
+candidate. The first slice uses warm-only dense retrieval, with no hybrid/FTS,
+ColBERT inference or reranking. Package/private-helper fixtures pass on Node
+22.23.1 and 26.8.1; checkout dependencies were reused, not freshly installed.
+This candidate is not deployed. Installation, matching-daemon negotiation and
+live relevance/runtime-memory checks remain separate.
+The release audit's source items 1–6 are now fixed: oversized-worker retirement
+without replacement, native-read lifetime, required generations, idle MLX
+readiness, bounded coverage/freshness metadata and the ARM64 Git write gate.
+Rebuilt provider/private-helper fixtures pass on Node 22 and bundled Node 24.
+Fresh isolated consumers now pass on Node 22.12.0 and 24.21.0 against the distinct
+local gmax `0.26.68-runlist.1` candidate, with lifecycle scripts disabled and no
+checkout dependency links. An unsigned Runlist `0.91.0-rc.1` Mac ARM64 candidate
+contains that historical source snapshot. Separate optional provider qualification
+is documented in [provider qualification](desktop/PROVIDER-QUALIFICATION.md); it
+requires an exact accessible artifact URL/hash when explicitly invoked. Normal
+CLI publication and desktop builds do not require that provider job. These results
+do not establish deployment, live retrieval, watcher recovery or native-window
+acceptance.
+Ordinary text/content search works without gmax. Primary local stores are supported
+by this first contract; external/secondary stores remain unavailable in Semantic mode.
+
+**Settings → Semantic search** detects an external installation or lets you save
+absolute paths to its Node executable and `grepmax/dist/bin.js`. These tool settings
+stay in the user's Runlist configuration directory, outside the checkout; a changed
+saved installation must be selected again. No queries/snippets are saved by Runlist,
+and this gmax mode suppresses query logging without changing global gmax settings.
+See the integration plan for
+qualification limits. Older frozen packages omitted these additions; the delivered
+0.91.0-rc.3 GUI includes the experimental semantic controls. An external provider
+and live-search qualification remain separate.
+
+Terminal checks on the real platform checkout covered 2,757 library documents.
+The source engine harness and transient bridge sampled at 97.5 MiB and 81.7 MiB
+peak RSS respectively; requests safely reported the absent daemon in 0.7–0.9 seconds.
+These measure the unavailable path, not successful semantic queries or whole-app
+memory. See [qualification evidence](desktop/VALIDATION.md#optional-gmax-real-checkout-probes--2026-10-07).
+The absent-daemon and memory-pressure findings above are historical. The owner
+now reports a gmax watcher problem requiring a reboot; its cause and post-reboot
+recovery are unverified. Live qualification remains parked for watcher recovery
+and the external contract gap. Preserve the host-safety hold; neither service
+startup nor model headroom has been qualified. See the
+watcher/search status.
+Ordinary text/content search remains available; gmax is optional. Installing
+current Runlist alone does not provide the missing external gmax contract.
+
+**Settings** in the sidebar saves browser defaults for appearance, document order,
+archive visibility and the records view. It links to the editable templates and
+shows loaded document roots, exclusions, status rules and where changes live.
+Repository configuration remains editable in its source or through the CLI;
+this panel displays its effective rules.
+
+**Appearance** in the header offers Light, Dark, and System. The browser remembers
+your choice across reloads and shares it with other tabs at the same local app
+address. System follows your OS appearance, including live changes. The theme
+covers the library, inline editor, source, diffs, section tools, and templates.
+
+**Sections** provides a searchable heading outline, heading bookmarks, and section
+insertion. Command/Ctrl+Shift+J focuses section search; Alt+Page Up/Down moves
+between headings. Stars save bookmarks for this checkout and file in the current
+browser. Inline heading renames update their bookmarks; removed or unmatched
+headings stay visible as unavailable bookmarks.
+
+**Templates** in the sidebar opens the doc, plan, and prompt scaffolds with
+Markdown editing, an example preview, and a diff before saving. Template drafts
+stay in browser storage. Saves use revision checks and write the repository's
+`runlist.templates.json`; ordinary `runlist new` commands consume these overrides.
+Existing documents are unaffected. Keep `{{title}}`, `{{body}}`, and the managed
+`{{status}}`/`{{date}}` metadata placeholders; `{{version}}` is also available.
+Authored complete bodies and explicit plan variants retain their existing CLI
+behavior. JavaScript templates from `runlist.config.mjs` can be inspected without
+executing them. Built-in types can receive a Markdown override; custom JavaScript
+types remain editable in that config file. The template file can be committed
+with Git; bookmarks and draft recovery remain local.
+
+The renderer covers headings, paragraphs, lists/tasks, tables, quotes, fenced
+code, and safe links. Authored HTML is displayed as text; unsupported syntax
+remains available in Source. The optional `test/browser-app-smoke.mjs` exercises
+real browser save/CLI readback, undo, reload recovery, conflict review, lost
+acknowledgements, and narrow-screen layouts with Playwright supplied externally.
 
 ## Core Workflow
 
@@ -348,6 +742,19 @@ its document's `docTitle`, and `blocks`: what its record says it blocks or
 gates, then every unticked checklist item and frontmatter blocker that names
 its id, alone or inside a written range (`A2 to A12`). In another document the
 id has to sit beside a link to the decision's document.
+
+Record an outcome in an existing legacy decision with the same source operation
+used by the app:
+
+```sh
+runlist decision docs/plans/work.md D1 --disposition held --note "Need evidence"
+runlist decision docs/plans/work.md D1 --disposition ruled --choice "Blue bin" --note "Fits the shelf"
+```
+
+`--dry-run` prints prepared source. `--expected-revision sha256:<hash>` checks a
+previous read; `--json` returns the operation receipt. Human rulings require a
+human CLI context. Agent sessions may record open, held or closed outcomes.
+The source editor retains receipts and checks claims and exact source revisions.
 
 ## Flags
 
