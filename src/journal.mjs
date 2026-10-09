@@ -25,7 +25,7 @@ const LEGACY_MISUSE_LOG_BACKUP = 'dotmd-misuse.log.1';
 const TELEMETRY_SCHEMA = 2;
 const REDACTED = '[redacted]';
 const SENSITIVE_VALUE_FLAGS = new Set([
-  '--body', '--message', '--note', '--question', '--answers', '--title',
+  '--body', '--message', '--note', '--question', '--answers', '--choice', '--title',
   '--token', '--password', '--passphrase', '--secret', '--api-key', '--apikey',
   '--auth', '--authorization', '--cookie', '--header',
 ]);
@@ -294,7 +294,7 @@ export function recordCliInvocation({ config, startMs, args, err, version, helpT
   entry.outcome = helpTopic && entry.exit === 0 ? 'help' : (err ? classifyFailure({ args, err }) : 'success');
   if (err) {
     // Normalize whitespace so multi-line error messages (e.g. unknown-command
-    // hints) render as a single line in `dotmd journal --tail`. Cap at 200
+    // hints) render as a single line in `runlist journal --tail`. Cap at 200
     // chars so a stray stack trace can't bloat the journal.
     const flat = sanitizeTelemetryText(err.message ?? err, sanitized.secrets).replace(/\s+/g, ' ').trim();
     entry.err = flat.length > 200 ? flat.slice(0, 197) + '...' : flat;
@@ -388,11 +388,11 @@ export function readGlobalErrors({ limit = 20, repo = null, includeFamily = fals
 
 // Misuse log: always-on, cross-repo, append-only record of every wrong-move the
 // PreToolUse guard intercepts (committing a gitignored prompt, `cat`-ing a
-// prompt instead of `dotmd use`, hand-editing a `status:` field, …). This is
-// the ONLY place those mistakes become visible — they never invoke dotmd, so
+// prompt instead of `runlist use`, hand-editing a `status:` field, …). This is
+// the ONLY place those mistakes become visible — they never invoke runlist, so
 // neither the per-repo journal nor the global error log would otherwise see
 // them. Shares the error log's directory and rotation so `~/.claude/logs` is
-// the single home for "what went wrong." Read it with `dotmd misuse`.
+// the single home for "what went wrong." Read it with `runlist misuse`.
 export function globalMisuseLogPath() {
   return path.join(globalErrorLogDir(), MISUSE_LOG_FILE);
 }

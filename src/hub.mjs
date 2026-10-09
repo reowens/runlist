@@ -1,6 +1,6 @@
 // Hub primitives: what counts as a hub, and how to read a hub's body tables.
 //
-// This module is deliberately a LEAF — it imports nothing from dotmd. The hub
+// This module is deliberately a LEAF — it imports nothing from runlist. The hub
 // predicates used to live in `runlist.mjs`, but `runlist.mjs` imports
 // `index.mjs` (for `resolveDocArg`), and the hub-status check has to run FROM
 // `index.mjs`. Keeping the predicates here is what lets both sides share one
@@ -33,7 +33,7 @@ export function isCoordinationHub(doc) {
 // hubs (runlists / coordination hubs), with progress rolled up across them. The
 // signal is explicit — `execution_mode: roadmap` — with NO slug-convention
 // fallback (unlike coordination hubs' `*-runlist`): there's no naming convention
-// for roadmaps, and `dotmd check` nudges the structural case (a coordination hub
+// for roadmaps, and `runlist check` nudges the structural case (a coordination hub
 // that points at other hubs) toward the explicit field rather than auto-promoting.
 export function isRoadmapHub(doc) {
   if (!doc) return false;
@@ -77,10 +77,10 @@ export function firstRowLink(line) {
 //   marker   — `<!--s-->active<!--/s-->` pins the span when position can't find
 //              it (the measured 4%: a status sitting behind a bolded headline).
 //
-// The marker is 19 characters against 62 for dotmd's block grammar
-// (`<!-- GENERATED:dotmd:start -->`). That difference only matters because this
+// The marker is 19 characters, shorter than runlist's block grammar
+// (`<!-- GENERATED:runlist:start -->`). That difference only matters because this
 // one recurs hundreds of times per estate. It makes four comment grammars in
-// dotmd; the other three are block-level and correct at block level. Do NOT
+// runlist; the other three are block-level and correct at block level. Do NOT
 // "unify" them, and do not let the count grow again.
 export const MARKER_OPEN = '<!--s-->';
 export const MARKER_CLOSE = '<!--/s-->';
@@ -225,7 +225,7 @@ export function applyStatusCase(sample, replacement) {
 // ish hubs use the link list. Deduped, first occurrence wins, order preserved.
 //
 // This is a hub's BODY MEMBERSHIP claim, not merely a set of links: it is the
-// order `dotmd runlist <hub>` / `runlist next <hub>` walk, so a plan listed here
+// order `runlist runlist <hub>` / `runlist next <hub>` walk, so a plan listed here
 // is one this hub would hand a session. The membership guard leans on exactly
 // that — a plan in some other table is a pointer, a plan in this order is a claim.
 export function detectBodyRunlistRefs(body) {

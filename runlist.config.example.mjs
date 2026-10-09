@@ -7,6 +7,14 @@
 // Directory containing your markdown docs (relative to this config file)
 export const root = 'docs';
 
+// GUI native flag/decision creation can use explicit persisted identity/settings.
+// Otherwise the first reviewed creation writes runlist.records.json with a
+// generated (or uniquely existing) repo ID, a managed records root and shared:false.
+// Replace the placeholder with a UUID v4. The root must be inside document roots.
+// shared:true requires a working Git checkout and a non-ignored destination.
+// If the JSON settings file also exists, these four values must agree with it.
+// export const records = { schema: 1, repositoryId: 'repo:<UUID-v4>', root: 'docs/records', shared: false };
+
 // Subdirectory for archived docs (used by `runlist archive` and `runlist status`)
 export const archiveDir = 'archived';
 

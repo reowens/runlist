@@ -1,0 +1,57 @@
+import {it,afterEach} from 'node:test';
+import {strictEqual,deepStrictEqual,throws,ok} from 'node:assert';
+import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync} from 'node:fs';
+import {randomUUID} from 'node:crypto';import os from 'node:os';import path from 'node:path';
+import {prepareNativeAction} from '../src/native-action.mjs';
+import {parseNativeRecord} from '../src/native-record.mjs';
+import {createSourceEditor,sourceRevision} from '../src/source-editor.mjs';
+import {nativeFixture,nativeSource,owner,recordId} from './native-fixtures.mjs';
+const dirs=[];afterEach(()=>{for(const dir of dirs.splice(0))rmSync(dir,{recursive:true,force:true});});
+const request=(action,extra={})=>({action,note:'A concrete reason.',operationId:randomUUID(),at:new Date().toISOString(),...extra});
+const apply=(source,action,extra={},actor=owner)=>prepareNativeAction(source,request(action,extra),actor);
+const parsed=source=>{const p=parseNativeRecord(source);strictEqual(p.ok,true,JSON.stringify(p.diagnostics));return p.record;};
+it('retains native body bytes, CRLF, original evidence and unknown metadata across manual triage and reopen',()=>{
+  const r=nativeFixture('flag');r.record_data.evidence=[{id:recordId('evidence',6),kind:'code',repository_id:recordId('repo',1),by:owner,observed_at:r.created,path:'src/fixture.mjs',revision:{kind:'unknown',reason:'The observed revision was not recorded.'},anchor:{start_line:1,end_line:1,quote:'const observed = true;'}}];
+  const before=nativeSource(r).replaceAll('\n','\r\n'),accepted=apply(before,'accept');
+  strictEqual(parsed(accepted).status,'open');strictEqual(parsed(accepted).record_data.triage.disposition,'accepted');
+  const rejected=apply(accepted,'reject'),reopened=apply(rejected,'reopen'),resolved=apply(reopened,'resolve'),again=apply(resolved,'reopen'),data=parsed(again).record_data;
+  strictEqual(parsed(rejected).status,'rejected');strictEqual(parsed(resolved).status,'resolved');
+  strictEqual(data.resolutions.length,1);strictEqual(data.resolutions[0].method,'manual');deepStrictEqual(data.resolutions[0].evidence_ids,[]);
+  strictEqual(data.active_resolution_id,undefined);strictEqual(data.triage.by,undefined);strictEqual(data.triage.extension,'retained');strictEqual(data.history.length,5);
+  deepStrictEqual(data.evidence,r.record_data.evidence);deepStrictEqual(data.extensions,r.record_data.extensions);
+  strictEqual(again.slice(again.lastIndexOf('---\r\n')+5),before.slice(before.lastIndexOf('---\r\n')+5));
+  ok(again.includes('custom_team: original\r\n'));ok(!/(?<!\r)\n/.test(again));
+});
+it('uses existing option IDs, supersedes rulings explicitly and retains withdrawals and holds',()=>{
+  const initial=nativeSource(),first=apply(initial,'ruled',{optionId:recordId('option',4)}),second=apply(first,'ruled',{optionId:recordId('option',5)}),held=apply(second,'held'),open=apply(held,'open'),closed=apply(open,'closed');
+  const r=parsed(closed),rulings=r.record_data.rulings;
+  strictEqual(r.status,'closed');strictEqual(rulings.length,4);strictEqual(rulings[1].supersedes_ruling_id,rulings[0].id);strictEqual(rulings[2].kind,'withdraw');strictEqual(rulings[2].supersedes_ruling_id,rulings[1].id);strictEqual(rulings[3].supersedes_ruling_id,rulings[2].id);strictEqual(r.record_data.active_ruling_id,rulings[3].id);
+  strictEqual(parsed(held).record_data.hold.reason,'A concrete reason.');strictEqual(parsed(held).record_data.active_ruling_id,undefined);strictEqual(parsed(open).record_data.hold,undefined);
+  deepStrictEqual(r.record_data.options,nativeFixture().record_data.options);
+  throws(()=>apply(initial,'ruled',{optionId:recordId('option',99)}),e=>e.code==='native-invalid-option');
+  const agent={kind:'agent',id:'agent:fixture',session_id:'fixture'};
+  strictEqual(parsed(apply(initial,'held',{},agent)).status,'held');
+  for(const [source,action] of [[initial,'ruled'],[initial,'closed'],[first,'open'],[first,'held']])throws(()=>apply(source,action,{optionId:recordId('option',4)},agent),e=>e.code==='native-authority-required');
+});
+it('rejects malformed records and invalid transitions without selecting between competing heads',()=>{
+  throws(()=>apply(nativeSource().replace('runlist.record/v1','runlist.record/v9'),'held'),e=>e.code==='invalid-record');
+  throws(()=>apply(nativeSource(nativeFixture('flag')),'reopen'),e=>e.code==='native-state-conflict');
+  throws(()=>apply(nativeSource(),'delete'),e=>e.code==='native-invalid-action');
+  const raw=apply(nativeSource(),'ruled',{optionId:recordId('option',4)}),r=parsed(raw);r.record_data.rulings.push({...r.record_data.rulings[0],id:recordId('ruling',77)});
+  throws(()=>apply(nativeSource(r),'closed'),e=>e.code==='invalid-record');
+});
+it('shares CAS, trusted actor and durable retry recovery while refusing tampered native requests or plain metadata saves',()=>{
+  const repo=mkdtempSync(path.join(os.tmpdir(),'runlist-native-actions-'));dirs.push(repo);mkdirSync(path.join(repo,'docs'));
+  const file=path.join(repo,'docs/record.md'),before=nativeSource(),config={repoRoot:repo,docsRoot:path.join(repo,'docs')};writeFileSync(file,before);
+  const make=extra=>createSourceEditor({config,authenticate:()=>owner,authorize:()=>({allowed:true}),domainPrepare:prepareNativeAction,...extra});
+  const req={...request('ruled',{optionId:recordId('option',4)}),path:file,expectedRevision:sourceRevision(before),actor:{kind:'agent',id:'forged'}};req.source=prepareNativeAction(before,req,owner);
+  const editor=make();throws(()=>editor.save(null,req),e=>e.code==='managed-fields');
+  throws(()=>editor.nativeAction(null,{...req,source:req.source.replace('Context stays','Changed body')}),e=>e.code==='review-conflict');
+  throws(()=>make({domainPrepare:null}).nativeAction(null,req),e=>e.code==='unsupported-operation');
+  throws(()=>make({testHooks:{afterPublish:()=>{throw new Error('Lost acknowledgement');}}}).nativeAction(null,req),/Lost acknowledgement/);
+  strictEqual(readFileSync(file,'utf8'),req.source);strictEqual(make().nativeAction(null,req).replayed,true);strictEqual(parsed(readFileSync(file,'utf8')).record_data.rulings.length,1);
+  throws(()=>make().nativeAction(null,{...req,note:'Changed request'}),e=>e.code==='operation-reused');
+  const stale={...request('held'),path:file,expectedRevision:sourceRevision(before),source:apply(before,'held')};throws(()=>make().nativeAction(null,stale),e=>e.code==='revision-conflict');
+  const expired={...request('held',{at:'2020-01-01T00:00:00Z'}),path:file,expectedRevision:sourceRevision(req.source)};expired.source=prepareNativeAction(req.source,expired,owner);throws(()=>make().nativeAction(null,expired),e=>e.code==='review-expired');
+  strictEqual(make().inspectOperation(null,{operationId:req.operationId}).actor.id,owner.id);
+});

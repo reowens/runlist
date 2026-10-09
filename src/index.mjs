@@ -13,20 +13,21 @@ import { checkGlossaryConfig } from './glossary-check.mjs';
 import { checkSkillDrift } from './skill-drift.mjs';
 import { checkHubStatusDrift } from './sync-status.mjs';
 import { checkHubMembershipDrift } from './hub-membership.mjs';
+import {parseNativeRecord} from './native-record.mjs';
 
 // `fast: true` skips every pass that produces warnings/errors — the rendered
 // index file consumes only status/title/snapshot/etc., not the validation
 // output. Use it from `regenIndex` (post-mutation index refresh) where
 // validation has already run elsewhere (or will, next time the user runs
-// `dotmd check`). Saves the full-repo `git log` scan in `checkGitStaleness`
+// `runlist check`). Saves the full-repo `git log` scan in `checkGitStaleness`
 // plus the bidirectional ref walk + claude-commands check.
 //
 // `errorsOnly: true` runs every built-in error-producing pass (per-file
 // `validateDoc`, `checkIndex`) but skips the warning-only cross-doc
 // passes (bidirectional refs, runlist back-pointers, git staleness, claude
-// commands). Use it from `dotmd hud` — the SessionStart hook only renders the
+// commands). Use it from `runlist hud` — the SessionStart hook only renders the
 // error COUNT, so the warning-only passes are pure overhead there. Preserves
-// the built-in invariant that HUD's error count matches `dotmd check`.
+// the built-in invariant that HUD's error count matches `runlist check`.
 export function buildIndex(config, opts = {}) {
   const { fast = false, errorsOnly = false, autoHealIndex = false } = opts;
   const invokeHooks = opts.invokeHooks ?? !config._execution?.suppressSideEffects;
@@ -119,9 +120,9 @@ export function buildIndex(config, opts = {}) {
   }
 
   if (!fast && config.indexPath) {
-    // `autoHealIndex` is opt-in from the caller (currently `dotmd check`).
+    // `autoHealIndex` is opt-in from the caller (currently `runlist check`).
     // When true, drift triggers an in-place rewrite and a
-    // warning instead of the old "Run `dotmd index`" error — closing the
+    // warning instead of the old "Run `runlist index`" error — closing the
     // class of nags produced by mutation paths that skip `regenIndex`
     // (`lint --fix`, direct file edits, etc). `transformedDocs` here is
     // always the canonical full set; CLI-level `--root`/`--type` filtering
@@ -137,8 +138,8 @@ export function buildIndex(config, opts = {}) {
   }
 
   // Hub status drift produces ERRORS (a drifted marked span), so it runs in
-  // errorsOnly mode too — that's what keeps `dotmd hud`'s error count equal to
-  // `dotmd check`'s. Its warnings still obey the warning-only gate.
+  // errorsOnly mode too — that's what keeps `runlist hud`'s error count equal to
+  // `runlist check`'s. Its warnings still obey the warning-only gate.
   if (!fast) {
     const hubStatus = checkHubStatusDrift(transformedDocs, config);
     errors.push(...hubStatus.errors);
@@ -311,12 +312,14 @@ function extractDocText(frontmatter, body) {
 export function parseDocFile(filePath, config, opts = {}) {
   const { fast = false, cache = null } = opts;
   const relativePath = toRepoPath(filePath, config.repoRoot);
-  const stamp = cache ? fileStamp(filePath) : null;
+  const stamp = cache && opts.source === undefined ? fileStamp(filePath) : null;
   let text = stamp ? cache.get(relativePath, stamp) : null;
   // Validation reads the body itself, so only a fast build can skip the read.
   let body = null;
+  let rawSource = null;
   if (!text || !fast) {
-    const raw = readFileSync(filePath, 'utf8');
+    const raw = opts.source ?? readFileSync(filePath, 'utf8');
+    rawSource = raw;
     const extracted = extractFrontmatter(raw);
     body = extracted.body;
     // A file rewritten between the stat and the read no longer matches its stamp.
@@ -327,7 +330,8 @@ export function parseDocFile(filePath, config, opts = {}) {
     }
   }
   const { parsedFrontmatter, fmWarnings, headingTitle, checklist, bodyLinks, hasCloseout } = text;
-  const title = asString(parsedFrontmatter.title) ?? headingTitle ?? path.basename(filePath, '.md');
+  const nativeTitle = parsedFrontmatter.record_schema==='runlist.record/v1' ? asString(parsedFrontmatter.finding)??asString(parsedFrontmatter.question) : null;
+  const title = nativeTitle ?? asString(parsedFrontmatter.title) ?? headingTitle ?? path.basename(filePath, '.md');
   const summary = asString(parsedFrontmatter.summary) ?? text.bodySummary ?? null;
   // For terminal-status docs (archived / reference / deprecated by default),
   // skip the body-scrape and the "No current_state set" fallback when the user
@@ -440,6 +444,11 @@ export function parseDocFile(filePath, config, opts = {}) {
   }
 
   if (!fast) {
+    if(parsedFrontmatter.record_schema!==undefined&&['flag','decision'].includes(doc.type)){
+      const native=parseNativeRecord(rawSource);
+      doc.errors.push(...native.diagnostics.map(d=>({path:relativePath,level:'error',message:`${d.path}: ${d.message}`})));
+      return doc;
+    }
     validateDoc(doc, parsedFrontmatter, headingTitle, config);
     validatePlanShape(doc, body, parsedFrontmatter, config);
     validateDocShape(doc, body, parsedFrontmatter, config);

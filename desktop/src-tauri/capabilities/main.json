@@ -1,0 +1,6 @@
+{
+  "identifier":"runlist-main",
+  "description":"Bundled main window: scoped checkout operations and native events only.",
+  "windows":["main"],
+  "permissions":["core:event:allow-listen","core:event:allow-unlisten","allow-desktop-status","allow-choose-checkout","allow-checkout-request","allow-close-checkout","allow-finish-quit","allow-open-external","allow-copy-text"]
+}

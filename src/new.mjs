@@ -1,3 +1,4 @@
+import { applyTemplateOverride, readTemplateStore, templateFile } from './template-store.mjs';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, mkdirSync, fstatSync } from 'node:fs';
 import path from 'node:path';
@@ -134,7 +135,7 @@ ${ctx?.bodyInput?.trim() ?? ''}
     description: 'Execution plan — build-up shape (Problem → Phases → Closeout) with phase status markers and Version History',
     dir: 'plans',
     targetRoot: 'plans',
-    // A scaffolded plan is scoped, not being worked; `dotmd use` starts it.
+    // A scaffolded plan is scoped, not being worked; `runlist use` starts it.
     // Defaulting to `active` forced a second, guarded status write for every
     // plan that was only being written down.
     defaultStatus: 'planned',
@@ -247,7 +248,7 @@ Status markers (put in heading text):
 
 // Body inputs from agents often arrive as a full document (frontmatter + body)
 // written to a tempfile and passed via `@path` or stdin. Without this split,
-// `dotmd new` would prepend its scaffold frontmatter and treat the input's
+// `runlist new` would prepend its scaffold frontmatter and treat the input's
 // frontmatter as literal body content — resulting in two `---` blocks and a
 // duplicated title. We instead parse the leading block (if any), merge its
 // keys onto the scaffold, and use only what follows as body. See issue #12
@@ -313,7 +314,7 @@ function mergeBodyFrontmatter(scaffoldFm, overrides, cliType) {
   return fm;
 }
 
-// Metavariables that ship in help text, `dotmd baton`'s signature, and the
+// Metavariables that ship in help text, `runlist baton`'s signature, and the
 // wrap-up nudge. Agents copy them verbatim, and the bare `Body file not found:
 // draft` that resulted read like a missing file rather than an unsubstituted
 // placeholder — so the retry was usually another guess at the path. Only
@@ -329,7 +330,7 @@ function isBodyPlaceholder(file) {
   return BODY_PLACEHOLDER_NAMES.has(file);
 }
 
-// `@-` is the natural composition of the two spellings dotmd documents (`@path`
+// `@-` is the natural composition of the two spellings runlist documents (`@path`
 // and `-`), and agents write it — three times in the platform transcripts, each
 // with a valid heredoc already on stdin that was then thrown away for a file
 // literally named `-`. Nothing else can sensibly be meant by it, so it means
@@ -500,7 +501,7 @@ first non-archived child. \`runlist runlist ${hubSlug}\` shows the sequence + st
 }
 
 // Body for a coordination hub: prose-first domain map with a ranked-queue table.
-// Mirrors the `execution_mode: coordination` shape `dotmd runlists` reads.
+// Mirrors the `execution_mode: coordination` shape `runlist runlists` reads.
 function coordinationHubBody(title, bodyInput, today) {
   return `
 # ${title}
@@ -529,7 +530,7 @@ graph pick it up. -->
 
 // Body for a roadmap hub: the tier-3 hub that composes *runlists* (not leaf
 // plans) and rolls their progress up. Mirrors the coordination-hub shape but its
-// ranked rows point at runlists, and `dotmd roadmap` reads it. Children are wired
+// ranked rows point at runlists, and `runlist roadmap` reads it. Children are wired
 // via related_plans: (each should be a runlist / coordination hub).
 function roadmapHubBody(title, hubSlug, bodyInput, today) {
   return `
@@ -628,7 +629,7 @@ ${bodyInput?.trim() ?? ''}
 }
 
 // Minimal child plan stub for a scaffolded runlist child. parent_plan points
-// back at the hub (same dir) so \`dotmd doctor\` is satisfied and the reverse
+// back at the hub (same dir) so \`runlist doctor\` is satisfied and the reverse
 // link/graph work; status starts `planned` (queued behind the hub).
 export function runlistChildContent(childTitle, hubSlug, hubTitle, childStatus, today) {
   return `---
@@ -718,9 +719,9 @@ export async function runNew(argv, config, opts = {}) {
   }
 
   // Resolve type vs name:
-  //   `dotmd new plan auth-revamp`     → type=plan, name=auth-revamp
-  //   `dotmd new auth-revamp`          → type=doc (default), name=auth-revamp
-  //   `dotmd new prompt foo "body"`    → type=prompt, name=foo, bodyArg="body"
+  //   `runlist new plan auth-revamp`     → type=plan, name=auth-revamp
+  //   `runlist new auth-revamp`          → type=doc (default), name=auth-revamp
+  //   `runlist new prompt foo "body"`    → type=prompt, name=foo, bodyArg="body"
   let typeName, name, bodyArg = null;
   if (positional.length >= 1 && knownTypes.has(positional[0])) {
     typeName = positional[0];
@@ -823,8 +824,8 @@ export async function runNew(argv, config, opts = {}) {
       : (bodyArg.startsWith('@') ? `file (\`${bodyArg}\`)` : 'inline body argument');
   } else {
     // Auto-consume piped or redirected stdin so agents don't need the `-`
-    // placeholder for the most common pattern (`cat draft.md | dotmd new …`,
-    // `dotmd new … < draft.md`, or a `<<'EOF'` heredoc). We probe stdin via
+    // placeholder for the most common pattern (`cat draft.md | runlist new …`,
+    // `runlist new … < draft.md`, or a `<<'EOF'` heredoc). We probe stdin via
     // fstatSync rather than `!isTTY` so a closed/inherited fd doesn't trigger
     // a blocking read of an empty stream. We accept FIFO (shell pipes), regular
     // file (shell redirection / heredoc), and socket (Node spawnSync `input:`
@@ -875,7 +876,7 @@ export async function runNew(argv, config, opts = {}) {
       : '';
 
     // Override-of-builtin diagnosis: the most common cause is a project
-    // dotmd.config.mjs that copy-pasted a stripped-down `plan` template
+    // runlist.config.mjs that copy-pasted a stripped-down `plan` template
     // and dropped the body-acceptance contract. Name that explicitly so
     // an agent can self-fix without spelunking the config.
     const builtin = BUILTIN_TEMPLATES[typeName];
@@ -940,7 +941,7 @@ export async function runNew(argv, config, opts = {}) {
     nameDir = path.join(path.relative(config.repoRoot, targetRoot), template.dir);
   }
 
-  // Path — a directory prefix is read relative to the repo, because `dotmd new
+  // Path — a directory prefix is read relative to the repo, because `runlist new
   // plan docs/plans/feature` is a full repo path and has to stay one. That was
   // the ONLY reading, which is how `--root` came to be silently ignored the
   // moment a name contained a slash: the block above picked a root and this line
@@ -1112,7 +1113,7 @@ export async function runNew(argv, config, opts = {}) {
   // Post-create guidance. Prompts are the classic confusion point: agents
   // reflexively `git add && commit` a freshly-created file, but saved prompts
   // are session-local handoff artifacts — the next session consumes them via
-  // `dotmd use`, and the prompts dir is often gitignored (the commit then fails
+  // `runlist use`, and the prompts dir is often gitignored (the commit then fails
   // confusingly). Tell the agent the next step explicitly, and flag a gitignored
   // target for any type so "why won't this commit" never happens silently.
   if (typeName === 'prompt') {
@@ -1175,7 +1176,7 @@ export function newHelpForRepo(config) {
       ? path.join(catchAllRoot(config), template.dir)
       : catchAllRoot(config));
     const where = toRepoPath(dest, config.repoRoot) + '/';
-    const custom = Object.prototype.hasOwnProperty.call(config.raw?.templates ?? {}, typeName) ? ' (this repo\'s template)' : '';
+    const custom = readTemplateStore(config).data.templates[typeName] ? ' (Markdown template)' : Object.prototype.hasOwnProperty.call(config.raw?.templates ?? {}, typeName) ? ' (this repo\'s template)' : '';
     rows.push(`  ${typeName.padEnd(width)} → ${where}<slug>.md, starts ${start}${custom}`);
     if (statuses.length) rows.push(`  ${''.padEnd(width)}   statuses: ${statuses.join(', ')}`);
   }
@@ -1188,6 +1189,10 @@ ${rows.join('\n')}
 }
 
 function resolveTemplate(name, config) {
+  return applyTemplateOverride(name, resolveBaseTemplate(name, config), config, pkg.version);
+}
+
+function resolveBaseTemplate(name, config) {
   const configTemplates = config.raw?.templates ?? {};
   const override = configTemplates[name];
   const builtin = BUILTIN_TEMPLATES[name];
@@ -1238,7 +1243,7 @@ function listTemplates(config) {
     const desc = typeof tmpl === 'function'
       ? '(custom function)'
       : (tmpl.description ?? '');
-    const source = configTemplates[name] ? dim(' (config)') : '';
+    const source = readTemplateStore(config).data.templates[name] ? dim(' (runlist.templates.json)') : configTemplates[name] ? dim(' (config)') : '';
     process.stdout.write(`  ${name}${source}\n`);
     if (desc) process.stdout.write(`  ${dim(desc)}\n`);
     process.stdout.write('\n');
@@ -1268,4 +1273,46 @@ function runNewDecisionArgs(argv, config, opts) {
   else if (rest.length) record = readBodyInput(rest.join(' '));
   else record = readPipedBodyInput();
   return runNewDecision({ planArg, question, disposition, record, answers }, config, { dryRun: opts.dryRun });
+}
+
+// Browsing templates must never invoke repository-provided JavaScript.
+export function renderAppDocument(name,{title,status,today,bodyInput},config) {
+  const type=name==='hub'?'plan':name;
+  if(!['plan','doc'].includes(type))throw new Error('Choose a plan, doc or hub scaffold.');
+  // Use the CLI's built-in scaffold/Markdown override and authored-body rules.
+  // Repository JavaScript functions are deliberately excluded from previews.
+  const template=name==='hub'?BUILTIN_TEMPLATES.plan:applyTemplateOverride(type,BUILTIN_TEMPLATES[type],config,pkg.version);
+  const ctx={title,status,today,bodyInput,validSurfaces:config.raw?.taxonomy?.surfaces??(config.validSurfaces?[...config.validSurfaces]:null),validModules:config.raw?.taxonomy?.modules??(config.validModules?[...config.validModules]:null)};
+  let fm=template.frontmatter(status,today,ctx);
+  if(name==='hub')fm=mergeBodyFrontmatter(fm,{execution_mode:'coordination'},'plan');
+  const authored=name==='hub'||template._overridesBuiltin?fullBodyShortcut(title,bodyInput):null;
+  const body=authored??(name==='hub'?coordinationHubBody(title,bodyInput,today):template.body(title,ctx));
+  return `---\n${fm}\n---\n${body}`;
+}
+
+export function appDocumentTemplates(config) {
+  const catalog = appTemplates(config);
+  const templates = catalog.templates.filter(t => ['plan','doc'].includes(t.name)).map(t => ({
+    ...t, origin:t.configuredSource && !t.overridden ? 'Built-in Markdown' : t.origin, type:t.name, defaultStatus:t.name === 'plan' ? 'planned' : 'active',
+    // JavaScript templates cannot be safely executed just to show a preview.
+    note:t.configuredSource && !t.overridden ? 'Uses the built-in Markdown scaffold. Customize and save a Markdown template to use repository-specific content here.' : null,
+  }));
+  const plan = templates.find(t => t.name === 'plan');
+  templates.push({name:'hub',type:'plan',description:'Coordination hub for related plans',defaultStatus:'planned',origin:'Built-in hub',
+    source:`---\n${extractFrontmatter(plan.defaultSource).frontmatter}\nexecution_mode: coordination\n---\n${coordinationHubBody('{{title}}','{{body}}','{{date}}')}`});
+  return {...catalog,templates};
+}
+
+export function appTemplates(config) {
+  const store = readTemplateStore(config);
+  const configFile = config.configPath ? toRepoPath(config.configPath,config.repoRoot) : 'runlist.config.mjs';
+  const code = value => typeof value === 'function' ? value.toString() : Object.entries(value).map(([key,v])=>`${key}: ${typeof v === 'function' ? v.toString() : JSON.stringify(v)}`).join('\n\n');
+  const templates = Object.entries(BUILTIN_TEMPLATES).map(([name,builtin]) => {
+    const ctx = {title:'{{title}}',status:'{{status}}',today:'{{date}}',bodyInput:'{{body}}',validSurfaces:config.raw?.taxonomy?.surfaces ?? (config.validSurfaces ? [...config.validSurfaces] : null),validModules:config.raw?.taxonomy?.modules ?? (config.validModules ? [...config.validModules] : null)};
+    const defaultSource = `---\n${builtin.frontmatter(ctx.status,ctx.today,ctx)}\n---\n${builtin.body(ctx.title,ctx)}`.replaceAll(pkg.version,'{{version}}');
+    const configured = config.raw?.templates?.[name];
+    return {name,description:builtin.description,source:store.data.templates[name]?.source ?? defaultSource,defaultSource,overridden:!!store.data.templates[name],origin:store.data.templates[name] ? templateFile : configured ? `${configFile} (JavaScript)` : 'Built-in',configuredSource:configured ? code(configured) : null,editable:true};
+  });
+  for (const [name,value] of Object.entries(config.raw?.templates ?? {})) if (!BUILTIN_TEMPLATES[name]) templates.push({name,description:value.description ?? 'Repository template',origin:`${configFile} (JavaScript)`,source:code(value),editable:false});
+  return {templates,revision:store.revision,file:templateFile,version:pkg.version};
 }

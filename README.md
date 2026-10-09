@@ -212,7 +212,7 @@ with a new draft. Baton archives the previous text and refreshes the pending
 prompt in the same operation as any plan release.
 
 Repositories with a commit wrapper can export `batonCommitCommand(message, paths)`
-from `dotmd.config.mjs` and return an argv array such as
+from `runlist.config.mjs` and return an argv array such as
 `['just', 'commit', message, ...paths]`. Baton quotes the printed command and
 excludes session prompts from `paths`.
 

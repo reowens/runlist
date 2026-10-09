@@ -1,0 +1,42 @@
+[package]
+name = "runlist-desktop"
+version = "0.90.0"
+description = "Local Markdown plans and documents"
+authors = ["Robert Owens"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.95"
+
+[lib]
+name = "runlist_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "Runlist"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "=2.7.1", features = [] }
+
+[dependencies]
+tauri = { version = "=2.12.1", features = [] }
+tauri-plugin-dialog = "=2.8.1"
+tauri-plugin-opener = "=2.7.0"
+tauri-plugin-clipboard-manager = "=2.4.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dunce = "=1.0.5"
+uuid = { version = "1", features = ["v4"] }
+tokio = {version="=1.53.2",features= ["rt-multi-thread"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", features = ["Win32_Storage_FileSystem"] }
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+panic = "abort"

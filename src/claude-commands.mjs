@@ -1,20 +1,20 @@
 import { existsSync, readdirSync, readFileSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 
-// dotmd used to scaffold per-repo `.claude/commands/{plans,docs}.md` slash
+// runlist used to scaffold per-repo `.claude/commands/{plans,docs}.md` slash
 // commands — version-stamped, generated from each repo's status vocab, and
-// self-healed by `dotmd hud`. That mechanism is RETIRED. The dotmd Claude Code
+// self-healed by `runlist hud`. That mechanism is RETIRED. The runlist Claude Code
 // plugin (plugins/runlist/skills/runlist/SKILL.md + bundled hooks) now carries the
 // canonical agent-facing workflow into every repo and every subagent, and
-// `dotmd hud` injects the dynamic per-project status vocab at runtime. A static
+// `runlist hud` injects the dynamic per-project status vocab at runtime. A static
 // skill + a runtime hook covers the full picture with no per-repo file to drift.
 //
 // The only job left in this module is teardown: delete the stale generated
-// command files dotmd left behind so retired scaffolding stops shadowing the
-// plugin skill. Removal is banner-gated — files WITHOUT the dotmd marker are
+// command files runlist left behind so retired scaffolding stops shadowing the
+// plugin skill. Removal is banner-gated — files WITHOUT a generated marker are
 // hand-authored (e.g. a repo's own module-*.md / domain-*.md briefings) and are
-// NEVER touched. Every dotmd-stamped file is fair game, including legacy ones
-// dotmd no longer generates (e.g. the old baton.md).
+// NEVER touched. Every generated file is fair game, including legacy ones
+// runlist no longer generates (e.g. the old baton.md).
 
 // Nothing writes these files any more, so only the legacy banner can exist in
 // the wild; the current spelling is accepted too so a banner-gated teardown
@@ -35,10 +35,10 @@ function isGeneratedCommandFile(filePath) {
   }
 }
 
-// Remove every dotmd-generated slash-command file under .claude/commands.
+// Remove every banner-stamped slash-command file under .claude/commands.
 // Returns [{ name, action: 'removed' }] for each file cleaned (or that would be
 // cleaned, in dry-run). Never throws — teardown must not break a hook or a
-// command. User-authored command files (no dotmd banner) survive untouched.
+// command. User-authored command files (no generated banner) survive untouched.
 export function removeGeneratedSlashCommands(cwd, opts = {}) {
   const { dryRun = false } = opts;
   const commandsDir = path.join(cwd, '.claude', 'commands');
@@ -58,7 +58,7 @@ export function removeGeneratedSlashCommands(cwd, opts = {}) {
   return removed;
 }
 
-// Self-heal entrypoint for `dotmd hud` (SessionStart hook). Was: regenerate
+// Self-heal entrypoint for `runlist hud` (SessionStart hook). Was: regenerate
 // stale slash commands. Now: delete the retired generated files so the plugin
 // skill is the single source of truth. Returns only the removed entries; an
 // empty array preserves hud's silent-clean contract. Kept under the old name so
@@ -67,7 +67,7 @@ export function refreshStaleSlashCommands(config) {
   return removeGeneratedSlashCommands(config.repoRoot);
 }
 
-// Retained as a no-op for API stability. `dotmd check` never warned on slash
+// Retained as a no-op for API stability. `runlist check` never warned on slash
 // commands (the old auto-heal made it pure noise), and now there is nothing to
 // generate at all. See git history for the retired scaffolder.
 export function checkClaudeCommands(_cwd, _opts = {}) {

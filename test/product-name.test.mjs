@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import { deepStrictEqual, ok, strictEqual } from 'node:assert';
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 // The product prints `runlist`. Every string the CLI can print, write or show in
 // help lives in a string literal under src/ or bin/ (plus the npm postinstall
@@ -10,7 +11,7 @@ import path from 'node:path';
 //
 // A `dotmd` is allowed for one of two reasons only:
 //   1. IDENTITY — something that still exists under that name (the
-//      `dotmd` executable alias and OpenCode file name).
+//      `dotmd` executable alias and exported error class).
 //   2. LEGACY READER — a name an older build wrote and this one must keep
 //      reading (config files, env vars, state dir, banners, logs, markers).
 // Adding an entry for any other reason is how the old name creeps back into
@@ -22,12 +23,11 @@ const ALLOWED = [
   // 1. IDENTITY
   { re: /dotmd-cli/g, why: 'legacy npm dependency name still recognized' },
   { re: /dotmd@dotmd/g, why: 'legacy Claude Code plugin id during migration' },
-  { re: /\bdotmd\.js\b/g, why: 'installed OpenCode plugin file name' },
-  { re: /\/dotmd\.mjs\b/g, why: 'bin/dotmd.mjs, the shared implementation file' },
+  { re: /\bdotmd\.js\b/g, why: 'legacy OpenCode plugin file still recognized for migration' },
   { re: /\brl dotmd\b/g, why: 'shell completions register the `dotmd` executable alias' },
   { re: /\bDotmdError\b/g, why: 'exported error class name (public API)' },
   { re: /\bdotmd\.agent-context\b/g, why: 'agent-context JSON schema name — a machine contract' },
-  { re: /\bdotmd-export\b/g, why: 'default HTML export directory — renaming would strand existing ignore rules' },
+  { re: /\bdotmd-export\b/g, why: 'existing legacy HTML export directory still reused' },
   // 2. LEGACY READER
   { re: /DOTMD_[A-Z_]*/g, why: 'legacy environment variables, still honored' },
   { re: /\.dotmd\b/g, why: 'legacy state dir, artifact prefix and dot-config name' },
@@ -43,7 +43,7 @@ const ALLOWED = [
 // A literal that is exactly `dotmd`, in these files only.
 const BARE_ALLOWED = new Map([
   ['src/naming.mjs', 'LEGACY_PRODUCT_NAME'],
-  ['bin/dotmd.mjs', 'tolerates a doubled `dotmd use` prefix typed via the alias'],
+  ['bin/runlist.mjs', 'tolerates a doubled `dotmd use` prefix typed via the alias'],
 ]);
 
 const SCANNED = [
@@ -216,8 +216,34 @@ describe('product name in output', () => {
   });
 
   it('the scan actually reaches the help text', () => {
-    const src = readFileSync(path.join(ROOT, 'bin/dotmd.mjs'), 'utf8');
+    const src = readFileSync(path.join(ROOT, 'bin/runlist.mjs'), 'utf8');
     ok(stringLiterals(src).some(l => l.text.startsWith('runlist set <status>')));
+  });
+
+  it('current documentation and help teach the canonical config and skill names', () => {
+    const readme = readFileSync(path.join(ROOT, 'README.md'), 'utf8');
+    ok(readme.includes('from `runlist.config.mjs` and return an argv array'));
+    for (const command of ['docs', 'plans', 'prompts']) {
+      const text = readFileSync(path.join(ROOT, 'plugins/runlist/commands', `${command}.md`), 'utf8');
+      ok(text.includes('See the **runlist** skill'), command);
+      ok(!text.includes('**dotmd**'), command);
+    }
+    const help = spawnSync(process.execPath, [path.join(ROOT, 'bin/runlist.mjs'), 'baton', '--help'], { encoding: 'utf8' });
+    strictEqual(help.status, 0, help.stderr);
+    ok(help.stdout.includes('Repo-specific commit hint (runlist.config.mjs):'));
+    ok(!help.stdout.includes('dotmd.config.mjs'));
+  });
+
+  it('the legacy executable delegates to the canonical CLI without output drift', () => {
+    for (const args of [['--version'], ['--help'], ['baton', '--help']]) {
+      const invoke = name => spawnSync(process.execPath, [path.join(ROOT, 'bin', `${name}.mjs`), ...args], { encoding: 'utf8' });
+      const canonical = invoke('runlist');
+      const legacy = invoke('dotmd');
+      strictEqual(canonical.status, 0, canonical.stderr);
+      strictEqual(legacy.status, canonical.status);
+      strictEqual(legacy.stdout, canonical.stdout);
+      strictEqual(legacy.stderr, canonical.stderr);
+    }
   });
 
   it('every allowlist entry is still needed', () => {

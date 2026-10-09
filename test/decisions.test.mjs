@@ -10,6 +10,7 @@ import {
   dispositionOf,
   recordParts,
   analyzeDecisions,
+  analyzeDecisionItems,
   pendingRows,
   decisionDefects,
   decisionSettings,
@@ -173,6 +174,37 @@ describe('pendingRows', () => {
     const messages = decisionDefects(items).map(d => `${d.id ?? '-'} ${d.message}`);
     deepStrictEqual(messages, ['- missing id, disposition', 'D1 missing disposition', 'D1 id used again in this document (first at line 4)']);
   });
+
+  it('keeps thousands of unrelated decisions with a shared ID separate', () => {
+    const items = analyzeDecisionItems(Array.from({length:4500}, (_,i) => ({
+      doc:`docs/plans/plan-${i}.md`, line:7, id:'D1', kind:'heading',
+      text:'Which shelf? Disposition: OPEN.',
+    })));
+    strictEqual(items.length,4500);
+    ok(items.every(item => item.peers.length === 0));
+    strictEqual(pendingRows(items).length,4500);
+  });
+
+  it('preserves peer and collapsed-row order with repeated basenames and register links', () => {
+    const records = Array.from({length:120}, (_,i) => ({
+      doc:`docs/group-${i%3}/plan-${i%40}.md`, line:i+1, id:`D${i%4}`,
+      kind:['heading','table','register'][i%3],
+      text:`OPEN. Which shelf? D${i%4} [plan-${(i+4)%40}.md](plan-${(i+4)%40}.md). Record: plan-${(i+8)%40}.md.`,
+    }));
+    const items = analyzeDecisionItems(records);
+    const indexRow = item => item.kind === 'register' || item.kind === 'table';
+    const points = (a,b) => a.points.has(b.file) && !(indexRow(a) && b.kind === 'register' && !b.points.has(a.file));
+    for (const item of items) {
+      const expected = items.filter(peer => peer.id === item.id && peer !== item && peer.file !== item.file && (points(item,peer) || points(peer,item)));
+      deepStrictEqual(item.peers.map(p=>p.line),expected.map(p=>p.line));
+    }
+    const expected = [];
+    for (const item of [...items].sort((a,b)=>(a.kind === 'register'?0:1)-(b.kind === 'register'?0:1))) {
+      if (!expected.some(k=>k.id === item.id && (k.doc === item.doc || k.peers.includes(item)))) expected.push(item);
+    }
+    expected.sort((a,b)=>a.id.localeCompare(b.id,'en',{numeric:true}) || a.doc.localeCompare(b.doc));
+    deepStrictEqual(pendingRows(items,{all:true}).map(i=>i.line),expected.map(i=>i.line));
+  });
 });
 
 describe('misreads', () => {
@@ -279,6 +311,20 @@ describe('runlist decisions (CLI)', () => {
 });
 
 describe('what a decision blocks', () => {
+  it('indexes linked work without losing range, proximity, duplicate-link or ordering semantics', () => {
+    const items=[{id:'A7',doc:'docs/plans/one.md',file:'one.md',line:10,text:'Open.'},{id:'A2 to A12',doc:'docs/plans/one.md',file:'one.md',line:11,text:'Open.'}];
+    const docs=[{path:'docs/plans/other.md',work:[
+      {line:1,kind:'item',section:'First',text:'A7 after [one](one.md#work) and one.md.'},
+      {line:2,kind:'item',section:'First',text:'A7 '+'x'.repeat(30)+' one.md.'},
+      {line:3,kind:'item',section:'First',text:'A7-B after one.md.'}
+    ]},{path:'docs/plans/one.md',work:[
+      {line:4,kind:'item',section:'Own',text:'A2 through 12 waits.'},
+      {line:10,kind:'item',section:'Own',text:'A7 is itself a decision.'}
+    ]},{path:'docs/plans/unrelated.md',work:[{line:1,kind:'item',section:'Other',text:'A7 waits on another.md.'}]}];
+    const result=blocksOf(items,docs);
+    deepStrictEqual(result.get(items[0]).map(r=>[r.doc,r.line]),[['docs/plans/other.md',1],['docs/plans/one.md',4]]);
+    deepStrictEqual(result.get(items[1]).map(r=>[r.doc,r.line]),[['docs/plans/one.md',4]]);
+  });
   it('names an id alone or inside a written range, and not a longer id', () => {
     ok(namesId('- [ ] Build the shelf once D3 is ruled.', 'D3'));
     ok(namesId('12 questions, A1 to A12 in § Decisions, wait on him', 'A7'));

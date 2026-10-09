@@ -111,6 +111,7 @@ describe('telemetry sanitizer', () => {
       ['new', 'plan', 'work', secret],
       ['new', 'overview', secret],
       ['new', 'decision', 'work', '--question', secret, '--answers', `${secret}_OPTIONS`, '@record.md'],
+      ['decision', 'work', 'D1', '--disposition', 'ruled', '--choice', secret, '--note', `${secret}_REASON`],
       ['prompts', 'new', 'resume-work', `---\n${secret}`],
       ['new', 'prompt', '--config', 'dotmd.config.mjs', 'resume-work', secret],
       ['baton', 'work', secret],

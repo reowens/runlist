@@ -20,6 +20,7 @@ const DEFAULTS = {
   archiveDir: 'archived',
   excludeDirs: [],
   externalBodyLinkRoots: [],
+  records: null,
   // Floor under the scan surface; null = off. See `applyScanFloor` in validate.mjs.
   minDocs: null,
 
@@ -143,7 +144,7 @@ const DEFAULTS = {
   // `runlist flag` / `runlist flags`: { file } moves the log from .runlist/flags.jsonl.
   flags: null,
 
-  // Opt-in JSONL command journal at .dotmd/journal.jsonl. Default off — agents
+  // Opt-in JSONL command journal at .runlist/journal.jsonl. Default off — agents
   // and users who want usage observability flip this on (or set RUNLIST_JOURNAL=1).
   journal: false,
 

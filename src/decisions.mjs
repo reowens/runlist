@@ -492,23 +492,36 @@ const clip = (t, n) => (t.length > n ? `${t.slice(0, n - 1).trimEnd()}…` : t);
  * `[{ doc, line, kind, section, text }]`.
  */
 export function blocksOf(items, docs, all = items) {
-  const work = docs.map(d => ({
-    path: d.path,
-    entries: openWork(d.text).map(e => ({ ...e, ranges: writtenRanges(e.text) })),
-  }));
   // An entry that is itself a decision item is the record, not what waits on it.
   const starts = new Set(all.map(i => `${i.doc}:${i.line}`));
+  // Only the decision's own document or an entry linking its basename can
+  // block it. Index that scope once instead of scanning every open item for
+  // every decision. The final namesId/nearby-link checks retain the grammar.
+  const byDocument = new Map(), byLinkedFile = new Map();
+  let order = 0;
+  const append = (map, key, entry) => {
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(entry);
+  };
+  for (const doc of docs) for (const entry of doc.work ?? openWork(doc.text)) {
+    if (starts.has(`${doc.path}:${entry.line}`)) continue;
+    const work = {...entry, path:doc.path, order:order++, ranges:writtenRanges(entry.text)};
+    append(byDocument, doc.path, work);
+    for (const match of entry.text.matchAll(LINK)) {
+      const file = (match[1] ?? match[2]).split('/').pop();
+      append(byLinkedFile, file, work);
+    }
+  }
   const out = new Map();
   for (const item of items) {
     if (!item.id) continue;
     const found = statedBlocks(item.text).map(text => ({ doc: item.doc, line: item.line, kind: 'stated', section: null, text }));
-    for (const d of work) {
-      const own = d.path === item.doc;
-      for (const e of d.entries) {
-        if (starts.has(`${d.path}:${e.line}`) || !namesId(e.text, item.id, e.ranges)) continue;
+    const candidates = [...new Set([...(byDocument.get(item.doc) ?? []), ...(byLinkedFile.get(item.file) ?? [])])].sort((a,b)=>a.order-b.order);
+    for (const e of candidates) {
+        const own = e.path === item.doc;
+        if (!namesId(e.text, item.id, e.ranges)) continue;
         if (!own && !linksBesideId(e.text, item.id).has(item.file)) continue;
-        found.push({ doc: d.path, line: e.line, kind: e.kind, section: e.section, text: clip(clean(e.text), 240) });
-      }
+        found.push({ doc: e.path, line: e.line, kind: e.kind, section: e.section, text: clip(clean(e.text), 240) });
     }
     out.set(item, found);
   }
@@ -521,27 +534,33 @@ export function blocksOf(items, docs, all = items) {
  * @param {{path: string, text: string}[]} docs
  */
 export function analyzeDecisions(docs, settings = DEFAULTS) {
-  const s = decisionSettings(settings);
-  const items = [];
-  for (const doc of docs) {
-    for (const item of parseDecisionItems(doc.text, s)) {
-      items.push({
-        ...item,
-        doc: doc.path,
-        docTitle: doc.title ?? null,
-        file: path.basename(doc.path),
-        disposition: dispositionOf(item, s),
-        own: recordParts(item.text, s),
-        points: idPointedDocs(item.text, item.id, item.kind),
-      });
-    }
-  }
+  return analyzeDecisionItems(docs.flatMap(doc => parseDecisionItems(doc.text, settings)
+    .map(item => ({ ...item, doc: doc.path, docTitle: doc.title ?? null }))), settings);
+}
 
-  const byId = new Map();
-  for (const item of items) {
+/** Assemble already parsed records without retaining their containing documents. */
+export function analyzeDecisionItems(records, settings = DEFAULTS) {
+  const s = decisionSettings(settings);
+  const items = records.map(item => ({
+    ...item,
+    file: path.basename(item.doc),
+    disposition: dispositionOf(item, s),
+    own: recordParts(item.text, s),
+    points: idPointedDocs(item.text, item.id, item.kind),
+  }));
+
+  const byId = new Map(), order = new Map();
+  for (const [at, item] of items.entries()) {
+    order.set(item, at);
     if (!item.id) continue;
-    if (!byId.has(item.id)) byId.set(item.id, []);
-    byId.get(item.id).push(item);
+    if (!byId.has(item.id)) byId.set(item.id, { files:new Map(), incoming:new Map() });
+    const group = byId.get(item.id);
+    for (const [map, keys] of [[group.files, [item.file]], [group.incoming, item.points]]) {
+      for (const key of keys) {
+        if (!map.has(key)) map.set(key, []);
+        map.get(key).push(item);
+      }
+    }
   }
   // A register or table row names every document on its line, so its link to
   // a register row is only a pairing when the register row points back: a
@@ -552,7 +571,12 @@ export function analyzeDecisions(docs, settings = DEFAULTS) {
   const linked = (a, b) => a !== b && a.file !== b.file && (points(a, b) || points(b, a));
 
   for (const item of items) {
-    item.peers = item.id ? byId.get(item.id).filter(p => linked(item, p)) : [];
+    const group = byId.get(item.id);
+    const candidates = group ? new Set([
+      ...(group.incoming.get(item.file) ?? []),
+      ...[...item.points].flatMap(file => group.files.get(file) ?? []),
+    ]) : new Set();
+    item.peers = [...candidates].filter(p => linked(item, p)).sort((a,b) => order.get(a)-order.get(b));
     const parts = { ...item.own };
     for (const peer of item.peers) for (const k of Object.keys(parts)) if (peer.own[k]) parts[k] = true;
     item.parts = parts;
@@ -577,10 +601,14 @@ export function pendingRows(items, { doc = null, all = false, blocks = null } = 
   let rows = items.filter(i => i.id && (all || PENDING.has(i.effective)));
   if (doc) rows = rows.filter(i => i.doc === doc);
   const kept = [];
+  const seen = new Set(), seenDocuments = new Map();
   const rank = i => (i.kind === 'register' ? 0 : 1);
   for (const item of [...rows].sort((a, b) => rank(a) - rank(b))) {
-    const dup = kept.find(k => k.id === item.id && (k.doc === item.doc || k.peers.includes(item)));
-    if (!dup) kept.push(item);
+    if (seen.has(item) || seenDocuments.get(item.id)?.has(item.doc)) continue;
+    kept.push(item);
+    if (!seenDocuments.has(item.id)) seenDocuments.set(item.id, new Set());
+    seenDocuments.get(item.id).add(item.doc);
+    for (const peer of item.peers) seen.add(peer);
   }
   const shared = new Map();
   for (const k of kept) shared.set(k.id, (shared.get(k.id) ?? 0) + 1);
@@ -617,6 +645,7 @@ function questionOf(item) {
 }
 
 const clean = t => t
+  .replace(/\*\*Recorded outcome:\*\*[\s\S]*?\*\*Original record:\*\*/g, '')
   .replace(/\|/g, ' ')
   .replace(/\*\*/g, '')
   .replace(/`/g, '')

@@ -1,0 +1,912 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:runlist:record:v1",
+  "title": "Runlist native record v1 (normalized frontmatter)",
+  "type": "object",
+  "properties": {
+    "record_schema": {
+      "const": "runlist.record/v1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^(plan|flag|decision):[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "type": {
+      "enum": [
+        "plan",
+        "flag",
+        "decision"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "created": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d(?:\\.\\d{1,3})?Z$"
+    },
+    "updated": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d(?:\\.\\d{1,3})?Z$"
+    },
+    "finding": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "question": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "record_data": {
+      "$ref": "#/$defs/commonData"
+    }
+  },
+  "required": [
+    "record_schema",
+    "id",
+    "type",
+    "status",
+    "created",
+    "updated",
+    "record_data"
+  ],
+  "additionalProperties": true,
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "flag"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^(flag):[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "status": {
+          "enum": [
+            "open",
+            "resolved",
+            "rejected"
+          ]
+        },
+        "record_data": {
+          "$ref": "#/$defs/flagData"
+        }
+      },
+      "required": [
+        "finding"
+      ],
+      "additionalProperties": true
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "decision"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^(decision):[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "status": {
+          "enum": [
+            "open",
+            "held",
+            "ruled",
+            "closed"
+          ]
+        },
+        "record_data": {
+          "$ref": "#/$defs/decisionData"
+        }
+      },
+      "required": [
+        "question"
+      ],
+      "additionalProperties": true
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "plan"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^(plan):[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        }
+      },
+      "required": [],
+      "additionalProperties": true
+    }
+  ],
+  "$defs": {
+    "actor": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "human",
+            "agent",
+            "check",
+            "imported"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "additionalProperties": true
+    },
+    "target": {
+      "type": "object",
+      "properties": {
+        "repository_id": {
+          "type": "string",
+          "pattern": "^(repo):[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^(plan|item|flag|decision|evidence):[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      },
+      "required": [
+        "repository_id",
+        "id"
+      ],
+      "additionalProperties": true
+    },
+    "alias": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "namespace": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      },
+      "required": [
+        "value",
+        "namespace"
+      ],
+      "additionalProperties": true
+    },
+    "revision": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "git",
+            "content",
+            "unknown"
+          ]
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "dirty": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": true
+    },
+    "anchor": {
+      "type": "object",
+      "properties": {
+        "symbol": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "start_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "end_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "quote": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [],
+      "additionalProperties": true
+    },
+    "evidence": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^(evidence):[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "kind": {
+          "enum": [
+            "code",
+            "document",
+            "command",
+            "test",
+            "url"
+          ]
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d(?:\\.\\d{1,3})?Z$"
+        },
+        "by": {
+          "$ref": "#/$defs/actor"
+        },
+        "repository_id": {
+          "type": "string",
+          "pattern": "^(repo):[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "revision": {
+          "$ref": "#/$defs/revision"
+        },
+        "anchor": {
+          "$ref": "#/$defs/anchor"
+        },
+        "uri": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "argv": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "exit": {
+          "type": "integer"
+        },
+        "result_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "rule_id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "coverage": {
+          "type": "object",
+          "properties": {
+            "complete": {
+              "type": "boolean"
+            },
+            "repository_id": {
+              "type": "string",
+              "pattern": "^(repo):[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "kind": {
+              "enum": [
+                "repository",
+                "files"
+              ]
+            },
+            "paths": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              }
+            }
+          },
+          "required": [
+            "complete",
+            "repository_id",
+            "kind",
+            "paths"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "observed_at",
+        "by"
+      ],
+      "additionalProperties": true
+    },
+    "relation": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^(relation):[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "source_id": {
+          "type": "string",
+          "pattern": "^(plan|item|flag|decision):[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "kind": {
+          "enum": [
+            "about",
+            "affects",
+            "blocks",
+            "resolved-by",
+            "supersedes",
+            "verified-by"
+          ]
+        },
+        "target": {
+          "$ref": "#/$defs/target"
+        },
+        "by": {
+          "$ref": "#/$defs/actor"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d(?:\\.\\d{1,3})?Z$"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      },
+      "required": [
+        "id",
+        "source_id",
+        "kind",
+        "target",
+        "by",
+        "at"
+      ],
+      "additionalProperties": true
+    },
+    "event": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^(event):[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "by": {
+          "$ref": "#/$defs/actor"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d(?:\\.\\d{1,3})?Z$"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "evidence_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(evidence):[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "by",
+        "at"
+      ],
+      "additionalProperties": true
+    },
+    "commonData": {
+      "type": "object",
+      "properties": {
+        "repository_id": {
+          "type": "string",
+          "pattern": "^(repo):[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "created_by": {
+          "$ref": "#/$defs/actor"
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/alias"
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        },
+        "relations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/relation"
+          }
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/event"
+          }
+        },
+        "requires": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "extensions": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "repository_id",
+        "created_by",
+        "aliases",
+        "evidence",
+        "relations",
+        "history"
+      ],
+      "additionalProperties": true
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "manual",
+            "check",
+            "import"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "rule_id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "finding_key": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      },
+      "required": [
+        "kind",
+        "name",
+        "finding_key"
+      ],
+      "additionalProperties": true
+    },
+    "triage": {
+      "type": "object",
+      "properties": {
+        "disposition": {
+          "enum": [
+            "unreviewed",
+            "accepted",
+            "rejected"
+          ]
+        },
+        "by": {
+          "$ref": "#/$defs/actor"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d(?:\\.\\d{1,3})?Z$"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      },
+      "required": [
+        "disposition"
+      ],
+      "additionalProperties": true
+    },
+    "resolution": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^(resolution):[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "by": {
+          "$ref": "#/$defs/actor"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d(?:\\.\\d{1,3})?Z$"
+        },
+        "method": {
+          "enum": [
+            "manual",
+            "check",
+            "test"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "evidence_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(evidence):[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "by",
+        "at",
+        "method",
+        "reason",
+        "evidence_ids"
+      ],
+      "additionalProperties": true
+    },
+    "flagData": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/commonData"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "severity": {
+              "enum": [
+                "problem",
+                "warn",
+                "info"
+              ]
+            },
+            "source": {
+              "$ref": "#/$defs/source"
+            },
+            "occurrence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "triage": {
+              "$ref": "#/$defs/triage"
+            },
+            "resolutions": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/resolution"
+              }
+            },
+            "active_resolution_id": {
+              "type": "string",
+              "pattern": "^(resolution):[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            }
+          },
+          "required": [
+            "severity",
+            "source",
+            "occurrence",
+            "triage",
+            "resolutions"
+          ],
+          "additionalProperties": true
+        }
+      ]
+    },
+    "consequence": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "benefit",
+            "cost",
+            "risk",
+            "follow-up"
+          ]
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "affects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/target"
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "text"
+      ],
+      "additionalProperties": true
+    },
+    "option": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^(option):[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "consequences": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/consequence"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "description",
+        "consequences"
+      ],
+      "additionalProperties": true
+    },
+    "authority": {
+      "type": "object",
+      "properties": {
+        "basis": {
+          "enum": [
+            "human",
+            "delegated"
+          ]
+        },
+        "grant_ref": {
+          "$ref": "#/$defs/target"
+        }
+      },
+      "required": [
+        "basis"
+      ],
+      "additionalProperties": true
+    },
+    "ruling": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^(ruling):[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "by": {
+          "$ref": "#/$defs/actor"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d(?:\\.\\d{1,3})?Z$"
+        },
+        "kind": {
+          "enum": [
+            "select",
+            "withdraw"
+          ]
+        },
+        "option_id": {
+          "type": "string",
+          "pattern": "^(option):[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "authority": {
+          "$ref": "#/$defs/authority"
+        },
+        "evidence_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(evidence):[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          }
+        },
+        "supersedes_ruling_id": {
+          "type": "string",
+          "pattern": "^(ruling):[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        }
+      },
+      "required": [
+        "id",
+        "by",
+        "at",
+        "kind",
+        "reason",
+        "authority",
+        "evidence_ids"
+      ],
+      "additionalProperties": true
+    },
+    "recommendation": {
+      "type": "object",
+      "properties": {
+        "by": {
+          "$ref": "#/$defs/actor"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d(?:\\.\\d{1,3})?Z$"
+        },
+        "option_id": {
+          "type": "string",
+          "pattern": "^(option):[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "evidence_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(evidence):[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          }
+        }
+      },
+      "required": [
+        "by",
+        "at",
+        "option_id",
+        "reason",
+        "evidence_ids"
+      ],
+      "additionalProperties": true
+    },
+    "hold": {
+      "type": "object",
+      "properties": {
+        "by": {
+          "$ref": "#/$defs/actor"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d(?:\\.\\d{1,3})?Z$"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      },
+      "required": [
+        "by",
+        "at",
+        "reason"
+      ],
+      "additionalProperties": true
+    },
+    "decisionData": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/commonData"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "options": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/option"
+              }
+            },
+            "recommendations": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/recommendation"
+              }
+            },
+            "rulings": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ruling"
+              }
+            },
+            "active_ruling_id": {
+              "type": "string",
+              "pattern": "^(ruling):[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "hold": {
+              "$ref": "#/$defs/hold"
+            }
+          },
+          "required": [
+            "options",
+            "recommendations",
+            "rulings"
+          ],
+          "additionalProperties": true
+        }
+      ]
+    }
+  }
+}

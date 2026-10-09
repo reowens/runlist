@@ -1,0 +1,51 @@
+name: External provider qualification
+on:
+  workflow_call:
+    inputs:
+      artifact_url:
+        type: string
+        required: true
+      artifact_sha256:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      artifact_url:
+        description: HTTPS URL of the exact gmax tarball
+        required: true
+      artifact_sha256:
+        description: SHA-256 of that tarball
+        required: true
+permissions:
+  contents: read
+jobs:
+  provider:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.12.0', '24.21.0']
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Require an explicit immutable provider selection
+        env:
+          PROVIDER_URL: ${{ inputs.artifact_url }}
+          PROVIDER_SHA: ${{ inputs.artifact_sha256 }}
+        run: |
+          [[ "$PROVIDER_URL" == https://* ]] || { echo 'Exact HTTPS provider artifact is required'; exit 1; }
+          [[ "$PROVIDER_SHA" =~ ^[a-f0-9]{64}$ ]] || { echo 'Exact provider SHA-256 is required'; exit 1; }
+          curl --fail --location --proto '=https' --proto-redir '=https' "$PROVIDER_URL" --output "$RUNNER_TEMP/provider.tgz"
+      - run: npm ci --prefix desktop --ignore-scripts
+      - name: Pinned Cargo for bundle notices
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal
+          rustup override set 1.95.0
+      - name: Prepare the pinned packaged engine without a window
+        run: npm --prefix desktop run prepare:bundle
+      - name: Fresh native consumer, required actual provider and packaged helper
+        env:
+          PROVIDER_SHA: ${{ inputs.artifact_sha256 }}
+        run: node desktop/scripts/qualify-provider.mjs "$RUNNER_TEMP/provider.tgz" "$PROVIDER_SHA" "$RUNNER_TEMP/provider-consumer" desktop/src-tauri/resources

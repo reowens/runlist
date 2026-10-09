@@ -82,7 +82,10 @@ describe('passive and dry-run whole-tree invariant', () => {
       };
     `);
     spawnSync('git', ['add', '.'], { cwd: repo });
-    spawnSync('git', ['commit', '-m', 'fixture'], { cwd: repo });
+    // A user-configured detached Git maintenance task can repack after the
+    // baseline snapshot, independently of the passive command being tested.
+    const commit = spawnSync('git', ['-c', 'maintenance.auto=false', '-c', 'gc.auto=0', 'commit', '-m', 'fixture'], { cwd: repo, encoding: 'utf8' });
+    strictEqual(commit.status, 0, commit.stderr);
 
     const before = snapshotTree(repo);
     const externalBefore = snapshotTree(externalDir);

@@ -62,10 +62,11 @@ describe('command schema', () => {
   });
 
   it('covers every literal dispatcher command branch', () => {
-    const bin = readFileSync(path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs'), 'utf8');
+    const bin = readFileSync(path.resolve(import.meta.dirname, '..', 'bin', 'runlist.mjs'), 'utf8');
     const dispatched = [...bin.matchAll(/command === '([^']+)'/g)]
       .map(match => match[1])
       .filter(command => !command.startsWith('-'));
+    ok(dispatched.length > 0, 'the canonical entry point must contain the dispatcher');
     const missing = [...new Set(dispatched)].filter(command => !KNOWN_COMMANDS.includes(command));
     deepStrictEqual(missing, []);
   });

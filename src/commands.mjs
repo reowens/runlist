@@ -55,9 +55,10 @@ const definitions = [
   command('init', mutates('repository setup paths and config files'), 'setup', [form('', { options: [flag('--force')] })]),
   command('watch', mutates('proxy: child command policy applies'), 'setup', [form('[command...]', { args: positionals(0, Infinity), passthrough: true })]),
   command('desktop', mutates('explicit desktop installation; otherwise launch only'), 'setup', [
-    form('[--app <application>]', { options: [value('--app')] }),
-    form('install [--from <installer.dmg>]', { subcommands: ['install'], options: [value('--from')] }),
+    form('[--app <application>]', {options:[value('--app')]}),
+    form('install [--from <installer.dmg>]', {subcommands:['install'],options:[value('--from')]}),
   ]),
+  command('app', mutates('authenticated revision-checked document edits and private editor state'), 'setup', [form('[document] [--port <port>]', { args: positionals(0, 1), options: [value('--port')] })]),
 
   command('list', none, 'read', [form('', { options: [flag('--json'), flag('--verbose')] })]),
   command('json', none, 'read', [form('')]),
@@ -105,6 +106,8 @@ const definitions = [
   command('xref', mutates('the flags log under the state directory with --check --flag; otherwise read-only'), 'read', [
     form('<file...> | --check [--flag]', { args: positionals(0, Infinity), options: [flag('--json'), flag('--check'), flag('--flag')] }),
   ]),
+  command('record', mutates('native flag or decision through the shared domain writer'), 'mutate', [form('<file> <action>', { args: positionals(2, 2), options: [value('--note'), value('--option'), value('--expected-revision'), flag('--json')] })]),
+  command('decision', mutates('selected decision source through the source editor'), 'mutate', [form('<file> <id>', { args: positionals(2, 2), options: [value('--disposition'), value('--note'), value('--choice'), value('--expected-revision'), flag('--json')] })]),
   command('decisions', none, 'read', [form('[doc-or-id]', { args: positionals(0, 1), options: [flag('--all'), flag('--json'), flag('--check')] })]),
   command('modules', none, 'read', [form('', { options: [value('--sort'), value('--limit'), flag('--all'), flag('--json')] })]),
   command('module', none, 'read', [form('<name>', { args: positionals(1, 1), options: [value('--sort'), flag('--json')] })]),

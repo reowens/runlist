@@ -202,7 +202,7 @@ export function regenIndex(config, options = {}) {
   try {
     // Fast path: skip validation/git-staleness/ref-checking — the rendered
     // index file only consumes status/title/snapshot/etc. Validation runs on
-    // explicit `dotmd check` / `dotmd index`. This keeps lifecycle commands
+    // explicit `runlist check` / `runlist index`. This keeps lifecycle commands
     // snappy on repos with huge git history or heavy `validate` hooks.
     options.testHooks?.beforeClaimIndex?.();
     writeRenderedIndex(() => buildIndex(config, { fast: true }), config, { testHooks: options.testHooks });
@@ -306,7 +306,7 @@ export function pickupCandidates(index, config, sessionId) {
 // across re-archives (issue #10 finding #6). The pre-0.39.5 behavior used a
 // UTC timestamp on collision, which made the second archive's path
 // non-deterministic and harder to cross-reference against the original.
-// Closeout skeleton injected by `dotmd archive --closeout-template`. Loose
+// Closeout skeleton injected by `runlist archive --closeout-template`. Loose
 // bullet shape (not sub-headings) matches the freeform prose-and-bullets style
 // of existing in-repo closeouts — agents replace bullets with prose when that
 // flows better. The HTML comment is the agent-facing prompt.
@@ -433,7 +433,7 @@ export async function runStatus(argv, config, opts = {}) {
   const oldStatus = asString(parsedFm.status);
 
   if (oldStatus === newStatus) {
-    if (!dryRun && (opts.additionalUpdates?.length || opts.creations?.length)) {
+    if (!dryRun && (opts.additionalUpdates?.length || opts.creations?.length || opts.guards?.length)) {
       // Guards belong here as much as on the mutating paths below: a caller that
       // asked for the status it already has (baton's prompt-only handoff) decided
       // that from this file's status and then writes only its creations, so the
@@ -495,6 +495,7 @@ export async function runStatus(argv, config, opts = {}) {
     die(`Target already exists: ${toRepoPath(targetPath, config.repoRoot)}`);
   }
   let finalPath = targetPath ?? filePath;
+  if(opts.expectedDestination && path.resolve(opts.expectedDestination)!==path.resolve(finalPath))die('Lifecycle destination changed since review; reload before applying.');
 
   if (dryRun) {
     const prefix = dim('[dry-run]');
@@ -539,7 +540,7 @@ export async function runStatus(argv, config, opts = {}) {
   // Any of the four moves above shifts the file's directory, which breaks
   // relative refs in both directions — links FROM the moved file and inbound
   // refs TO it from other docs. runArchive repairs both; mirror that here so
-  // the deprecated `dotmd status <file> archived` path and the `dotmd set`
+  // the deprecated `runlist status <file> archived` path and the `runlist set`
   // unarchive/file/unfile transitions (which route through runStatus, not
   // runArchive) don't silently leave dangling links.
   const selfRefsFixed = Boolean(mutationResult.selfRefsFixed);
@@ -771,7 +772,7 @@ export function runArchive(argv, config, opts = {}) {
     : null;
 
   // Preserve a configured custom archive status (e.g. `done` with archive:true)
-  // when one is threaded through from `dotmd set <archive-status>`. Fall back to
+  // when one is threaded through from `runlist set <archive-status>`. Fall back to
   // the canonical `archived`, or — if the config has no `archived` at all — its
   // first declared archive status, so we never write a status the config can't
   // validate.
@@ -831,6 +832,7 @@ export function runArchive(argv, config, opts = {}) {
   }).path;
   const oldRepoPath = toRepoPath(filePath, config.repoRoot);
   const newRepoPath = toRepoPath(targetPath, config.repoRoot);
+  if(opts.expectedDestination && path.resolve(opts.expectedDestination)!==path.resolve(targetPath))die('Lifecycle destination changed since review; reload before applying.');
 
   if (dryRun) {
     const prefix = dim('[dry-run]');
@@ -923,7 +925,7 @@ export function runArchive(argv, config, opts = {}) {
 }
 
 // Unified status-transition verb. Collapses status/archive/release into one
-// signature — `dotmd set <status> [<path>]` — and dispatches to the right
+// signature — `runlist set <status> [<path>]` — and dispatches to the right
 // plumbing based on the *target* status:
 //   - target in archiveStatuses (and file not already archived) → runArchive
 //     (gets us ref-fixing + atomic ownership release + closeout-template offer)
@@ -935,10 +937,10 @@ export function runArchive(argv, config, opts = {}) {
 // zero records, ambiguity, or corruption, we refuse and ask for explicit `<path>` instead
 // of guessing.
 //
-// `dotmd set in-session <path>` routes through the exact same claim transition
-// as `dotmd use`, including history, ownership, index, and hook completion.
+// `runlist set in-session <path>` routes through the exact same claim transition
+// as `runlist use`, including history, ownership, index, and hook completion.
 
-// Did THIS session already hand off via `dotmd baton`? The journal records the
+// Did THIS session already hand off via `runlist baton`? The journal records the
 // top-level argv of every invocation; a successful `baton …` means a resume
 // prompt was saved this session, so the closure nudge would be redundant. Best
 // effort — a disabled journal degrades to "might nudge," which is harmless for
@@ -1028,6 +1030,7 @@ export async function runSet(argv, config, opts = {}) {
       additionalUpdates: opts.additionalUpdates,
       creations: opts.creations,
       guards: opts.guards,
+      expectedDestination: opts.expectedDestination,
     });
   }
 
@@ -1084,6 +1087,7 @@ export async function runSet(argv, config, opts = {}) {
     guards: opts.guards,
     testHooks: opts.testHooks,
     deferIndex: opts.deferIndex,
+    expectedDestination: opts.expectedDestination,
   });
 
   if (!dryRun) {
@@ -1399,7 +1403,7 @@ export function appendVersionHistory(filePath, entry, { createSection = false } 
 export function updateFrontmatter(filePath, updates) {
   const raw = normalizeEol(readFileSync(filePath, 'utf8'));
   // Name the remedy in the error: this is where every status verb lands when a
-  // doc was created outside dotmd, and "no frontmatter block" alone left
+  // doc was created outside runlist, and "no frontmatter block" alone left
   // sessions retrying other verbs instead of fixing the doc.
   if (!raw.startsWith('---\n')) throw new Error(`${filePath} has no frontmatter block. Retrofit it first: runlist bulk-tag ${filePath} --type <type> --status <status>`);
 

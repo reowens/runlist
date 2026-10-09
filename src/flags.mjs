@@ -1,4 +1,5 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { withPathLocks } from './atomic-mutation.mjs';
@@ -118,7 +119,9 @@ function withFlagsLock(config, fn) {
 }
 
 function append(file, event) {
-  appendFileSync(file, `${JSON.stringify(event)}\n`, { flag: 'a' });
+  const existing=existsSync(file)?readFileSync(file,'utf8'):'';
+  const prefix=existing&&!existing.endsWith('\n')?'\n':'';
+  const fd=openSync(file,'a');try{appendFileSync(fd,`${prefix}${JSON.stringify(event)}\n`);fsyncSync(fd);}finally{closeSync(fd);}
 }
 
 export function addFlag(config, { place, text, severity = 'warn', by = null }) {
@@ -137,14 +140,23 @@ export function addFlag(config, { place, text, severity = 'warn', by = null }) {
   });
 }
 
-export function triageFlag(config, { id, event, note = null, by = null }) {
+export function flagRevision(flag) { return `sha256:${createHash('sha256').update(JSON.stringify(flag)).digest('hex')}`; }
+function flagError(code,message){const error=new Error(message);error.code=code;throw error;}
+export function triageFlag(config, { id, event, note = null, by = null, expectedRevision, operationId = null }) {
+  if(!TRIAGE.has(event))flagError('flag-invalid-action','Choose accept, reject or resolve.');
+  if(operationId&&!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(operationId))flagError('flag-invalid-operation','A valid operation UUID is required.');
   const author = typeof by === 'object' && by ? by : resolveAuthor(by);
+  const requestHash=createHash('sha256').update(JSON.stringify({id,event,note,author,expectedRevision})).digest('hex');
   return withFlagsLock(config, file => {
-    const flag = deriveFlags(readFlagEvents(file)).find(f => f.id === id);
+    const events=readFlagEvents(file),flags=deriveFlags(events),prior=operationId&&events.find(e=>e.operationId===operationId);
+    if(prior){if(prior.requestHash!==requestHash)flagError('flag-operation-reused','This operation ID belongs to another reviewed request.');return {...flags.find(f=>f.id===id),replayed:true};}
+    const flag = flags.find(f => f.id === id);
     if (!flag) die(`No flag ${id}.`);
+    if(expectedRevision!==undefined&&expectedRevision!==flagRevision(flag))flagError('flag-revision-conflict','This flag changed. Reload it and review the current history before retrying.');
     if (flag.state !== 'open') die(`${id} is already ${flag.state === 'closed' ? 'rejected' : flag.state}.`);
-    append(file, { event, id, at: nowIso(), by: author, ...(note ? { note } : {}) });
-    return flag;
+    const entry={event,id,at:nowIso(),by:author,...(note?{note}:{}),...(operationId?{operationId,requestHash}:{})};
+    append(file,entry);
+    return {...deriveFlags([...events,entry]).find(f=>f.id===id),replayed:false};
   });
 }
 
