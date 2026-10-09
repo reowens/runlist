@@ -81,10 +81,65 @@ export function readInstalledPlugin(opts = {}) {
   const known = readKnownMarketplaces(opts);
   return {
     id: records.id,
+    entries: records.entries,
     version: records.entries[0]?.version ?? null,
     marketplace,
     marketplaceRegistered: Boolean(marketplace && known[marketplace]),
   };
+}
+
+export function pluginScopeLabel(entry) {
+  return `${entry.scope ?? 'unknown scope'}${entry.projectPath ? ` (${entry.projectPath})` : ''}`;
+}
+
+const scopeKey = entry => JSON.stringify([entry.scope, entry.projectPath ?? null]);
+
+// Scope comes from the install registry, not the updater's current directory.
+// Never turn a missing project or unsupported scope into a user-wide update.
+export function planPluginUpdates(plugin) {
+  if (!plugin) return [];
+  if (!plugin?.entries) return [{ kind: 'plugin', cmd: ['claude', 'plugin', 'update', plugin.id] }];
+  const steps = [];
+  const seen = new Set();
+  for (const entry of plugin.entries) {
+    const key = scopeKey(entry);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const scoped = entry.scope === 'project' || entry.scope === 'local';
+    if (!['user', 'project', 'local'].includes(entry.scope) ||
+        (scoped && (typeof entry.projectPath !== 'string' || !path.isAbsolute(entry.projectPath)))) {
+      steps.push({ kind: 'refusal', reason: `cannot update ${plugin.id} at ${pluginScopeLabel(entry)}: ${scoped ? 'an absolute project path is required' : 'scope is not writable by the Claude CLI'}` });
+      continue;
+    }
+    steps.push({ kind: 'plugin', scope: entry.scope, ...(scoped ? { cwd: entry.projectPath } : {}),
+      cmd: ['claude', 'plugin', 'update', plugin.id, '--scope', entry.scope] });
+  }
+  return steps;
+}
+
+// A zero command exit is insufficient: retain every original registration and
+// verify the fresh registry rather than trusting the first installation.
+export function verifyPluginScopeUpdates(before, after, { expectedVersion, minimumVersion } = {}) {
+  if (!before?.entries?.length) return { ok: false, reason: `${before?.id ?? DEFAULT_PLUGIN_ID} plugin is not installed` };
+  const failures = [];
+  const versions = new Set();
+  const targets = new Map([...before.entries, ...(after?.id === before.id ? after.entries : [])].map(entry => [scopeKey(entry), entry]));
+  for (const entry of targets.values()) {
+    const current = after?.id === before.id ? after.entries.filter(item => scopeKey(item) === scopeKey(entry)) : [];
+    if (!current.length) {
+      failures.push(`${pluginScopeLabel(entry)} registration disappeared`);
+      continue;
+    }
+    for (const item of current) {
+      versions.add(item.version);
+      if (parseVer(item.version) === null || (expectedVersion && item.version !== expectedVersion) ||
+          (minimumVersion && compareVersions(item.version, minimumVersion) < 0)) {
+        failures.push(`${pluginScopeLabel(entry)} has ${item.version ?? 'unknown'}, expected ${expectedVersion ?? (minimumVersion ? `at least ${minimumVersion}` : 'a valid version')}`);
+      }
+    }
+  }
+  if (!failures.length && versions.size > 1) failures.push('installed scopes have different versions');
+  return failures.length ? { ok: false, reason: `${before.id}: ${[...new Set(failures)].join('; ')}` } : { ok: true };
 }
 
 // The steps that put a plugin whose marketplace registration is gone back on
@@ -100,7 +155,8 @@ export function planMarketplaceRepair(plugin, { hasClaude, verb }) {
   }
   return [
     { kind: 'marketplace', reason: `${reason} — re-adding it first`, cmd: ['claude', 'plugin', 'marketplace', 'add', CLAUDE_MARKETPLACE] },
-    { kind: 'plugin', needs: 'marketplace', cmd: ['claude', 'plugin', verb, plugin.id] },
+    ...(verb === 'update' ? planPluginUpdates(plugin).map(step => ({ ...step, needs: 'marketplace' }))
+      : [{ kind: 'plugin', needs: 'marketplace', cmd: ['claude', 'plugin', verb, plugin.id] }]),
   ];
 }
 
@@ -134,7 +190,7 @@ export function planUpdate(opts, ctx) {
     } else if (!ctx.hasClaude) {
       steps.push({ kind: 'skip', reason: `claude CLI not found — run \`/plugin update ${ctx.plugin.id}\` from a session instead` });
     } else {
-      steps.push({ kind: 'plugin', cmd: ['claude', 'plugin', 'update', ctx.plugin.id] });
+      steps.push(...planPluginUpdates(ctx.plugin));
     }
     if (ctx.legacyPlugin && ctx.plugin?.id !== LEGACY_PLUGIN_ID) {
       steps.push(ctx.hasClaude
@@ -172,12 +228,14 @@ export function runUpdate(argv, _config, opts = {}) {
       if (plugin.id === LEGACY_PLUGIN_ID || (legacyPlugin && plugin.id !== LEGACY_PLUGIN_ID)) {
         process.stdout.write(yellow(`  legacy Claude plugin ${LEGACY_PLUGIN_ID} is installed — run \`runlist update --plugin-only\` to migrate.\n`));
       }
-      const cmp = compareVersions(plugin.version, pkg.version);
-      const tag = cmp === 0 ? green('in sync')
-        : cmp === null ? dim('(unknown)')
-        : cmp < 0 ? yellow('behind — run `runlist update`')
-        : yellow('ahead — CLI is behind');
-      process.stdout.write(`runlist plugin: ${plugin.version ?? '?'} (${plugin.id}) ${tag}\n`);
+      for (const entry of plugin.entries) {
+        const cmp = compareVersions(entry.version, pkg.version);
+        const tag = cmp === 0 ? green('in sync')
+          : cmp === null ? dim('(unknown)')
+          : cmp < 0 ? yellow('behind — run `runlist update`')
+          : yellow('ahead — CLI is behind');
+        process.stdout.write(`runlist plugin: ${entry.version ?? '?'} (${plugin.id}; ${pluginScopeLabel(entry)}) ${tag}\n`);
+      }
       if (plugin.marketplaceRegistered === false) {
         process.stdout.write(yellow(`  marketplace "${plugin.marketplace}" is not registered — the plugin fails to load; run \`runlist install claude\`\n`));
       }
@@ -203,7 +261,8 @@ export function runUpdate(argv, _config, opts = {}) {
       if (step.kind === 'skip') process.stdout.write(dim(`[dry-run] skip: ${step.reason}\n`));
       else if (step.kind === 'manual') for (const line of step.lines) process.stdout.write(dim(`[dry-run] Run from a session: ${line}\n`));
       else if (step.kind === 'opencode') process.stdout.write(dim(`[dry-run] Would refresh: ${step.path}\n`));
-      else process.stdout.write(dim(`[dry-run] Would run: ${step.cmd.join(' ')}\n`));
+      else if (step.kind === 'refusal') process.stdout.write(yellow(`[dry-run] Refused: ${step.reason}\n`));
+      else process.stdout.write(dim(`[dry-run] Would run: ${step.cmd.join(' ')}${step.cwd ? ` (in ${step.cwd})` : ''}\n`));
     }
     return;
   }
@@ -216,6 +275,12 @@ export function runUpdate(argv, _config, opts = {}) {
   const failures = [];
   const failedKinds = new Set();
   for (const s of steps) {
+    if (s.kind === 'refusal') {
+      failures.push(s);
+      failedKinds.add('plugin');
+      process.stdout.write(yellow(`${s.reason}\n`));
+      continue;
+    }
     if (s.kind === 'skip') {
       process.stdout.write(dim(`skip: ${s.reason}\n`));
       continue;
@@ -236,21 +301,31 @@ export function runUpdate(argv, _config, opts = {}) {
       continue;
     }
     if (s.reason) process.stdout.write(dim(`${s.reason}\n`));
-    process.stdout.write(dim(`$ ${s.cmd.join(' ')}\n`));
+    process.stdout.write(dim(`$ ${s.cmd.join(' ')}${s.cwd ? ` (in ${s.cwd})` : ''}\n`));
     const r = spawnSync(executableName(s.cmd[0]), s.cmd.slice(1), {
       stdio: 'inherit',
+      ...(s.cwd ? { cwd: s.cwd } : {}),
       shell: process.platform === 'win32',
     });
     ran = true;
     if (r.status !== 0) {
       failedKinds.add(s.kind);
       failures.push(s);
-      process.stdout.write(yellow(`(${s.cmd[0]} exited ${r.status ?? '?'})\n`));
+      process.stdout.write(yellow(`(${s.cmd[0]} ${r.error ? `failed: ${r.error.message}` : `exited ${r.status ?? '?'}`})\n`));
       if (s.kind === 'marketplace') for (const line of claudeMarketplaceRefusalHint(plugin?.marketplace)) process.stdout.write(yellow(`${line}\n`));
     }
   }
+  if (plugin?.id === DEFAULT_PLUGIN_ID && steps.some(step => step.kind === 'plugin') && !failedKinds.has('plugin') && !failedKinds.has('marketplace')) {
+    // npm may have replaced this package while this process was running.
+    const currentVersion = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')).version;
+    const verified = verifyPluginScopeUpdates(plugin, readInstalledPluginRecords({ id: plugin.id }), { minimumVersion: currentVersion });
+    if (!verified.ok) {
+      failures.push({ reason: verified.reason });
+      process.stdout.write(yellow(`${verified.reason}\n`));
+    }
+  }
   if (failures.length) {
-    process.stdout.write(yellow(`\n${failures.length === 1 ? '1 step' : `${failures.length} steps`} failed: ${failures.map(s => s.cmd.join(' ')).join('; ')}\n`));
+    process.stdout.write(yellow(`\n${failures.length === 1 ? '1 step' : `${failures.length} steps`} failed: ${failures.map(s => s.cmd ? `${s.cmd.join(' ')}${s.cwd ? ` (in ${s.cwd})` : ''}` : s.reason).join('; ')}\n`));
     if (ran && failures.length < steps.filter(s => s.kind !== 'skip' && s.kind !== 'manual').length) {
       process.stdout.write(dim('the other steps completed; restart your Claude Code session (or /reload-plugins) to apply them.\n'));
     }

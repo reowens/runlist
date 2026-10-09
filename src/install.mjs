@@ -130,16 +130,22 @@ function installClaude(argv, dryRun, json) {
   let ran = false;
   for (const step of steps) {
     if (step.kind === 'skip') { process.stdout.write(`${dim('skip:')} ${step.reason}\n`); continue; }
+    if (step.kind === 'refusal') {
+      process.stdout.write(yellow(`${step.reason}\n`));
+      if (!dryRun) process.exitCode = 1;
+      continue;
+    }
     if (step.kind === 'manual') {
       process.stdout.write(`${yellow(step.reason ?? 'claude CLI not on PATH')} — run these from a Claude Code session:\n`);
       for (const line of step.lines) process.stdout.write(`  ${bold(line)}\n`);
       continue;
     }
     if (step.reason) process.stdout.write(`${step.reason}\n`);
-    if (dryRun) { process.stdout.write(dim(`[dry-run] Would run: ${step.cmd.join(' ')}\n`)); continue; }
-    process.stdout.write(dim(`$ ${step.cmd.join(' ')}\n`));
+    if (dryRun) { process.stdout.write(dim(`[dry-run] Would run: ${step.cmd.join(' ')}${step.cwd ? ` (in ${step.cwd})` : ''}\n`)); continue; }
+    process.stdout.write(dim(`$ ${step.cmd.join(' ')}${step.cwd ? ` (in ${step.cwd})` : ''}\n`));
     const result = spawnSync(executableName(step.cmd[0]), step.cmd.slice(1), {
       stdio: 'inherit', shell: process.platform === 'win32',
+      ...(step.cwd ? { cwd: step.cwd } : {}),
     });
     ran = true;
     if (result.status !== 0) {
@@ -153,7 +159,7 @@ function installClaude(argv, dryRun, json) {
       return;
     }
   }
-  if (ran && !remove) process.stdout.write(green('\n✓ restart Claude Code (or /reload-plugins) to apply.\n'));
+  if (ran && !remove && !process.exitCode) process.stdout.write(green('\n✓ restart Claude Code (or /reload-plugins) to apply.\n'));
 }
 
 function installOpencode(argv, dryRun, json) {

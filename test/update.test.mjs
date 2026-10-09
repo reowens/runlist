@@ -1,13 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, writeFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { compareVersions, readInstalledPlugin, planMarketplaceRepair, planUpdate } from '../src/update.mjs';
+import { compareVersions, readInstalledPlugin, planMarketplaceRepair, planUpdate, planPluginUpdates, verifyPluginScopeUpdates } from '../src/update.mjs';
 import { installOpencodePlugin, installedVersion } from '../src/host-integration.mjs';
 import { detectVersionDrift } from '../src/hud.mjs';
 import { verifyInstalledPluginVersion } from '../scripts/verify-installed-plugin.mjs';
+import { updateInstalledPluginVersion } from '../scripts/update-installed-plugin.mjs';
 
 test('compareVersions orders semver and tolerates junk', () => {
   assert.equal(compareVersions('0.53.0', '0.54.0'), -1);
@@ -19,7 +20,7 @@ test('compareVersions orders semver and tolerates junk', () => {
 });
 
 function withHome(fn) {
-  const home = mkdtempSync(path.join(os.tmpdir(), 'dotmd-upd-'));
+  const home = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'dotmd-upd-')));
   try { return fn(home); } finally { rmSync(home, { recursive: true, force: true }); }
 }
 
@@ -29,7 +30,8 @@ function withHome(fn) {
 function writeInstalled(home, plugins, marketplaces) {
   const dir = path.join(home, '.claude', 'plugins');
   mkdirSync(dir, { recursive: true });
-  writeFileSync(path.join(dir, 'installed_plugins.json'), JSON.stringify({ version: '1', plugins }));
+  const scoped = Object.fromEntries(Object.entries(plugins).map(([id, entries]) => [id, entries.map(entry => ({ scope: 'user', ...entry }))]));
+  writeFileSync(path.join(dir, 'installed_plugins.json'), JSON.stringify({ version: '1', plugins: scoped }));
   const names = marketplaces ?? Object.keys(plugins).map(id => id.split('@')[1]);
   const known = Object.fromEntries(names.map(name => [name, { source: { source: 'github', repo: `x/${name}` } }]));
   writeFileSync(path.join(dir, 'known_marketplaces.json'), JSON.stringify(known));
@@ -38,7 +40,7 @@ function writeInstalled(home, plugins, marketplaces) {
 test('readInstalledPlugin finds runlist@runlist', () => {
   withHome((home) => {
     writeInstalled(home, { 'runlist@runlist': [{ version: '0.54.0' }], 'grepmax@grepmax': [{ version: '0.17.17' }] });
-    assert.deepEqual(readInstalledPlugin({ home }), { id: 'runlist@runlist', version: '0.54.0', marketplace: 'runlist', marketplaceRegistered: true });
+    assert.deepEqual(readInstalledPlugin({ home }), { id: 'runlist@runlist', entries: [{ scope: 'user', version: '0.54.0' }], version: '0.54.0', marketplace: 'runlist', marketplaceRegistered: true });
   });
 });
 
@@ -68,7 +70,7 @@ test('planUpdate migrates the old Claude plugin before uninstalling it', () => {
 test('readInstalledPlugin falls back to any dotmd@* marketplace', () => {
   withHome((home) => {
     writeInstalled(home, { 'dotmd@other': [{ version: '0.50.0' }] });
-    assert.deepEqual(readInstalledPlugin({ home }), { id: 'dotmd@other', version: '0.50.0', marketplace: 'other', marketplaceRegistered: true });
+    assert.deepEqual(readInstalledPlugin({ home }), { id: 'dotmd@other', entries: [{ scope: 'user', version: '0.50.0' }], version: '0.50.0', marketplace: 'other', marketplaceRegistered: true });
   });
 });
 
@@ -172,6 +174,163 @@ test('planUpdate: plugin not installed → skip', () => {
   const steps = planUpdate({ pluginOnly: true }, { plugin: null, hasClaude: true, hasNpm: true });
   assert.equal(steps[0].kind, 'skip');
   assert.match(steps[0].reason, /not installed/);
+});
+
+test('updates all recorded scopes at their projects, deduplicating only the same registration', () => {
+  withHome(home => {
+    const a = path.join(home, 'project one');
+    const b = path.join(home, 'project two');
+    const entries = [{ scope: 'user' }, { scope: 'project', projectPath: a }, { scope: 'local', projectPath: a },
+      { scope: 'project', projectPath: b }, { scope: 'project', projectPath: a }];
+    const plugin = { id: 'runlist@runlist', entries, marketplace: 'runlist', marketplaceRegistered: true };
+    const steps = planUpdate({ pluginOnly: true }, { plugin, hasClaude: true });
+    assert.deepEqual(steps.map(step => [step.cmd.at(-1), step.cwd]), [['user', undefined], ['project', a], ['local', a], ['project', b]]);
+    assert.ok(steps.every(step => step.cmd.at(-2) === '--scope'));
+    const repaired = planMarketplaceRepair({ ...plugin, marketplaceRegistered: false }, { hasClaude: true, verb: 'update' });
+    assert.deepEqual(repaired.slice(1), steps.map(step => ({ ...step, needs: 'marketplace' })));
+  });
+});
+
+test('unsupported scopes and missing project identities do not fall back to the current project or user', () => {
+  const steps = planPluginUpdates({ id: 'runlist@runlist', entries: [
+    { scope: 'managed' }, { scope: 'project' }, { scope: 'local', projectPath: 'relative' }, { scope: 'unknown' }, { scope: 'user' },
+  ] });
+  assert.deepEqual(steps.map(step => step.kind), ['refusal', 'refusal', 'refusal', 'refusal', 'plugin']);
+  assert.deepEqual(steps.at(-1).cmd.slice(-2), ['--scope', 'user']);
+});
+
+test('fresh verification detects lost scopes, mixed versions and stale no-op updates', () => {
+  withHome(home => {
+    const before = { id: 'runlist@runlist', entries: [{ scope: 'user', version: '1.0.0' },
+      { scope: 'project', projectPath: home, version: '0.9.0' }] };
+    const check = after => verifyPluginScopeUpdates(before, after, { expectedVersion: '1.0.0' });
+    assert.match(check({ ...before, entries: [before.entries[0]] }).reason, /registration disappeared/);
+    assert.match(check(before).reason, /project .*has 0.9.0/);
+    assert.equal(verifyPluginScopeUpdates(before, before).ok, false);
+    const current = { ...before, entries: before.entries.map(entry => ({ ...entry, version: '1.0.0' })) };
+    assert.deepEqual(check(current), { ok: true });
+    assert.equal(check({ ...current, entries: [...current.entries, { scope: 'local', projectPath: home, version: '0.8.0' }] }).ok, false);
+  });
+});
+
+test('release updater executes and verifies every scope without trusting command exit alone', () => {
+  withHome(home => {
+    const project = path.join(home, 'project with spaces');
+    mkdirSync(project);
+    let entries = [{ scope: 'user', version: '0.9.0' }, { scope: 'project', projectPath: project, version: '0.8.0' }];
+    writeInstalled(home, { 'runlist@runlist': entries });
+    const calls = [];
+    const result = updateInstalledPluginVersion('1.0.0', { home, log() {}, run(command, args, options) {
+      calls.push([command, args, options.cwd]);
+      const scope = args.at(-1);
+      entries = entries.map(entry => entry.scope === scope ? { ...entry, version: '1.0.0' } : entry);
+      writeInstalled(home, { 'runlist@runlist': entries });
+      return { status: 0 };
+    } });
+    assert.deepEqual(result, { ok: true });
+    assert.deepEqual(calls.map(([, args, cwd]) => [args.at(-1), cwd]), [['user', undefined], ['project', project]]);
+    assert.equal(verifyInstalledPluginVersion('1.0.0', { home }).ok, true);
+    entries[1].version = '0.8.0';
+    writeInstalled(home, { 'runlist@runlist': entries });
+    assert.match(updateInstalledPluginVersion('1.0.0', { home, log() {}, run: () => ({ status: 0 }) }).reason, /project .*has 0.8.0/);
+  });
+});
+
+test('release updater continues independent scopes after a failure and retains project-specific diagnostics', () => {
+  withHome(home => {
+    const project = path.join(home, 'missing project');
+    let entries = [{ scope: 'project', projectPath: project, version: '0.8.0' }, { scope: 'user', version: '0.9.0' }];
+    writeInstalled(home, { 'runlist@runlist': entries });
+    const calls = [];
+    const result = updateInstalledPluginVersion('1.0.0', { home, log() {}, run(command, args, options) {
+      calls.push(args.at(-1));
+      if (options.cwd) return { status: null, error: new Error('project unavailable') };
+      entries[1].version = '1.0.0';
+      writeInstalled(home, { 'runlist@runlist': entries });
+      return { status: 0 };
+    } });
+    assert.deepEqual(calls, ['project', 'user']);
+    assert.equal(result.ok, false);
+    assert.match(result.reason, /project unavailable/);
+    assert.ok(result.reason.includes(project));
+  });
+});
+
+test('update check and dry-run expose all scope versions and execution directories', () => {
+  withHome(home => {
+    const project = path.join(home, 'project with spaces');
+    mkdirSync(project);
+    writeInstalled(home, { 'runlist@runlist': [{ scope: 'user', version: '99.0.0' }, { scope: 'project', projectPath: project, version: '0.1.0' }] });
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'runlist.mjs');
+    const env = { ...process.env, HOME: home, USERPROFILE: home, NO_COLOR: '1' };
+    const check = spawnSync(process.execPath, [bin, 'update', '--check'], { cwd: home, encoding: 'utf8', env });
+    assert.equal(check.status, 0, check.stderr);
+    assert.match(check.stdout, /99.0.0 .*user/);
+    assert.match(check.stdout, /0.1.0 .*project .*behind/);
+    const fakeBin = path.join(home, 'bin');
+    mkdirSync(fakeBin);
+    const fakeClaude = path.join(fakeBin, process.platform === 'win32' ? 'claude.cmd' : 'claude');
+    writeFileSync(fakeClaude, process.platform === 'win32' ? '@exit /b 0\r\n' : '#!/bin/sh\nexit 0\n');
+    chmodSync(fakeClaude, 0o755);
+    const run = args => spawnSync(process.execPath, [bin, 'update', '--plugin-only', ...args], {
+      cwd: home, encoding: 'utf8', env: { ...env, PATH: `${fakeBin}${path.delimiter}${process.env.PATH}` },
+    });
+    const dry = run(['--dry-run']);
+    assert.equal(dry.status, 0, dry.stderr);
+    assert.match(dry.stdout, /--scope user/);
+    assert.ok(dry.stdout.includes(`--scope project (in ${project})`));
+    const noOp = run([]);
+    assert.equal(noOp.status, 1, noOp.stdout + noOp.stderr);
+    assert.match(noOp.stdout, /project .*has 0.1.0/);
+  });
+});
+
+test('CLI update and marketplace install repair execute each scope at its recorded directory', () => {
+  withHome(home => {
+    const first = path.join(home, 'first project');
+    const second = path.join(home, 'second project');
+    const fakeBin = path.join(home, 'bin');
+    for (const dir of [first, second, fakeBin]) mkdirSync(dir);
+    const entries = [{ scope: 'user', version: '0.1.0' }, { scope: 'project', projectPath: first, version: '0.1.0' },
+      { scope: 'local', projectPath: second, version: '0.1.0' }];
+    const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url))).version;
+    const trace = path.join(home, 'calls.jsonl');
+    const script = path.join(fakeBin, 'fake-claude.cjs');
+    writeFileSync(script, `const fs = require('node:fs');
+const path = require('node:path');
+const args = process.argv.slice(2);
+const home = ${JSON.stringify(home)};
+fs.appendFileSync(${JSON.stringify(trace)}, JSON.stringify({ args, cwd: process.cwd() }) + '\\n');
+if (args[1] === 'marketplace') {
+  fs.writeFileSync(path.join(home, '.claude/plugins/known_marketplaces.json'), JSON.stringify({runlist: {source: {source: 'github', repo: 'example/runlist'}}}));
+} else if (args[1] === 'update') {
+  const file = path.join(home, '.claude/plugins/installed_plugins.json');
+  const records = JSON.parse(fs.readFileSync(file));
+  const scope = args[args.indexOf('--scope') + 1];
+  for (const entry of records.plugins['runlist@runlist']) {
+    if (entry.scope === scope && (scope === 'user' || entry.projectPath === process.cwd())) entry.version = ${JSON.stringify(version)};
+  }
+  fs.writeFileSync(file, JSON.stringify(records));
+}
+`);
+    const wrapper = path.join(fakeBin, process.platform === 'win32' ? 'claude.cmd' : 'claude');
+    writeFileSync(wrapper, process.platform === 'win32' ? `@"${process.execPath}" "${script}" %*\r\n`
+      : `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`);
+    chmodSync(wrapper, 0o755);
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'runlist.mjs');
+    const env = { ...process.env, HOME: home, USERPROFILE: home, NO_COLOR: '1', PATH: `${fakeBin}${path.delimiter}${process.env.PATH}` };
+    for (const args of [['update', '--plugin-only'], ['install', 'claude']]) {
+      writeInstalled(home, { 'runlist@runlist': entries }, args[0] === 'install' ? [] : ['runlist']);
+      writeFileSync(trace, '');
+      const result = spawnSync(process.execPath, [bin, ...args], { cwd: home, encoding: 'utf8', env });
+      assert.equal(result.status, 0, result.stdout + result.stderr);
+      const calls = readFileSync(trace, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+      const updates = calls.filter(call => call.args[1] === 'update');
+      assert.deepEqual(updates.map(call => [call.args.at(-1), call.cwd]), [['user', home], ['project', first], ['local', second]]);
+      assert.equal(verifyInstalledPluginVersion(version, { home }).ok, true);
+      if (args[0] === 'install') assert.equal(calls[0].args[1], 'marketplace');
+    }
+  });
 });
 
 test('update --dry-run previews global commands without executing them', () => {

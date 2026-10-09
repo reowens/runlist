@@ -207,6 +207,14 @@ runlist update --cli-only
 runlist update --plugin-only
 ```
 
+Claude plugin updates cover each saved user, project and local installation.
+Project/local updates run from the recorded project folder. `update --check`
+shows each scope separately, and an update verifies the fresh installation
+records before reporting success. Missing project paths, unavailable folders
+and managed scopes are reported rather than silently updating another scope.
+The release workflow uses the same scope selection and verifies every entry
+against the released version.
+
 Restart Claude Code, or run `/reload-plugins`, after a plugin update.
 
 ## Quick Start

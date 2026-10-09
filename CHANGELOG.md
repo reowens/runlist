@@ -2,6 +2,12 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- Update every saved Claude Runlist plugin scope explicitly, running project/local updates from their recorded folders. CLI updates and releases share scope selection and verify fresh installation records, catching stale or disappeared entries even after a successful command exit. `update --check` reports each scope; unsupported scopes and missing project locations are reported without falling back to another installation.
+
 ## 0.93.1 — 2026-10-08
 
 ### Fixed
