@@ -42,7 +42,7 @@
   },
   "homepage": "https://github.com/reowens/runlist#readme",
   "scripts": {
-    "test": "node --import ./test/setup-env.mjs --test test/*.test.mjs",
+    "test": "node --import ./test/setup-env.mjs --test --test-concurrency=4 test/*.test.mjs",
     "postinstall": "node scripts/postinstall.mjs",
     "preversion": "node scripts/release-preflight.mjs && npm test",
     "version": "node scripts/prepare-version-commit.mjs",
