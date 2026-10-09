@@ -2,6 +2,13 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## 0.91.0 — 2026-10-08
+
+### Added
+
+- `runlist desktop install` installs the optional Mac Apple Silicon GUI from official Runlist GitHub Releases. Downloads require a matching SHA-256 digest, the Runlist developer signature and Apple approval. `--from` accepts a local signed DMG and retains the previous app as a rollback copy. Installation does not open the app; an existing app is kept unless `--from` is supplied.
+- `runlist desktop` opens an installed native app, with `--app` for a custom path. Desktop help, launch and install do not load checkout configuration. `--dry-run` previews without network access, file changes or app launch. CLI and GUI versions are independent.
+
 ## 0.90.0 — 2026-10-04
 
 ### Added
