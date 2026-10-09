@@ -2,7 +2,7 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
-## Unreleased
+## 0.91.0 — 2026-10-08
 
 ### Added
 

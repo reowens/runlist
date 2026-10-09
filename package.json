@@ -1,6 +1,6 @@
 {
   "name": "runlist",
-  "version": "0.90.0",
+  "version": "0.91.0",
   "description": "CLI for managing markdown documents with YAML frontmatter — index, query, validate, graph, export, lifecycle, and AI summaries.",
   "type": "module",
   "license": "MIT",
