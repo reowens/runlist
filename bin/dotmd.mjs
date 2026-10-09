@@ -316,6 +316,7 @@ Setup:
   statuses [list|add|set|remove|migrate]  Manage per-project status taxonomy
   help statuses                     Full status vocabulary + unstuck-actions + transitions
   watch [command]                   Re-run a command on file changes
+  desktop [install|--app <path>]    Install or open the optional native GUI
   completions <shell>               Shell completion script (bash, zsh)
   journal [--tail N|--errors|--by-command|--session id|--since iso|--json]
                                     View opt-in JSONL command journal (enable: RUNLIST_JOURNAL=1 or journal: true)
@@ -426,6 +427,22 @@ Related commands:
 
 Run \`runlist statuses list --type plan\` to see the full set (including any
 project-specific custom statuses) with their flags.`,
+
+  desktop: `runlist desktop [--app /path/to/application] — open the native app
+runlist desktop install [--from /path/to/installer.dmg] — install the optional GUI
+
+Install downloads the latest Mac Apple Silicon GUI from Runlist's GitHub
+releases, or uses a local signed DMG with --from. It verifies the Runlist
+developer signature and Apple approval before installing. An existing app is
+kept as-is unless --from is given; replacements retain a rollback copy.
+Installation does not open the app. Windows/Linux installers are not yet
+available through this command. --dry-run uses no network and changes no files.
+
+The app bundles its runtime and uses private pipes, with no listening server.
+Choose a trusted checkout in the app. This command does not load checkout
+configuration. Use --app for a custom installation path or Linux AppImage.
+The available GUI release is currently macOS Apple Silicon.
+--dry-run prints the launch action without opening the app.`,
 
   completions: `runlist completions <bash|zsh> — output shell completion script
 
@@ -1718,7 +1735,8 @@ async function main() {
   const captureHelpConfig = async topic => {
     _resolvedCommand = 'help';
     _helpTopic = topic;
-    _suppressObservability = dryRun;
+    _suppressObservability = dryRun || topic === 'desktop';
+    if (topic === 'desktop') return;
     try { _resolvedConfig = await resolveConfig(process.cwd(), explicitConfig); } catch { /* help works with broken config */ }
   };
 
@@ -1825,6 +1843,19 @@ async function main() {
     try { restArgs = validateCommandArgs(command, restArgs); } catch (err) { die(err.message); }
     const { runCompletions } = await import('../src/completions.mjs');
     runCompletions(restArgs);
+    return;
+  }
+
+  if (command === 'desktop') {
+    requireCommandPolicy(command, dispatchPolicy);
+    try { restArgs = validateCommandArgs(command, restArgs); } catch (err) { die(err.message); }
+    if (restArgs[0] === 'install') {
+      const { runDesktopInstall } = await import('../src/desktop-install.mjs');
+      await runDesktopInstall(restArgs, { dryRun });
+    } else {
+      const { runDesktop } = await import('../src/desktop.mjs');
+      runDesktop(restArgs, { dryRun });
+    }
     return;
   }
 

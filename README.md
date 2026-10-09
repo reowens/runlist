@@ -37,6 +37,36 @@ npm install -g runlist
 Maintainer release automation is POSIX-only because it uses Bash and POSIX
 command-line tools. The published Node.js CLI remains cross-platform.
 
+### Optional desktop GUI
+
+The CLI works on its own. To install the optional GUI on an Apple Silicon Mac
+(macOS 13.5 or newer), run:
+
+```bash
+runlist desktop install
+runlist desktop
+```
+
+The installer downloads the GUI from Runlist's public GitHub Releases, checks
+its SHA-256 digest, developer signature and Apple approval, then installs it
+without opening it. The app bundles its runtime and reads local files through
+private pipes, with no listening server. Choose your checkout folder in the app.
+No checkout configuration is loaded by these CLI commands.
+
+The GUI is versioned separately: the current Mac installer is
+[Runlist 0.91.0-rc.3](https://github.com/reowens/runlist/releases/tag/desktop-v0.91.0-rc.3).
+Windows, Linux and Intel Mac GUI downloads are not yet available through this
+command. An existing app is kept as-is. To replace it using a downloaded signed
+DMG, quit Runlist and run:
+
+```bash
+runlist desktop install --from /path/to/Runlist.dmg
+```
+
+Replacement keeps the previous app as a rollback copy. Add `--dry-run` to preview
+an install or launch without network access, file changes or opening the app.
+Use `runlist desktop --app /path/to/application` for a custom installation path.
+
 ### Agent host setup
 
 The CLI alone gives an agent no orientation and no session identity. Install the

@@ -54,6 +54,10 @@ const definitions = [
   command('completions', none, 'setup', [form('<bash|zsh>', { args: positionals(1, 1) })]),
   command('init', mutates('repository setup paths and config files'), 'setup', [form('', { options: [flag('--force')] })]),
   command('watch', mutates('proxy: child command policy applies'), 'setup', [form('[command...]', { args: positionals(0, Infinity), passthrough: true })]),
+  command('desktop', mutates('explicit desktop installation; otherwise launch only'), 'setup', [
+    form('[--app <application>]', { options: [value('--app')] }),
+    form('install [--from <installer.dmg>]', { subcommands: ['install'], options: [value('--from')] }),
+  ]),
 
   command('list', none, 'read', [form('', { options: [flag('--json'), flag('--verbose')] })]),
   command('json', none, 'read', [form('')]),
