@@ -46,8 +46,9 @@ have their own qualification snapshots.
 The delivered Apple Silicon GUI is **0.92.0-rc.1**, personally signed, accepted
 by Apple and installed at `~/Applications/Runlist.app`, with rollback retained.
 Its [public Mac installer](https://github.com/reowens/runlist/releases/tag/desktop-v0.92.0-rc.1)
-is separate from [CLI 0.92.0](https://github.com/reowens/runlist/releases/tag/v0.92.0),
-which now includes `runlist desktop install`. No further Apple checks are selected.
+is separate from [CLI 0.93.0](https://github.com/reowens/runlist/releases/tag/v0.93.0),
+which adds optional plan-filing checks and includes `runlist desktop install`.
+No further Apple checks are selected.
 The earlier development snapshots and qualification notes below are historical;
 see the current release record.
 
@@ -769,6 +770,52 @@ Roadmaps roll up progress recursively and choose the first startable plan across
 their child hubs. They can also link plans directly. Hubs, including roadmaps,
 are held out of actionable plan counts so dashboards do not double-count their
 children.
+
+### Plan Homes And Filing Checks
+
+This policy is available in CLI 0.93.0. From a source checkout, invoke the
+commands below as `node bin/runlist.mjs …`. The separately versioned GUI
+0.92.0-rc.1 retains its earlier engine; these are CLI reports.
+
+Repositories can enable the plan-home policy in `runlist.config.mjs`:
+
+```js
+export const filing = true;
+// Or choose the category heading level (default: ###):
+// export const filing = { categoryDepth: 3 };
+```
+
+A home is a table row in a live hub whose **first cell links to the plan** and
+whose status cell contains a recognized plan status. Explicit managed status
+markers also count. Links in prose, another row's commentary, frontmatter,
+order lists, or tables without statuses are references. A numbered row with
+the plan in its second cell is an execution order, not a filing home.
+
+Categories come from `###` headings by default (`categoryDepth` accepts 2–6),
+or are inherited from the category where the containing hub is itself filed.
+Hub titles do not supply an inferred category. Conflicting inherited categories
+stay visible. A child with no own row can inherit a home through its explicit
+`parent_plan:` chain; the report names the filed ancestor and its home rows.
+A child's own row takes precedence. Missing, ambiguous or cyclic parent links
+do not invent a home. Hubs and archived/terminal plans are excluded from the
+executable-plan totals; closed hubs do not provide current homes.
+
+```bash
+runlist check                       # filing defect counts
+runlist check --verbose             # affected plans and hub:line locations
+runlist check --json                # filingCoverage, including inherited homes
+runlist coverage                    # plan homes, categories and locations
+runlist coverage --json             # same report under filing
+```
+
+The three findings are **unfiled**, **multiply filed** (multiple rows or
+categories), and **filed under no category**. Findings can overlap. These are
+warnings; Runlist does not choose homes or add/remove rows. An incomplete scan
+is labeled and suppresses absence/uniqueness findings. Path/type-scoped output
+keeps the full hub/ancestor evidence while reporting only selected plans.
+The policy is off when `filing` is unset, false, or `{ enabled: false }`.
+It can replace a repository's older “any link counts” coverage script once
+that repository enables it and retires its custom check.
 
 ## Decisions
 

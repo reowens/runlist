@@ -8,6 +8,7 @@ import { categorizeWarnings } from './check-collapse.mjs';
 import { buildCoordinationIndex, isRoadmapHub } from './runlist.mjs';
 import { resolveStatusMetadata, statusMetadataFor } from './status-metadata.mjs';
 import { readPlanStage } from './stages.mjs';
+import { scopeFilingCoverage } from './filing.mjs';
 
 // Render `currentState` with an `(auto)` prefix when the value was body-scraped
 // rather than read from frontmatter. Lets a reader see at a glance which docs
@@ -527,6 +528,8 @@ function _renderCheck(index, config, opts = {}) {
   lines.push(`- docs scanned: ${index.docs.length}`);
   const stages = index.docs.filter(doc=>doc.type==='plan').map(doc=>readPlanStage(doc.ships));
   if(stages.length)lines.push(`- plan stages: ${stages.filter(stage=>stage.word).length} set; ${stages.filter(stage=>!stage.word&&!stage.invalid).length} Unset; ${stages.filter(stage=>stage.invalid).length} invalid`);
+  const filing = scopeFilingCoverage(index.filingCoverage, index.docs);
+  if (filing && !errorsOnly) lines.push(`- plan filing: ${filing.totals.unfiled} unfiled; ${filing.totals.multiplyFiled} multiply filed; ${filing.totals.noCategory} under no category; ${filing.totals.filedThroughParent} through parent${filing.complete ? '' : ' (incomplete scan)'}`);
   lines.push(`- errors: ${index.errors.length}`);
   lines.push(`- warnings: ${index.warnings.length}`);
   lines.push(`- reference validation: ${referenceValidation.checkedDocs} docs checked; ${referenceValidation.terminalDocsSkipped} terminal docs skipped`);
@@ -594,6 +597,17 @@ export function renderCoverage(index, config) {
   lines.push(`- module:none: ${coverage.totals.moduleNone}`);
   lines.push(`- audit_level:none: ${coverage.totals.auditLevelNone}`);
   lines.push(`- audited (pass1/pass2/deep): ${coverage.totals.audited}`);
+  if (coverage.filing) {
+    const filing = coverage.filing;
+    lines.push(`- plan filing: ${filing.totals.filedDirect} direct, ${filing.totals.filedThroughParent} through parent, ${filing.totals.unfiled} unfiled, ${filing.totals.multiplyFiled} multiply filed, ${filing.totals.noCategory} under no category${filing.complete ? '' : ' (incomplete scan)'}`);
+    lines.push('');
+    lines.push('Plan homes');
+    for (const plan of filing.plans) {
+      const via = plan.filing === 'parent' ? ` through parent ${plan.filedThrough}` : '';
+      const homes = plan.rows.map(row => `${row.hub}:${row.line} [${row.categories.join(', ') || 'no category'}]`).join('; ');
+      lines.push(`- ${plan.path}: ${plan.filing}${via}${homes ? ` — ${homes}` : ''}`);
+    }
+  }
   lines.push('');
 
   for (const [label, list] of [['Missing surface', coverage.missingSurface], ['Missing module', coverage.missingModule], ['module:platform', coverage.modulePlatform], ['module:none', coverage.moduleNone], ['audit_level:none', coverage.auditLevelNone]]) {
@@ -619,6 +633,7 @@ export function buildCoverage(index, config) {
 
   return {
     generatedAt: index.generatedAt, scope,
+    filing: scopeFilingCoverage(index.filingCoverage, index.docs),
     totals: { scopedDocs: scoped.length, missingSurface: missingSurface.length, missingModule: missingModule.length, modulePlatform: modulePlatform.length, moduleNone: moduleNone.length, auditLevelNone: auditLevelNone.length, audited: audited.length },
     missingSurface, missingModule, modulePlatform, moduleNone, auditLevelNone, audited,
   };

@@ -7,6 +7,16 @@
 // Directory containing your markdown docs (relative to this config file)
 export const root = 'docs';
 
+// Optional plan-home policy. A home is a status-bearing hub table row whose
+// first cell links the plan; prose/commentary links do not count. A child can
+// inherit its parent's home through parent_plan:. Closed plans/hubs are excluded.
+// Categories come from ### headings, or from a category where the containing
+// hub is itself rowed. Use categoryDepth: 2..6 for another heading level.
+// check reports warnings; coverage lists homes and locations. Neither chooses
+// homes or rewrites documents. Leave unset/false to disable this policy.
+// export const filing = true;
+// export const filing = { categoryDepth: 3 };
+
 // GUI native flag/decision creation can use explicit persisted identity/settings.
 // Otherwise the first reviewed creation writes runlist.records.json with a
 // generated (or uniquely existing) repo ID, a managed records root and shared:false.

@@ -173,6 +173,12 @@ runlist fix-membership --dry-run --json   # preview the exact child writes
 
 The fixer handles only the safe arrow: one live hub already states the relationship and the live child has no parent. It never generates or edits a hub row, overwrites another parent, or chooses between multiple hubs. `check --fix` and `doctor --apply` include it; bare `doctor` previews it.
 
+#### Plan homes (optional filing policy)
+
+Current source supports `export const filing = true` (or `{ categoryDepth: 3 }`) in config. A filing home is a status-bearing hub table row whose first cell links the plan; prose, commentary, metadata and order-list links are references. Categories come from the selected heading depth or the category where the containing hub is itself filed. A child with no own row inherits a home through its explicit `parent_plan:` chain, with the filed ancestor and row locations reported. Its own row takes precedence. Hubs and closed plans are excluded from executable-plan totals.
+
+`runlist check` reports unfiled, multiply-filed and uncategorized homes as warnings; `--verbose` shows locations, and `--json` exposes `filingCoverage`. `runlist coverage` lists direct/inherited homes (`filing` in JSON). Full hub/ancestor evidence survives path/type scoping. Incomplete scans suppress absence findings. Neither command chooses homes or repairs rows. The policy is off when unset/false; do not enable it or retire a repository's older custom coverage script without that repository's authorization. Available in CLI 0.93.0; use `node bin/runlist.mjs …` when working from this checkout.
+
 #### Roadmap hubs (optional, collecting other hubs)
 
 A roadmap is a hub with `execution_mode: roadmap` whose `related_plans:` collect other hubs, with direct plan children also supported. It rolls progress up across those children recursively: a child hub contributes its own rollup, while a direct plan child counts as one unit. Scaffold with `runlist new hub <hub> --roadmap`; the existing `runlist new plan <hub> --roadmap` form is equivalent. An ordinary area hub does not need a roadmap parent.

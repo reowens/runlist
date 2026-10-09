@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { die, warn } from './util.mjs';
 import { CONFIG_FILENAMES } from './naming.mjs';
 import { validateStageDefinitions } from './stages.mjs';
+import { validateFilingConfig } from './filing.mjs';
 
 // Keys where user config replaces defaults entirely (not deep-merged).
 // These are flat maps or config sections where the user's version is authoritative —
@@ -22,6 +23,7 @@ const DEFAULTS = {
   excludeDirs: [],
   externalBodyLinkRoots: [],
   records: null,
+  filing: null,
   // Floor under the scan surface; null = off. See `applyScanFloor` in validate.mjs.
   minDocs: null,
 
@@ -357,6 +359,7 @@ const VALID_CONFIG_KEYS = new Set(Object.keys(DEFAULTS));
 
 function validateConfig(userConfig, config, validStatuses, indexPath) {
   const warnings = validateStageDefinitions(config);
+  warnings.push(...validateFilingConfig(config.filing));
 
   // statuses.order must be array
   if (config.statuses && config.statuses.order !== undefined && !Array.isArray(config.statuses.order)) {
@@ -679,6 +682,7 @@ export async function resolveConfig(cwd, explicitConfigPath) {
     context: config.context,
     display: config.display,
     referenceFields: config.referenceFields,
+    filing: config.filing,
     presets: config.presets,
     configuredPresetNames: new Set(Object.keys(userConfig.presets ?? {})),
     journal: config.journal === true,

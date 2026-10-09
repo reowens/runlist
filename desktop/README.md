@@ -9,8 +9,9 @@ helper through private stdin/stdout pipes. There is no listening HTTP server,
 runtime download, online account, telemetry, automatic updater or login daemon.
 
 Desktop distribution is separate from the npm CLI. The checkout engine is
-Runlist 0.92.0 and desktop protocol 1. The delivered desktop release is separately
-versioned at 0.92.0-rc.1; additional source features retain their own support limits.
+Runlist 0.93.0 and desktop protocol 1. The delivered desktop release is separately
+versioned at 0.92.0-rc.1 and retains its 0.92.0 engine. Optional filing reports
+are available in CLI 0.93.0; they do not require a desktop rebuild.
 
 ## Current release and next steps
 

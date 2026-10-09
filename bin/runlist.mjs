@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { resolveConfig } from '../src/config.mjs';
 import { readPlanStage } from '../src/stages.mjs';
+import { scopeFilingCoverage } from '../src/filing.mjs';
 import { die, warn, levenshtein, isArchivedPath, toRepoPath } from '../src/util.mjs';
 import { recordCliInvocation, recordGlobalError, sanitizeTelemetryArgv } from '../src/journal.mjs';
 import { findRepeatFailureHint } from '../src/hints.mjs';
@@ -270,7 +271,7 @@ View & Query:
 Analyze:
   stats [--json]                    Doc health dashboard
   health [--json]                   Plan velocity, aging, and pipeline health
-  coverage [--json]                 Metadata coverage report
+  coverage [--json]                 Metadata and configured filing coverage
   graph [--dot] [--json]            Visualize document relationships
   deps [file] [--json]              Dependency tree or overview
   modules [--sort cleanup] [--json] Module dashboard (plans grouped by module)
@@ -619,6 +620,8 @@ Use --dry-run (-n) to preview changes without writing anything.`,
 By default the warning list is suppressed: you see counts plus a one-line
 pointer to \`runlist doctor\` (auto-fix) or \`runlist check --verbose\`
 (per-doc detail). Errors are always shown in full.
+With \`filing\` enabled in config, reports missing/multiple/uncategorized plan
+homes from status-bearing subject rows. These are warnings, never auto-filed.
 
 Options:
   --verbose              Show every warning per-doc (with category collapse
@@ -667,9 +670,11 @@ Options:
                          file is still editable).
   --dry-run, -n          Preview changes without writing anything.`,
 
-  coverage: `runlist coverage — metadata coverage report
+  coverage: `runlist coverage — metadata and configured plan-filing coverage
 
 Shows which docs are missing surface, module, or audit metadata.
+With \`filing\` enabled in config, also lists direct/inherited plan homes,
+their hub row locations and categories, and the three filing defect counts.
 
 Options:
   --json                 Machine-readable JSON output`,
@@ -2297,8 +2302,9 @@ async function main() {
     };
     const checkJson = (checkIndex) => {
       const builtInPassed = checkIndex.errors.length === 0;
-      const complete = skippedCheckHooks.length === 0 && checkIndex.scanCoverage?.complete !== false;
+      const complete = skippedCheckHooks.length === 0 && checkIndex.scanCoverage?.complete !== false && checkIndex.filingCoverage?.complete !== false;
       return {
+        filingCoverage: scopeFilingCoverage(checkIndex.filingCoverage, checkIndex.docs),
         stageCoverage: checkIndex.docs.filter(doc => doc.type === 'plan').reduce((coverage, doc) => {
           const stage = readPlanStage(doc.ships);
           coverage[stage.invalid ? 'invalid' : stage.word === null ? 'unset' : 'set'] += 1;

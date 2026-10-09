@@ -15,6 +15,7 @@ import { checkHubStatusDrift } from './sync-status.mjs';
 import { checkHubMembershipDrift } from './hub-membership.mjs';
 import {parseNativeRecord} from './native-record.mjs';
 import { readShipsFrontmatter } from './stages.mjs';
+import { buildFilingCoverage, filingFindings } from './filing.mjs';
 
 // `fast: true` skips every pass that produces warnings/errors — the rendered
 // index file consumes only status/title/snapshot/etc., not the validation
@@ -199,8 +200,21 @@ export function buildIndex(config, opts = {}) {
     warnings.push(...skillDriftWarnings);
   }
 
+  const filingCoverage = !fast && !errorsOnly ? buildFilingCoverage(transformedDocs, config) : null;
+  if (filingCoverage) {
+    for (const failure of filingCoverage.failures) scanFailures.push({ path: failure.path, level: 'warning',
+      message: `Could not read hub for filing coverage: ${failure.message}`, meta: { kind: 'filing-read-failure' } });
+    if (scanFailures.length) filingCoverage.complete = false;
+    const byPath = new Map(transformedDocs.map(doc => [doc.path, doc]));
+    for (const finding of filingFindings(filingCoverage)) {
+      warnings.push(finding);
+      byPath.get(finding.path)?.warnings.push(finding);
+    }
+  }
+
   return {
     generatedAt: new Date().toISOString(),
+    filingCoverage,
     docs: transformedDocs,
     countsByStatus,
     countsByType,

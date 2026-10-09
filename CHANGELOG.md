@@ -4,6 +4,10 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ## Unreleased
 
+### Added
+
+- Optional subject-row plan filing via `filing` config. Shared check/coverage reports count status-bearing first-cell plan rows, retain hub/line/category evidence, report missing/multiple/uncategorized homes, inherit explicit parent homes and hub categories, and preserve full evidence in scoped output. References remain references; incomplete scans suppress absence findings. The policy reports warnings and does not assign homes or rewrite rows.
+
 ### Documentation
 
 - Clarify that older “runlist” organizing documents are hubs. Coordination, ordered and roadmap hubs are optional shapes of that document concept; ordering plans does not add another container. Align README, desktop, editor-contract, agent guidance and generated Markdown scaffolds, with stages/statuses described separately from document structure. Roadmaps can also contain direct plan children. Existing commands, metadata and historical release terminology are unchanged.
