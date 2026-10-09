@@ -9,7 +9,7 @@ import { authorizeManagedSweep, findLexicalDocsRoot } from './managed-path.mjs';
 
 // Per-type default status for bulk-tagging pre-existing untagged markdown.
 // These intentionally lean conservative (draft / planned) rather than active —
-// the user is triaging files they didn't create through `dotmd new`, so
+// the user is triaging files they didn't create through `runlist new`, so
 // dropping them into the active list would clutter it without consent. The
 // audit handoff endorsed this conservative default.
 const DEFAULT_STATUS_BY_TYPE = {

@@ -28,7 +28,6 @@ const ALLOWED = [
   { re: /\bDotmdError\b/g, why: 'exported error class name (public API)' },
   { re: /\bdotmd\.agent-context\b/g, why: 'agent-context JSON schema name — a machine contract' },
   { re: /\bdotmd-export\b/g, why: 'default HTML export directory — renaming would strand existing ignore rules' },
-  { re: /dotmd:git-metadata:commit/g, why: 'private git-log record sentinel, never printed' },
   // 2. LEGACY READER
   { re: /DOTMD_[A-Z_]*/g, why: 'legacy environment variables, still honored' },
   { re: /\.dotmd\b/g, why: 'legacy state dir, artifact prefix and dot-config name' },

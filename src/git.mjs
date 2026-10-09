@@ -8,7 +8,7 @@ import { ARTIFACT_PREFIX, isOwnedArtifact } from './naming.mjs';
 // Best-effort `git check-ignore` for a path. Returns true only when git
 // definitively reports the path is ignored; any failure (not a repo, git
 // missing, path outside the tree) returns false so callers never block on a
-// false positive. Used by the guard hook and `dotmd new` to warn that a
+// false positive. Used by the guard hook and `runlist new` to warn that a
 // freshly-created doc lives under a gitignored path (the "agent tries to
 // commit a session-local prompt" confusion).
 export function isGitIgnored(absPath, repoRoot) {
@@ -89,7 +89,7 @@ function parseGitMetadataOutput(stdout, dates, commits, history, expectedPaths) 
   let currentCommit = null;
   for (let i = 0; i < fields.length; i++) {
     const field = fields[i];
-    if (field === 'dotmd:git-metadata:commit'
+    if (field === 'runlist:git-metadata:commit'
       && /^[0-9a-f]{40,64}$/i.test(fields[i + 1] ?? '')
       && /^\d{4}-\d{2}-\d{2}T/.test(fields[i + 2] ?? '')) {
       currentCommit = fields[++i];
@@ -168,7 +168,7 @@ export function getGitLastModifiedBatch(repoRoot, relPaths, options = {}) {
   for (let offset = 0; offset < scanPaths.length; offset += maxPathsPerBatch) {
     const batch = scanPaths.slice(offset, offset + maxPathsPerBatch);
     const result = spawnSync('git', [
-      'diff-tree', '--stdin', '--root', '-r', '-z', '--format=%x00dotmd:git-metadata:commit%x00%H%x00%aI%x00', '--name-only', '--diff-filter=ACDMR', '--', ...batch.map(literalGitPathspec),
+      'diff-tree', '--stdin', '--root', '-r', '-z', '--format=%x00runlist:git-metadata:commit%x00%H%x00%aI%x00', '--name-only', '--diff-filter=ACDMR', '--', ...batch.map(literalGitPathspec),
     ], { cwd: repoRoot, encoding: 'utf8', input: revisionList.join('\n') + '\n', maxBuffer });
     parseGitMetadataOutput(result.stdout, dates, commitsByPath, history, expectedPaths);
 
@@ -613,7 +613,7 @@ function prepareMoveIndex(source, target, repoRoot, before, options = {}) {
   // relocation of content git already tracks. Bare `git add` doesn't make that
   // distinction and refuses ("paths are ignored by one of your .gitignore
   // files"), which failed the whole transaction and rolled the move back — so
-  // `dotmd archive` was unusable in any repo that gitignores its docs root
+  // `runlist archive` was unusable in any repo that gitignores its docs root
   // while force-tracking the docs inside it. Force only when the source was
   // tracked; an untracked source stays subject to the ignore.
   const sourceTracked = isTracked(paths[0], repoRoot);

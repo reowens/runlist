@@ -85,7 +85,7 @@ function _renderCompactList(index, config) {
 
   // Surface docs without a status (untagged — either no frontmatter at all,
   // or frontmatter present but no `status:` key). Pre-fix these were silently
-  // dropped because every section filtered by status, so `dotmd list` on a
+  // dropped because every section filtered by status, so `runlist list` on a
   // freshly-init'd brownfield repo with N existing .md files showed just
   // "Index" and looked like the tool didn't see them. Now they get their own
   // section with the path so the user can find them and add frontmatter.
@@ -330,15 +330,15 @@ export function renderBriefing(index, config) {
   // Coordination hubs (prose-first runlists) are navigation maps, not units of
   // work — so lift them out of the live-plan status breakdown into their own
   // `runlists` bucket and drop them from the actionable `>` list, mirroring
-  // `dotmd plans` / `dotmd runlists`. (Sprint `runlist:` hubs stay as ordinary
-  // plans here; their folding treatment is scoped to `dotmd plans`.) On a repo
+  // `runlist plans` / `runlist runlists`. (Sprint `runlist:` hubs stay as ordinary
+  // plans here; their folding treatment is scoped to `runlist plans`.) On a repo
   // with no coordination hubs this is a no-op and the output is unchanged.
   const coordination = buildCoordinationIndex(index, config);
   const isHub = (p) => coordination.has(p.path);
 
   if (plans.length) {
     // Headline counts LIVE plans first — "30 plans: 25 archived, …" skims as
-    // 30 open work items when zero are. "Live" mirrors the `dotmd plans`
+    // 30 open work items when zero are. "Live" mirrors the `runlist plans`
     // filter: not in an archive/terminal status and not filed under archived/.
     const closed = new Set([
       ...(config.lifecycle?.archiveStatuses ?? []),
@@ -353,7 +353,7 @@ export function renderBriefing(index, config) {
     const bySt = {};
     for (const p of live) { if (isHub(p)) continue; bySt[p.status] = (bySt[p.status] ?? 0) + 1; }
     // Coordination hubs are navigation maps, not units of work — held OUT of the
-    // headline plan count entirely (they get their own `N runlists · dotmd
+    // headline plan count entirely (they get their own `N runlists · runlist
     // runlists` pointer line below). The breakdown is leaf statuses only and sums
     // back to the leaf count, so "N live plans" means N things to actually work on.
     const planStatusOrder = (resolveStatusMetadata(config).byType.plan ?? []).map(item => item.name);
@@ -393,7 +393,7 @@ export function renderBriefing(index, config) {
 
   const stale = index.docs.filter(d => d.isStale && !statusMetadataFor(config, d.type, d.status)?.skipStale).length;
   // Append a hint when errors are present — otherwise the user sees `Errors: 1`
-  // with no clue what or where. `dotmd check` is the canonical detail view.
+  // with no clue what or where. `runlist check` is the canonical detail view.
   const errorCount = index.errors.length;
   const errorPart = errorCount > 0
     ? `Errors: ${errorCount} ${dim('(run `runlist check` to see)')}`

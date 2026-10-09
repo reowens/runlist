@@ -10,7 +10,7 @@ import { authorizeManagedDestination, authorizeManagedSource } from './managed-p
 import { mutateFileSet } from './atomic-mutation.mjs';
 import { assertPlanMutationAuthorized, authoritativeSessionId, listOwnedPlans, readPlanOwnership } from './pickup.mjs';
 
-// `dotmd baton` is the one-command handoff: save the resume prompt AND release
+// `runlist baton` is the one-command handoff: save the resume prompt AND release
 // the plan in a single atomic-ish verb. It exists because the three-step skill
 // version ("save prompt, pick a status, commit") kept expanding in practice —
 // sessions turned closeout into repo triage, forgot the prompt body, or got
@@ -142,7 +142,7 @@ export async function runBaton(argv, config, opts = {}) {
   if (bodyFlag !== null) body = bodyFlag;
   else if (bodyArg !== null) body = readBodyInput(bodyArg);
   else {
-    // Auto-consume piped/redirected stdin, same probe as `dotmd new`.
+    // Auto-consume piped/redirected stdin, same probe as `runlist new`.
     body = readPipedBodyInput();
   }
   if (!body || !body.trim()) die(BODY_USAGE);

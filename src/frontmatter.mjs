@@ -3,7 +3,7 @@
 // managed set (no type, no status). Normalizing CRLF→LF at every parse/rewrite
 // boundary is the fix; the per-line value parser already strips a trailing \r,
 // so only the fence scan was blind. A managed doc settles to LF the first time a
-// dotmd verb rewrites it — content-preserving line-ending normalization, not
+// runlist verb rewrites it — content-preserving line-ending normalization, not
 // corruption. For LF docs this is a no-op (the `\r` guard skips the replace), so
 // existing behavior is byte-identical.
 export function normalizeEol(text) {

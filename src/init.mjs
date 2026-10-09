@@ -9,10 +9,10 @@ import { removeGeneratedSlashCommands } from './claude-commands.mjs';
 
 // Subdirectories scaffolded under docsRoot and tracked separately during scans.
 // Each maps to a builtin type (plan, prompt). New types added here should also
-// have a matching builtin template so `dotmd new <type>` lands files correctly.
+// have a matching builtin template so `runlist new <type>` lands files correctly.
 const TYPE_SUBDIRS = ['plans', 'prompts'];
 
-// Look for a `dotmd hud` SessionStart hook already wired in either the project
+// Look for a `runlist hud` SessionStart hook already wired in either the project
 // (.claude/settings{,.local}.json) or the user-global config (~/.claude/
 // settings.json). User-global counts because Claude Code merges global hooks
 // into every project — if the user has it wired globally, this project gets it
@@ -69,17 +69,17 @@ export const referenceFields = {
 
 // A git repository cannot hold an empty directory, so scaffolding `docs/plans/`
 // and `docs/prompts/` and stopping there means both vanish for the next clone —
-// `dotmd init` produced three committable files and two directories that existed
+// `runlist init` produced three committable files and two directories that existed
 // only on the machine that ran it.
 //
 // plans/ gets a real sample rather than a keepfile: it is the one place a new user
-// benefits from seeing the frontmatter shape before running `dotmd new`. It is
+// benefits from seeing the frontmatter shape before running `runlist new`. It is
 // written `status: planned` so it sits quietly in the pipeline instead of posing
 // as live work, and it says how to delete itself.
 //
 // prompts/ gets a keepfile instead, and cannot get a sample: the live queue is
 // gitignored by the rule this same command writes, and a committed prompt at
-// `status: pending` would be silently consumed by the next no-arg `dotmd use`.
+// `status: pending` would be silently consumed by the next no-arg `runlist use`.
 const SAMPLE_PLAN_NAME = 'example-plan.md';
 const samplePlan = (today) => `---
 type: plan
@@ -201,7 +201,7 @@ function countMarkdownFiles(dir) {
   return { withFrontmatter, withoutFrontmatter };
 }
 
-// Sensible default stale thresholds (days) for statuses dotmd recognizes, used
+// Sensible default stale thresholds (days) for statuses runlist recognizes, used
 // only to scope the generated config's staleDays to detected statuses. Mirrors
 // the global + per-type defaults in config.mjs DEFAULTS; the repo's own custom
 // statuses are intentionally absent so we don't invent a threshold for vocab we
@@ -320,7 +320,7 @@ export async function runInit(cwd, config, opts = {}) {
   const siblingSet = new Set(siblingsWithContent.map(s => s.sub));
 
   // Scaffold the canonical type subdirs (docs/plans/, docs/prompts/) so the
-  // builtin `dotmd new plan` / `dotmd new prompt` templates land somewhere
+  // builtin `runlist new plan` / `runlist new prompt` templates land somewhere
   // sensible without extra config.
   for (const sub of TYPE_SUBDIRS) {
     const subPath = path.join(docsDir, sub);
@@ -441,9 +441,9 @@ export async function runInit(cwd, config, opts = {}) {
     process.stdout.write(`\n  ${yellow('hint')}    ${n} untagged .md ${noun} found — run \`runlist bulk-tag --dry-run\` to preview tagging.\n`);
   }
 
-  // Claude Code integration. dotmd no longer scaffolds per-repo
-  // `.claude/commands/*.md` slash commands — the dotmd plugin's SKILL.md is the
-  // canonical agent-facing workflow now, and `dotmd hud` injects this repo's
+  // Claude Code integration. runlist no longer scaffolds per-repo
+  // `.claude/commands/*.md` slash commands — the runlist plugin's SKILL.md is the
+  // canonical agent-facing workflow now, and `runlist hud` injects this repo's
   // status vocab at runtime.
   const hasProjectClaude = existsSync(path.join(cwd, '.claude'));
   // A project `.claude/` proves it; a user-global `~/.claude/` means they run
@@ -485,7 +485,7 @@ export async function runInit(cwd, config, opts = {}) {
   // `docs.md` ships a "no docs yet" placeholder, which stopped being true the
   // moment this command also started writing a sample plan — so a fresh init
   // committed an index that contradicted the tree beside it, and the user's first
-  // `dotmd check` opened with a stale-index warning. The config passed into
+  // `runlist check` opened with a stale-index warning. The config passed into
   // runInit predates the file we just wrote, so re-resolve before rendering.
   //
   // Best-effort: a repo that scaffolds correctly but cannot render its index is
@@ -500,7 +500,7 @@ export async function runInit(cwd, config, opts = {}) {
         writeRenderedIndex(() => buildIndex(freshConfig, { fast: true }), freshConfig);
       }
     } catch {
-      // Leave the placeholder; `dotmd check` self-heals it on first run.
+      // Leave the placeholder; `runlist check` self-heals it on first run.
     }
   }
 

@@ -16,7 +16,7 @@ export function runFixRefs(argv, config, opts = {}) {
 
 /**
  * Core logic for fixing broken references. Returns { totalFixed, unfixableCount }.
- * Shared by `dotmd fix-refs` and `dotmd check --fix`.
+ * Shared by `runlist fix-refs` and `runlist check --fix`.
  */
 export function fixBrokenRefs(config, opts = {}) {
   const { dryRun, quiet } = opts;

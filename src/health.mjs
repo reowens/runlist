@@ -13,7 +13,7 @@ export function runHealth(argv, config) {
   // Coordination hubs (prose-first runlists) are navigation maps, not execution
   // units — they carry no checklist and skew active-plan aging — so lift the
   // LIVE ones out of the pipeline + active set into a dedicated Runlists tally,
-  // mirroring `dotmd plans` / `dotmd runlists`. Archived hubs stay in `plans` so
+  // mirroring `runlist plans` / `runlist runlists`. Archived hubs stay in `plans` so
   // the archived/velocity counts are unchanged. No coordination hubs → `plans`
   // equals the full set and every count below is identical to before.
   const coordination = buildCoordinationIndex(index, config);
@@ -25,11 +25,11 @@ export function runHealth(argv, config) {
   const isLiveRoadmap = (d) => isRoadmapHub(d) && !closedStatuses.has(d.status) && !isArchivedPath(d.path, config);
   const byAgeDesc = (a, b) => (b.daysSinceUpdate ?? -1) - (a.daysSinceUpdate ?? -1);
   // Roadmaps (tier-3) get their own tally above Runlists — held out of the
-  // pipeline like coordination hubs, but pointed at via `dotmd roadmaps`.
+  // pipeline like coordination hubs, but pointed at via `runlist roadmaps`.
   const roadmapHubs = allPlans.filter(isLiveRoadmap).sort(byAgeDesc);
   const roadmapIndex = roadmapHubs.length > 0 ? buildRoadmapIndex(index, config, { coordination }) : new Map();
   const runlistHubs = allPlans.filter(d => isLiveHub(d) && !isRoadmapHub(d))
-    // Most stale first — health is an aging lens, and it matches `dotmd runlists`'
+    // Most stale first — health is an aging lens, and it matches `runlist runlists`'
     // default. Unknown-age hubs sort last so they never top the list.
     .sort(byAgeDesc);
   const plans = allPlans.filter(d => !isLiveHub(d));
@@ -140,7 +140,7 @@ export function runHealth(argv, config) {
 
   // Runlists (coordination hubs) — held out of the leaf-plan pipeline above and
   // surfaced as their own tally so they don't inflate the active count. Newest
-  // first, mirroring `dotmd runlists`; capped with a "more" footer.
+  // first, mirroring `runlist runlists`; capped with a "more" footer.
   if (runlistHubs.length > 0) {
     process.stdout.write(`${bold('Runlists:')} ${runlistHubs.length}  ${dim('· runlist runlists')}\n`);
     for (const doc of runlistHubs.slice(0, 8)) {

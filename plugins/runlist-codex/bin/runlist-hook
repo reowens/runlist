@@ -2,7 +2,7 @@
 # runlist Codex plugin hook wrapper.
 #
 # The plugin's hooks drive the whole workflow through the PATH `runlist` binary
-# (`runlist hud`, `runlist guard`), falling back to the legacy `dotmd` alias. If a user enables the plugin but hasn't run
+# (`runlist hud`, `runlist guard`), falling back to the legacy `runlist` alias. If a user enables the plugin but hasn't run
 # `npm i -g runlist`, the binary is missing, the hook errors `command not
 # found`, and the session is primed with *silent nothing* — no signal that the
 # whole workflow is one install away. runlist can't warn about its own absence

@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { prepareVersionCommit } from '../scripts/prepare-version-commit.mjs';
 import { recoverLocalRelease } from '../scripts/recover-local-release.mjs';
 import { runReleasePreflight } from '../scripts/release-preflight.mjs';
-import { clearReleaseIntent, writeReleaseIntent } from '../scripts/release-intent.mjs';
+import { clearReleaseIntent, readReleaseIntent, writeReleaseIntent } from '../scripts/release-intent.mjs';
 
 let root;
 
@@ -51,6 +51,20 @@ function seedIntent() {
     remoteMain: head,
   });
 }
+
+test('release intents use the canonical filename and recover legacy releases', () => {
+  setupRepo();
+  const current = path.join(root, '.git', 'runlist-release-intent.json');
+  const legacy = path.join(root, '.git', 'dotmd-release-intent.json');
+  const oldIntent = { schemaVersion: 1, newVersion: '1.0.1' };
+  writeFileSync(legacy, JSON.stringify(oldIntent));
+  assert.deepEqual(readReleaseIntent(root), oldIntent);
+  writeReleaseIntent(root, { newVersion: '1.0.2' });
+  assert.equal(JSON.parse(readFileSync(current, 'utf8')).newVersion, '1.0.2');
+  assert.equal(readReleaseIntent(root).newVersion, '1.0.2');
+  clearReleaseIntent(root);
+  assert.equal(readReleaseIntent(root), null);
+});
 
 test('release preflight accepts clean main descending from origin/main', () => {
   setupRepo();

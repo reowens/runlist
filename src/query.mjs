@@ -119,7 +119,7 @@ export function runQuery(index, argv, config, opts = {}) {
 
 // Sort comparator for the runlists dashboard. Default `age` puts the MOST STALE
 // hub first — a triage lens (which nav-map has gone longest untouched?), echoing
-// `dotmd modules --sort cleanup`. `recent` is the old newest-first order.
+// `runlist modules --sort cleanup`. `recent` is the old newest-first order.
 // Unknown-age hubs sort last in both directions so they never dominate.
 const RUNLIST_SORTS = new Set(['age', 'recent', 'related', 'title', 'status']);
 function runlistSorter(sort, coordination, config) {
@@ -145,8 +145,8 @@ function runlistSorter(sort, coordination, config) {
   return (a, b) => cmpAge(a, b, -1) || byLabel(a, b); // 'age' (default): most stale first
 }
 
-// `dotmd runlists` — the dedicated coordination-hub dashboard: the `Runlists`
-// section from `dotmd plans`, on its own, showing every hub (no leaf list, no
+// `runlist runlists` — the dedicated coordination-hub dashboard: the `Runlists`
+// section from `runlist plans`, on its own, showing every hub (no leaf list, no
 // cap by default — runlists are a small bounded set). `--limit N` caps it,
 // `--sort age|recent|related|title|status` orders it (default `age`, most stale
 // first), `--json` emits structured rows.
@@ -165,7 +165,7 @@ export function runRunlists(index, argv, config) {
     ...(config.lifecycle?.terminalStatuses ?? []),
   ]);
   // Roadmaps live in `coordination` (held-out-hub plumbing) but are a tier above
-  // runlists — exclude them here; they get their own `dotmd roadmaps` dashboard.
+  // runlists — exclude them here; they get their own `runlist roadmaps` dashboard.
   const hubs = index.docs
     .filter(d => coordination.has(d.path) && !isRoadmapHub(d) && !archived.has(d.status) && !isArchivedPath(d.path, config))
     .sort(runlistSorter(sortArg, coordination, config));
@@ -275,8 +275,8 @@ export function parseQueryArgs(argv) {
 
     // Positional terms: anything else that's not a flag becomes a substring
     // filter token (AND-matched against slug + title). Lets users do:
-    //   dotmd plans rls          → matches rls-platform-rows, rls-location-anchored
-    //   dotmd plans pii redesign → AND match: pii-data-model-redesign
+    //   runlist plans rls          → matches rls-platform-rows, rls-location-anchored
+    //   runlist plans pii redesign → AND match: pii-data-model-redesign
     if (typeof arg === 'string' && !arg.startsWith('-')) {
       filters.positionalTerms.push(arg.toLowerCase());
     }
@@ -406,7 +406,7 @@ function scanBodyForKeyword(doc, needle, config) {
 }
 
 // HTML comments are invisible when the markdown renders, so they are noise in an
-// excerpt — and dotmd's own conventions put them inline (a managed status token in
+// excerpt — and runlist's own conventions put them inline (a managed status token in
 // a hub table row reads as `| [x](x.md) | <!--s-->active<!--/s--> — next |`), which
 // is paid on every agent read of every search result.
 //
@@ -674,7 +674,7 @@ function renderPlansOutput(docs, filters, config, opts = {}) {
     // Runlist nav stays discoverable under a narrowing filter. The Runlists
     // section respects the active filter (a coordination hub shows only when its
     // own status matches), so `--status blocked` legitimately hides an `active`
-    // hub. Rather than silently dropping the map, point at `dotmd runlists` when
+    // hub. Rather than silently dropping the map, point at `runlist runlists` when
     // a filter hid live hubs — honest count, filter respected, map never lost.
     if (coordination?.size && activeFilters.length) {
       const archiveStatuses = config.lifecycle?.archiveStatuses ?? new Set(['archived']);
@@ -873,7 +873,7 @@ function renderHubBlock(hub, info, children, maxWidth, topMaxSlug) {
 // Roadmap hubs (tier-3) render in their own pinned section above Runlists:
 // label · age · recursive grand done/total · child-runlist count · descriptor.
 // The done/total here is the SUM across the roadmap's child runlists (the real
-// bird's-eye), distinct from the Runlists section's per-hub rollup. `dotmd
+// bird's-eye), distinct from the Runlists section's per-hub rollup. `runlist
 // roadmap <hub>` expands one into its child rows.
 function renderRoadmapsSection(roadmapDocs, roadmap, maxWidth, total) {
   process.stdout.write(`\n${bold(`Roadmaps (${total ?? roadmapDocs.length})`)} ${dim('· runlist roadmap')}\n`);

@@ -305,7 +305,7 @@ export async function consumePrompt(filePath, config, opts) {
 
   // Archive BEFORE emitting the body. If runArchive throws (git mv failure,
   // hook crash, anything), the body must not have already gone to stdout —
-  // otherwise `claude "$(dotmd prompts next)"` consumes the prompt without it
+  // otherwise `claude "$(runlist prompts next)"` consumes the prompt without it
   // ever being archived, and the next session sees the same prompt as pending.
   const archiveResult = runArchive([filePath], config, {
     noIndex,
@@ -400,7 +400,7 @@ export async function writeConsumedBody(body, archivedPath, write = null, linked
 // contract on prepareLinkedPromptClaim).
 // `startable` comes from the repo's own lifecycle config rather than the
 // built-in default: a repo that configures its own startable statuses would
-// otherwise be told to run `dotmd set active`, which its own validation
+// otherwise be told to run `runlist set active`, which its own validation
 // rejects.
 function explainUnclaimablePlan(disposition, repoPath, status, startable) {
   switch (disposition.kind) {
@@ -426,9 +426,9 @@ function explainUnclaimablePlan(disposition, repoPath, status, startable) {
 // claimed. It never refuses the consumption itself.
 //
 // It used to `die` on all three of these paths, which deadlocked the handoff
-// loop the feature exists to close: `dotmd baton` stamps this link and parks
+// loop the feature exists to close: `runlist baton` stamps this link and parks
 // the plan in the same breath, and five of the seven statuses it parks with are
-// not startable — so baton routinely produced a prompt that `dotmd use` would
+// not startable — so baton routinely produced a prompt that `runlist use` would
 // refuse forever, while the SessionStart hud kept telling every new session to
 // run exactly that command. The body is the whole point of a saved prompt, and
 // no reason to skip the claim is a reason to withhold it.

@@ -9,21 +9,21 @@ import { readEnv } from './naming.mjs';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
 
-// `dotmd guard` is the PreToolUse hook handler. Claude Code pipes the tool-call
+// `runlist guard` is the PreToolUse hook handler. Claude Code pipes the tool-call
 // payload on stdin; we evaluate it against a small set of "wrong-move" rules and
 // reply with a PreToolUse hook-output JSON object. Every catch is also recorded
 // to the cross-repo misuse log so the operator can audit *every* incorrect usage
-// — these mistakes never invoke dotmd directly, so the guard is the only place
+// — these mistakes never invoke runlist directly, so the guard is the only place
 // they become visible.
 //
 // Two decision levels:
 //   'deny' — block the call and feed the reason back to the model. Reserved for
 //            moves that are guaranteed-wrong: committing a gitignored prompt (it
-//            would fail anyway) and hand-editing a `status:` field (`dotmd set`
+//            would fail anyway) and hand-editing a `status:` field (`runlist set`
 //            is a complete substitute; config `guard: { deny: false }` drops the
 //            status rules back to warn).
 //   'warn' — let the call proceed but inject teaching context so the agent learns
-//            the dotmd-native command. Used for soft mistakes (cat/Read of a
+//            the runlist-native command. Used for soft mistakes (cat/Read of a
 //            prompt) where a human might legitimately do it; we nudge rather
 //            than block.
 
@@ -52,7 +52,7 @@ function isPromptPath(p, config) {
   return true;
 }
 
-// Loose "is this a dotmd-managed doc" test: a .md file under one of the
+// Loose "is this a runlist-managed doc" test: a .md file under one of the
 // configured doc roots (default `docs/`). Used for the status-edit guard.
 function isManagedDoc(p, config) {
   const s = toSlash(p);
@@ -122,7 +122,7 @@ function stripHeredocBodies(command) {
 
 // Split a compound command into independently-evaluated segments. Each side of
 // a pipe / && / || / ; / newline runs its own program, so a rule should only
-// fire on the segment whose program actually touches the prompt — `dotmd check
+// fire on the segment whose program actually touches the prompt — `runlist check
 // docs/prompts/x.md; git commit -- docs/plans/y.md` commits no prompt.
 function shellSegments(command) {
   const input = stripHeredocBodies(command);
@@ -212,7 +212,7 @@ function parseGitInvocation(tokens, baseCwd) {
 }
 
 // Decision level for the status-edit rules. Hand-editing `status:` has no
-// legitimate variant — `dotmd set` is a complete substitute — so it denies by
+// legitimate variant — `runlist set` is a complete substitute — so it denies by
 // default. `guard: { deny: false }` in config drops it back to warn-only.
 function editStatusDecision(config) {
   return config?.guard?.deny === false ? 'warn' : 'deny';
@@ -448,7 +448,7 @@ function emit(result) {
     hookSpecificOutput.permissionDecision = 'deny';
     hookSpecificOutput.permissionDecisionReason = result.reason;
   } else {
-    // warn — allow the call but teach the agent the dotmd-native path.
+    // warn — allow the call but teach the agent the runlist-native path.
     hookSpecificOutput.additionalContext = `[runlist] ${result.reason}`;
   }
   process.stdout.write(JSON.stringify({ hookSpecificOutput }) + '\n');

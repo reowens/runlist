@@ -15,12 +15,12 @@ import { runMigrateTemplate } from './migrate-template.mjs';
 import { runMigratePrompts } from './migrate-prompts.mjs';
 import { runFrontmatterFix } from './frontmatter-fix.mjs';
 import { normalizeEol } from './frontmatter.mjs';
-import { die, dotmdVersion, relTime, toRepoPath } from './util.mjs';
+import { die, runlistVersion, relTime, toRepoPath } from './util.mjs';
 import { inspectTransactions, resolveTransactions } from './atomic-mutation.mjs';
 import { describeSessionIdentity, opencodeStatus } from './host-integration.mjs';
 import { availableSessionId, releaseVanishedPlanClaim, surveyOwnershipClaims } from './pickup.mjs';
 
-// Tunable thresholds for `dotmd doctor --statuses` conflation detection.
+// Tunable thresholds for `runlist doctor --statuses` conflation detection.
 // MIN_BUCKET_SIZE: only flag buckets with at least this many docs (small buckets aren't worth nagging).
 // CUE_FLOOR_PCT: a target cue must claim at least this fraction of the bucket to be suggested.
 // A bucket is overloaded only when ≥2 distinct target cues each clear the floor.
@@ -123,12 +123,12 @@ function parseOlderThan(argv) {
 //
 // Two tiers, because two very different things are being asked. A claim whose
 // session process is provably gone is released by --apply on its own: that is
-// dotmd observing a fact, the same bar a forced hook-delivery takeover uses.
-// A claim dotmd *cannot* judge — written before it recorded the owning process,
+// runlist observing a fact, the same bar a forced hook-delivery takeover uses.
+// A claim runlist *cannot* judge — written before it recorded the owning process,
 // taken from a plain terminal, or held on another machine — is never released
 // by a plain --apply, because "I can't see the owner" is not evidence the owner
 // left. Releasing those needs --older-than, which is the user supplying the
-// judgement dotmd doesn't have, as a policy rather than a guess.
+// judgement runlist doesn't have, as a policy rather than a guess.
 async function runDoctorClaims(argv, config, opts = {}) {
   const json = argv.includes('--json');
   const apply = !opts.dryRun;
@@ -211,12 +211,12 @@ async function runDoctorClaims(argv, config, opts = {}) {
   }
 }
 
-// Read-only: what session identity does dotmd see, and is the current host's
-// integration installed? Never writes — installing lives behind `dotmd install`
+// Read-only: what session identity does runlist see, and is the current host's
+// integration installed? Never writes — installing lives behind `runlist install`
 // because it touches state outside the repo.
 function runDoctorSession(argv) {
-  const identity = describeSessionIdentity({ version: dotmdVersion() });
-  const oc = opencodeStatus({ version: dotmdVersion() });
+  const identity = describeSessionIdentity({ version: runlistVersion() });
+  const oc = opencodeStatus({ version: runlistVersion() });
   if (argv.includes('--json')) {
     process.stdout.write(JSON.stringify({ identity, hosts: { opencode: oc } }, null, 2) + '\n');
     return;
@@ -230,7 +230,7 @@ function runDoctorSession(argv) {
   process.stdout.write('\n' + bold('Host integration\n'));
   if (oc.foreign) process.stdout.write(`  ${yellow('!')} opencode: a plugin file runlist did not write — ${oc.foreignPath}\n`);
   else if (!oc.exists) process.stdout.write(`  ${dim('·')} opencode: not installed — ${dim(oc.path)}\n`);
-  else process.stdout.write(`  ${oc.stale ? yellow('!') : green('✓')} opencode: ${oc.version}${oc.stale ? ` (CLI is ${dotmdVersion()} — run \`runlist update\`)` : ''}\n`);
+  else process.stdout.write(`  ${oc.stale ? yellow('!') : green('✓')} opencode: ${oc.version}${oc.stale ? ` (CLI is ${runlistVersion()} — run \`runlist update\`)` : ''}\n`);
   process.stdout.write(dim('  Claude Code ships as a plugin — `runlist install` reports both hosts.\n'));
 }
 
@@ -301,7 +301,7 @@ export function runDoctor(argv, config, opts = {}) {
 
   // Step 5: Rewrite hub rows whose printed status drifted from the plan they
   // link to. Tokens only — adding markers is a content edit to prose the user
-  // wrote, so it stays opt-in behind `dotmd sync-status --adopt`.
+  // wrote, so it stays opt-in behind `runlist sync-status --adopt`.
   process.stdout.write('\n' + bold('5. Syncing hub status rows...') + '\n');
   const hubSync = syncHubStatuses(config, { docs: buildIndex(config).docs, dryRun });
   if (hubSync.fixed === 0 && hubSync.adopted === 0 && hubSync.unreadable === 0) {
@@ -325,7 +325,7 @@ export function runDoctor(argv, config, opts = {}) {
   }
 
   // Step 8: Clean up retired Claude Code command scaffolding. The per-repo
-  // `.claude/commands/{plans,docs}.md` files are superseded by the dotmd plugin
+  // `.claude/commands/{plans,docs}.md` files are superseded by the runlist plugin
   // skill; doctor sweeps any leftover banner-stamped (dotmd-generated) files.
   // Always print the heading so the numbering remains contiguous.
   process.stdout.write('\n' + bold('8. Claude Code commands:') + '\n');
@@ -361,10 +361,10 @@ export function runDoctor(argv, config, opts = {}) {
   }
 
   // Not a numbered step and never auto-fixed: installing touches state outside
-  // the repo, which is `dotmd install`'s job. Doctor's part is making sure a
+  // the repo, which is `runlist install`'s job. Doctor's part is making sure a
   // degraded identity is something you're told about rather than something you
   // find out when a verb fails. Silent when there is nothing to say.
-  const identity = describeSessionIdentity({ version: dotmdVersion() });
+  const identity = describeSessionIdentity({ version: runlistVersion() });
   if (identity.advice.length) {
     process.stdout.write('\n' + bold('Session identity') + '\n');
     process.stdout.write(`${yellow('!')} ${identity.summary}\n`);
@@ -397,8 +397,8 @@ function findDeprecatedCommandMentions(config) {
 // Workflow-drift checks: configurations and docs that make the agent-facing
 // verbs (`use`, `set`, `baton`) blow up at the worst moment — mid-handoff.
 // Both failure modes came from real sessions: a repo whose plan vocab dropped
-// `in-session` (every `dotmd use` died), and a repo full of docs without
-// frontmatter blocks (every `dotmd set` died during closeout).
+// `in-session` (every `runlist use` died), and a repo full of docs without
+// frontmatter blocks (every `runlist set` died during closeout).
 function findWorkflowDrift(config) {
   const docsWithoutFrontmatter = [];
   for (const filePath of collectDocFiles(config)) {

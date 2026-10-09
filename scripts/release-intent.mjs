@@ -3,30 +3,34 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-function intentPath(projectRoot) {
+function intentPaths(projectRoot) {
   const result = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-dir'], {
     cwd: projectRoot,
     encoding: 'utf8',
   });
   if (result.status !== 0) throw new Error(result.stderr.trim() || 'cannot locate Git directory');
-  return path.join(result.stdout.trim(), 'dotmd-release-intent.json');
+  const gitDir = result.stdout.trim();
+  return [
+    path.join(gitDir, 'runlist-release-intent.json'),
+    path.join(gitDir, 'dotmd-release-intent.json'),
+  ];
 }
 
 export function writeReleaseIntent(projectRoot, intent) {
-  writeFileSync(intentPath(projectRoot), JSON.stringify({ schemaVersion: 1, ...intent }, null, 2) + '\n', {
+  writeFileSync(intentPaths(projectRoot)[0], JSON.stringify({ schemaVersion: 1, ...intent }, null, 2) + '\n', {
     encoding: 'utf8',
     mode: 0o600,
   });
 }
 
 export function readReleaseIntent(projectRoot) {
-  const file = intentPath(projectRoot);
-  if (!existsSync(file)) return null;
+  const file = intentPaths(projectRoot).find(existsSync);
+  if (!file) return null;
   return JSON.parse(readFileSync(file, 'utf8'));
 }
 
 export function clearReleaseIntent(projectRoot) {
-  rmSync(intentPath(projectRoot), { force: true });
+  for (const file of intentPaths(projectRoot)) rmSync(file, { force: true });
 }
 
 if (path.resolve(process.argv[1] || '') === fileURLToPath(import.meta.url)) {

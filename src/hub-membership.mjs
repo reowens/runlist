@@ -7,7 +7,7 @@ import { resolveBodyLinkTarget } from './body-link.mjs';
 
 // Membership drift: a hub's list of children and the plans that claim it via
 // `parent_plan:` are two halves of one relationship, and either half can go
-// stale on its own. dotmd already checks one direction — `checkRunlistBackPointers`
+// stale on its own. runlist already checks one direction — `checkRunlistBackPointers`
 // warns when a `runlist:` child lacks the back-ref. These are the two arrows it
 // doesn't cover.
 //
@@ -16,14 +16,14 @@ import { resolveBodyLinkTarget } from './body-link.mjs';
 //
 // ── What counts as a membership claim (measured, not assumed) ───────────────
 //
-// A body table row is NOT one. dotmd's own estate has an aggregator hub whose
+// A body table row is NOT one. runlist's own estate has an aggregator hub whose
 // ranked queue draws plans from three other programs, and whose other tables row
 // children purely to say "related" — the same pointer-row shape the status guard
 // already declines to judge. Treating every rowed link as membership would flood
 // correct hubs.
 //
 // What IS a claim: `runlist:` (frontmatter order) and the hub's BODY ORDER
-// (`## Ranked queue` / `## Order of operations`) — the list `dotmd runlist next`
+// (`## Ranked queue` / `## Order of operations`) — the list `runlist runlist next`
 // actually walks. A plan there is one this hub would hand a session.
 //
 // ── Why "points at a different hub" is deliberately silent ──────────────────
@@ -63,7 +63,7 @@ function configuredRunlist(parsed, config) {
 // One shared definition of mechanically repairable membership evidence. It
 // reads the exact hub/child bytes it returns so callers can bind those snapshots
 // into an atomic mutation: frontmatter `runlist:` (except `>` one-way entries)
-// plus the body order read by `dotmd runlist next`. Ordinary body links remain
+// plus the body order read by `runlist runlist next`. Ordinary body links remain
 // pointers, and an existing parent — same or different — is never a candidate.
 export function collectMembershipBackrefCandidates(docs, config, { hubPaths = null } = {}) {
   const byPath = new Map(docs.map(doc => [doc.path, doc]));
@@ -259,7 +259,7 @@ export function checkHubMembershipDrift(docs, config) {
   }
 
   // ── Arrow 2: a claim only the hub makes ──────────────────────────────────
-  // The hub's BODY ORDER ranks a plan — the list `dotmd runlist next <hub>`
+  // The hub's BODY ORDER ranks a plan — the list `runlist runlist next <hub>`
   // walks, so this hub would hand a session that plan — and the plan carries no
   // `parent_plan:` at all. This is the same finding `checkRunlistBackPointers`
   // makes for frontmatter `runlist:` children, extended to the body-order hubs

@@ -63,7 +63,7 @@ function renderRoadmap(info, maxWidth) {
 
 const NO_ROADMAPS = 'No roadmaps found. A roadmap is a plan with `execution_mode: roadmap` that composes runlists.\nScaffold one: runlist new plan <name> --roadmap\n';
 
-// `dotmd roadmaps` — the dashboard over every roadmap hub (mirrors `dotmd
+// `runlist roadmaps` — the dashboard over every roadmap hub (mirrors `runlist
 // runlists`): one row per roadmap with its recursive grand total + child count.
 export function runRoadmaps(index, argv, config) {
   const json = argv.includes('--json');
@@ -90,7 +90,7 @@ export function runRoadmaps(index, argv, config) {
   process.stdout.write('\n');
 }
 
-// `dotmd roadmap [<hub>]` — the single-roadmap view. No arg: show the sole
+// `runlist roadmap [<hub>]` — the single-roadmap view. No arg: show the sole
 // roadmap, or fall back to the `roadmaps` dashboard when there are several.
 export function runRoadmap(index, argv, config) {
   const json = argv.includes('--json');
@@ -147,7 +147,7 @@ function resolveRoadmapTarget(roadmaps, hubArg, config) {
   return [...roadmaps.values()][0];
 }
 
-// `dotmd roadmap [<hub>] next` — the cross-runlist next-pickup. Walk the
+// `runlist roadmap [<hub>] next` — the cross-runlist next-pickup. Walk the
 // roadmap's child runlists in `related_plans` (priority) order and open the FIRST
 // startable plan found inside any of them — the "what do I do next across the
 // whole roadmap?" verb. Each child's `nextPath` was already resolved by

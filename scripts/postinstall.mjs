@@ -24,7 +24,7 @@ try {
     } catch { return false; }
   })();
 
-  // OpenCode's integration is a file dotmd writes, and nothing else would ever
+  // OpenCode's integration is a file runlist writes, and nothing else would ever
   // mention it — an OpenCode user who installs only the CLI gets no primer and
   // a process-scoped session identity, silently. One line, never an install.
   const hasOpencode = (() => {
@@ -41,7 +41,7 @@ try {
       : 'runlist: install the renamed Claude Code plugin with `runlist install claude`.\n');
   } else {
     // The CLI just installed fresh, so only the plugin can be stale — point at
-    // the targeted refresh rather than the full `dotmd update` (CLI + plugin).
+    // the targeted refresh rather than the full `runlist update` (CLI + plugin).
     const nudge = hasClaude
       ? 'runlist CLI installed. Using the Claude Code plugin? Run `runlist update --plugin-only` to refresh it, then restart.'
       : 'runlist CLI installed.';

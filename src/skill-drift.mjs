@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
-// dotmd is a drift- and staleness-catcher that didn't, until now, catch drift
+// runlist is a drift- and staleness-catcher that didn't, until now, catch drift
 // in its OWN plugin surface. Two canonical workflow-doc surfaces are kept in
 // lockstep by hand: the repo's CLAUDE.md (its own instructions) and the plugin
 // SKILL.md (what every OTHER repo's session learns the workflow from). CLAUDE.md
@@ -72,7 +72,7 @@ function readIfPresent(filePath) {
 // Guard: the canonical workflow block must stay identical across CLAUDE.md and
 // the plugin SKILL.md. Returns [] unless BOTH files exist AND BOTH carry the
 // block — so it only fires in a repo that has adopted the lockstep convention
-// (i.e. the dotmd repo itself), never in a user repo that merely has its own
+// (i.e. the runlist repo itself), never in a user repo that merely has its own
 // CLAUDE.md. That strict gate is the price of zero false positives; the
 // trade-off is that deleting the markers from one surface silently disables the
 // guard rather than warning (a deliberate, visible act, unlike a content edit).

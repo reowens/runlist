@@ -28,11 +28,11 @@ export function availableSessionId(env = process.env) {
   try { return authoritativeSessionId(env); } catch { return null; }
 }
 
-// The process that OWNS the session, not the one taking the claim. `dotmd` exits
+// The process that OWNS the session, not the one taking the claim. `runlist` exits
 // within the second, so its own pid is always dead a moment later and can say
 // nothing about whether the session still exists; the agent harness that spawned
 // it is what outlives the command. Recording that process is what lets a claim
-// answer "is its owner still there?" with the liveness check dotmd already has,
+// answer "is its owner still there?" with the liveness check runlist already has,
 // instead of an age threshold that cannot tell a three-day-dead session from a
 // long-running one. Absent (a plain terminal, an unknown harness) is not an
 // error — it yields null, which reads as 'unverifiable' and never auto-reclaims.
@@ -350,7 +350,7 @@ export function listOwnedPlans(config, sessionId = authoritativeSessionId()) {
 // accepts exactly OWNERSHIP_SCHEMA, so raising it would turn every record already
 // on disk corrupt — which is a worse wedge than the one this fixes. An old record
 // simply has no sessionOwner and stays 'unverifiable' for its whole life; an older
-// dotmd reading a new record ignores a field it does not validate.
+// runlist reading a new record ignores a field it does not validate.
 function recordContent({ identity, sessionId, state, now, claimedAt, operation, sessionOwner }) {
   return JSON.stringify({
     schema: OWNERSHIP_SCHEMA,
@@ -478,7 +478,7 @@ export function surveyOwnershipClaims(config, now = Date.now()) {
 }
 
 // A claim whose plan file no longer exists — deleted, or renamed by something
-// other than `dotmd rename`, which would have carried the record across. The
+// other than `runlist rename`, which would have carried the record across. The
 // survey deliberately keeps these (a claim pinning a plan nobody can read is
 // exactly the kind worth showing), but the release path could not act on one:
 // it routes through `runSet`, which needs a file to write a status into, so the
@@ -490,7 +490,7 @@ export function surveyOwnershipClaims(config, now = Date.now()) {
 // realpaths, which is the thing that cannot work here); the record already
 // carries the identity it was written with. Existence is re-checked under the
 // lock, because "the plan is gone" is the entire justification for bypassing
-// the status write, and a `dotmd new` racing us would invalidate it.
+// the status write, and a `runlist new` racing us would invalidate it.
 export function releaseVanishedPlanClaim(claim, config, { now = new Date().toISOString() } = {}) {
   const recordPath = claim.recordPath;
   return withPathLocks([recordPath], { repoRoot: config.repoRoot }, () => {

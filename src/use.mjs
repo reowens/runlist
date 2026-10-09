@@ -6,7 +6,7 @@ import { consumePrompt, pendingPromptsOldestFirst, resolvePromptInput } from './
 import { startPlan } from './lifecycle.mjs';
 import { resolveDocArg } from './index.mjs';
 
-// Top-level `dotmd use [file]` — the single "start engaging with this doc"
+// Top-level `runlist use [file]` — the single "start engaging with this doc"
 // verb. Dispatches by the target doc's `type:` so agents don't have to know
 // the verb-per-type rule:
 //   - prompt → print body + archive (one-shot consume)

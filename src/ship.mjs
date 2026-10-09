@@ -5,7 +5,7 @@ import { die, warn, toRepoPath } from './util.mjs';
 import { assertGitIndex } from './git.mjs';
 import { green, dim, yellow } from './color.mjs';
 
-// Files dotmd ship will auto-stage when they're dirty. Anything outside this
+// Files runlist ship will auto-stage when they're dirty. Anything outside this
 // allowlist stays in the working tree — user has to `git add` it explicitly,
 // so secrets / .env / sibling-session WIP never get bundled into a release.
 const ALLOWLIST_PATTERNS = [
@@ -93,9 +93,9 @@ export async function runShip(argv, config, opts = {}) {
     die(`Refusing to ship with inherited staged files. ${err.message}`);
   }
 
-  // Per-repo slash-command scaffolding is retired (the dotmd plugin's SKILL.md
+  // Per-repo slash-command scaffolding is retired (the runlist plugin's SKILL.md
   // is canonical now), so there is nothing to regenerate at ship time. Any
-  // stale generated files are swept by `dotmd hud` / `dotmd doctor`.
+  // stale generated files are swept by `runlist hud` / `runlist doctor`.
 
   // Identify dirty tracked files. Anything matching the allowlist gets
   //    staged; everything else is left dirty so the user can handle it.

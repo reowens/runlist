@@ -1,5 +1,5 @@
-// `dotmd statuses` — manage per-project status taxonomy without hand-editing
-// the rich-form object in dotmd.config.mjs. Subcommands:
+// `runlist statuses` — manage per-project status taxonomy without hand-editing
+// the rich-form object in runlist.config.mjs. Subcommands:
 //
 //   list                  table view of every status × type
 //   add <name>            add a new status (use --like <existing> to clone)

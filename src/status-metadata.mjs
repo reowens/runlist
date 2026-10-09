@@ -71,7 +71,7 @@ export function compareStrings(a, b) {
 }
 
 // Oldest actionable prompt first. Missing dates sort last; path is the stable
-// final tie-breaker shared by HUD, agent-context, and no-arg `dotmd use`.
+// final tie-breaker shared by HUD, agent-context, and no-arg `runlist use`.
 export function comparePromptDocs(a, b) {
   const aCreated = a.created ?? '';
   const bCreated = b.created ?? '';

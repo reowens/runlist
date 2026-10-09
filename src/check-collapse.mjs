@@ -1,11 +1,11 @@
-// F13 (0.37.0): collapse high-frequency auto-fixable `dotmd check` warnings
+// F13 (0.37.0): collapse high-frequency auto-fixable `runlist check` warnings
 // into one-line remediation hints. Without this, bulk-fixable noise (43
 // `updated behind git history`, N singular-key deprecations) drowns out
 // structural findings in the per-doc list — and forces the reader to
 // reconstruct the fix command per category.
 //
 // Each category names the message regex to match, a short label for the
-// summary line, and the exact `dotmd …` command that bulk-fixes it.
+// summary line, and the exact `runlist …` command that bulk-fixes it.
 
 const COLLAPSE_THRESHOLD = 3;
 

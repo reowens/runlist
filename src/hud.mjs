@@ -50,7 +50,7 @@ export function detectVersionDrift(env = process.env) {
 // for stripped-down configs). This means a user who customizes
 // types.prompt.statuses to add e.g. `urgent: { context: 'expanded' }` gets that
 // status surfaced too, without needing a code change.
-// Returns repo paths, oldest-created first — the same order no-arg `dotmd use`
+// Returns repo paths, oldest-created first — the same order no-arg `runlist use`
 // consumes them, so prompts[0] is always "the one you'd pick up next".
 // The same answer from the prompt directory alone, reading frontmatter only.
 // The full index read every body in the repo; at ~5k docs that took 10s and the
@@ -121,7 +121,7 @@ const REJECTIONS_CAP = 3;
 const FLEET_WINDOW_MS = 24 * 60 * 60 * 1000;
 const REJECTIONS_WINDOW_MS = 60 * 60 * 1000;
 
-// Coarse error-class for rejection grouping. Most dotmd die() messages follow
+// Coarse error-class for rejection grouping. Most runlist die() messages follow
 // `<class>: <variable detail>` (e.g. "File not found: docs/foo.md", "Already
 // archived: docs/plans/x.md", "Too many arguments to status"). Take the chunk
 // before the first colon, cap at 6 words, normalize whitespace. Cheap;
@@ -287,7 +287,7 @@ export function buildHud(config) {
 // Subagent primer: a spawned subagent (Explore, Plan, general-purpose) starts
 // with ZERO project context and no SessionStart history — it has never seen the
 // command sheet the top-level session got. Without this, subagents reflexively
-// grep/cat/commit managed docs instead of using dotmd. Keep it to a few dense
+// grep/cat/commit managed docs instead of using runlist. Keep it to a few dense
 // lines: the verbs + the three wrong-moves the guard exists to stop, so the
 // subagent self-corrects before the guard ever has to fire.
 const SUBAGENT_PRIMER = [
@@ -318,10 +318,10 @@ export function buildPlanStatusPrimer(config, { maxChars = 220 } = {}) {
 }
 
 // The plugin's SessionStart/SubagentStart hooks fire in EVERY repo (it's enabled
-// globally), but the primer only helps where dotmd is actually used. Gate on a
-// discovered config: `dotmd init` writes dotmd.config.mjs, so "has a config" is
-// the zero-false-positive signal for "this is a dotmd repo." A bare docs/ dir is
-// deliberately NOT enough — too many repos have one. In a non-dotmd repo the hook
+// globally), but the primer only helps where runlist is actually used. Gate on a
+// discovered config: `runlist init` writes runlist.config.mjs, so "has a config" is
+// the zero-false-positive signal for "this is a runlist repo." A bare docs/ dir is
+// deliberately NOT enough — too many repos have one. In a non-runlist repo the hook
 // then contributes nothing to the session: no primer, no index build, no heal.
 // UserPromptSubmit: when the user asks for a baton, tell the session the exact
 // form for its situation before it goes looking. Sessions ran `baton --help`
@@ -358,7 +358,7 @@ export function buildHandoffContext(config) {
 }
 
 export async function runPromptSubmitHud(config, { readStdin } = {}) {
-  if (!isDotmdRepo(config)) return;
+  if (!isRunlistRepo(config)) return;
   let prompt = '';
   try {
     const raw = await readStdin();
@@ -368,7 +368,7 @@ export async function runPromptSubmitHud(config, { readStdin } = {}) {
   process.stdout.write(buildHandoffContext(config) + '\n');
 }
 
-function isDotmdRepo(config) {
+function isRunlistRepo(config) {
   return Boolean(config?.configFound);
 }
 
@@ -376,22 +376,22 @@ export function runHud(argv, config) {
   const json = argv.includes('--json');
 
   const drift = detectVersionDrift();
-  const dotmdRepo = isDotmdRepo(config);
+  const runlistRepo = isRunlistRepo(config);
 
   // SubagentStart hook entry point — emit the compact primer and return. No
   // index build, no journal read, no slash-command heal: a subagent doesn't
   // need the operator-facing machinery, just the verbs and the guardrails.
   if (argv.includes('--subagent')) {
-    if (!dotmdRepo) return; // silent in repos that don't use dotmd
+    if (!runlistRepo) return; // silent in repos that don't use runlist
     process.stdout.write(dim(SUBAGENT_PRIMER) + '\n');
     process.stdout.write(dim(buildPlanStatusPrimer(config)) + '\n');
     if (drift) process.stdout.write(yellow(drift) + '\n');
     return;
   }
 
-  // Non-dotmd repo, and not a programmatic --json caller → contribute nothing to
+  // Non-runlist repo, and not a programmatic --json caller → contribute nothing to
   // the session. Skip the index build, slash-heal, primer, and drift line.
-  if (!dotmdRepo && !json) return;
+  if (!runlistRepo && !json) return;
 
   if (json) {
     const hud = buildHud(config);
@@ -406,7 +406,7 @@ export function runHud(argv, config) {
   // slash-command refresh notices, previous-self / fleet / recent-rejections)
   // stays suppressed — those nudged agents into phantom follow-up work (e.g.
   // "errors: 1" prompting a check run) and live in their proper commands and
-  // `dotmd hud --json`. Two signals ARE instructions and must print, because
+  // `runlist hud --json`. Two signals ARE instructions and must print, because
   // the handoff loop dies without them (sessions were saving batons that no
   // next session ever picked up):
   //   - pending prompts: the previous session queued work for THIS one;

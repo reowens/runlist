@@ -59,7 +59,7 @@ const AMBIGUOUS_FOLD = Symbol('ambiguous case fold');
 //     Over a corpus-wide sweep that is tens of thousands of syscalls across a
 //     few hundred distinct paths, and it dominated the reference rewrite. The
 //     memo lives here so it is scoped to one sweep and cannot outlive a
-//     mutation — `dotmd bulk` builds a fresh set per move. Within a sweep it is
+//     mutation — `runlist bulk` builds a fresh set per move. Within a sweep it is
 //     also more consistent than re-resolving per token, which could observe the
 //     filesystem changing midway.
 //   paths     — identity to the spelling the corpus used.
@@ -138,7 +138,7 @@ export function resolveReferenceIdentity(token, documentPath, repoRoot, identiti
 // `realpath` resolves symlinks but NOT case: on a case-insensitive filesystem
 // `realpath("CASING.MD")` hands back the caller's spelling, so an exact compare
 // misses a link that names a real document. Validation disagreed — it resolves
-// with `existsSync`, which does not care about case — so `dotmd check` called
+// with `existsSync`, which does not care about case — so `runlist check` called
 // such a link fine, a move silently left it pointing at the old path, and only
 // THEN did check call it broken.
 //

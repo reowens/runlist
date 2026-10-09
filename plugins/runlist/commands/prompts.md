@@ -12,4 +12,4 @@ Saved prompts (`docs/prompts/*.md`) are **session-local handoff artifacts**, not
 - **Queue a new one** (e.g. a resume prompt for the next session): `runlist new prompt <slug> @/tmp/draft.md` (or `-` for stdin, `--message "…"` for one-liners). The next session sees it at SessionStart.
 - **Admin**: `runlist prompts hold <file>` / `unhold <file>` (the "saved but not next" bucket), `runlist prompts archive <file>`.
 
-If the user references a specific `docs/prompts/*.md` file — "resume via …", "use this prompt", "load that one" — consume it with `runlist use <file>`. See the **dotmd** skill for the full workflow.
+If the user references a specific `docs/prompts/*.md` file — "resume via …", "use this prompt", "load that one" — consume it with `runlist use <file>`. See the **runlist** skill for the full workflow.

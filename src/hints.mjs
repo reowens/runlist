@@ -49,7 +49,7 @@ const TEMPLATES = [
 // Global value-consuming flags must be skipped together with the token that
 // follows them — otherwise `--config /tmp/foo` injects the tempdir path as
 // "positional" and dilutes Jaccard overlap below threshold. Keep this list
-// aligned with the global flag-strip list in bin/dotmd.mjs (SCRUB_*).
+// aligned with the global flag-strip list in bin/runlist.mjs (SCRUB_*).
 const VALUE_FLAGS = new Set([
   '--config', '--root', '--type', '--limit', '--sort', '--group',
   '--status', '--owner', '--module', '--surface', '--domain',

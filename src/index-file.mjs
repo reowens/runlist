@@ -115,7 +115,7 @@ export function writeRenderedIndex(indexOrFactory, config, options = {}) {
 // arrive via paths that don't call `regenIndex` — direct file edits, `lint
 // --fix`, `frontmatter-fix`, `bulk-tag`, etc. The README block is fully
 // generated content; treating drift as an error forced the user to run
-// `dotmd index` themselves every session. Callers inside `buildIndex` pass
+// `runlist index` themselves every session. Callers inside `buildIndex` pass
 // `autoHeal: true` because the docs there are always the canonical full set
 // (filtering happens later in the CLI dispatcher). Direct callers with a
 // filtered/synthetic docs list omit it to keep the old error semantics —

@@ -7,7 +7,7 @@ import { resolveBodyLinkTarget } from './body-link.mjs';
 
 const NOW = new Date();
 
-// Type-conventional dirs are the directories where `dotmd new <type>` lands
+// Type-conventional dirs are the directories where `runlist new <type>` lands
 // live (non-archive) docs of that type. Built-ins use `dir` ('plans'/'prompts')
 // and `targetRoot`. In flat-array root configs (e.g. root: ['docs/plans',
 // 'docs/prompts']), the root itself is a type-conventional dir; in default
@@ -152,7 +152,7 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
   // F18: Singular `module:` / `surface:` are deprecated in favor of plural arrays.
   // The reader still merges singular into plural transparently (back-compat),
   // but new usage should always go through the plural form. The migration
-  // target is inlined in the message so `dotmd lint --fix` users see exactly
+  // target is inlined in the message so `runlist lint --fix` users see exactly
   // what they'll end up with — and so non-fix readers can hand-migrate.
   // Suppress for archived/terminal docs (same noise-control rule as F2).
   if (!config.lifecycle.skipsWarnings(doc.status, doc.type)) {
@@ -215,8 +215,8 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
 
   // Archive drift: a doc with an archive-flagged status (`status: archived` by
   // default) whose parent dir is a "live" type-conventional location is
-  // misplaced — `dotmd archive` would have moved it under `<that>/archiveDir/`.
-  // Without this check, default `dotmd plans` / `dotmd prompts` views silently
+  // misplaced — `runlist archive` would have moved it under `<that>/archiveDir/`.
+  // Without this check, default `runlist plans` / `runlist prompts` views silently
   // drop the file (because they exclude archived paths), and the user gets no
   // signal it exists but is invisible. Nested intentional content (e.g.,
   // `docs/plans/audit/<file>.md`) is in a non-conventional subdir and exempt.
@@ -238,7 +238,7 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
   // this check, the file is invisible to default queries (the path is below
   // an archive bucket so it's filtered out by `--exclude-archived`), yet its
   // `status: pending` (or similar) still makes it surface in pending-prompt
-  // scans. The heal is to flip the frontmatter via `dotmd <type-or-set>
+  // scans. The heal is to flip the frontmatter via `runlist <type-or-set>
   // archive`, which now restores in place rather than failing.
   if (doc.status && !config.lifecycle.archiveStatuses.has(doc.status)) {
     const parentSegments = path.dirname(doc.path).split('/');
@@ -415,7 +415,7 @@ export function checkBidirectionalReferences(docs, config) {
 // Runlist back-pointer check: when a hub plan declares a `runlist:` of children,
 // each child SHOULD have `parent_plan:` pointing back at the hub. The two
 // fields encode complementary information (runlist = ordered execution intent;
-// parent_plan = reverse-link the rest of dotmd already uses for related-summary
+// parent_plan = reverse-link the rest of runlist already uses for related-summary
 // rendering), so divergence almost always means the agent forgot the back-link.
 // Warning fires on the CHILD (that's the file that needs the edit). Skips
 // terminal/archive statuses on either side — runlists referencing closed work
@@ -468,7 +468,7 @@ export function checkRunlistBackPointers(docs, config) {
 }
 
 // Coordination-hub hygiene: a plan whose slug is `*-runlist` / `runlist` reads
-// as a coordination runlist, but `dotmd plans` only *reliably* lifts it into the
+// as a coordination runlist, but `runlist plans` only *reliably* lifts it into the
 // Runlists section (and out of the active count) when `execution_mode:
 // coordination` is set. Slug detection is the fallback; the frontmatter field is
 // the canonical signal. Nudge the few hubs that lean on the slug alone to make
@@ -503,7 +503,7 @@ export function checkCoordinationHubExecutionMode(docs, config) {
 
 // Roadmap-hub nudge: a coordination hub whose `related_plans:` children are
 // *themselves* hubs (runlists / coordination hubs) is structurally a tier-3
-// roadmap — dotmd renders it flat (a hub among its own children, no recursive
+// roadmap — runlist renders it flat (a hub among its own children, no recursive
 // rollup) until `execution_mode: roadmap` is set. Nudge, never auto-promote: the
 // explicit field beats structural magic for a primitive (Open Q in the
 // roadmap-layer plan). Fires only when ≥2 children AND a majority are hubs, so a
@@ -680,7 +680,7 @@ export function validatePlanShape(doc, body, frontmatter, config) {
   }
 
   // 6. A phase whose own checklist contradicts its marker. Reported, never
-  // fixed: dotmd cannot know whether the marker or the boxes are the stale
+  // fixed: runlist cannot know whether the marker or the boxes are the stale
   // half, and guessing would either mark work done that is not, or reopen work
   // that is. Both halves are the author's own writing — this only says they
   // disagree.
@@ -751,17 +751,17 @@ export function computeChecklistCompletionRate(checklist) {
 // Every other check in this file asks "is this doc wrong?" — none of them can ask
 // "did we look at anything?". If the scan surface breaks (a root that stopped
 // resolving, a config edit that narrowed the tree, a rename that moved docs/ out
-// from under us), `dotmd check` reports zero errors, and that output is
+// from under us), `runlist check` reports zero errors, and that output is
 // byte-identical to a clean estate. A guard's whole failure mode is going quiet,
 // and this is the one that would go quiet silently.
 //
 // Off unless `minDocs` is configured — a floor is a claim about YOUR corpus size
-// and dotmd cannot guess it. Deliberately an error, not a warning: a warning exits
+// and runlist cannot guess it. Deliberately an error, not a warning: a warning exits
 // 0, which is the exact outcome this exists to prevent.
 export function applyScanFloor(index, config, { scoped = false } = {}) {
   const floor = config?.minDocs;
   if (!floor) return index;
-  // A path-scoped check (`dotmd check docs/plans/x.md`) is a deliberate subset, so
+  // A path-scoped check (`runlist check docs/plans/x.md`) is a deliberate subset, so
   // the floor would fire on every single-file check. Not a corpus claim at all.
   if (scoped) return index;
   if (index.docs.length >= floor) return index;

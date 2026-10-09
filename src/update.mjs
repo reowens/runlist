@@ -30,7 +30,7 @@ export function compareVersions(a, b) {
   return 0;
 }
 
-// Read Claude Code's plugin install record to find the installed dotmd plugin's
+// Read Claude Code's plugin install record to find the installed runlist plugin's
 // id + version. Network-free. `opts.home` is injectable for tests. Returns
 // { id, version } or null when nothing is installed / the file is absent.
 export function readInstalledPluginRecords(opts = {}) {
@@ -69,11 +69,11 @@ export function readKnownMarketplaces(opts = {}) {
 }
 
 // `marketplaceRegistered: false` is the state `claude plugin list` shows as
-// "failed to load: Marketplace dotmd not found": the install record survived,
+// "failed to load: Marketplace runlist not found": the install record survived,
 // the marketplace registration did not (a settings.json declaration that no
 // longer matches, a wiped registry). Reading only the install record called
-// that "installed", so `dotmd install claude` skipped the one repair it owns
-// and `dotmd update` ran a `plugin update` that could only fail.
+// that "installed", so `runlist install claude` skipped the one repair it owns
+// and `runlist update` ran a `plugin update` that could only fail.
 export function readInstalledPlugin(opts = {}) {
   const records = readInstalledPluginRecords(opts);
   if (!records) return null;
@@ -88,7 +88,7 @@ export function readInstalledPlugin(opts = {}) {
 }
 
 // The steps that put a plugin whose marketplace registration is gone back on
-// its feet. Only the marketplace dotmd publishes has a source dotmd knows; a
+// its feet. Only the marketplace runlist publishes has a source runlist knows; a
 // plugin installed from some other marketplace names a source we cannot guess.
 export function planMarketplaceRepair(plugin, { hasClaude, verb }) {
   const reason = `marketplace "${plugin.marketplace}" is not registered, so the installed plugin cannot load`;
@@ -104,7 +104,7 @@ export function planMarketplaceRepair(plugin, { hasClaude, verb }) {
   ];
 }
 
-// Decide which steps `dotmd update` should run. Pure — no side effects — so the
+// Decide which steps `runlist update` should run. Pure — no side effects — so the
 // orchestration is unit-testable. `opts` = { cliOnly, pluginOnly }; `ctx` =
 // { plugin: {id,version}|null, hasClaude, hasNpm }.
 export function planUpdate(opts, ctx) {
@@ -141,10 +141,10 @@ export function planUpdate(opts, ctx) {
         ? { kind: 'legacy', needs: 'plugin', cmd: ['claude', 'plugin', 'uninstall', LEGACY_PLUGIN_ID] }
         : { kind: 'manual', reason: 'Legacy Claude plugin also installed', lines: [`/plugin uninstall ${LEGACY_PLUGIN_ID}`] });
     }
-    // The OpenCode integration is a file dotmd wrote, so it goes stale silently
+    // The OpenCode integration is a file runlist wrote, so it goes stale silently
     // the moment the CLI moves on. Refresh it here — but only if it is already
     // installed. `update` keeps hosts in lockstep; it never adopts a new one,
-    // which stays the job of the explicit `dotmd install`.
+    // which stays the job of the explicit `runlist install`.
     if (ctx.opencode?.exists && ctx.opencode.stale) {
       steps.push({ kind: 'opencode', path: ctx.opencode.path });
     } else if (ctx.opencode?.foreign) {

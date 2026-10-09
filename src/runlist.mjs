@@ -23,7 +23,7 @@ import { pickupFactsForDoc } from './pickup.mjs';
 import { planChildParentUpdate, upsertFrontmatterField } from './parent-plan.mjs';
 
 // A child is the runlist's NEXT PICKUP only when a session could start it right
-// now — i.e. its status is one `dotmd use` accepts. The "parked" statuses
+// now — i.e. its status is one `runlist use` accepts. The "parked" statuses
 // (blocked/partial/paused/awaiting/queued-after) are deliberately NOT
 // pickup-able: each needs its own unstuck action (monitor / spawn successor /
 // re-evaluate / ask / check predecessor) before work resumes. So next-pickup
@@ -41,7 +41,7 @@ function isPickupable(status, doc, config) {
 // is a runlist *hub* when its `runlist:` frontmatter (`refFields.runlist`) is
 // non-empty. Each ref resolves to a doc in the index by path, falling back to
 // basename so children that were archived (and physically moved into an
-// archive dir) still resolve. Used by the `dotmd plans` triage view to fold
+// archive dir) still resolve. Used by the `runlist plans` triage view to fold
 // children under their hub and tag hubs as runlists rather than plain plans.
 //
 // Returns:
@@ -86,7 +86,7 @@ export function buildRunlistIndex(index, config) {
       total: children.length,
       doneCount: children.filter(c => c.archived).length,
       // Live-but-not-startable children (parked: blocked/partial/paused/…). Lets
-      // the `dotmd plans` fold say "N parked" instead of mislabelling a hub with
+      // the `runlist plans` fold say "N parked" instead of mislabelling a hub with
       // a parked-but-unfinished child as "all archived".
       parkedCount: children.filter(c => !c.missing && !c.archived && !isPickupable(c.status, c.doc, config)).length,
       children,
@@ -209,8 +209,8 @@ export function buildRoadmapIndex(index, config, precomputed = {}) {
   // Rollup numbers for one child of a roadmap, dispatched by what the child IS:
   // a sprint runlist hub, a coordination hub, or a plain leaf plan. `nextPath` /
   // `nextLabel` give a uniform per-child next-pickup target — the first startable
-  // plan *inside* that child — feeding both the `dotmd roadmap` view and the
-  // Phase-4 cross-runlist `dotmd roadmap next` (walk children → first nextPath).
+  // plan *inside* that child — feeding both the `runlist roadmap` view and the
+  // Phase-4 cross-runlist `runlist roadmap next` (walk children → first nextPath).
   const childRollup = (child) => {
     if (runlist.hubs.has(child.path)) {
       const h = runlist.hubs.get(child.path);
@@ -262,7 +262,7 @@ const HUB_CONTAINER_DIRS = new Set(['plans', 'prompts', 'archive', 'archived']);
 // a subdirectory (e.g. `docs/plans/pos/runlist.md` would read as just
 // `runlist`), so prefix the immediate parent dir unless it's a conventional
 // container. → `pos/runlist`, but `billing-runlist` stays as-is. Shared by the
-// `dotmd plans` Runlists section, `dotmd runlists`, and `dotmd health` so a hub
+// `runlist plans` Runlists section, `runlist runlists`, and `runlist health` so a hub
 // reads the same everywhere.
 export function hubLabel(doc) {
   const slug = toSlug(doc);
@@ -488,9 +488,9 @@ function classifyChildToken(token, hubDir, hubSlug, pos, config) {
   };
 }
 
-// `dotmd runlist add <hub> <child...>` — append children to a hub's `runlist:`
+// `runlist runlist add <hub> <child...>` — append children to a hub's `runlist:`
 // array, scaffolding a `planned` stub for any bare-slug child that doesn't yet
-// exist (mirroring `dotmd new plan --runlist`) and wiring each child's
+// exist (mirroring `runlist new plan --runlist`) and wiring each child's
 // `parent_plan:` back-ref. Coordination hubs (body-order, no `runlist:` array)
 // are out of this path — guarded with an actionable message.
 async function runRunlistAdd(positional, config, { dryRun, json, testHooks }) {
@@ -904,7 +904,7 @@ export async function runRunlist(argv, config, opts = {}) {
   // sub === 'next' — pick up the first child a session can actually start.
   // Skip both archived (done) and parked (blocked/partial/paused/awaiting/
   // queued-after) children: the runlist advances to the first pickup-able one,
-  // so the picked target is guaranteed in a `dotmd use`-able status.
+  // so the picked target is guaranteed in a `runlist use`-able status.
   const target = children.find(c => !c.missing && !archiveStatuses.has(c.status) && isPickupable(c.status, c, config));
   if (!target) {
     if (children.length === 0) die(`Hub ${hubRepoPath} has empty \`runlist:\` — nothing to pick up.`);

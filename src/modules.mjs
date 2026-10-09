@@ -1,6 +1,6 @@
 // Modules dashboard (F16). Two view-only commands:
-//   `dotmd modules`         — one row per discovered module, dynamic status columns
-//   `dotmd module <name>`   — plans for one module, grouped by status, stale flagged inline
+//   `runlist modules`         — one row per discovered module, dynamic status columns
+//   `runlist module <name>`   — plans for one module, grouped by status, stale flagged inline
 //
 // Aggregation lives in `aggregateModules` (pure data). Both renderers consume
 // the same shape, so JSON output and the table share one source of truth.

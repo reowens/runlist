@@ -21,8 +21,8 @@ export const RENAME_RETRY_SLEEP_BUDGET_MS =
 
 // Windows refuses to rename onto — or away from — a path another process holds
 // open, surfacing EPERM/EBUSY/EACCES. That holder is by construction a
-// non-cooperating one (editor, AV, Search Indexer, `git`): dotmd's path lock is
-// advisory and only excludes other dotmd processes, so a retry here is never
+// non-cooperating one (editor, AV, Search Indexer, `git`): runlist's path lock is
+// advisory and only excludes other runlist processes, so a retry here is never
 // waiting on a peer we would have serialized against anyway. POSIX never fails a
 // rename this way, so retrying there would mask a genuinely different fault.
 //

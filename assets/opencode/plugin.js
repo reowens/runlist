@@ -77,7 +77,7 @@ function guardPayload(tool, args) {
   return null;
 }
 
-export default async function dotmdOpencodePlugin({ directory }) {
+export default async function runlistOpencodePlugin({ directory }) {
   // Keyed by session so a subagent session primes independently, the way
   // SubagentStart does under Claude Code.
   const primers = new Map();

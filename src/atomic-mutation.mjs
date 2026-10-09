@@ -1592,7 +1592,7 @@ export function moveFileAtomic(sourcePath, targetPath, render, options) {
             // IS the correct outcome. Treating that difference as a failed
             // rollback (as this used to) retained the transaction as
             // failed-manual, which then blocked EVERY later mutation in the
-            // repo until `dotmd doctor --transactions --apply` cleared it, for
+            // repo until `runlist doctor --transactions --apply` cleared it, for
             // a move that had already rolled back completely.
           } else if (!sameGitIndexGeneration(captureGitIndexGeneration(repoRoot), transaction.manifest.gitIndex.before)) {
             throw new Error('Git finalize did not publish its prepared generation, but the real index changed; current staging was preserved.');

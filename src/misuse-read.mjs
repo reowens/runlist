@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { readMisuseEntries, globalMisuseLogPaths } from './journal.mjs';
 import { dim, red, yellow } from './color.mjs';
 
-// `dotmd misuse` — read the cross-repo guard log. Every wrong-move the
+// `runlist misuse` — read the cross-repo guard log. Every wrong-move the
 // PreToolUse guard intercepts lands here; this is the operator's window into
 // "what are sessions getting wrong, and how often."
 function parseArgs(argv) {

@@ -1,4 +1,4 @@
-// `dotmd surfaces` — print the configured surface taxonomy.
+// `runlist surfaces` — print the configured surface taxonomy.
 //
 // The surface taxonomy (`config.taxonomy.surfaces`) gates which `surfaces:`
 // values the validator accepts. Before this command existed the only way to

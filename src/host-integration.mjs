@@ -1,4 +1,4 @@
-// Installing dotmd's integration into agent hosts other than Claude Code.
+// Installing runlist's integration into agent hosts other than Claude Code.
 //
 // Claude Code gets its integration through a real plugin (`plugins/runlist/`,
 // installed by `claude plugin`). OpenCode has no equivalent registry, but it
@@ -6,13 +6,13 @@
 // global config dir and under a project's `.opencode/`, with no config entry
 // needed. So the integration ships as one generated file.
 //
-// It goes in the GLOBAL config dir, not per-repo. dotmd retired per-repo
+// It goes in the GLOBAL config dir, not per-repo. runlist retired per-repo
 // generated scaffolding once already (`.claude/commands`, see
 // claude-commands.mjs) because a file copied into every repo drifts from the
 // CLI that wrote it. One global file covers every repo and is refreshed by
-// `dotmd update` in lockstep with the CLI.
+// `runlist update` in lockstep with the CLI.
 //
-// Writing outside the repo is why this is an explicit verb. `dotmd doctor`
+// Writing outside the repo is why this is an explicit verb. `runlist doctor`
 // reports that the integration is missing and names the command; it never
 // installs. Passive commands touch nothing.
 
@@ -155,11 +155,11 @@ export function installOpencodePlugin(opts = {}) {
   return { ...status, action, version };
 }
 
-// What identity does dotmd actually see here, and can it tell this session
+// What identity does runlist actually see here, and can it tell this session
 // apart from its siblings? This report exists because the OpenCode breakage was
-// invisible until a verb failed: dotmd looked for variables OpenCode never set,
+// invisible until a verb failed: runlist looked for variables OpenCode never set,
 // and nothing surfaced that until `use` refused to run. Anyone on any host can
-// now check what dotmd resolved instead of discovering it through a failure.
+// now check what runlist resolved instead of discovering it through a failure.
 export function describeSessionIdentity(opts = {}) {
   const { env = process.env, homedir = os.homedir(), version } = opts;
   const source = hostSessionSource(env);
@@ -212,7 +212,7 @@ export function describeSessionIdentity(opts = {}) {
 // Warning, not error. Failing closed would undo the fallback that unblocked
 // OpenCode in the first place, and punish a setup that is working.
 //
-// Once per session per repo, via a marker under the gitignored .dotmd/. Silent
+// Once per session per repo, via a marker under the gitignored .runlist/. Silent
 // under RUNLIST_NO_HINTS=1, the switch the repeat-failure hints already use.
 const NOTICE_DIR = 'notices';
 
@@ -248,7 +248,7 @@ export function degradedIdentityNotice(repoRoot, opts = {}) {
     mkdirSync(path.dirname(marker), { recursive: true });
     writeFileSync(marker, '', 'utf8');
   } catch {
-    // Unwritable .dotmd: say it once anyway rather than stay silent about a
+    // Unwritable .runlist: say it once anyway rather than stay silent about a
     // real ownership weakness. Worst case it repeats.
   }
   return lines.join('\n');
@@ -256,10 +256,10 @@ export function degradedIdentityNotice(repoRoot, opts = {}) {
 
 // --- Claude Code -----------------------------------------------------------
 //
-// Claude Code has a real plugin registry, so dotmd drives `claude plugin`
+// Claude Code has a real plugin registry, so runlist drives `claude plugin`
 // rather than writing files. What it lacked was any CLI path to the FIRST
-// install: `dotmd update` deliberately skips the plugin step when nothing is
-// installed ("dotmd plugin not installed"), and the README's two slash commands
+// install: `runlist update` deliberately skips the plugin step when nothing is
+// installed ("runlist plugin not installed"), and the README's two slash commands
 // only work from inside a session. So a user who installed the CLI from npm had
 // no way to discover, from the CLI, that the plugin exists.
 
@@ -269,7 +269,7 @@ export const CLAUDE_PLUGIN_ID = 'runlist@runlist';
 // Why `claude plugin marketplace add` can refuse a marketplace that is not
 // even registered: settings.json may still DECLARE it (extraKnownMarketplaces),
 // and Claude rejects an add whose source differs from that declaration in any
-// fetch-shaping field. dotmd never writes that declaration and will not edit
+// fetch-shaping field. runlist never writes that declaration and will not edit
 // it, so the most it can do is name the field.
 export function claudeMarketplaceRefusalHint(marketplace = 'runlist') {
   return [
@@ -307,7 +307,7 @@ export function planClaudeInstall({ installed, legacyInstalled, hasClaude, remov
   }
   // An install record whose marketplace registration is gone is not an
   // installed plugin — Claude lists it as "failed to load". Skipping here with
-  // "already installed" left the user with no dotmd verb that could repair it.
+  // "already installed" left the user with no runlist verb that could repair it.
   if (installed?.marketplaceRegistered === false) {
     return planMarketplaceRepair(installed, { hasClaude, verb: 'update' })
       .map(step => (step.kind === 'marketplace' || step.kind === 'plugin' ? { ...step, kind: 'run', step: step.kind } : step));

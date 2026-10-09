@@ -5,7 +5,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dim } from './color.mjs';
 
-// The one list of environment variables that can name the session dotmd is
+// The one list of environment variables that can name the session runlist is
 // running inside. It lives here, in a leaf module, because both consumers must
 // read the same list: `currentSessionId` below (journal attribution, which falls
 // back to the shell) and `authoritativeSessionId` in pickup.mjs (plan ownership,
@@ -19,8 +19,8 @@ import { dim } from './color.mjs';
 // shared by every agent run in that window and outlives all of them.
 // `scope: 'session'` means the variable names one agent session; `'process'`
 // and `'terminal'` are coarser — several sessions can share one, so they cannot
-// tell two of them apart. `dotmd doctor --session` reports that distinction, and
-// it is the whole reason `dotmd install opencode` exists.
+// tell two of them apart. `runlist doctor --session` reports that distinction, and
+// it is the whole reason `runlist install opencode` exists.
 const SESSION_ID_SOURCES = [
   { variable: 'RUNLIST_SESSION_ID', prefix: null, scope: 'session', host: 'explicit override' },
   { variable: 'DOTMD_SESSION_ID', prefix: null, scope: 'session', host: 'explicit override' },
@@ -66,7 +66,7 @@ export function currentSessionId() {
 // The running CLI's version, read once and memoized — several surfaces compare
 // it against what a host integration was generated from.
 let cachedVersion;
-export function dotmdVersion() {
+export function runlistVersion() {
   if (cachedVersion === undefined) {
     try {
       const pkgPath = path.resolve(fileURLToPath(import.meta.url), '..', '..', 'package.json');
@@ -78,7 +78,10 @@ export function dotmdVersion() {
   return cachedVersion;
 }
 
-// Is `bin` runnable from PATH? Used to decide whether dotmd can drive a host's
+// Public compatibility alias for callers of older builds.
+export const dotmdVersion = runlistVersion;
+
+// Is `bin` runnable from PATH? Used to decide whether runlist can drive a host's
 // own CLI or must print the in-session commands for the user to run instead.
 export function which(bin) {
   try {

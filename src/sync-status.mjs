@@ -19,7 +19,7 @@ import {
 // the hub still says `active`, and every later reader plans against a status
 // that stopped being true.
 //
-// dotmd already reads those rows to compute next-pickup, so the guard is
+// runlist already reads those rows to compute next-pickup, so the guard is
 // standing next to the data it needs. Everything it needs is already owned:
 // `config.types[<type>].statuses` for the vocabulary (type-aware, so a `doc`
 // rowed in a plan hub is judged by the doc vocabulary), the strict Markdown
@@ -39,10 +39,10 @@ import {
 // Collapsing those (treating every unmatched row as a finding) floods perfectly
 // correct hubs with false positives.
 
-// Warning when inferred, error when marked — no config knob. `dotmd check`
+// Warning when inferred, error when marked — no config knob. `runlist check`
 // exits 0 on warnings and 1 on errors, and that asymmetry is the whole point: a
-// positional match is dotmd INFERRING from prose, so it nudges; a marked span is
-// the author declaring "dotmd owns this word", so drifting it fails the check.
+// positional match is runlist INFERRING from prose, so it nudges; a marked span is
+// the author declaring "runlist owns this word", so drifting it fails the check.
 // No repo that never asked for this feature starts failing builds over an
 // inference.
 const DRIFT_KIND = 'hub-status-drift';
@@ -59,7 +59,7 @@ function statusVocabulary(doc, config) {
 }
 
 // A doc physically living under the archive dir is archived, whatever its
-// frontmatter says — the same precedence the rest of dotmd applies. (The
+// frontmatter says — the same precedence the rest of runlist applies. (The
 // frontmatter itself is already an error from `validateDoc`; the hub row should
 // still be told the truth rather than agreeing with the stale word.)
 function effectiveStatus(doc, config) {
@@ -263,7 +263,7 @@ export function syncHubStatuses(config, { docs, dryRun = false, adopt = false, h
   return result;
 }
 
-// Resolve `dotmd sync-status <hub...>` arguments against the index. Matching by
+// Resolve `runlist sync-status <hub...>` arguments against the index. Matching by
 // path, path+`.md`, or basename slug — the same handles every other verb takes —
 // with a hub-aware miss message (a plain plan named here is a mistake worth
 // naming, not a silent no-op).
