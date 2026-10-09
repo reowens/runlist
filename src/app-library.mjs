@@ -9,6 +9,7 @@ import { extractFirstHeading } from './extractors.mjs';
 import { isHubDoc, detectBodyRunlistRefs } from './hub.mjs';
 import { normalizeStringList } from './util.mjs';
 import { getStageDefinitions, readPlanStage, readShipsFrontmatter } from './stages.mjs';
+import { referenceValues } from './reference-values.mjs';
 
 const list = value => normalizeStringList(value).map(v=>v.slice(0,200)).slice(0,40);
 const repoPath = (file,config) => path.relative(config.repoRoot,file).split(path.sep).join('/');
@@ -95,7 +96,10 @@ export function createDocumentLibrary(config,{refreshMs=15_000}={}) {
         // Parsed headings/frontmatter can be V8 substring views into the whole
         // 128 KiB header. Detach the small metadata record before caching it;
         // otherwise a short title/parent can retain an entire document buffer.
-        next.set(file,{key,row:row?JSON.parse(JSON.stringify(row)):null});
+        const refFields={};
+        for(const field of [...(config.referenceFields?.bidirectional??[]),...(config.referenceFields?.unidirectional??[])])refFields[field]=referenceValues(fm[field]).paths;
+        const filing=row?{path:relative,repoPath:relative,title:row.title,type:typeof fm.type==='string'?fm.type:null,status:typeof fm.status==='string'?fm.status:null,executionMode:typeof fm.execution_mode==='string'?fm.execution_mode:null,refFields,stamp:key,metadataComplete:!warnings.length&&(!/^---\r?\n/.test(source)||parts.bodyLineOffset>0)}:null;
+        next.set(file,{key,row:row?JSON.parse(JSON.stringify(row)):null,filing:filing?JSON.parse(JSON.stringify(filing)):null});
       }catch(error){next.delete(file);if(error.code==='ENOENT'){nextKnown.delete(file);nextUnavailable.delete(file);}else{failures++;nextUnavailable.add(file);}}finally{await fd?.close();}await yieldThread();}};
       await Promise.all(Array.from({length:12},worker));cache=next;knownFiles=nextKnown;unavailable=nextUnavailable;rows=[...next.values()].flatMap(v=>v.row?[v.row]:[]);byPath=new Map(rows.map(r=>[r.path,r]));
       // Targeted reads must not postpone periodic discovery of external edits.
@@ -136,5 +140,13 @@ export function createDocumentLibrary(config,{refreshMs=15_000}={}) {
     const configured=new Set(stageDefinitions.map(s=>`word:${s.word}`)),stages=[...stageDefinitions.map(s=>({value:`word:${s.word}`,label:s.word,meaning:s.meaning,count:stageCounts.get(`word:${s.word}`)??0})),...[...stageCounts].filter(([value])=>!configured.has(value)&&!['@unset','@invalid'].includes(value)).sort(([a],[b])=>a.localeCompare(b)).map(([value,count])=>({value,label:value.slice(5),count,unknown:true})),{value:'@unset',label:'Unset · no stage',count:stageCounts.get('@unset')??0},...(stageCounts.has('@invalid')?[{value:'@invalid',label:'Invalid metadata',count:stageCounts.get('@invalid')}]:[])];
     return {stageDefinitions,group:params.get('group')==='stage'&&kind==='plans'?'stage':null,documents:matches.slice(offset,offset+limit),total:matches.length,inventoryTotal:rows.length,counts,offset,limit,hasMore:offset+limit<matches.length,facets:{stages,statuses:facets('status'),types:facets('type'),folders:facets('folder')},stats};
   }
-  return {query,refresh,async all(){await refresh();return rows.map(row=>({...row}));},resolve,relations,invalidate,get stats(){return stats;}};
+  async function filingInventory({refresh:force=false}={}) {
+    await refresh(force);
+    const documents=[...cache.values()].flatMap(entry=>entry.filing?[structuredClone(entry.filing)]:[]);
+    const failures=[...unavailable].map(file=>({path:repoPath(file,config),message:'Document metadata could not be read safely.'}));
+    for(const doc of documents)if(!doc.metadataComplete)failures.push({path:doc.path,message:'Document reference metadata is incomplete or malformed.'});
+    if(stats.discoveryErrors)failures.push({path:'',message:'Some document roots could not be fully discovered.'});
+    return {documents,generation,complete:failures.length===0,failures};
+  }
+  return {query,refresh,filingInventory,async all(){await refresh();return rows.map(row=>({...row}));},resolve,relations,invalidate,get stats(){return stats;}};
 }

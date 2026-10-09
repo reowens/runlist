@@ -13,6 +13,8 @@ import { templateEditor } from './template-editor.mjs';
 import { BlockEditor } from './block-editor.mjs';
 import { documentViews } from './document-views.mjs';
 import { documentStages } from './document-stages.mjs';
+import { documentYardstick } from './document-yardstick.mjs';
+import { filingNavigation } from './filing-navigation.mjs';
 import { escapeHtml as esc, splitSource, editedSource, markdownHtml, lineDiff, diffHtml, readSourceStage, replaceSourceStage, rebaseSourceStage } from './shared.mjs';
 const $ = id => document.getElementById(id);
 const state = { doc:null, base:null, body:'', csrf:null, mode:'read', dirty:false, draft:null, recovery:null, conflict:null, pending:null, lastSave:null, busy:false, plans:[] };
@@ -25,6 +27,8 @@ templateEditor({api,$,checkout:()=>checkoutKey,notice});
 const library = libraryNavigation({state,$,api,open,showLibrary,checkout:()=>checkoutKey,notice});
 const settings=appSettings({$,api,checkout:()=>checkoutKey,library,notice});
 const lifecycle=documentLifecycle({state,$,api,checkout:()=>checkoutKey,open,library,notice});
+const yardstick=documentYardstick({state,$,api,checkout:()=>checkoutKey,open,library,notice});
+const filing=filingNavigation({state,$,api,open,showLibrary,checkout:()=>checkoutKey,notice});
 const records = recordNavigation({state,$,api,open,showLibrary,checkout:()=>checkoutKey,preferences:()=>settings.read(),notice,create:template=>creation.show({template})});
 const changes=gitChanges({state,$,api,open,showLibrary,checkout:()=>checkoutKey,notice,returnToDraft:()=>{view(state.doc.editable?'edit':'read');const url=new URL(location.href);url.searchParams.delete('view');url.searchParams.set('path',state.doc.path);history.replaceState(null,'',url);}});
 const commits=gitCommit({$,api,checkout:()=>checkoutKey,selection:changes.selectedPaths,changed:()=>changes.invalidate(),notice});
@@ -39,13 +43,14 @@ const quick=quickNavigation({$,api,state,library,open,jump:section=>navigation.j
   {title:'New decision…',detail:'Compare alternatives before ruling',run:()=>creation.show({template:'decision'})},
   {title:'Recovery',detail:'Drafts and interrupted operations',run:()=>recoveryCenterView.show()},
   {title:'Changes',detail:'Review saved documents against local Git history',run:()=>changes.show()},
+  {title:'Filing',detail:'Find plans without a home or with competing homes',run:()=>filing.show()},
   {title:'Library',run:showLibrary},{title:'Active plans',run:()=>library.applyView('active-plans')},{title:'Hubs',run:()=>library.applyView('hubs')},
   {title:'Flags needing attention',run:()=>records.show('flags')},{title:'Decisions needing attention',run:()=>records.show('decisions')},
   {title:'Templates',run:()=>$('open-templates').click()},{title:'Settings',run:()=>$('open-settings').click()},
   ...(library.savedViews?.()??[]).map(v=>({title:`View: ${v.name}`,detail:'Saved library filters',run:()=>library.applyView(v.id)})),
 ]});
 function notice(message, error = false) { $('notice').textContent = message; $('notice').classList.toggle('error', error); }
-async function api(route,body) {const result=await request(route,body,state.csrf);if(body!==undefined&&['save','undo','create/commit','lifecycle/commit','native/action','flags/triage'].includes(route))changes.invalidate();return result;}
+async function api(route,body) {const result=await request(route,body,state.csrf);if(body!==undefined&&['save','undo','create/commit','lifecycle/commit','yardstick/commit','native/action','flags/triage'].includes(route)){changes.invalidate();filing.invalidate();}return result;}
 function guarded(fn) { return async () => { try { await fn(); } catch (error) { notice(error.message, true); } }; }
 function key(path = state.doc?.path) { return `runlist:recovery:${checkoutKey}:${encodeURIComponent(path)}:${clientId}`; }
 function recoverySource() {
@@ -89,12 +94,13 @@ function updateDirty() {
   $('toggle-markdown').disabled = !!state.pending;
   $('pending-note').hidden = !state.pending;
   stages.update(candidate());
+  yardstick.update();
   $('save').textContent = state.pending ? state.pending.kind === 'undo' ? 'Retry undo' : 'Retry save' : 'Save changes';
 }
 function view(mode) {
   if (!state.doc) return;
   state.mode = mode;
-  $('records-home').hidden=true;records.deactivate();changes.deactivate();
+  $('records-home').hidden=true;records.deactivate();changes.deactivate();filing.deactivate();
   $('workspace').classList.remove('library-start');$('empty').hidden=true;$('document').hidden=false;
   $('doc-title').textContent=state.doc.title;$('doc-path').textContent=state.doc.path;$('doc-status').textContent=state.doc.status??'';
   views.update(mode);
@@ -130,10 +136,12 @@ function renderConnections() {
 }
 async function open(path,selection={}) {
   if (state.busy) throw new Error('Wait for the current operation before switching plans.');
+  await yardstick.beforeLeave();
   clearTimeout(draftTimer);
   if (state.doc && (state.dirty || state.pending)) { storeLocal(); await persistDraft(); if(!state.recoveryStored)throw new Error('Preserve your current draft before switching documents.'); }
   notice('Opening document…');
   path=await lifecycle.resolveInitial(path);
+  path=await yardstick.resolveInitial(path);
   const doc = await api(`document?path=${encodeURIComponent(path)}`);
   state.doc = doc; state.draftSource = doc.source; state.base = { source:doc.source, revision:doc.revision }; state.body = splitSource(doc.source).body.replaceAll('\r\n','\n');
   state.dirty = false; state.conflict = null; state.pending = null; state.lastSave = null; state.draft = null;
@@ -159,7 +167,18 @@ async function open(path,selection={}) {
   $('body-editor').value = state.body; $('markdown-fallback').hidden=true; $('block-editor').hidden=false; $('toggle-markdown').textContent='Edit Markdown'; $('toggle-markdown').setAttribute('aria-expanded','false'); renderList(); renderEvidence(); view(doc.editable?'edit':'read');
   const url = new URL(location.href); url.searchParams.delete('ref');url.searchParams.delete('from');url.searchParams.delete('view');url.searchParams.delete('record');url.searchParams.set('path',doc.path); history.replaceState(null,'',url);
   library.opened();
-  $('sidebar').classList.remove('open');$('toggle-plans').setAttribute('aria-expanded','false');window.scrollTo(0,0); notice(doc.editable?'Your document is ready to edit. Changes are kept as a draft until you save.':'This document is read only. Its source is preserved.');
+  await yardstick.opened();
+  let sourceNotice=null;
+  if(selection.line) {
+    view('source');
+    if(selection.expectedRevision&&selection.expectedRevision!==doc.revision)sourceNotice='This hub changed since the filing report. Current source is open; refresh Filing before using its recorded line.';
+    else {
+      const line=Math.floor(Number(selection.line)),lines=doc.source.split('\n');
+      if(line>=1&&line<=lines.length){const mark=document.createElement('mark');mark.className='source-location';mark.tabIndex=-1;mark.setAttribute('aria-label',`Source line ${line}`);mark.textContent=lines[line-1];$('full-source').replaceChildren(document.createTextNode(lines.slice(0,line-1).join('\n')+(line>1?'\n':'')),mark,document.createTextNode((line<lines.length?'\n':'')+lines.slice(line).join('\n')));mark.focus();mark.scrollIntoView({block:'center'});}
+      else sourceNotice='The recorded line is unavailable. Current hub source is open.';
+    }
+  }
+  $('sidebar').classList.remove('open');$('toggle-plans').setAttribute('aria-expanded','false');if(!selection.line)window.scrollTo(0,0); notice(sourceNotice??(doc.editable?'Your document is ready to edit. Changes are kept as a draft until you save.':'This document is read only. Its source is preserved.'),!!sourceNotice);
 }
 async function persistDraft() {
   if (!state.doc || !state.base || (!state.dirty && !state.pending)) return;
@@ -259,14 +278,15 @@ async function bootstrap(token) {
   const resolved=params.has('ref')?await api(`link?${new URLSearchParams({ref:params.get('ref'),from:params.get('from')??''})}`):null;
   const initial = params.has('ref')?resolved?.path:params.get('path') || fragment.get('path') || list.initialPath;
   history.replaceState(null,'',location.pathname + location.search);
-  if(params.get('view')==='changes')await changes.show();else if (['flags','decisions'].includes(params.get('view'))) await records.show(params.get('view'),params.get('record')); else if (initial) await open(initial); else await showLibrary();
+  if(params.get('view')==='changes')await changes.show();else if(params.get('view')==='filing')await filing.show();else if (['flags','decisions'].includes(params.get('view'))) await records.show(params.get('view'),params.get('record')); else if (initial) await open(initial); else await showLibrary();
   records.counts().catch(()=>{});
 }
 async function showLibrary() {
   if(state.busy)throw new Error('Wait for the current operation before returning to the library.');
+  await yardstick.beforeLeave();
   clearTimeout(draftTimer);
   if(state.doc&&(state.dirty||state.pending)){storeLocal();await persistDraft();if(!state.recoveryStored)throw new Error('Preserve your current draft before leaving the document.');}
-  state.mode='home';blockEditor.hideTools();$('records-home').hidden=true;records.deactivate();changes.deactivate();
+  state.mode='home';blockEditor.hideTools();$('records-home').hidden=true;records.deactivate();changes.deactivate();filing.deactivate();
   $('workspace').classList.add('library-start');$('evidence').classList.remove('outline-open');
   $('document').hidden=true;$('empty').hidden=false;$('doc-path').textContent='';
   $('sidebar').classList.remove('open');$('toggle-plans').setAttribute('aria-expanded','false');
@@ -341,12 +361,14 @@ window.addEventListener('beforeunload', event => { if (state.dirty || state.pend
 document.addEventListener('keydown', event => { if (document.querySelector('dialog[open]')) return; if ((event.metaKey || event.ctrlKey) && event.key === 's') { event.preventDefault(); if (state.doc && state.dirty) guarded(() => view('review'))(); } });
 async function beforeDesktopLeave() {
   if(state.busy)throw new Error('Wait for the current operation before switching folders or quitting.');
+  await yardstick.beforeLeave();
   if($('template-dialog').open||$('lifecycle-dialog')?.open||$('create-dialog').open||$('git-commit-dialog').open||$('filter-dialog').open||$('record-review')&&!$('record-review').hidden)throw new Error('Close the current review or template editor before switching folders or quitting.');
   clearTimeout(draftTimer);
   if(state.doc&&(state.dirty||state.pending)){storeLocal();await persistDraft();if(!state.recoveryStored)throw new Error('Recovery storage is unavailable. Save or preserve your draft before leaving.');}
   await persistence;
 }
 async function resumeRecovery(row) {
+  if(row.kind==='yardstick'){await yardstick.resume(row);return;}
   if(row.kind==='git-commit'){await commits.show({operationId:row.operationId});return;}
   if(row.kind==='creation'){await creation.show(row.operationId?{operationId:row.operationId}:{});return;}
   if(row.kind==='lifecycle'){await lifecycle.resume(row.operationId);return;}

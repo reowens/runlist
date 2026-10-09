@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { resolveConfig } from '../src/config.mjs';
 import { buildIndex } from '../src/index.mjs';
 import { buildCoverage, renderCoverage } from '../src/render.mjs';
-import { buildFilingCoverage, filingFindings, scanFilingRows, filingOptions } from '../src/filing.mjs';
+import { buildFilingCoverage, filingFindings, scanFilingRows, filingOptions, assembleFilingCoverage, prepareFilingHub, filingParentTarget, filingLiveHub } from '../src/filing.mjs';
 
 const temporary = [];
 const cli = fileURLToPath(new URL('../bin/runlist.mjs', import.meta.url));
@@ -39,6 +39,18 @@ const hubIndex = rows => `| Hub | Pickup source |\n|---|---|\n${rows}\n`;
 const hubPointer = name => `| [Hub](${name}) | Follow the hub's next step. |`;
 const get = (report, name) => report.plans.find(plan => plan.path === `docs/${name}`);
 const findings = (index, kind) => index.warnings.filter(warning => warning.meta?.kind === kind);
+
+it('assembles detached prepared evidence without rereading or resolving deleted sources', async () => {
+  const r = await repo(); r.write('parent.md'); r.write('child.md', '', 'parent_plan: parent.md');
+  r.hub('root.md', `### Delivery\n${hubIndex(hubPointer('area.md'))}`);
+  r.hub('area.md', rowTable(home('parent.md')));
+  const index = r.index();
+  const parents = new Map(index.docs.map(doc => [doc.path, filingParentTarget(doc, r.config)]));
+  const rows = index.docs.filter(doc => filingLiveHub(doc, r.config)).flatMap(hub =>
+    prepareFilingHub(hub, readFileSync(path.join(r.directory, hub.path), 'utf8'), r.config));
+  for (const doc of index.docs) rmSync(path.join(r.directory, doc.path));
+  deepStrictEqual(assembleFilingCoverage(index.docs, r.config, rows, parents), index.filingCoverage);
+});
 
 describe('subject rows define filing, rather than any link', () => {
   it('ignores prose, commentary, metadata, link lists, ranked non-subject cells and pointer tables', async () => {

@@ -109,7 +109,38 @@ export function scopeFilingCoverage(report, docs) {
   return { ...report, totals: totals(plans), plans };
 }
 
-export function buildFilingCoverage(docs, config) {
+// Prepare compact row evidence while a single hub source is in hand. The
+// assembler below consumes these detached records without rereading sources.
+export function prepareFilingHub(hub, raw, config) {
+  const options = filingOptions(config.filing);
+  if (!options) return [];
+  const { body, bodyLineOffset } = extractFrontmatter(raw);
+  const dir = path.dirname(path.join(config.repoRoot, hub.path));
+  const vocabulary = config.typeStatuses?.get('plan') ?? config.validStatuses ?? new Set();
+  return scanSubjectRows(body, options.categoryDepth).flatMap(row => {
+    const resolved = resolveBodyLinkTarget(row.href, dir, config.repoRoot);
+    if (!resolved.ok) return [];
+    const span = row.marked ?? readPositionalToken(row.statusCell, word => vocabulary.has(word.toLowerCase()));
+    return [{ hub: hub.path, line: bodyLineOffset + row.lineIndex + 1,
+      subject: toRepoPath(resolved.path, config.repoRoot), category: row.category,
+      printedStatus: span && vocabulary.has(span.text.toLowerCase()) ? span.text : null }];
+  });
+}
+
+export function filingParentTarget(doc, config) {
+  const parents = doc.refFields?.parent_plan ?? [];
+  if (parents.length !== 1) return null;
+  const absolute = resolveRefPath(parents[0], path.dirname(path.join(config.repoRoot, doc.path)), config.repoRoot);
+  return absolute ? toRepoPath(absolute, config.repoRoot) : null;
+}
+
+export function filingLiveHub(doc, config) {
+  return isHubDoc(doc) && !closed(doc, config);
+}
+
+// Pure report assembly. Filesystem resolution and source reads belong to the
+// preparation phase, so native callers can advance those in bounded requests.
+export function assembleFilingCoverage(docs, config, preparedRows, parentTargets, { failures = [], complete = true } = {}) {
   const options = filingOptions(config.filing);
   if (!options) return null;
   const byPath = new Map(docs.map(doc => [doc.path, doc]));
@@ -118,36 +149,20 @@ export function buildFilingCoverage(docs, config) {
     const key = doc.path.toLowerCase();
     folded.set(key, folded.has(key) ? null : doc);
   }
-  const lookup = absolute => {
-    const relative = toRepoPath(absolute, config.repoRoot);
-    return byPath.get(relative) ?? folded.get(relative.toLowerCase()) ?? null;
-  };
+  const lookup = relative => byPath.get(relative) ?? folded.get(relative.toLowerCase()) ?? null;
   const homes = new Map();
   const categoryRows = new Map();
-  const failures = [];
-  for (const hub of docs) {
-    if (!isHubDoc(hub) || closed(hub, config)) continue;
-    let raw;
-    try { raw = readFileSync(path.join(config.repoRoot, hub.path), 'utf8'); }
-    catch (error) { failures.push({ path: hub.path, message: error.message }); continue; }
-    const { body, bodyLineOffset } = extractFrontmatter(raw);
-    const dir = path.dirname(path.join(config.repoRoot, hub.path));
-    for (const row of scanSubjectRows(body, options.categoryDepth)) {
-      const resolved = resolveBodyLinkTarget(row.href, dir, config.repoRoot);
-      if (!resolved.ok) continue;
-      const subject = lookup(resolved.path);
-      if (!subject || subject.type !== 'plan' || subject.path === hub.path || closed(subject, config)) continue;
-      if (isHubDoc(subject)) {
-        if (!categoryRows.has(subject.path)) categoryRows.set(subject.path, []);
-        categoryRows.get(subject.path).push({ hub: hub.path, category: row.category });
-      }
-      const vocabulary = config.typeStatuses?.get(subject.type) ?? config.validStatuses ?? new Set();
-      const span = row.marked ?? readPositionalToken(row.statusCell, word => vocabulary.has(word.toLowerCase()));
-      if (!span || !vocabulary.has(span.text.toLowerCase())) continue;
-      if (!homes.has(subject.path)) homes.set(subject.path, []);
-      homes.get(subject.path).push({ hub: hub.path, line: bodyLineOffset + row.lineIndex + 1,
-        subject: subject.path, category: row.category, categories: [], printedStatus: span.text });
+  for (const row of preparedRows) {
+    const subject = lookup(row.subject);
+    if (!subject || subject.type !== 'plan' || subject.path === row.hub || closed(subject, config)) continue;
+    if (isHubDoc(subject)) {
+      if (!categoryRows.has(subject.path)) categoryRows.set(subject.path, []);
+      categoryRows.get(subject.path).push({ hub: row.hub, category: row.category });
     }
+    if (!row.printedStatus) continue;
+    if (!homes.has(subject.path)) homes.set(subject.path, []);
+    homes.get(subject.path).push({ hub: row.hub, line: row.line,
+      subject: subject.path, category: row.category, categories: [], printedStatus: row.printedStatus });
   }
 
   // Explicit first-cell hub index rows pass categories to the hub's plan rows,
@@ -190,10 +205,8 @@ export function buildFilingCoverage(docs, config) {
       seen.add(current.path);
       if (homes.has(current.path)) { result = { filedThrough: current.path, rows: homes.get(current.path) }; break; }
       chain.push(current.path);
-      const parents = current.refFields?.parent_plan ?? [];
-      if (parents.length !== 1) break;
-      const absolute = resolveRefPath(parents[0], path.dirname(path.join(config.repoRoot, current.path)), config.repoRoot);
-      current = absolute ? lookup(absolute) : null;
+      const parent = parentTargets.get(current.path);
+      current = parent ? lookup(parent) : null;
       if (current?.type !== 'plan') break;
     }
     for (const item of chain) memo.set(item, result);
@@ -205,8 +218,19 @@ export function buildFilingCoverage(docs, config) {
       filing: !home ? 'unfiled' : home.filedThrough === doc.path ? 'direct' : 'parent',
       filedThrough: home?.filedThrough ?? null, rows: home?.rows ?? [] };
   });
-  return { enabled: true, complete: failures.length === 0, categoryDepth: options.categoryDepth,
+  return { enabled: true, complete: complete && failures.length === 0, categoryDepth: options.categoryDepth,
     totals: totals(plans), plans, failures };
+}
+
+export function buildFilingCoverage(docs, config) {
+  if (!filingOptions(config.filing)) return null;
+  const rows = [], failures = [];
+  const parents = new Map(docs.map(doc => [doc.path, filingParentTarget(doc, config)]));
+  for (const hub of docs.filter(doc => filingLiveHub(doc, config))) {
+    try { rows.push(...prepareFilingHub(hub, readFileSync(path.join(config.repoRoot, hub.path), 'utf8'), config)); }
+    catch (error) { failures.push({ path: hub.path, message: error.message }); }
+  }
+  return assembleFilingCoverage(docs, config, rows, parents, { failures });
 }
 
 export function filingFindings(report) {

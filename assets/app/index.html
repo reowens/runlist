@@ -18,7 +18,7 @@
 <button id="library-documents" class="quiet" aria-pressed="false"><span>Docs</span><span id="library-documents-count"></span></button>
 </nav>
 <nav class="library-kinds record-kinds" aria-label="Records"><button id="library-flags" class="quiet" aria-pressed="false"><span>Flags</span><span id="library-flags-count"></span></button><button id="library-decisions" class="quiet" aria-pressed="false"><span>Decisions</span><span id="library-decisions-count"></span></button></nav>
-<nav class="library-kinds record-kinds" aria-label="Checkout"><button id="library-changes" class="quiet" aria-pressed="false"><span>Changes</span><span id="library-changes-count"></span></button></nav>
+<nav class="library-kinds record-kinds" aria-label="Checkout"><button id="library-changes" class="quiet" aria-pressed="false"><span>Changes</span><span id="library-changes-count"></span></button><button id="library-filing" class="quiet" aria-pressed="false"><span>Filing</span><span id="library-filing-count"></span></button></nav>
 <div class="library-local"><section id="library-saved-section" hidden><details open><summary>PINNED</summary><nav id="library-saved" aria-label="Pinned documents"></nav></details></section><section id="library-recent-section" hidden><details open><summary>RECENT</summary><nav id="library-recent" aria-label="Recent documents"></nav></details></section></div>
 <div class="sidebar-bottom"><button id="open-templates" class="template-launch quiet">Templates <span>View &amp; customize</span></button><button id="open-settings" class="template-launch quiet">Settings <span>Preferences &amp; checkout</span></button><div class="sidebar-footer">Local Markdown<br><span>Save here. Review local commits in Changes.</span></div></div>
 </aside>
@@ -33,6 +33,7 @@
 <nav id="plans" aria-label="Document library"></nav><p id="library-scan-note" class="muted"></p>
 </section>
 <section id="records-home" class="library-home records-home" hidden aria-label="Browse records"></section>
+<section id="filing-home" class="library-home filing-home" hidden aria-label="Plan filing"></section>
 <section id="changes-home" class="library-home changes-home" hidden aria-labelledby="changes-title">
 <div class="library-heading"><div><h1 id="changes-title" tabindex="-1">Changes</h1><p>Review saved documents against local Git history.</p></div><button id="changes-refresh" class="quiet small">↻ Refresh</button></div>
 <p id="changes-checkout" class="muted"></p><p id="changes-feedback" role="status" aria-live="polite"></p>
@@ -43,6 +44,7 @@
 <div class="changes-footer"><p id="changes-staging" class="muted"></p><p class="muted">Commit selected saved files locally. Sharing remains in your Git workflow.</p></div>
 </section>
 <section id="document" hidden aria-labelledby="doc-title">
+<section id="yardstick-panel" class="yardstick-panel" hidden aria-label="Product goal"></section>
 <div class="view-tabs"><div id="document-tabs" class="document-view-tabs" role="tablist" aria-label="Document view"><button role="tab" id="tab-read" aria-controls="reading" tabindex="-1" aria-selected="false">Preview</button><button role="tab" id="tab-edit" aria-controls="editing" tabindex="0" aria-selected="true">Edit</button><button role="tab" id="tab-review" aria-controls="reviewing" tabindex="-1" aria-selected="false">Review changes <span id="change-count"></span></button><button role="tab" id="tab-source" aria-controls="source-view" tabindex="-1" aria-selected="false">Source</button></div><button id="toggle-outline" class="quiet small">Sections</button><span id="draft-status" class="draft-status"></span></div>
 <div id="claim" class="inline-note" hidden></div>
 <div id="pending-note" class="inline-note recovery" hidden><span>An interrupted operation is kept. Retry its reviewed request or inspect the outcome before editing further.</span><button id="inspect-pending" class="small">Inspect operation</button></div>

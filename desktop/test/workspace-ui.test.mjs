@@ -19,6 +19,8 @@ const {libraryNavigation}=await import(pathToFileURL(path.join(assets,'library-n
 const {gitChanges}=await import(pathToFileURL(path.join(assets,'git-changes.mjs')));
 const {gitCommit}=await import(pathToFileURL(path.join(assets,'git-commit.mjs')));
 const {recordNavigation}=await import(pathToFileURL(path.join(assets,'record-navigation.mjs')));
+const {documentYardstick}=await import(pathToFileURL(path.join(assets,'document-yardstick.mjs')));
+const {filingNavigation}=await import(pathToFileURL(path.join(assets,'filing-navigation.mjs')));
 const {documentLifecycle}=await import(pathToFileURL(path.join(assets,'document-lifecycle.mjs')));
 const previous=Object.fromEntries(['document','window','localStorage','Option','location','history'].map(key=>[key,globalThis[key]]));
 const roots=[];
@@ -28,6 +30,12 @@ function dom(){
   const {document,window}=parseHTML(readFileSync(path.join(assets,'index.html'),'utf8'));
   const $=id=>document.getElementById(id);let focused;
   window.HTMLElement.prototype.scrollIntoView=function(){};
+  window.HTMLElement.prototype.focus=function(){focused=this.id;};
+  window.HTMLElement.prototype.showModal=function(){this.setAttribute('open','');};
+  window.HTMLElement.prototype.close=function(){this.removeAttribute('open');};
+  Object.defineProperty(window.HTMLElement.prototype,'open',{configurable:true,get(){return this.hasAttribute('open');}});
+  window.HTMLSelectElement.prototype.add=function(option){this.append(option);};
+  Object.defineProperty(window.HTMLSelectElement.prototype,'options',{configurable:true,get(){return this.querySelectorAll('option');}});
   for(const node of document.querySelectorAll('*'))node.focus=()=>{focused=node.id;};
   for(const dialog of document.querySelectorAll('dialog')){Object.defineProperty(dialog,'open',{get(){return this.hasAttribute('open');}});dialog.showModal=()=>dialog.setAttribute('open','');dialog.close=()=>dialog.removeAttribute('open');}
   // Linkedom has no form interaction model; adapt only those browser primitives.
@@ -38,8 +46,8 @@ function dom(){
   globalThis.location={href:'http://local.invalid/',pathname:'/',search:'',hash:''};globalThis.history={replaceState(){}};
   return {document,window,$,focused:()=>focused};
 }
-async function engine(){
-  const root=mkdtempSync(path.join(os.tmpdir(),'runlist-workspace-dom-'));roots.push(root);mkdirSync(path.join(root,'docs/plans'),{recursive:true});writeFileSync(path.join(root,'runlist.config.mjs'),"export const root='docs';\n");
+async function engine(extra=''){
+  const root=mkdtempSync(path.join(os.tmpdir(),'runlist-workspace-dom-'));roots.push(root);mkdirSync(path.join(root,'docs/plans'),{recursive:true});writeFileSync(path.join(root,'runlist.config.mjs'),"export const root='docs';\n"+extra);
   writeFileSync(path.join(root,'docs/plans/existing.md'),'---\ntype: plan\nstatus: active\n---\n# Existing\n\nA searchable needle_dom.\n\n## Needle section\n\nMore content.\n');
   const service=createCheckoutService({config:await resolveConfig(root),actor:{kind:'human',id:'human:dom-test'}});
   const calls=[],api=async(route,body)=>{calls.push({route,body});return service.request({method:body===undefined?'GET':'POST'},'/api/'+route,body);};return {root,api,calls};
@@ -239,4 +247,32 @@ test('Library Semantic uses explicit submission, current filters and relevance w
  const navigation=libraryNavigation({state,$:ui.$,api,open:async()=>{},showLibrary:async()=>{},checkout:()=>f.root,notice(){}});await navigation.load();ui.$('library-search-semantic').checked=true;ui.$('filter').value='how do we ship';ui.$('library-status').value='active';await navigation.load();assert.equal(calls.some(c=>c.route==='semantic/start'),false);assert.match(ui.$('library-range').textContent,/Press Search/);assert.equal(ui.$('library-sort').value,'relevance');assert.equal(ui.$('library-sort').disabled,true);
  await ui.$('library-semantic-search').onclick();assert.equal(calls.find(c=>c.route==='semantic/start').body.status,'active');assert.match(ui.$('library-range').textContent,/1 top semantic matches/);assert.equal(ui.$('library-next').disabled,true);assert.match(ui.$('library-scan-note').textContent,/coverage is incomplete/);assert.equal(state.plans[0].title,'Ranked result');
  ui.$('library-search-semantic').checked=false;await navigation.load();assert.equal(ui.$('library-sort').disabled,false);assert.equal(ui.$('library-sort').value,'updated');assert.equal(calls.filter(c=>c.route==='semantic/start').length,1);
+});
+
+test('yardstick UI reviews and applies human assessment through shared engine, then blocks draft actions',async()=>{
+ const ui=dom(),f=await engine("export const yardstick='docs/goal.md';\n");writeFileSync(path.join(f.root,'docs/goal.md'),'# Goal\n\nKeep documents useful.\n');
+ const state={doc:await f.api('document?path=docs/plans/existing.md'),busy:false,dirty:false,pending:null},notices=[],moves=[];
+ const controller=documentYardstick({state,$:ui.$,api:f.api,checkout:()=>f.root,open:async path=>{state.doc=await f.api('document?path='+path);await controller.opened();},library:{relocated:(...args)=>moves.push(args),load:async()=>{}},notice:(...args)=>notices.push(args)});
+ assert.equal(f.calls.some(c=>c.route.startsWith('yardstick')),false);await controller.opened();assert.equal(ui.$('yardstick-panel').hidden,false);
+ const serves=ui.$('yardstick-panel').querySelector('[data-yardstick-action="serves"]');await serves.onclick();assert.equal(ui.$('yardstick-dialog').open,true);assert.throws(()=>controller.beforeLeave(),/Close/);
+ const form=ui.$('yardstick-dialog').querySelector('form');form.querySelector('textarea').value='Owner chooses this.';await form.onsubmit(event);
+ assert.match(ui.$('yardstick-dialog-title').textContent,/serves/i);assert.match(ui.$('yardstick-dialog').querySelector('pre').textContent,/Owner chooses this/);assert.equal(f.calls.some(c=>c.route==='yardstick/commit'),false);
+ assert.equal(ui.$('yardstick-dialog').querySelector('[data-yardstick-apply]').disabled,false);await ui.$('yardstick-dialog').querySelector('[data-yardstick-apply]').onclick();
+ assert.equal(ui.$('yardstick-dialog').open,false);assert.equal(moves.length,1);assert.match(readFileSync(path.join(f.root,'docs/plans/existing.md'),'utf8'),/yardstick_disposition: "serves"/);assert.equal(state.doc.status,'active');assert.equal(localStorage.length,0);assert.ok(notices.some(([message])=>/assessment saved/i.test(message)));
+ state.dirty=true;controller.update();assert.equal(ui.$('yardstick-panel').querySelector('[data-yardstick-action="close"]').disabled,true);assert.match(ui.$('yardstick-panel').querySelector('.yardstick-availability').textContent,/draft/);
+});
+test('filing UI scans only after opening and navigates exact current hub row without mutation',async()=>{
+ const ui=dom(),f=await engine('export const filing=true;\n');
+ writeFileSync(path.join(f.root,'docs/hub.md'),'---\ntype: plan\nstatus: active\nexecution_mode: coordination\n---\n# Hub\n\n### Delivery\n\n| Plan | Status |\n|---|---|\n| [Existing](plans/existing.md) | active |\n');
+ const state={mode:'home'},opened=[];let controller;
+ controller=filingNavigation({state,$:ui.$,api:f.api,checkout:()=>f.root,showLibrary:async()=>controller.deactivate(),open:async(...args)=>opened.push(args),notice:message=>assert.fail(message)});
+ assert.equal(f.calls.some(c=>c.route.startsWith('filing')),false);await controller.show();assert.equal(state.mode,'filing');assert.equal(ui.$('library-filing').getAttribute('aria-pressed'),'true');assert.match(ui.$('filing-feedback').textContent,/1 live plans checked/);
+ await ui.$('filing-list').querySelector('[data-path]').onclick();assert.match(ui.$('filing-detail').textContent,/Delivery/);
+ const rowButton=[...ui.$('filing-detail').querySelectorAll('button')].find(button=>button.textContent==='Open hub row');assert.ok(rowButton);await rowButton.onclick();assert.equal(opened[0][0],'docs/hub.md');assert.ok(opened[0][1].line>1);assert.match(opened[0][1].expectedRevision,/^sha256:/);
+ controller.invalidate();assert.match(ui.$('filing-feedback').textContent,/Refresh/);assert.equal(f.calls.some(c=>c.body!==undefined),false);controller.deactivate();assert.equal(ui.$('filing-home').hidden,true);
+});
+test('Recovery recognizes local and disk yardstick reviews and only inspects on activation',async()=>{
+ const ui=dom(),resumed=[],calls=[];localStorage.setItem('runlist:yardstick:/fixture:docs%2Fplan.md',JSON.stringify({path:'docs/plan.md',operationId:'review-a',state:'reviewed'}));
+ const controller=recoveryCenter({$:ui.$,checkout:()=>'/fixture',api:async route=>{calls.push(route);return {items:[{kind:'yardstick',operationId:'review-a',path:'docs/plan.md',state:'reviewed',available:true}],offset:0,hasMore:false,unavailable:0};},beforeNavigate:async()=>{},resume:async row=>resumed.push(row),notice(){}});
+ await controller.show();assert.equal(ui.$('recovery-items').children.length,1);assert.match(ui.$('recovery-items').textContent,/Product goal assessment/);assert.equal(resumed.length,0);await ui.$('recovery-items').querySelector('button').onclick();assert.equal(resumed[0].kind,'yardstick');assert.equal(calls.length,1);
 });

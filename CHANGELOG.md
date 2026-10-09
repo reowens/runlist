@@ -2,6 +2,17 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- Desktop Product goal comparisons with reviewed Serves/Clear/Close/Fold actions, exact guarded goal and delivery snapshots, retained human recovery, draft protection and CLI archive/reference behavior.
+- Read-only desktop Filing reports with shared subject-row/category/inheritance policy, on-demand bounded scans, plan and home-row pages, incomplete-scan explanations and guarded source-row navigation.
+
+### Fixed
+
+- Yardstick archive previews for a plan already under the archive directory can heal its status without expecting a move result.
+
 ## 0.94.0 — 2026-10-09
 
 ### Added

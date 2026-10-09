@@ -139,6 +139,21 @@ test('close archives and records the assessment in the same tracked move', async
   assert.equal(existsSync(file), false);
 });
 
+test('a close preview can heal archive-status drift in place', async () => {
+  const p = await project();
+  mkdirSync(path.join(p.root, 'docs/archived'));
+  const file = path.join(p.root, 'docs/archived/drift.md');
+  writeFileSync(file, '---\ntype: plan\nstatus: active\n---\n# Archived path\n');
+  const before = readFileSync(file, 'utf8');
+  const preview = await call(p, ['close', file, '--reason', 'No longer needed.'], { dryRun: true });
+  assert.equal(preview.path, 'docs/archived/drift.md');
+  assert.match(preview.lifecycle, /heal frontmatter in place/);
+  assert.equal(readFileSync(file, 'utf8'), before);
+  await call(p, ['close', file, '--reason', 'No longer needed.'], { expectedDestination: file });
+  assert.equal(fm(file).status, 'archived');
+  assert.equal(fm(file).yardstick_disposition, 'closed');
+});
+
 test('fold retains and repairs its replacement link with custom reference lists', async () => {
   const p = await project({ extraConfig: "export const referenceFields = { bidirectional: [], unidirectional: ['custom_ref'] };\n" });
   const source = plan(p);

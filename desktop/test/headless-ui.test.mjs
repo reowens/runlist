@@ -86,7 +86,7 @@ async function frontend(core, localStorage = storage()) {
     if (!nodes.has(id)) nodes.set(id, {
       hidden:true, open:false, textContent:'', value:'', children:[],
       classList:{add(){}, remove(){}, toggle(){}}, setAttribute(){},
-      addEventListener(){}, scrollIntoView(){}, replaceChildren(...children){this.children=children;},
+      addEventListener(){}, focus(){}, scrollIntoView(){}, replaceChildren(...children){this.children=children;},
       append(...children){this.children.push(...children);}
     });
     return nodes.get(id);
@@ -115,6 +115,9 @@ async function frontend(core, localStorage = storage()) {
     'block-editor.mjs':{BlockEditor},
     'settings.mjs':{appSettings:() => ({read:() => ({})})},
     'document-lifecycle.mjs':{documentLifecycle:() => ({resolveInitial:async path=>path})},
+    'document-stages.mjs':{documentStages:()=>({update:noop})},
+    'document-yardstick.mjs':{documentYardstick:()=>({opened:async()=>{},update:noop,resolveInitial:async path=>path,resume:async()=>{},beforeLeave:async()=>{if(node('yardstick-dialog').open)throw new Error('Close the assessment review first.');},busy:()=>false})},
+    'filing-navigation.mjs':{filingNavigation:()=>({show:async()=>{},load:async()=>{},invalidate:noop,deactivate:noop,visible:()=>false})},
     'record-navigation.mjs':{recordNavigation:() => ({deactivate:noop,counts:async()=>{}}),nativeContent:()=>''},
     'library-navigation.mjs':{libraryNavigation:() => ({render:noop,opened:noop})},
     'editor-navigation.mjs':{editorNavigation:() => ({update:noop})},
@@ -208,6 +211,7 @@ test('Quit refuses busy operations and unfinished reviews without invoking nativ
     assert.match(ui.node('notice').textContent,/Close the current review/);
     ui.node(id).open=false;ui.node(id).hidden=true;
   }
+  ui.node('yardstick-dialog').open=true;await quit();assert.match(ui.node('notice').textContent,/Close.*assessment review/);ui.node('yardstick-dialog').open=false;
   assert.equal(ui.calls.some(c=>c.command==='finish_quit'),false);
   await quit();
   assert.equal(ui.calls.filter(c=>c.command==='finish_quit').length,1);
@@ -256,4 +260,10 @@ test('disk recovery remains discoverable when local renderer storage is full',as
   ui.localStorage.setItem=()=>{throw new Error('Quota exceeded');};ui.app.bodyChanged(ui.app.state.body.replace('Original','Disk recovery despite quota'));
   await ui.events.get('runlist:quit')();assert.equal(ui.calls.some(c=>c.command==='finish_quit'),true);
   const reopened=await frontend(bridge(await engine(root)));await reopened.app.open(relative);assert.equal(reopened.node('recovery').hidden,false);await reopened.app.recover();assert.match(reopened.app.candidate(),/Disk recovery despite quota/);assert.equal(readFileSync(path.join(root,relative),'utf8'),source);
+});
+test('shipped source navigation highlights only the reviewed revision and keeps stale-row explanation',async()=>{
+ const root=fixture(),runtime=await engine(root),ui=await frontend(bridge(runtime));
+ const doc=await runtime.request('document?path='+relative),line=doc.source.split('\n').findIndex(text=>text==='Original paragraph.\r')+1;
+ await ui.app.open(relative,{line,expectedRevision:doc.revision});assert.equal(ui.app.state.mode,'source');assert.equal(ui.node('full-source').children[1].textContent,'Original paragraph.\r');assert.equal(ui.node('full-source').children[1].className,'source-location');
+ await ui.app.open(relative,{line,expectedRevision:'sha256:'+('0'.repeat(64))});assert.match(ui.node('notice').textContent,/changed since the filing report/);assert.equal(ui.app.state.mode,'source');
 });

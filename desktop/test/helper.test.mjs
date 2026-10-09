@@ -130,3 +130,13 @@ test('native Git jobs return promptly, survive helper shutdown and expose one ve
  assert.equal(readFileSync(path.join(root,'native-hook-marker'),'utf8'),'hook-ran');assert.match(git(['show','HEAD:docs/plans/fixture.md']),/Canonical native commit/);assert.match(readFileSync(path.join(root,'docs/plans/fixture.md'),'utf8'),/Native local commit/);assert.match(git(['cat-file','commit',done.commitId]),/gpgsig -----BEGIN SSH SIGNATURE-----/);
  assert.equal((await second.request('git/operation?id='+id,undefined,{handle:randomUUID()})).error.code,'forbidden');assert.equal((await second.request('git/commit/start',{operationId:id,actor:{kind:'human',id:'forged'}})).error.code,'forbidden');
 });
+test('yardstick and filing use authenticated private helper requests without a listening server',async()=>{
+ const root=fixture("export const root='docs';\nexport const yardstick='docs/goal.md';\nexport const filing=true;\n");writeFileSync(path.join(root,'docs/goal.md'),'# Goal\n\nKeep useful project documents.\n');
+ writeFileSync(path.join(root,'docs/hub.md'),'---\ntype: plan\nstatus: active\nexecution_mode: coordination\n---\n# Hub\n\n### Delivery\n| Plan | Status |\n|---|---|\n| [Fixture](plans/fixture.md) | active |\n');
+ const h=helper(root);assert.equal((await h.hello()).ok,true);assert.equal((await h.request('filing?op=status')).value.state,'idle');
+ let scan=(await h.request('filing?op=start&refresh=1')).value;while(scan.state==='scanning')scan=(await h.request('filing?op=advance&scanId='+scan.scanId)).value;assert.equal(scan.totals.filedDirect,1);
+ const doc=(await h.request('document?path=docs/plans/fixture.md')).value;assert.equal((await h.request('yardstick?path='+doc.path)).value.enabled,true);
+ const review=await h.request('yardstick/preview',{path:doc.path,action:'serves',reason:'Human choice.',expectedRevision:doc.revision,operationId:randomUUID()});assert.equal(review.ok,true);assert.equal((await h.request('yardstick/commit',{operationId:review.value.operationId})).value.state,'committed');
+ assert.equal((await h.request('filing?op=status')).value.state,'idle');assert.match(readFileSync(path.join(root,doc.path),'utf8'),/yardstick_disposition: "serves"/);
+ const native=readFileSync(new URL('../src-tauri/src/lib.rs',import.meta.url),'utf8');for(const route of ['yardstick','filing','yardstick/preview','yardstick/commit','yardstick/inspect','yardstick/settle'])assert.ok(native.includes('"'+route+'"'));
+});

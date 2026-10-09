@@ -1,4 +1,4 @@
-import { readFileSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { resolveDocArg } from './index.mjs';
@@ -70,6 +70,16 @@ function replacementChain(source, input, config) {
   return { target, guards };
 }
 
+// Trusted adapters use this before loading a retained review's configuration.
+export function assertYardstickReviewGuards(guards = []) {
+  for (const guard of guards) {
+    if (guard.absent ? existsSync(guard.path) : !existsSync(guard.path)
+      || readFileSync(guard.path, 'utf8') !== guard.expectedContent) {
+      throw new Error('Yardstick review material changed; reload before applying.');
+    }
+  }
+}
+
 export async function runYardstick(argv, config, opts = {}) {
   argv = validateCommandArgs('yardstick', argv);
   const out = opts.out ?? process.stdout;
@@ -83,6 +93,9 @@ export async function runYardstick(argv, config, opts = {}) {
     else if (!argv[i].startsWith('--')) positional.push(argv[i]);
   }
   const [action, input, disposition] = positional;
+  // Trusted local adapters retain these snapshots between Review and Apply.
+  // They are never command-line arguments or renderer-controlled material.
+  assertYardstickReviewGuards(opts.guards);
   const goal = readYardstick(config);
   if (action === 'show') {
     const plan = input ? readPlan(input, config) : null;
@@ -113,7 +126,7 @@ export async function runYardstick(argv, config, opts = {}) {
     yardstick_revision: goal.revision,
     ...(reason ? { yardstick_reason: reason } : {}),
   };
-  const guards = [{ path: plan.file, expectedContent: plan.raw }];
+  const guards = [{ path: plan.file, expectedContent: plan.raw }, ...(opts.guards ?? [])];
   if (action !== 'clear') guards.push(goal.snapshot);
   if (action === 'fold') {
     if (!values['--into']) throw new Error('Folding requires --into with a replacement plan.');
@@ -128,9 +141,12 @@ export async function runYardstick(argv, config, opts = {}) {
   if (closing && !plan.archived) {
     const archived = runArchive([plan.file, ...(noIndex ? ['--no-index'] : [])], config, {
       dryRun, out: { write(text) { archiveOutput += text; } }, note: history, guards, testHooks: opts.testHooks,
+      expectedDestination: opts.expectedDestination,
       sourceTransform: raw => renderAssessment(raw, fields),
     });
-    result = { ...result, archived: true, path: archived.newRepoPath, previousPath: plan.repoPath, touched: archived.touched };
+    // Healing an already archived path previews an in-place change; the
+    // lifecycle dry-run intentionally has no move result in that case.
+    result = { ...result, archived: true, path: archived?.newRepoPath ?? plan.repoPath, previousPath: plan.repoPath, touched: archived?.touched ?? [] };
     result.lifecycle = archiveOutput.trimEnd();
   } else if (!dryRun) {
     mutateFileSet({ guards, updates: [{ path: plan.file, expectedContent: plan.raw, render: raw => {
@@ -143,6 +159,11 @@ export async function runYardstick(argv, config, opts = {}) {
   if (!dryRun) {
     const actual = readPlan(result.path, config);
     result.comparison = compareYardstick(actual.fm, config, readYardstick(config), actual.archived);
+  } else if (opts.captureGuards) {
+    // GUI Review must show the same literal material these snapshots guard,
+    // including the proposed assessment, rather than an earlier panel read.
+    const proposed = Object.fromEntries(Object.entries(plan.fm).filter(([key]) => !YARDSTICK_FIELDS.includes(key)));
+    result.comparison = compareYardstick({ ...proposed, ...fields }, config, goal, closing || plan.archived);
   }
   if (json) out.write(`${JSON.stringify(result, null, 2)}\n`);
   else {
@@ -152,5 +173,6 @@ export async function runYardstick(argv, config, opts = {}) {
     if (dryRun && fields.yardstick_into) out.write(`Replacement (relative to the original plan): ${fields.yardstick_into}\n`);
     if (result.comparison) out.write(renderYardstick(result.comparison, { compact: true }));
   }
+  if (opts.captureGuards) Object.defineProperty(result, 'preparedGuards', { value: guards });
   return result;
 }

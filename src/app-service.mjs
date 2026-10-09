@@ -1,5 +1,7 @@
 import { getStageDefinitions } from './stages.mjs';
 import {createAppLifecycle} from './app-lifecycle.mjs';
+import {createAppYardstick} from './app-yardstick.mjs';
+import {createAppFiling} from './app-filing.mjs';
 import {createAppDocuments} from './app-create.mjs';
 import {searchCheckout} from './app-search.mjs';
 import {createAppSemanticSearch} from './app-semantic-search.mjs';
@@ -74,11 +76,27 @@ export function createCheckoutService({config,initialPath=null,actor=localActor(
   }
   const records=createRecordLibrary({config,library,readSource:(req,path)=>editor.read(req,{path}),evidence:flag=>flagEvidence(flag,config)});
   const lifecycle=createAppLifecycle({config,read:openDocument,actor:req=>authenticate(req)});
+  const yardstick=createAppYardstick({config,read:openDocument,actor:req=>authenticate(req),pending:(req,input)=>{
+    const retained=editor.listRecovery(req,{path:input});
+    if(retained.unavailable)problem('recovery-unavailable','Inspect unavailable editor recovery before recording an assessment.');
+    if(retained.items.length)problem('draft-pending','Save or discard this plan’s retained draft, and inspect pending saves, before recording an assessment.');
+    const status=lifecycle.information(req,input);
+    if(!status.enabled)problem('lifecycle-unavailable',status.reason);
+  }});
+  const filing=createAppFiling({config,library,readSource:(input,req)=>{
+    const file=authorizeManagedSource(path.resolve(config.repoRoot,input),config).path,before=lstatSync(file);
+    const opened=editor.read(req,{path:input}),after=lstatSync(file);
+    if(['dev','ino','size','mtimeMs','ctimeMs','mode'].some(key=>before[key]!==after[key]))problem('revision-conflict','This source changed while filing evidence was read. Refresh the report.');
+    return {...opened,stamp:`${after.dev}:${after.ino}:${after.size}:${after.mtimeMs}:${after.ctimeMs}`};
+  }});
+  const assertYardstickIdle=(req,input)=>yardstick.assertIdle(req,relative(path.resolve(config.repoRoot,input),config));
+  const invalidateReports=input=>{library.invalidate(input);records.invalidate();filing.invalidate();};
   const creation=createAppDocuments({config,actor:req=>authenticate(req),library});
   async function request(req, route, body) {
     if (typeof route !== 'string' || !route.startsWith('/api/')) problem('invalid-request','Choose a supported checkout operation.');
     const url = new URL(route, 'http://checkout.invalid');
     const authenticated = {actor:authenticate(req)};
+    if(url.pathname==='/api/filing'||url.pathname.startsWith('/api/yardstick')){if(authenticated.actor?.kind!=='human'||authenticated.actor.id!==actor.id)problem('forbidden','This local checkout authority is required.');}
     if (req.method === 'GET' && url.pathname === '/api/git/status') return git.status(req,url.searchParams);
     if (req.method === 'GET' && url.pathname === '/api/git/diff') return git.diff(req,url.searchParams);
     if (req.method === 'GET' && url.pathname === '/api/git/operation') return gitCommits.inspect(req,url.searchParams.get('id'));
@@ -97,7 +115,7 @@ export function createCheckoutService({config,initialPath=null,actor=localActor(
       }
       if(req.method==='GET'&&url.pathname==='/api/search')return searchCheckout(config,library,url.searchParams);
       if(req.method==='GET'&&url.pathname==='/api/recovery'){
-        const target=url.searchParams.get('path'),groups=[editor.listRecovery(req,{path:target}),...(target?[]:[creation.list(req),lifecycle.list(req),gitCommits.list(req)])];
+        const target=url.searchParams.get('path'),groups=[editor.listRecovery(req,{path:target}),...(target?[]:[creation.list(req),lifecycle.list(req),yardstick.list(req),gitCommits.list(req)])];
         const items=groups.flatMap(group=>group.items).map(item=>({...item,path:path.isAbsolute(item.path)?relative(item.path,config):item.path})).sort((a,b)=>String(b.at).localeCompare(String(a.at)));
         const offset=Math.max(0,Math.floor(Number(url.searchParams.get('offset'))||0)),limit=Math.max(1,Math.min(200,Math.floor(Number(url.searchParams.get('limit'))||50)));
         return {items:items.slice(offset,offset+limit),total:items.length,offset,limit,hasMore:offset+limit<items.length,unavailable:groups.reduce((n,g)=>n+g.unavailable,0)};
@@ -106,6 +124,8 @@ export function createCheckoutService({config,initialPath=null,actor=localActor(
       if (req.method === 'GET' && url.pathname === '/api/document') { await library.refresh(); return send(200,openDocument(req,url.searchParams.get('path'))); }
       if (req.method === 'GET' && url.pathname === '/api/link') { await library.refresh(); return send(200,library.resolve(url.searchParams.get('ref'),url.searchParams.get('from')??'')); }
       if(req.method==='GET'&&url.pathname==='/api/settings')return send(200,{checkout:path.basename(config.repoRoot),roots:(config.docsRoots??[config.docsRoot]).map(root=>relative(root,config)),exclusions:[...config.excludeDirs],statuses:resolveStatusMetadata(config),configFile:config.configPath?relative(config.configPath,config):null,sharing:{records:'Markdown in this checkout; share through Git',preferences:'This browser',drafts:'Private local editor state',templates:'runlist.templates.json'}});
+      if(req.method==='GET'&&url.pathname==='/api/filing')return filing.request(url.searchParams,req);
+      if(req.method==='GET'&&url.pathname==='/api/yardstick')return yardstick.information(req,url.searchParams.get('path'));
       if(req.method==='GET'&&url.pathname==='/api/lifecycle')return send(200,lifecycle.information(req,url.searchParams.get('path')));
       if(req.method==='GET'&&url.pathname==='/api/records'){
         const kind=url.searchParams.get('kind');if(!['flags','decisions'].includes(kind))problem('invalid-request','Choose flags or decisions.');
@@ -123,12 +143,17 @@ export function createCheckoutService({config,initialPath=null,actor=localActor(
         if(url.pathname==='/api/create/preview')return creation.preview(req,body);
         if(url.pathname==='/api/create/inspect')return creation.inspect(req,body);
         if(url.pathname==='/api/create/discard')return creation.discard(req,body);
-        if(url.pathname==='/api/create/commit'){const result=creation.commit(req,body);library.invalidate();records.invalidate();return result;}
-        if(url.pathname==='/api/lifecycle/preview')return send(200,await lifecycle.preview(req,body));
-        if(url.pathname==='/api/lifecycle/commit'){const result=await lifecycle.commit(req,body);library.invalidate();records.invalidate();return send(200,result);}
+        if(url.pathname==='/api/create/commit'){const result=creation.commit(req,body);invalidateReports();return result;}
+        if(url.pathname==='/api/yardstick/preview')return yardstick.preview(req,body);
+        if(url.pathname==='/api/yardstick/commit'){const result=await yardstick.commit(req,body);invalidateReports();return result;}
+        if(url.pathname==='/api/yardstick/inspect')return yardstick.inspect(req,body);
+        if(url.pathname==='/api/yardstick/settle')return yardstick.settle(req,body);
+        if(url.pathname==='/api/lifecycle/preview'){assertYardstickIdle(req,body.path);return send(200,await lifecycle.preview(req,body));}
+        if(url.pathname==='/api/lifecycle/commit'){const retained=lifecycle.inspect(req,body);if(retained)assertYardstickIdle(req,retained.path);const result=await lifecycle.commit(req,body);invalidateReports();return send(200,result);}
         if(url.pathname==='/api/lifecycle/inspect')return send(200,lifecycle.inspect(req,body));
         if(url.pathname==='/api/lifecycle/settle')return send(200,lifecycle.settle(req,body));
         if(url.pathname==='/api/native/preview'){
+          assertYardstickIdle(req,body.path);
           const opened=editor.read(req,{path:body.path});
           const claim=readPlanOwnership(relative(opened.path,config),config);
           if(claim?.corrupt||claim?.state==='owned')problem('claim-conflict','This record is claimed or its ownership needs repair through the CLI.');
@@ -137,7 +162,7 @@ export function createCheckoutService({config,initialPath=null,actor=localActor(
           request.source=prepareNativeAction(opened.source,request,authenticated.actor);
           return send(200,{request,before:opened.source});
         }
-        if(url.pathname==='/api/native/action'){const result=editor.nativeAction(req,body);library.invalidate(body.path);records.invalidate();return send(200,result);}
+        if(url.pathname==='/api/native/action'){assertYardstickIdle(req,body.path);const result=editor.nativeAction(req,body);invalidateReports(body.path);return send(200,result);}
         if(url.pathname==='/api/flags/triage'){
           const selected=await records.detail(req,'flags',body.key);
           if(selected.native)problem('record-read-only','Use the native record action for this record.');
@@ -168,8 +193,9 @@ export function createCheckoutService({config,initialPath=null,actor=localActor(
         // related evidence before the guarded operation.
         if(['/api/draft/read','/api/draft/discard'].includes(url.pathname))editor.read(req,{path:body.path});
         const methods = { '/api/save':'save', '/api/undo':'undo', '/api/draft/read':'readDraft', '/api/draft/write':'putDraft', '/api/draft/discard':'discardDraft' };
+        if(['/api/save','/api/undo','/api/draft/write'].includes(url.pathname))assertYardstickIdle(req,body.path);
         const result = editor[methods[url.pathname]](req, body);
-        if(['/api/save','/api/undo'].includes(url.pathname)){library.invalidate(body.path);records.invalidate();}
+        if(['/api/save','/api/undo'].includes(url.pathname)){invalidateReports(body.path);}
         return send(200, result);
       }
       problem('not-found','No such checkout operation.');
