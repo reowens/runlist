@@ -61,7 +61,7 @@ test('deadline aborts jobs and returns a useful timeout state',async()=>{
 });
 test('changed installations require reselection and malformed filters/authority never reach gmax',async()=>{
  const f=await fixture();writeFileSync(f.entryPath,'// changed');assert.equal((await search(f)).state,'tool_changed');assert.deepEqual(f.calls,[]);
- for(const body of [{query:'q',root:f.root},{query:'a'.repeat(501)},{query:'q',archived:'yes'},{query:'q',folder:'x'.repeat(513)}])await assert.rejects(f.api('semantic/start',body),e=>e.code==='invalid-request');
+ for(const body of [{query:'q',root:f.root},{query:'a'.repeat(501)},{query:'q',archived:'yes'},{query:'q',stage:true},{query:'q',folder:'x'.repeat(513)}])await assert.rejects(f.api('semantic/start',body),e=>e.code==='invalid-request');
  const blocked=createCheckoutService({config:f.config,actor,authenticate:()=>({kind:'human',id:'other'})});services.push(blocked);await assert.rejects(blocked.request({method:'GET'},'/api/semantic/settings'),e=>e.code==='forbidden');
 });
 test('ordinary library/text requests do not discover, start or require semantic tools',async()=>{
@@ -71,4 +71,13 @@ test('a successor waits for predecessor cleanup instead of overlapping external 
  let concurrent=0,maximum=0,starts=0;
  const f=await fixture({connect:async(_i,_c,signal)=>{starts++;concurrent++;maximum=Math.max(maximum,concurrent);return new Promise((_r,reject)=>signal.addEventListener('abort',()=>setTimeout(()=>{concurrent--;reject(new Error('closed'));},25),{once:true}));}});
  await f.api('semantic/start',{query:'first'});while(starts<1)await new Promise(r=>setTimeout(r,2));await f.api('semantic/start',{query:'second'});assert.equal(starts,1);while(starts<2)await new Promise(r=>setTimeout(r,2));assert.equal(maximum,1);await f.service.close();assert.equal(concurrent,0);
+});
+
+test('semantic stage filtering verifies current ships metadata and preserves the unset distinction',async()=>{
+ const f=await fixture();writeFileSync(f.doc,bytes.replace('status: active','status: active\r\nships: Later'));
+ assert.equal((await search(f,{query:'ship',kind:'plans',stage:'word:Later'})).documents[0].stage,'Later');
+ assert.deepEqual((await search(f,{query:'ship',stage:'@unset'})).documents,[]);
+ writeFileSync(f.doc,bytes.replace('status: active','status: active\r\nships: []'));
+ assert.deepEqual((await search(f,{query:'ship',stage:'@unset'})).documents,[]);
+ assert.equal((await search(f,{query:'ship',stage:'@invalid'})).documents[0].stageInvalid,true);
 });

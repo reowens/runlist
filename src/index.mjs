@@ -14,6 +14,7 @@ import { checkSkillDrift } from './skill-drift.mjs';
 import { checkHubStatusDrift } from './sync-status.mjs';
 import { checkHubMembershipDrift } from './hub-membership.mjs';
 import {parseNativeRecord} from './native-record.mjs';
+import { readShipsFrontmatter } from './stages.mjs';
 
 // `fast: true` skips every pass that produces warnings/errors — the rendered
 // index file consumes only status/title/snapshot/etc., not the validation
@@ -296,7 +297,9 @@ function walkMarkdownFiles(directory, files, excludedDirs, skipPaths, seen = new
 function extractDocText(frontmatter, body) {
   const fmWarnings = [];
   const parsedFrontmatter = parseSimpleFrontmatter(frontmatter, fmWarnings);
+  if (Object.hasOwn(parsedFrontmatter, 'ships')) parsedFrontmatter.ships = readShipsFrontmatter(frontmatter);
   return {
+    shipsMetadataVersion: 1,
     parsedFrontmatter,
     fmWarnings: fmWarnings.map(w => ({ message: w.message })),
     headingTitle: extractFirstHeading(body),
@@ -314,6 +317,8 @@ export function parseDocFile(filePath, config, opts = {}) {
   const relativePath = toRepoPath(filePath, config.repoRoot);
   const stamp = cache && opts.source === undefined ? fileStamp(filePath) : null;
   let text = stamp ? cache.get(relativePath, stamp) : null;
+  // Older cache entries cannot distinguish blank ships from an empty YAML list.
+  if (text && text.shipsMetadataVersion !== 1) text = null;
   // Validation reads the body itself, so only a fast build can skip the read.
   let body = null;
   let rawSource = null;
@@ -406,6 +411,8 @@ export function parseDocFile(filePath, config, opts = {}) {
     root: rootLabel,
     type: docType,
     status: asString(parsedFrontmatter.status) ?? null,
+    // Preserve ships without coercing lists/objects into apparently valid stages.
+    ships: parsedFrontmatter.ships ?? null,
     owner: asString(parsedFrontmatter.owner) ?? null,
     surface,
     surfaces: mergeUniqueStrings(surface ? [surface] : [], surfaces),

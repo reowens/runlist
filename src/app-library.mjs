@@ -8,6 +8,7 @@ import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { extractFirstHeading } from './extractors.mjs';
 import { isHubDoc, detectBodyRunlistRefs } from './hub.mjs';
 import { normalizeStringList } from './util.mjs';
+import { getStageDefinitions, readPlanStage, readShipsFrontmatter } from './stages.mjs';
 
 const list = value => normalizeStringList(value).map(v=>v.slice(0,200)).slice(0,40);
 const repoPath = (file,config) => path.relative(config.repoRoot,file).split(path.sep).join('/');
@@ -25,6 +26,19 @@ async function readHeader(fd,size) {
 }
 export function libraryKind(fm,documentPath) {
   return isHubDoc({type:fm.type,path:documentPath,executionMode:fm.execution_mode,refFields:{runlist:list(fm.runlist)}}) ? 'hub' : fm.type==='plan' ? 'plan' : 'document';
+}
+export function matchesLibraryStage(row, stage) {
+  return !stage || row.kind==='plan' && (stage==='@unset'?row.stage===null&&!row.stageInvalid:stage==='@invalid'?row.stageInvalid:row.stage===(stage.startsWith('word:')?stage.slice(5):stage));
+}
+export function libraryStageComparator(config) {
+  const order=new Map(getStageDefinitions(config).map((stage,index)=>[stage.word,index]));
+  const rank=row=>row.stageInvalid?order.size+2:row.stage===null?order.size+1:order.get(row.stage)??order.size;
+  return (a,b)=>rank(a)-rank(b)||(rank(a)===order.size?String(a.stage).localeCompare(String(b.stage)):0);
+}
+export function sortLibraryRows(rows,params,config) {
+  const sort=params.get('sort'),compare=sort==='title'?(a,b)=>a.title.localeCompare(b.title)||a.path.localeCompare(b.path):sort==='path'?(a,b)=>a.path.localeCompare(b.path):(a,b)=>String(b.updated??'').localeCompare(String(a.updated??''))||a.path.localeCompare(b.path);
+  const stage=params.get('group')==='stage'&&params.get('kind')==='plans'?libraryStageComparator(config):()=>0;
+  return rows.sort((a,b)=>stage(a,b)||compare(a,b));
 }
 export function createDocumentLibrary(config,{refreshMs=15_000}={}) {
   const roots=[...(config.docsRoots??[config.docsRoot])].sort((a,b)=>b.length-a.length);
@@ -76,6 +90,7 @@ export function createDocumentLibrary(config,{refreshMs=15_000}={}) {
           const type=typeof fm.type==='string'?fm.type.slice(0,100):'untyped';
           row={path:relative,bytes:stamp.size,title:String((fm.record_schema==='runlist.record/v1'&&(fm.finding||fm.question))||fm.title||extractFirstHeading(parts.body)||path.basename(file,'.md')).slice(0,300),type,kind:libraryKind(fm,relative),status:String(fm.status||'unknown').slice(0,100),updated:typeof fm.updated==='string'?fm.updated:null,folder:path.posix.dirname(relative),modules:list(fm.modules),surfaces:list(fm.surfaces),parents:normalizeStringList(fm.parent_plan),archived:fm.status==='archived'||relative.split('/').includes(path.basename(config.archiveDir??'archived')),untyped:type==='untyped',metadataWarnings:warnings.length};
         }
+        if(row?.kind==='plan'){const stage=readPlanStage(readShipsFrontmatter(parts.frontmatter));row.stage=stage.word;row.stageInvalid=stage.invalid;}
         if(row&&fm.record_schema==='runlist.record/v1')try{const id=JSON.parse(fm.record_data).repository_id;if(/^repo:[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(id))row.recordRepositoryId=id;}catch{}
         // Parsed headings/frontmatter can be V8 substring views into the whole
         // 128 KiB header. Detach the small metadata record before caching it;
@@ -109,15 +124,17 @@ export function createDocumentLibrary(config,{refreshMs=15_000}={}) {
   }
   async function query(params=new URLSearchParams()) {
     await refresh(params.get('refresh')==='1');
-    const includeArchived=params.get('archived')==='1',scope=rows.filter(r=>includeArchived||!r.archived),kind=params.get('kind')??'all',status=params.get('status')??'',folder=params.get('folder')??'',type=params.get('type')??'',sort=params.get('sort')??'updated';
+    const includeArchived=params.get('archived')==='1',scope=rows.filter(r=>includeArchived||!r.archived),kind=params.get('kind')??'all',status=params.get('status')??'',folder=params.get('folder')??'',type=params.get('type')??'',stage=params.get('stage')??'';
     const words=(params.get('q')??'').slice(0,500).toLowerCase().trim().split(/\s+/).filter(Boolean);
-    let matches=scope.filter(r=>(kind==='all'||kind==='documents'&&r.kind==='document'||kind==='hubs'&&r.kind==='hub'||kind==='plans'&&r.kind==='plan')&&(!status||r.status===status)&&(!type||r.type===type)&&(!folder||r.folder===folder||r.folder.startsWith(folder+'/'))&&words.every(w=>`${r.title} ${r.path} ${r.status} ${r.type} ${r.modules.join(' ')} ${r.surfaces.join(' ')}`.toLowerCase().includes(w)));
-    matches.sort(sort==='title'?(a,b)=>a.title.localeCompare(b.title)||a.path.localeCompare(b.path):sort==='path'?(a,b)=>a.path.localeCompare(b.path):(a,b)=>String(b.updated??'').localeCompare(String(a.updated??''))||a.path.localeCompare(b.path));
+    let matches=scope.filter(r=>(kind==='all'||kind==='documents'&&r.kind==='document'||kind==='hubs'&&r.kind==='hub'||kind==='plans'&&r.kind==='plan')&&matchesLibraryStage(r,stage)&&(!status||r.status===status)&&(!type||r.type===type)&&(!folder||r.folder===folder||r.folder.startsWith(folder+'/'))&&words.every(w=>`${r.title} ${r.path} ${r.status} ${r.type} ${r.modules.join(' ')} ${r.surfaces.join(' ')}`.toLowerCase().includes(w)));
+    sortLibraryRows(matches,params,config);
     const number=(key,fallback,max)=>{const n=Number(params.get(key)??fallback);return Number.isInteger(n)&&n>=0?Math.min(n,max):fallback;};
     const limit=Math.max(1,number('limit',50,100)),offset=Math.min(number('offset',0,10_000_000),Math.max(0,Math.floor((matches.length-1)/limit)*limit));
     const counts={all:scope.length,hubs:scope.filter(r=>r.kind==='hub').length,plans:scope.filter(r=>r.kind==='plan').length,documents:scope.filter(r=>r.kind==='document').length};
     const facets=key=>{const counts=new Map();for(const r of scope)counts.set(r[key],(counts.get(r[key])??0)+1);return [...counts].sort(([a],[b])=>a.localeCompare(b)).map(([value,count])=>({value,count}));};
-    return {documents:matches.slice(offset,offset+limit),total:matches.length,inventoryTotal:rows.length,counts,offset,limit,hasMore:offset+limit<matches.length,facets:{statuses:facets('status'),types:facets('type'),folders:facets('folder')},stats};
+    const stageDefinitions=getStageDefinitions(config),planRows=scope.filter(r=>r.kind==='plan'),stageCounts=new Map();for(const row of planRows){const value=row.stageInvalid?'@invalid':row.stage===null?'@unset':`word:${row.stage}`;stageCounts.set(value,(stageCounts.get(value)??0)+1);}
+    const configured=new Set(stageDefinitions.map(s=>`word:${s.word}`)),stages=[...stageDefinitions.map(s=>({value:`word:${s.word}`,label:s.word,meaning:s.meaning,count:stageCounts.get(`word:${s.word}`)??0})),...[...stageCounts].filter(([value])=>!configured.has(value)&&!['@unset','@invalid'].includes(value)).sort(([a],[b])=>a.localeCompare(b)).map(([value,count])=>({value,label:value.slice(5),count,unknown:true})),{value:'@unset',label:'Unset · no stage',count:stageCounts.get('@unset')??0},...(stageCounts.has('@invalid')?[{value:'@invalid',label:'Invalid metadata',count:stageCounts.get('@invalid')}]:[])];
+    return {stageDefinitions,group:params.get('group')==='stage'&&kind==='plans'?'stage':null,documents:matches.slice(offset,offset+limit),total:matches.length,inventoryTotal:rows.length,counts,offset,limit,hasMore:offset+limit<matches.length,facets:{stages,statuses:facets('status'),types:facets('type'),folders:facets('folder')},stats};
   }
   return {query,refresh,async all(){await refresh();return rows.map(row=>({...row}));},resolve,relations,invalidate,get stats(){return stats;}};
 }

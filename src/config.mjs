@@ -3,6 +3,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { die, warn } from './util.mjs';
 import { CONFIG_FILENAMES } from './naming.mjs';
+import { validateStageDefinitions } from './stages.mjs';
 
 // Keys where user config replaces defaults entirely (not deep-merged).
 // These are flat maps or config sections where the user's version is authoritative —
@@ -101,6 +102,8 @@ const DEFAULTS = {
 
   taxonomy: {
     surfaces: null,
+    // Ordered delivery stages; null leaves the repository vocabulary unrestricted.
+    milestones: null,
     // modules: when null (default), the project doesn't enumerate product
     // modules — the modules-required validator silently skips. When set to
     // an array, modules are taxonomy-enforced AND moduleRequiredFor activates.
@@ -353,7 +356,7 @@ function findConfigFile(startDir) {
 const VALID_CONFIG_KEYS = new Set(Object.keys(DEFAULTS));
 
 function validateConfig(userConfig, config, validStatuses, indexPath) {
-  const warnings = [];
+  const warnings = validateStageDefinitions(config);
 
   // statuses.order must be array
   if (config.statuses && config.statuses.order !== undefined && !Array.isArray(config.statuses.order)) {

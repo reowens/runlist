@@ -193,6 +193,13 @@ export const statuses = {
 // Taxonomy validation — set fields to null to skip validation.
 // moduleRequiredFor is derived from requiresModule when using rich status definitions.
 export const taxonomy = {
+  // Ordered stages are repository-defined; status still tracks work progress.
+  // Existing string lists remain supported: milestones: ['Launch', 'Later'].
+  // Omit milestones (or use null) to allow any ships value. Missing ships is Unset.
+  milestones: [
+    { word: 'Launch', meaning: 'Work intended for the next release.' },
+    { word: 'Later', meaning: 'Work deliberately deferred beyond that release.' },
+  ],
   surfaces: ['web', 'ios', 'android', 'mobile', 'full-stack', 'frontend', 'backend', 'api', 'docs', 'ops', 'platform', 'infra', 'design'],
   moduleRequiredFor: ['active', 'ready', 'planned', 'blocked'],
 };

@@ -4,6 +4,7 @@ import { getGitLastModified, getGitLastModifiedBatch, getGitLastSubstantiveModif
 import { toRepoPath } from './util.mjs';
 import { detectMarker, isPhaseHeading, phaseMarkerConflict, walkSections } from './section.mjs';
 import { resolveBodyLinkTarget } from './body-link.mjs';
+import { getStageDefinitions, readPlanStage } from './stages.mjs';
 
 const NOW = new Date();
 
@@ -75,6 +76,16 @@ function isValidStatus(status, root, config, type) {
 }
 
 export function validateDoc(doc, frontmatter, headingTitle, config) {
+  if (doc.type === 'plan') {
+    const stage = readPlanStage(frontmatter.ships);
+    const milestones = (config.raw ?? config).taxonomy?.milestones;
+    if (stage.invalid) {
+      doc.errors.push({ path: doc.path, level: 'error', message: '`ships` must be a single stage string on one line without NUL characters; leave it blank or omit it for Unset.' });
+    } else if (stage.word && Array.isArray(milestones) && !getStageDefinitions(config).some(definition => definition.word === stage.word)) {
+      doc.errors.push({ path: doc.path, level: 'error', message: `Unknown stage \`${stage.word}\` in \`ships\`; expected a configured \`taxonomy.milestones\` value.` });
+    }
+  }
+
   // Validate type field
   if (doc.type && config.validTypes && !config.validTypes.has(doc.type)) {
     doc.warnings.push({ path: doc.path, level: 'warning', message: `Unknown type \`${doc.type}\`; expected one of: ${[...config.validTypes].join(', ')}.` });

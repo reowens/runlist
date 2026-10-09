@@ -83,6 +83,15 @@ Even a dead claim is not implicitly taken over by this API. An agent may save
 its own claimed plan with verified edit authority. Saves never claim, release,
 archive, run lifecycle hooks, repair references, stage Git, or commit Git.
 
+Trusted checkout adapters may opt into `allowStageEdits:true`. This permits only
+a plan's `ships:` field to change alongside narrative edits; all other envelope
+bytes, lifecycle history and stable item identities remain protected. Stage
+values are checked against the configured vocabulary, with an unset choice
+allowed. Generic editor adapters retain the byte-identical frontmatter default.
+The same save request, receipts, claims, revision checks and recovery path apply.
+Compensating undo restores the retained exact before-image, including its prior
+stage, without validating that old value as a new stage assignment.
+
 ## Durable operations and repair
 
 Before replacing source, the core durably writes a private `prepared` receipt

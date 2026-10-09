@@ -94,6 +94,15 @@ The local release and work runbook
 records their scope and the gated release sequence for an explicit future resume.
 That runbook and release artifacts are local repository files, excluded from Git.
 
+## Stages in development source
+
+Library → Plans now supports repository-defined Stage filtering/grouping and
+saved views. The plan Stage selector keeps its selection in the existing draft,
+review, save and recovery flow. `ships:` metadata and `taxonomy.milestones` are
+shared with CLI stage filters/checks; unset is separate from explicit Later and
+never derived from status. Semantic results preserve relevance order. These
+additions have not been built into or installed over the delivered rc.3 app.
+
 ## Install and open
 
 The new app is installed at `~/Applications/Runlist.app`. Open **Runlist** normally.

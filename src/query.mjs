@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { getStageDefinitions, readPlanStage } from './stages.mjs';
 import path from 'node:path';
 import { capitalize, toSlug, truncate, warn, die, suggestCandidates, isArchivedPath } from './util.mjs';
 import { renderProgressBar, formatCurrentState } from './render.mjs';
@@ -98,6 +99,7 @@ export function runQuery(index, argv, config, opts = {}) {
       filters,
       count: docs.length,
       docs,
+      ...(filters.group === 'stage' ? { groups: groupDocsByStage(docs, config) } : {}),
       ...(summaryPreviewSkipped ? { summaryPreview: { status: 'skipped-preview', reason: 'side-effect-free preview' } } : {}),
     }, null, 2)}\n`);
     return;
@@ -233,7 +235,7 @@ function writeUnknownFilterValueHint(filters, index) {
 export function parseQueryArgs(argv) {
   const filters = {
     types: null, statuses: null, keyword: null, body: false, owner: null, surface: null,
-    module: null, domain: null, audience: null, executionMode: null,
+    module: null, domain: null, audience: null, executionMode: null, stage: null,
     updatedSince: null, limit: 20, all: false, sort: 'updated',
     group: null,
     stale: false, hasNextStep: false, hasBlockers: false,
@@ -256,10 +258,11 @@ export function parseQueryArgs(argv) {
     if (arg === '--domain' && next) { filters.domain = next; i += 1; continue; }
     if (arg === '--audience' && next) { filters.audience = next; i += 1; continue; }
     if (arg === '--execution-mode' && next) { filters.executionMode = next; i += 1; continue; }
+    if (arg === '--stage' && next) { filters.stage = next; i += 1; continue; }
     if (arg === '--updated-since' && next) { filters.updatedSince = next; i += 1; continue; }
     if (arg === '--limit' && next) { filters.limit = Number.parseInt(next, 10) || 20; i += 1; continue; }
     if (arg === '--sort' && next) { filters.sort = next; i += 1; continue; }
-    if (arg === '--group' && next) { filters.group = next; i += 1; continue; }
+    if ((arg === '--group' || arg === '--group-by') && next) { filters.group = next; i += 1; continue; }
     if (arg === '--all') { filters.all = true; continue; }
     if (arg === '--include-archived') { filters.includeArchived = true; continue; }
     if (arg === '--exclude-archived') { filters.excludeArchived = true; continue; }
@@ -282,6 +285,9 @@ export function parseQueryArgs(argv) {
     }
   }
 
+  if (filters.group && !['module', 'surface', 'owner', 'stage'].includes(filters.group)) {
+    die(`Unknown group '${filters.group}'. Use one of: module, surface, owner, stage.`);
+  }
   return filters;
 }
 
@@ -323,6 +329,15 @@ export function filterDocs(docs, filters, config, gitMetadataOptions) {
   if (filters.domain) { const n = filters.domain.toLowerCase(); result = result.filter(d => (d.domain ?? '').toLowerCase() === n); }
   if (filters.audience) { const n = filters.audience.toLowerCase(); result = result.filter(d => (d.audience ?? '').toLowerCase() === n); }
   if (filters.executionMode) { const n = filters.executionMode.toLowerCase(); result = result.filter(d => (d.executionMode ?? '').toLowerCase() === n); }
+  if (filters.stage) {
+    const literalStage = filters.stage.startsWith('word:');
+    const stageWord = literalStage ? filters.stage.slice(5) : filters.stage;
+    const missingStage = !literalStage && (filters.stage === '@unset' || (filters.stage === 'unset' && !getStageDefinitions(config).some(stage => stage.word === 'unset')));
+    result = result.filter(d => {
+      const stage = readPlanStage(d.ships);
+      return missingStage ? stage.word === null && !stage.invalid : stage.word === stageWord;
+    });
+  }
   if (filters.updatedSince) result = result.filter(d => d.updated && d.updated >= filters.updatedSince);
 
   if (filters.git) {
@@ -462,6 +477,7 @@ function renderQueryResults(docs, filters, config) {
   if (filters.module) process.stdout.write(`- module: ${filters.module}\n`);
   if (filters.domain) process.stdout.write(`- domain: ${filters.domain}\n`);
   if (filters.audience) process.stdout.write(`- audience: ${filters.audience}\n`);
+  if (filters.stage) process.stdout.write(`- stage: ${filters.stage}\n`);
   if (filters.executionMode) process.stdout.write(`- execution-mode: ${filters.executionMode}\n`);
   if (filters.updatedSince) process.stdout.write(`- updated-since: ${filters.updatedSince}\n`);
   process.stdout.write(`- sort: ${filters.sort}\n`);
@@ -590,6 +606,7 @@ function renderPlansOutput(docs, filters, config, opts = {}) {
   // Active filter note
   const activeFilters = [];
   if (filters.statuses?.length) activeFilters.push(`status: ${filters.statuses.join(', ')}`);
+  if (filters.stage) activeFilters.push(`stage: ${filters.stage}`);
   if (filters.module) activeFilters.push(`module: ${filters.module}`);
   if (filters.surface) activeFilters.push(`surface: ${filters.surface}`);
   if (filters.owner) activeFilters.push(`owner: ${filters.owner}`);
@@ -599,7 +616,13 @@ function renderPlansOutput(docs, filters, config, opts = {}) {
   if (filters.hasBlockers) activeFilters.push('has blockers');
   if (activeFilters.length) process.stdout.write(dim(`  filtered: ${activeFilters.join(' | ')}`) + '\n');
 
-  if (filters.group === 'module') {
+  if (filters.group === 'stage') {
+    for (const group of groupDocsByStage(docs, config)) {
+      process.stdout.write(`\n${bold(`${group.label} (${group.docs.length})`)}\n`);
+      if (group.meaning) process.stdout.write(`  ${dim(group.meaning)}\n`);
+      renderPlanRows(group.docs, filters, maxWidth, { showTag: true });
+    }
+  } else if (filters.group === 'module') {
     process.stdout.write('\n');
     renderPlansByGroup(docs, d => d.modules?.length ? d.modules : ['(none)'], filters, maxWidth);
   } else if (filters.group === 'surface') {
@@ -700,6 +723,31 @@ function renderPlansOutput(docs, filters, config, opts = {}) {
   }
 
   process.stdout.write('\n');
+}
+
+// Stage grouping never folds children or discards unconfigured/malformed values.
+// Null and invalid keys remain distinct from every explicit ships string.
+export function groupDocsByStage(docs, config) {
+  const definitions = getStageDefinitions(config);
+  const meanings = new Map(definitions.map(stage => [stage.word, stage.meaning]));
+  const invalidKey = Symbol('invalid');
+  const groups = new Map();
+  for (const doc of docs) {
+    const stage = readPlanStage(doc.ships);
+    const key = stage.invalid ? invalidKey : stage.word;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(doc);
+  }
+  const configured = definitions.map(stage => stage.word).filter(word => groups.has(word));
+  const unknown = [...groups.keys()].filter(key => typeof key === 'string' && !meanings.has(key)).sort((a, b) => a.localeCompare(b));
+  const ordered = [...configured, ...unknown, ...(groups.has(null) ? [null] : []), ...(groups.has(invalidKey) ? [invalidKey] : [])];
+  return ordered.map(key => ({
+    word: typeof key === 'string' ? key : null,
+    label: key === invalidKey ? 'Invalid' : key === null ? 'Unset' : key,
+    meaning: meanings.get(key) ?? null,
+    ...(key === invalidKey ? { invalid: true } : {}),
+    docs: groups.get(key),
+  }));
 }
 
 function renderPlansByGroup(docs, keyFn, filters, maxWidth) {

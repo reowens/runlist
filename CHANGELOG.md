@@ -6,6 +6,8 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ### Added
 
+- Repository-defined plan stages through `ships:` and ordered `taxonomy.milestones`, preserving legacy string vocabularies and supporting meanings. CLI stage filtering/grouping, stage coverage checks, Library stage filters/groups and saved views, and a draft-based plan Stage selector share the same unset/unknown/invalid rules. Stage saves retain revision, ownership, recovery and undo guards while protecting other metadata.
+
 - Reviewed GUI creation for plans, docs and coordination hubs, using the CLI's built-in scaffolds and saved Markdown template overrides. Configured statuses/roots and record validation apply; exclusive writes, template/config guards and private operation receipts prevent overwrites and unsafe retries. Preview does not execute JavaScript template functions.
 - ⌘/Ctrl+K document/heading/action navigation, streaming local content search, library content filters and locally saved library views. Search reads on demand with per-file/query bounds and reports partial or unavailable files; it retains metadata and snippets rather than document buffers.
 - A checkout-wide Recovery view for disk and renderer drafts, conflicts, creation/status/record reviews and interrupted saves. Disk drafts survive renderer-storage loss and retain original pending operation IDs. Listing never retries a write; missing/corrupt work is preserved for inspection.

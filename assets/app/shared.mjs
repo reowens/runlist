@@ -1,4 +1,5 @@
 // Pure browser/server helpers. Source is always escaped; authored HTML is text.
+export {readSourceStage, replaceSourceStage, rebaseSourceStage} from './stage-source.mjs';
 export const escapeHtml = value => String(value).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 export function splitSource(source) {
   const envelope = source.match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/)?.[0] ?? '';

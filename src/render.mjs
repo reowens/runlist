@@ -7,6 +7,7 @@ import { bold, red, yellow, green, dim } from './color.mjs';
 import { categorizeWarnings } from './check-collapse.mjs';
 import { buildCoordinationIndex, isRoadmapHub } from './runlist.mjs';
 import { resolveStatusMetadata, statusMetadataFor } from './status-metadata.mjs';
+import { readPlanStage } from './stages.mjs';
 
 // Render `currentState` with an `(auto)` prefix when the value was body-scraped
 // rather than read from frontmatter. Lets a reader see at a glance which docs
@@ -524,6 +525,8 @@ function _renderCheck(index, config, opts = {}) {
   const referenceValidation = buildReferenceValidationCoverage(index, config);
   const lines = ['Check', ''];
   lines.push(`- docs scanned: ${index.docs.length}`);
+  const stages = index.docs.filter(doc=>doc.type==='plan').map(doc=>readPlanStage(doc.ships));
+  if(stages.length)lines.push(`- plan stages: ${stages.filter(stage=>stage.word).length} set; ${stages.filter(stage=>!stage.word&&!stage.invalid).length} Unset; ${stages.filter(stage=>stage.invalid).length} invalid`);
   lines.push(`- errors: ${index.errors.length}`);
   lines.push(`- warnings: ${index.warnings.length}`);
   lines.push(`- reference validation: ${referenceValidation.checkedDocs} docs checked; ${referenceValidation.terminalDocsSkipped} terminal docs skipped`);

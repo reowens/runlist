@@ -7,7 +7,8 @@ import {authorizeManagedSource} from './managed-path.mjs';
 import {extractFrontmatter,parseSimpleFrontmatter,normalizeEol} from './frontmatter.mjs';
 import {extractFirstHeading} from './extractors.mjs';
 import {sourceRevision,SourceEditError} from './source-editor.mjs';
-import {libraryKind} from './app-library.mjs';
+import {readPlanStage,readShipsFrontmatter} from './stages.mjs';
+import {libraryKind,matchesLibraryStage} from './app-library.mjs';
 import {withSemanticClient} from './semantic-search-client.mjs';
 
 const inside=(root,file)=>{const rel=path.relative(root,file);return rel!== '..'&&!rel.startsWith(`..${path.sep}`)&&!path.isAbsolute(rel);};
@@ -46,7 +47,7 @@ export function createAppSemanticSearch({config,library,settingsFile=defaultSett
  const inspect=id=>{const job=jobs.get(id);if(!job)return failure('cancelled');return job.state==='running'?{id,state:'running'}:{id,...job.result};};
  function cancel(id){const job=jobs.get(id);if(job?.state==='running'){job.controller.abort();job.state='complete';job.result=failure('cancelled');}return inspect(id);}
  function start(body){
-   if(!body||Object.keys(body).some(k=>!['query','archived','kind','status','type','folder'].includes(k))||typeof body.query!=='string'||body.query.length>500||!body.query.trim()||Object.values(body).some(v=>!['string','boolean'].includes(typeof v)||typeof v==='string'&&v.length>512)||body.archived!==undefined&&typeof body.archived!=='boolean')throw new SourceEditError('invalid-request','Supply a semantic query up to 500 characters and supported document filters.');
+   if(!body||Object.keys(body).some(k=>!['query','archived','kind','status','type','folder','stage'].includes(k))||typeof body.query!=='string'||body.query.length>500||!body.query.trim()||Object.values(body).some(v=>!['string','boolean'].includes(typeof v)||typeof v==='string'&&v.length>512)||body.archived!==undefined&&typeof body.archived!=='boolean'||body.stage!==undefined&&typeof body.stage!=='string')throw new SourceEditError('invalid-request','Supply a semantic query up to 500 characters and supported document filters.');
    clean();if(jobs.size>=16)throw new SourceEditError('search-busy','Semantic search is finishing cancelled work. Retry shortly.');const previous=active;if(active?.state==='running')cancel(active.id);const job={id:randomUUID(),controller:new AbortController(),state:'running',at:Date.now(),result:null,finished:false};jobs.set(job.id,job);active=job;
    const timer=setTimeout(()=>{job.timedOut=true;job.controller.abort();},timeoutMs);timer.unref();
    job.done=(async()=>{await previous?.done;job.controller.signal.throwIfAborted();return run(body,job.controller.signal);})().then(value=>{if(job.state==='running'){job.result=value;job.state='complete';}},error=>{if(job.state==='running'){job.result=failure(job.timedOut?'timeout':job.controller.signal.aborted?'cancelled':error.code??'search_unavailable');job.state='complete';}}).finally(()=>{clearTimeout(timer);job.at=Date.now();job.finished=true;if(active===job)active=null;});
@@ -85,8 +86,9 @@ export function createAppSemanticSearch({config,library,settingsFile=defaultSett
          const source=buffer.toString('utf8'),parts=extractFrontmatter(source),fm=parseSimpleFrontmatter(parts.frontmatter);
          if(fm.type!==undefined&&typeof fm.type!=='string'||fm.type==='prompt'||/^---\r?\n/.test(source)&&!parts.bodyLineOffset)continue;
          const doc={...row,title:String(fm.title||extractFirstHeading(parts.body)||path.basename(file,'.md')).slice(0,300),type:fm.type??'untyped',status:fm.status??'untyped',kind:libraryKind(fm,row.path)};
+         if(doc.kind==='plan'){const stage=readPlanStage(readShipsFrontmatter(parts.frontmatter));doc.stage=stage.word;doc.stageInvalid=stage.invalid;}else{delete doc.stage;delete doc.stageInvalid;}
          const archived=row.path.split('/').includes(path.basename(config.archiveDir??'archived'))||doc.status==='archived';
-         if(!body.archived&&archived||body.kind&&body.kind!=='all'&&({plans:'plan',hubs:'hub',documents:'document'}[body.kind]??body.kind)!==doc.kind||body.status&&body.status!==doc.status||body.type&&body.type!==doc.type||body.folder&&row.folder!==body.folder&&!row.folder.startsWith(body.folder+'/'))continue;
+         if(!matchesLibraryStage(doc,body.stage)||!body.archived&&archived||body.kind&&body.kind!=='all'&&({plans:'plan',hubs:'hub',documents:'document'}[body.kind]??body.kind)!==doc.kind||body.status&&body.status!==doc.status||body.type&&body.type!==doc.type||body.folder&&row.folder!==body.folder&&!row.folder.startsWith(body.folder+'/'))continue;
          const verified=match.hashAlgorithm==='sha256-bytes'&&typeof match.hash==='string'&&/^[a-f0-9]{64}$/.test(match.hash)&&createHash('sha256').update(buffer).digest('hex')===match.hash;
          const lines=normalizeEol(parts.body).split('\n'),at=verified?match.startLine-parts.bodyLineOffset-1:0;
          const excerpt=lines.slice(Math.max(0,at),Math.max(0,at)+4).join(' ').replace(/\s+/g,' ').slice(0,240);

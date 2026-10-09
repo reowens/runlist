@@ -25,7 +25,7 @@ const QUERY_OPTIONS = Object.freeze([
   value('--type'), value('--status'), value('--keyword'), flag('--body'), value('--owner'),
   value('--surface'), value('--module'), value('--domain'), value('--audience'),
   value('--execution-mode'), value('--updated-since'), value('--limit'), value('--sort'),
-  value('--group'), flag('--all'), flag('--include-archived'), flag('--exclude-archived'),
+  value('--group', '--group-by'), value('--stage'), flag('--all'), flag('--include-archived'), flag('--exclude-archived'),
   flag('--stale'), flag('--has-next-step'), flag('--has-blockers'), flag('--checklist-open'),
   flag('--json'), flag('--git'), flag('--summarize'), value('--summarize-limit'), value('--model'),
 ]);

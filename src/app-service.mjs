@@ -1,3 +1,4 @@
+import { getStageDefinitions } from './stages.mjs';
 import {createAppLifecycle} from './app-lifecycle.mjs';
 import {createAppDocuments} from './app-create.mjs';
 import {searchCheckout} from './app-search.mjs';
@@ -64,12 +65,12 @@ export function createCheckoutService({config,initialPath=null,actor=localActor(
   const semantic=createAppSemanticSearch({config,library,...semanticOptions});
   const git = createAppGit({config,actor,authenticate,library});
   const gitCommits = createAppGitCommits({config,actor,authenticate,git});
-  const editor = createSourceEditor({ config, domainPrepare:prepareNativeAction, legacyTypes:[...(config.validTypes ?? ['plan','doc'])].filter(t=>t!=='prompt'),allowUnconfiguredRead:true, authenticate: req => authenticate(req), authorize: ({ actor: candidate, path: filePath }) => ({ allowed: candidate.kind === 'human' && candidate.id === actor.id && !path.relative(config.repoRoot,filePath).split(path.sep).some(p=>p==='prompts'||p==='.git'||config.excludeDirs?.has(p)) && filePath!==config.indexPath && (config.docsRoots ?? [config.docsRoot]).some(root => contained(path.resolve(root), filePath)) }) });
+  const editor = createSourceEditor({ config, allowStageEdits:true, domainPrepare:prepareNativeAction, legacyTypes:[...(config.validTypes ?? ['plan','doc'])].filter(t=>t!=='prompt'),allowUnconfiguredRead:true, authenticate: req => authenticate(req), authorize: ({ actor: candidate, path: filePath }) => ({ allowed: candidate.kind === 'human' && candidate.id === actor.id && !path.relative(config.repoRoot,filePath).split(path.sep).some(p=>p==='prompts'||p==='.git'||config.excludeDirs?.has(p)) && filePath!==config.indexPath && (config.docsRoots ?? [config.docsRoot]).some(root => contained(path.resolve(root), filePath)) }) });
   function openDocument(req, documentPath) {
     const opened = editor.read(req, { path: documentPath });
     const fm = parseSimpleFrontmatter(extractFrontmatter(opened.source).frontmatter);
     const repoPath = relative(opened.path, config), ownership = readPlanOwnership(repoPath, config);
-    return { ...opened, path: repoPath, title: (fm.record_schema==='runlist.record/v1'&&(fm.finding||fm.question)) || fm.title || extractFirstHeading(extractFrontmatter(opened.source).body) || path.basename(opened.path, '.md'), status: fm.status, type:fm.type??'untyped',kind:libraryKind(fm,repoPath),relationships:library.relations(repoPath,fm,extractFrontmatter(opened.source).body),metadata: fm, claim: ownership ? { corrupt: ownership.corrupt, state: ownership.state, sessionId: ownership.sessionId, liveness: ownershipLiveness(ownership) } : null, flags: evidenceFor(opened.source, repoPath, config) };
+    return { ...opened, path: repoPath, title: (fm.record_schema==='runlist.record/v1'&&(fm.finding||fm.question)) || fm.title || extractFirstHeading(extractFrontmatter(opened.source).body) || path.basename(opened.path, '.md'), status: fm.status, type:fm.type??'untyped',kind:libraryKind(fm,repoPath),stageDefinitions:getStageDefinitions(config),relationships:library.relations(repoPath,fm,extractFrontmatter(opened.source).body),metadata: fm, claim: ownership ? { corrupt: ownership.corrupt, state: ownership.state, sessionId: ownership.sessionId, liveness: ownershipLiveness(ownership) } : null, flags: evidenceFor(opened.source, repoPath, config) };
   }
   const records=createRecordLibrary({config,library,readSource:(req,path)=>editor.read(req,{path}),evidence:flag=>flagEvidence(flag,config)});
   const lifecycle=createAppLifecycle({config,read:openDocument,actor:req=>authenticate(req)});

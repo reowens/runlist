@@ -1,3 +1,5 @@
+import { libraryKind, matchesLibraryStage, sortLibraryRows } from './app-library.mjs';
+import { readPlanStage, readShipsFrontmatter } from './stages.mjs';
 import {open} from 'node:fs/promises';
 import {constants} from 'node:fs';
 import {StringDecoder} from 'node:string_decoder';
@@ -14,9 +16,10 @@ export async function searchCheckout(config,library,params) {
   const requestedOffset=Math.max(0,Math.floor(Number(params.get('offset'))||0));
   const all=await library.all(),rows=all.filter(r=>(params.get('archived')==='1'||!r.archived)
     &&(!params.get('kind')||params.get('kind')==='all'||params.get('kind')==='plans'&&r.kind==='plan'||params.get('kind')==='hubs'&&r.kind==='hub'||params.get('kind')==='documents'&&r.kind==='document')
+    &&matchesLibraryStage(r,params.get('stage'))
     &&(!params.get('status')||r.status===params.get('status'))&&(!params.get('type')||r.type===params.get('type'))
     &&(!params.get('folder')||r.folder===params.get('folder')||r.folder.startsWith(params.get('folder')+'/')));
-  rows.sort((a,b)=>String(b.updated??'').localeCompare(String(a.updated??''))||a.path.localeCompare(b.path));
+  sortLibraryRows(rows,params,config);
   const documents=[],sections=[];let scanned=0,unavailable=0,bytesRead=0,total=0,partial=false,index=0;
   if(!words.length)return {documents:rows.slice(requestedOffset,requestedOffset+limit),sections:[],total:rows.length,offset:requestedOffset,limit,hasMore:requestedOffset+limit<rows.length,scanned:0,inventoryTotal:rows.length,partial:false,unavailable:0};
   const budget=128*1024*1024;
@@ -48,9 +51,12 @@ export async function searchCheckout(config,library,params) {
           const {bytesRead:count}=await fd.read(buffer,0,buffer.length,offset);if(!count)break;offset+=count;bytesRead+=count;
           const chunk=decoder.write(buffer.subarray(0,count));
           if(first){
-            first=false;const header=parseSimpleFrontmatter(extractFrontmatter(chunk).frontmatter);
+            first=false;const parts=extractFrontmatter(chunk),header=parseSimpleFrontmatter(parts.frontmatter);
             // Re-check current metadata, even when a cached library row predates a type change.
-            if(header.type==='prompt'||/^---\r?\n/.test(chunk)&&!extractFrontmatter(chunk).bodyLineOffset){unavailable++;rejected=true;break;}
+            if(header.type==='prompt'||/^---\r?\n/.test(chunk)&&!parts.bodyLineOffset){unavailable++;rejected=true;break;}
+            row.kind=libraryKind(header,row.path);
+            if(row.kind==='plan'){const stage=readPlanStage(readShipsFrontmatter(parts.frontmatter));row.stage=stage.word;row.stageInvalid=stage.invalid;}else{delete row.stage;delete row.stageInvalid;}
+            if(!matchesLibraryStage(row,params.get('stage'))||params.get('kind')==='plans'&&row.kind!=='plan'){rejected=true;break;}
           }
           const haystack=(carry+chunk).toLowerCase();
           for(const word of words){const at=haystack.indexOf(word);if(at>=0){found.add(word);if(!excerpt)excerpt=(carry+chunk).slice(Math.max(0,at-65),at+165).replace(/\s+/g,' ').slice(0,240);}}
@@ -67,7 +73,7 @@ export async function searchCheckout(config,library,params) {
     }
   };
   await Promise.all(Array.from({length:4},worker));
-  documents.sort(params.get('sort')==='title'?(a,b)=>a.title.localeCompare(b.title)||a.path.localeCompare(b.path):params.get('sort')==='path'?(a,b)=>a.path.localeCompare(b.path):(a,b)=>String(b.updated??'').localeCompare(String(a.updated??''))||a.path.localeCompare(b.path));
+  sortLibraryRows(documents,params,config);
   sections.sort((a,b)=>a.path.localeCompare(b.path)||a.line-b.line);
   const offset=Math.min(requestedOffset,Math.max(0,Math.floor((documents.length-1)/limit)*limit));
   return {documents:documents.slice(offset,offset+limit),sections,total,offset,limit,hasMore:offset+limit<total,scanned,inventoryTotal:rows.length,partial,unavailable,bytesRead};

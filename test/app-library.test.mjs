@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync, rmSync, symlinkSync, renameSync 
 import os from 'node:os';
 import path from 'node:path';
 import { resolveConfig } from '../src/config.mjs';
+import { searchCheckout } from '../src/app-search.mjs';
 import { createDocumentLibrary } from '../src/app-library.mjs';
 const dirs=[];afterEach(()=>{for(const dir of dirs.splice(0))rmSync(dir,{recursive:true,force:true});});
 async function fixture(){const root=mkdtempSync(path.join(os.tmpdir(),'runlist-library-'));dirs.push(root);for(const dir of ['docs/plans','docs/modules','docs/prompts','docs/evidence'])mkdirSync(path.join(root,dir),{recursive:true});writeFileSync(path.join(root,'runlist.config.mjs'),"export const root=['docs/plans','docs']; export const excludeDirs=['evidence'];\n");return {root,config:await resolveConfig(root)};}
@@ -83,4 +84,27 @@ it('targeted refresh removes deleted or unsafe rows and never reads excluded or 
 it('bounds pending changed paths by falling back to discovery',async()=>{
  const f=await fixture(),library=createDocumentLibrary(f.config);await library.refresh();
  library.invalidate(Array.from({length:600},(_,i)=>`docs/plans/missing-${i}.md`));await library.refresh();strictEqual(library.stats.fullScans,2);strictEqual(library.stats.checkedFiles,0);
+});
+
+it('filters and groups stages in configured order before bounded pagination, keeping unset and invalid separate',async()=>{
+ const f=await fixture();f.config.raw.taxonomy={milestones:[{word:'First',meaning:'First delivery'},'Later','Unset','@unset']};
+ const write=(name,ships,extra='')=>writeFileSync(path.join(f.root,'docs/plans',`${name}.md`),`---\ntype: plan\nstatus: active\n${ships===undefined?'':`ships: ${ships}\n`}${extra}---\n# ${name}\n\nNeedle body.\n`);
+ for(let i=0;i<53;i++)write(`z-first-${i}`,'First');write('a-later','Later');write('b-unknown','Unknown');write('c-unset');write('d-invalid','[Later]');write('e-literal-unset','Unset');write('f-literal-sentinel','"@unset"');write('hub','First','execution_mode: coordination\n');writeFileSync(path.join(f.root,'docs/modules/doc.md'),'---\ntype: doc\nships: First\n---\n# Doc\n');
+ const library=createDocumentLibrary(f.config),first=await library.query(new URLSearchParams('kind=plans&group=stage&sort=title'));
+ strictEqual(first.total,59);strictEqual(first.documents.length,50);ok(first.documents.every(row=>row.stage==='First'));strictEqual(first.stats.headersRead,61);strictEqual(first.group,'stage');
+ const second=await library.query(new URLSearchParams('kind=plans&group=stage&sort=title&offset=50'));
+ deepStrictEqual(second.documents.map(r=>r.stage),['First','First','First','Later','Unset','@unset','Unknown',null,null]);strictEqual(second.documents.at(-1).stageInvalid,true);strictEqual(second.stats.headersRead,first.stats.headersRead);strictEqual(second.stats.generation,first.stats.generation);
+ strictEqual((await library.query(new URLSearchParams('stage=word:Later'))).total,1);strictEqual((await library.query(new URLSearchParams('stage=@unset'))).documents[0].path,'docs/plans/c-unset.md');strictEqual((await library.query(new URLSearchParams('stage=word:Unset'))).documents[0].path,'docs/plans/e-literal-unset.md');strictEqual((await library.query(new URLSearchParams('stage=word:%40unset'))).documents[0].path,'docs/plans/f-literal-sentinel.md');strictEqual((await library.query(new URLSearchParams('stage=@invalid'))).total,1);
+ const content=await searchCheckout(f.config,library,new URLSearchParams('q=Needle&kind=plans&stage=word:Later&group=stage'));strictEqual(content.total,1);strictEqual(content.documents[0].stage,'Later');strictEqual(content.scanned,1);
+ const groupedContent=await searchCheckout(f.config,library,new URLSearchParams('q=Needle&kind=plans&group=stage&sort=title&offset=50'));deepStrictEqual(groupedContent.documents.map(r=>r.path),second.documents.map(r=>r.path));
+ const facets=first.facets.stages;deepStrictEqual(facets.map(s=>s.value),['word:First','word:Later','word:Unset','word:@unset','word:Unknown','@unset','@invalid']);strictEqual(facets[0].meaning,'First delivery');strictEqual(facets[0].count,53);strictEqual((await library.query(new URLSearchParams('kind=documents&group=stage'))).group,null);ok(!(await library.query(new URLSearchParams('kind=documents'))).documents[0].hasOwnProperty('stage'));
+ write('z-first-0','Later');library.invalidate('docs/plans/z-first-0.md');const changed=await library.query(new URLSearchParams('kind=plans&stage=word:Later'));strictEqual(changed.total,2);strictEqual(changed.stats.checkedFiles,1);strictEqual(changed.stats.headersRead,1);
+});
+
+it('content search checks current stage after a cached library scan',async()=>{
+ const f=await fixture(),file=path.join(f.root,'docs/plans/current.md'),source=stage=>`---\ntype: plan\nships: ${stage}\n---\n# Current\n\nNeedle body.\n`;
+ writeFileSync(file,source('First'));const library=createDocumentLibrary(f.config);await library.refresh();writeFileSync(file,source('Later'));
+ const stale=await searchCheckout(f.config,library,new URLSearchParams('kind=plans&q=Needle&stage=word:First'));strictEqual(stale.total,0);
+ const current=await searchCheckout(f.config,library,new URLSearchParams('kind=plans&q=Needle&group=stage'));strictEqual(current.documents[0].stage,'Later');
+ writeFileSync(file,source('[]'));const invalid=await searchCheckout(f.config,library,new URLSearchParams('kind=plans&q=Needle'));strictEqual(invalid.documents[0].stageInvalid,true);
 });

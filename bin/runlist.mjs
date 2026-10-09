@@ -4,6 +4,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { resolveConfig } from '../src/config.mjs';
+import { readPlanStage } from '../src/stages.mjs';
 import { die, warn, levenshtein, isArchivedPath, toRepoPath } from '../src/util.mjs';
 import { recordCliInvocation, recordGlobalError, sanitizeTelemetryArgv } from '../src/journal.mjs';
 import { findRepeatFailureHint } from '../src/hints.mjs';
@@ -23,7 +24,7 @@ const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 
 const QUERY_VALUE_FLAGS = new Set([
   '--type', '--status', '--keyword', '--owner', '--surface', '--module',
   '--domain', '--audience', '--execution-mode', '--updated-since', '--limit',
-  '--sort', '--group', '--summarize-limit', '--model',
+  '--sort', '--group', '--group-by', '--stage', '--summarize-limit', '--model',
 ]);
 
 function requireCommandPolicy(command, policy) {
@@ -500,7 +501,9 @@ Filters:
   --has-blockers         Only docs with blockers
   --checklist-open       Only docs with open checklist items
   --sort <field>         Sort by: updated (default), title, status
-  --group <field>        Group by: module, surface, owner (plans view)
+  --stage <word>         Filter ships stage; @unset selects missing values
+  --group-by <field>     Group by: stage, module, surface, owner (plans view)
+  --group <field>        Alias for --group-by
   --limit <n>            Max results (default: 20)
   --all                  Show all results (no limit)
   --git                  Use git dates instead of frontmatter
@@ -1218,8 +1221,16 @@ modules, and reference fields to pre-populate the config.`,
   plans: `runlist plans — list live plans (excludes archived by default)
 
 Shows documents with type: plan, excluding terminal/archive statuses,
-sorted by status. Supports all query flags (--status, --module, --json,
---sort, --group, etc.).
+sorted by recent updates. Supports all query flags (--status, --module, --json,
+--sort, --group-by, etc.).
+
+Stages use the plan's ships: field, independently of status. Stage groups
+follow taxonomy.milestones order and show each stage's meaning. Unknown
+values, Unset, and Invalid remain visible. Stage groups show all plans
+unless --limit is supplied. --stage @unset selects only missing values;
+plain unset is a shorthand when the repository has no stage named unset.
+Use word:<literal> to select an exact word such as word:@unset or
+word:word:beta when a stage name itself starts with word:.
 
 Default plan statuses: in-session, active, planned, blocked, partial,
 paused, awaiting, queued-after, archived. Run \`runlist help statuses\` for
@@ -1233,6 +1244,9 @@ Examples:
   runlist plans --status partial,paused  # shipped-tail and parked plans
   runlist plans --module auth            # plans for the auth module
   runlist plans --group module           # plans grouped by module
+  runlist plans --stage later            # plans explicitly assigned to later
+  runlist plans --stage @unset           # plans without a stage
+  runlist plans --group-by stage         # stage groups in repository order
   runlist plans --json                   # JSON output`,
 
   prompts: `runlist prompts — manage saved prompts (subcommand namespace)
@@ -2031,7 +2045,7 @@ async function main() {
   //   `runlist plans status`  pipeline — grouped by status, no per-row tag, all plans
   if (command === 'plans') {
     const { buildIndex } = await import('../src/index.mjs');
-    const { runQuery } = await import('../src/query.mjs');
+    const { runQuery, parseQueryArgs } = await import('../src/query.mjs');
     const index = buildIndex(config, listIndexOptions(restArgs));
     applyIndexFilters(index);
     const sub = restArgs[0];
@@ -2041,7 +2055,9 @@ async function main() {
       defaults = ['--type', 'plan', '--exclude-archived', '--sort', 'status', '--all'];
       extras = restArgs.slice(1);
     } else {
-      defaults = ['--type', 'plan', '--exclude-archived', '--sort', 'updated', '--limit', '10'];
+      const stageGrouped = parseQueryArgs(restArgs).group === 'stage';
+      defaults = ['--type', 'plan', '--exclude-archived', '--sort', 'updated',
+        ...(stageGrouped && !restArgs.includes('--limit') ? ['--all'] : ['--limit', '10'])];
     }
     runQuery(index, [...defaults, ...extras], config, { preset: 'plans', type: typeArg, root: rootArg });
     return;
@@ -2283,6 +2299,11 @@ async function main() {
       const builtInPassed = checkIndex.errors.length === 0;
       const complete = skippedCheckHooks.length === 0 && checkIndex.scanCoverage?.complete !== false;
       return {
+        stageCoverage: checkIndex.docs.filter(doc => doc.type === 'plan').reduce((coverage, doc) => {
+          const stage = readPlanStage(doc.ships);
+          coverage[stage.invalid ? 'invalid' : stage.word === null ? 'unset' : 'set'] += 1;
+          return coverage;
+        }, { set: 0, unset: 0, invalid: 0 }),
         docsScanned: checkIndex.docs.length,
         documentsChecked: checkIndex.docs.map(doc => doc.path),
         scanCoverage: checkIndex.scanCoverage,

@@ -577,6 +577,40 @@ remains available in Source. The optional `test/browser-app-smoke.mjs` exercises
 real browser save/CLI readback, undo, reload recovery, conflict review, lost
 acknowledgements, and narrow-screen layouts with Playwright supplied externally.
 
+### Plan stages (development source)
+
+Stages describe when a plan should ship. Status describes its progress. Each
+repository owns its ordered vocabulary in `taxonomy.milestones`; existing string
+lists remain valid, and entries can include a plain-English meaning:
+
+```js
+export const taxonomy = {
+  milestones: [
+    { word: 'beta', meaning: 'First customers are using it while it settles.' },
+    { word: 'ga', meaning: 'Available to every customer who buys it.' },
+    { word: 'later', meaning: 'Parked with no stage committed.' },
+  ],
+};
+```
+
+A plan selects a stage with `ships: beta`. Missing or blank `ships:` is **Unset**,
+separate from an explicit `later`. Runlist never assigns a stage from status.
+`check` reports stage coverage and rejects malformed or unknown configured values.
+
+```bash
+node bin/runlist.mjs plans --stage beta
+node bin/runlist.mjs plans --stage @unset
+node bin/runlist.mjs plans --group-by stage
+```
+
+Use `word:<name>` for a literal stage named `@unset` or beginning with `word:`.
+In the source GUI, Library → Plans can filter/group by Stage and save that view.
+A plan's Stage dropdown changes the draft; review and save publishes it through
+the existing revision, ownership and recovery guards. Other document metadata
+stays protected. Semantic results retain relevance order when filtered by stage.
+These additions are in the development checkout; they are not in the published
+CLI 0.91.0 or delivered GUI 0.91.0-rc.3 yet.
+
 ## Core Workflow
 
 ```bash

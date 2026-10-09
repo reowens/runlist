@@ -12,7 +12,8 @@ import { editorNavigation } from './editor-navigation.mjs';
 import { templateEditor } from './template-editor.mjs';
 import { BlockEditor } from './block-editor.mjs';
 import { documentViews } from './document-views.mjs';
-import { escapeHtml as esc, splitSource, editedSource, markdownHtml, lineDiff, diffHtml } from './shared.mjs';
+import { documentStages } from './document-stages.mjs';
+import { escapeHtml as esc, splitSource, editedSource, markdownHtml, lineDiff, diffHtml, readSourceStage, replaceSourceStage, rebaseSourceStage } from './shared.mjs';
 const $ = id => document.getElementById(id);
 const state = { doc:null, base:null, body:'', csrf:null, mode:'read', dirty:false, draft:null, recovery:null, conflict:null, pending:null, lastSave:null, busy:false, plans:[] };
 const clientId = sessionStorage.runlistClientId ||= crypto.randomUUID();
@@ -29,6 +30,7 @@ const changes=gitChanges({state,$,api,open,showLibrary,checkout:()=>checkoutKey,
 const commits=gitCommit({$,api,checkout:()=>checkoutKey,selection:changes.selectedPaths,changed:()=>changes.invalidate(),notice});
 $('changes-commit').onclick=()=>{if(!$('changes-commit').disabled)return commits.show().catch(error=>notice(error.message,true));};
 const views = documentViews({$,view});
+const stages = documentStages({state,$,changed:word=>{state.draftSource=replaceSourceStage(candidate(),word);bodyChanged(state.body);}});
 const creation=documentCreation({$,api,checkout:()=>checkoutKey,state,beforeNavigate:beforeDesktopLeave,open,library,notice,createdRecord:record=>records.show(record.type==='flag'?'flags':'decisions',record.id)});
 const recoveryCenterView=recoveryCenter({$,api,checkout:()=>checkoutKey,beforeNavigate:beforeDesktopLeave,resume:resumeRecovery,notice});
 const quick=quickNavigation({$,api,state,library,open,jump:section=>navigation.jumpTo(section),notice,actions:()=>[
@@ -48,7 +50,7 @@ function guarded(fn) { return async () => { try { await fn(); } catch (error) { 
 function key(path = state.doc?.path) { return `runlist:recovery:${checkoutKey}:${encodeURIComponent(path)}:${clientId}`; }
 function recoverySource() {
   if (state.pending?.kind === 'undo') return state.pending.source;
-  try { return candidate(); } catch { return splitSource(state.base.source).envelope + state.body; }
+  try { return candidate(); } catch { return splitSource(state.draftSource ?? state.base.source).envelope + state.body; }
 }
 function storeLocal() {
   if (!state.doc || !state.base) return;
@@ -71,7 +73,7 @@ function linked(href) {
   return `?ref=${encodeURIComponent(href)}&from=${encodeURIComponent(state.doc?.path??'')}`;
 }
 
-function candidate() { return state.pending?.kind === 'undo' ? state.pending.source : editedSource(state.base.source, state.body); }
+function candidate() { return state.pending?.kind === 'undo' ? state.pending.source : editedSource(state.draftSource ?? state.base.source, state.body); }
 function updateDirty() {
   state.dirty = candidate() !== state.base.source;
   const rows = lineDiff(state.base.source, candidate()), adds = rows.filter(r => r.kind === 'add').length, removes = rows.filter(r => r.kind === 'remove').length;
@@ -86,6 +88,7 @@ function updateDirty() {
   blockEditor.setReadOnly(!!state.pending || !state.doc.editable);
   $('toggle-markdown').disabled = !!state.pending;
   $('pending-note').hidden = !state.pending;
+  stages.update(candidate());
   $('save').textContent = state.pending ? state.pending.kind === 'undo' ? 'Retry undo' : 'Retry save' : 'Save changes';
 }
 function view(mode) {
@@ -110,7 +113,7 @@ function renderList() { library.render(); }
 function renderDocumentSummary() {
   $('doc-title').textContent=state.doc.title;
   const plan=state.plans.find(p=>p.path===state.doc.path);
-  if(plan){plan.title=state.doc.title;plan.status=state.doc.status;}library.opened();
+  if(plan){plan.title=state.doc.title;plan.status=state.doc.status;const selected=readSourceStage(state.doc.source);plan.stage=selected.word;plan.stageInvalid=selected.invalid;}library.opened();
 }
 function renderEvidence() {
   const doc = state.doc;
@@ -132,7 +135,7 @@ async function open(path,selection={}) {
   notice('Opening document…');
   path=await lifecycle.resolveInitial(path);
   const doc = await api(`document?path=${encodeURIComponent(path)}`);
-  state.doc = doc; state.base = { source:doc.source, revision:doc.revision }; state.body = splitSource(doc.source).body.replaceAll('\r\n','\n');
+  state.doc = doc; state.draftSource = doc.source; state.base = { source:doc.source, revision:doc.revision }; state.body = splitSource(doc.source).body.replaceAll('\r\n','\n');
   state.dirty = false; state.conflict = null; state.pending = null; state.lastSave = null; state.draft = null;
   let recovery = selection.location ? {...JSON.parse(localStorage.getItem(selection.location)),location:selection.location} : findRecovery(doc.path);
   if(selection.draftId||!recovery||recovery.source===recovery.baseSource&&!recovery.pending) {
@@ -185,7 +188,7 @@ function conflict(error) {
 }
 async function recover() {
   const r = state.recovery; if (!r) return;
-  state.base = { source:r.baseSource, revision:r.baseRevision }; state.body = splitSource(r.source).body.replaceAll('\r\n','\n');
+  state.base = { source:r.baseSource, revision:r.baseRevision }; state.draftSource = r.source; state.body = splitSource(r.source).body.replaceAll('\r\n','\n');
   state.draft = r.location === key() ? r.draft : null; state.pending = r.pending; state.lastSave = r.lastSave;
   $('body-editor').value = state.body; $('recovery').hidden = true; updateDirty(); storeLocal(); view('edit');
   if (state.pending) notice('An interrupted save is retained. Review changes and retry to learn its original outcome.');
@@ -214,12 +217,12 @@ async function save() {
     if (current.revision !== result.revision) {
       state.doc = current;
       // Historical retry success is not authority to throw away a later edit.
-      state.base = { source:pending.source, revision:result.revision };
+      state.base = { source:pending.source, revision:result.revision }; state.draftSource = pending.source;
       state.body = splitSource(pending.source).body.replaceAll('\r\n','\n'); storeLocal();
       conflict({ details:{ currentRevision:current.revision, currentSource:current.source } });
       return;
     }
-    state.doc = current; state.base = { source:current.source, revision:current.revision }; state.body = splitSource(current.source).body.replaceAll('\r\n','\n');
+    state.doc = current; state.draftSource = current.source; state.base = { source:current.source, revision:current.revision }; state.body = splitSource(current.source).body.replaceAll('\r\n','\n');
     state.dirty = false; storeLocal(); let cleanupError = null;
     try { await clearDraft(); } catch (error) { cleanupError = error; }
     $('body-editor').value = state.body; $('draft-status').textContent = 'Saved source'; storeLocal(); renderDocumentSummary(); renderEvidence(); view('edit');
@@ -228,7 +231,7 @@ async function save() {
     if (error.code === 'revision-conflict') { state.pending = null; storeLocal(); conflict(error); }
     else if (['repair-required','operation-pending'].includes(error.code)) {
       await inspectOperation(error.details.operationId); notice(error.message,true);
-    } else if (['claim-conflict','managed-fields','invalid-record','forbidden'].includes(error.code)) {
+    } else if (['claim-conflict','managed-fields','invalid-record','invalid-stage','forbidden'].includes(error.code)) {
       try { if (!await api('operation/inspect',{ operationId:state.pending.operationId })) { state.pending = null; storeLocal(); } } catch { /* Keep uncertain evidence when authority prevents inspection. */ }
       notice(error.message,true);
     }
@@ -296,7 +299,7 @@ $('toggle-markdown').onclick = () => {
 };
 $('save').onclick = guarded(save);
 $('cancel').onclick = guarded(async () => { await persistDraft(); view('read'); notice(state.dirty ? 'Reading your draft preview. Changes are not saved to the file.' : 'Reading saved source.'); });
-$('discard').onclick = guarded(async () => { if (state.pending) throw new Error('Inspect or retry the interrupted save before discarding its recovery data.'); await clearDraft(); state.body = splitSource(state.doc.source).body.replaceAll('\r\n','\n'); state.base = { source:state.doc.source, revision:state.doc.revision }; state.pending = null; state.conflict = null; $('conflict').hidden = true; $('body-editor').value = state.body; storeLocal(); $('draft-status').textContent = 'Saved source'; view('edit'); notice('Changes discarded. The Markdown file is unchanged.'); });
+$('discard').onclick = guarded(async () => { if (state.pending) throw new Error('Inspect or retry the interrupted save before discarding its recovery data.'); await clearDraft(); state.body = splitSource(state.doc.source).body.replaceAll('\r\n','\n'); state.base = { source:state.doc.source, revision:state.doc.revision }; state.draftSource = state.doc.source; state.pending = null; state.conflict = null; $('conflict').hidden = true; $('body-editor').value = state.body; storeLocal(); $('draft-status').textContent = 'Saved source'; view('edit'); notice('Changes discarded. The Markdown file is unchanged.'); });
 $('recover').onclick = guarded(recover);
 $('discard-recovery').onclick = guarded(async () => {
   const r = state.recovery;
@@ -304,7 +307,7 @@ $('discard-recovery').onclick = guarded(async () => {
   if (r?.draft?.revision) await api('draft/discard',{ path:state.doc.path,draftId:r.draft.id,expectedDraftRevision:r.draft.revision });
   if (r) localStorage.removeItem(r.location); state.recovery = null; $('recovery').hidden = true; notice('Recovery draft discarded. The file is unchanged.');
 });
-$('review-merge').onclick = guarded(async () => { const c = state.conflict; if (!c) return; state.base = { source:c.currentSource, revision:c.currentRevision }; state.pending = null; state.conflict = null; $('conflict').hidden = true; storeLocal(); await persistDraft(); view('review'); notice('Review the merged draft against the current file before saving.'); });
+$('review-merge').onclick = guarded(async () => { const c = state.conflict; if (!c) return; state.draftSource = rebaseSourceStage(state.base.source,state.draftSource ?? state.base.source,c.currentSource); state.base = { source:c.currentSource, revision:c.currentRevision }; state.pending = null; state.conflict = null; $('conflict').hidden = true; storeLocal(); await persistDraft(); view('review'); notice('Review the merged draft against the current file before saving.'); });
 $('use-current').onclick = guarded(async () => { await persistDraft(); state.doc = await api(`document?path=${encodeURIComponent(state.doc.path)}`); $('reading').innerHTML = markdownHtml(state.doc.source,linked); view('source'); notice('Current source is shown. Your draft and conflict review are retained.'); });
 $('inspect-pending').onclick = guarded(() => inspectOperation(state.pending.operationId));
 $('settle-operation').onclick = guarded(async () => {
@@ -323,7 +326,7 @@ $('undo').onclick = guarded(async () => {
   try {
     const record = await api('operation/inspect',{ operationId:previous.operationId });
     if (!record) throw new Error('The original save receipt is unavailable. Undo cannot overwrite the file.');
-    state.base = { source:record.after, revision:previous.revision };
+    state.base = { source:record.after, revision:previous.revision }; state.draftSource = record.before;
     state.body = splitSource(record.before).body.replaceAll('\r\n','\n'); $('body-editor').value = state.body;
     state.pending = { path:state.doc.path,operationId:crypto.randomUUID(),undoOf:previous.operationId,expectedRevision:previous.revision,kind:'undo',source:record.before };
     storeLocal(); updateDirty();

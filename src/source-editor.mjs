@@ -10,6 +10,8 @@ import { canonicalPlanIdentity, readPlanOwnership } from './pickup.mjs';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { nativePlanItems, parseNativeRecord } from './native-record.mjs';
 import { stateDir } from './naming.mjs';
+import {getStageDefinitions, readPlanStage, readShipsFrontmatter} from './stages.mjs';
+import {withoutSourceStage} from '../assets/app/stage-source.mjs';
 
 const MAX_SOURCE_BYTES = 8 * 1024 * 1024;
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
@@ -105,9 +107,21 @@ function describe(source, legacyTypes = new Set(['plan'])) {
   const editable = legacyTypes.has(fm.type) && envelope(source) !== '' && warnings.length === 0;
   return { type: fm.type, editable, diagnostics: editable ? [] : [{ code: 'unsupported-source', message: 'Narrative editing requires an unambiguous configured document or valid native v1 record.' }] };
 }
-function validateEdit(before, after, legacyTypes) {
+function validateEdit(before, after, legacyTypes, stagePolicy, undo = false) {
   text(after);
-  if (envelope(before) !== envelope(after)) fail('managed-fields', 'Frontmatter is managed by domain operations; narrative saves must preserve it byte for byte.');
+  if (envelope(before) !== envelope(after)) {
+    const beforeMetadata = parseSimpleFrontmatter(extractFrontmatter(before).frontmatter);
+    let stageOnly = false;
+    try {stageOnly = stagePolicy?.allowed && beforeMetadata.type === 'plan'
+      && withoutSourceStage(envelope(before)) === withoutSourceStage(envelope(after));} catch { /* Ambiguous metadata is never editable. */ }
+    if (!stageOnly) {
+      fail('managed-fields', 'Only the plan stage may change through this editor; other frontmatter is managed by domain operations.');
+    }
+    const selected = readPlanStage(readShipsFrontmatter(extractFrontmatter(after).frontmatter));
+    if (!undo && (selected.invalid || (selected.word && stagePolicy.configured && !stagePolicy.words.has(selected.word)))) {
+      fail('invalid-stage', 'Choose a configured stage or leave the stage unset.');
+    }
+  }
   if (JSON.stringify(historySections(before)) !== JSON.stringify(historySections(after))) fail('managed-fields', 'Lifecycle version history must be retained byte for byte.');
   const beforeItems = nativePlanItems(extractFrontmatter(before).body).map(item => item.id);
   const afterItems = nativePlanItems(extractFrontmatter(after).body).map(item => item.id);
@@ -121,9 +135,10 @@ function conflict(expected, current) {
   fail('revision-conflict', 'The source changed; review the current source and keep the draft before retrying.', { expectedRevision: expected, currentRevision: sourceRevision(current), currentSource: current });
 }
 
-export function createSourceEditor({ config, authenticate, authorize, testHooks = {}, legacyTypes = ['plan'], allowUnconfiguredRead = false, domainPrepare = null }) {
+export function createSourceEditor({ config, authenticate, authorize, testHooks = {}, legacyTypes = ['plan'], allowUnconfiguredRead = false, allowStageEdits = false, domainPrepare = null }) {
   if (!config?.repoRoot || typeof authenticate !== 'function' || typeof authorize !== 'function') fail('adapter-error', 'A repository config and explicit authentication and authorization callbacks are required.');
   legacyTypes = new Set(legacyTypes.filter(type=>!['prompt','flag','decision'].includes(type)));
+  const stagePolicy = {allowed:allowStageEdits === true, configured:Array.isArray(config.raw?.taxonomy?.milestones ?? config.taxonomy?.milestones), words:new Set(getStageDefinitions(config).map(stage=>stage.word))};
   // Snapshot trusted configuration; a caller cannot widen roots after issuance.
   config = { repoRoot: path.resolve(config.repoRoot), docsRoots: config.docsRoots ? [...config.docsRoots] : undefined, docsRoot: config.docsRoot };
   const options = { repoRoot: config.repoRoot, locked: true };
@@ -336,7 +351,7 @@ export function createSourceEditor({ config, authenticate, authorize, testHooks 
         if(!prior && Math.abs(Date.now()-Date.parse(request.at))>5*60*1000)fail('review-expired','Reload and review this action with a fresh recording date.');
         after=synchronous(domainPrepare(snapshot.content,request,actor));
         if(after!==request.source)fail('review-conflict','The submitted source differs from the reviewed domain action.');
-      }else validateEdit(snapshot.content, after,legacyTypes);
+      }else validateEdit(snapshot.content, after,legacyTypes,stagePolicy,kind==='undo');
       const value = prior ? { ...prior, grantId } : { schema: 1, id: request.operationId, kind, undoOf: kind === 'undo' ? request.undoOf : null, path: filePath, actor, grantId, at: new Date().toISOString(), state: 'prepared', ...(kind==='native-action'?{requestHash:domainHash(request)}:{}), before: snapshot.content, after, beforeRevision: request.expectedRevision, afterRevision: sourceRevision(after) };
       writeState(operationPath(value.id), value);
       testHooks.afterPrepare?.(value);
