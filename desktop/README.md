@@ -8,7 +8,7 @@ system WebView communicates with a native controller, which owns a bundled Node
 helper through private stdin/stdout pipes. There is no listening HTTP server,
 runtime download, online account, telemetry, automatic updater or login daemon.
 
-Desktop distribution is separate from the npm CLI. The CLI is 0.94.0; the local
+Desktop distribution is separate from the npm CLI. The CLI is 0.94.0; the public/installed
 GUI **0.94.0-rc.1** includes the current yardstick/Filing source and uses bundled
 engine 0.94.0-rc.1 with desktop protocol 1. Updating the CLI does not replace an
 existing desktop app. GUI Product goal shows literal delivery and human-reviewed
@@ -22,7 +22,9 @@ The personal Developer ID signed this new app and installer; Apple accepted both
 tickets were stapled, Gatekeeper accepted both and the existing secure installer
 kept the previous app for rollback. Six focused packaged and six installed checks
 passed with networking denied. No app/window control or live gmax work ran.
-The public Mac download remains **0.92.0-rc.1** until separately published.
+The [public Mac installer](https://github.com/reowens/runlist/releases/download/desktop-v0.94.0-rc.1/Runlist-0.94.0-rc.1-macOS-arm64.dmg) is **0.94.0-rc.1**,
+and its GitHub checksum matches this exact approved/installed package.
+Source and delivery docs are pushed; publication performed no rebuild or Apple checks.
 Older dated candidate/release statements below are historical snapshots.
 
 ### Historical unsigned build and earlier packages
@@ -105,12 +107,12 @@ saved views. The plan Stage selector keeps its selection in the existing draft,
 review, save and recovery flow. `ships:` metadata and `taxonomy.milestones` are
 shared with CLI stage filters/checks; unset is separate from explicit Later and
 never derived from status. Semantic results preserve relevance order. These
-additions are included in the delivered 0.92.0-rc.1 app.
+additions are included in the delivered 0.94.0-rc.1 app.
 
 ## Install and open
 
 The new local 0.94.0-rc.1 app is installed at `~/Applications/Runlist.app`. Open **Runlist** normally.
-For another Apple Silicon Mac, use the [public Mac installer](https://github.com/reowens/runlist/releases/tag/desktop-v0.92.0-rc.1).
+For another Apple Silicon Mac, use the [public Mac installer](https://github.com/reowens/runlist/releases/tag/desktop-v0.94.0-rc.1).
 
 The versioned `Runlist-0.90.0-macOS-arm64.dmg` in `desktop/releases/` is an
 **earlier accepted snapshot**. The usual DMG installation steps are:
@@ -152,10 +154,10 @@ a download. Existing installations are kept as-is unless `--from` explicitly
 supplies a replacement; replacements require the app to be closed and retain a
 rollback copy. Installation keeps Mac quarantine and never opens the app.
 `--dry-run` uses no network, processes or file writes. The command does not load
-checkout configuration or add a CLI runtime dependency. The [Mac GUI download](https://github.com/reowens/runlist/releases/download/desktop-v0.92.0-rc.1/Runlist-0.92.0-rc.1-macOS-arm64.dmg) is now public
+checkout configuration or add a CLI runtime dependency. The [Mac GUI download](https://github.com/reowens/runlist/releases/download/desktop-v0.94.0-rc.1/Runlist-0.94.0-rc.1-macOS-arm64.dmg) is now public
 in GitHub Releases and can be discovered by the published installer in
 [CLI 0.92.0](https://github.com/reowens/runlist/releases/tag/v0.92.0). The GUI remains
-separately versioned at 0.92.0-rc.1. Source-checkout invocations remain available
+separately versioned at 0.94.0-rc.1. Source-checkout invocations remain available
 as `node bin/runlist.mjs desktop …`. Installing the npm CLI does not download
 the GUI automatically.
 

@@ -43,14 +43,14 @@ a separate reviewed action. Current source also has optional grepmax semantic
 search in quick navigation and the library; local chat and push are deferred. The installed signed app and release artifacts
 have their own qualification snapshots.
 
-The delivered Apple Silicon GUI is **0.92.0-rc.1**, personally signed, accepted
+The delivered Apple Silicon GUI is **0.94.0-rc.1**, personally signed, accepted
 by Apple and installed at `~/Applications/Runlist.app`, with rollback retained.
-Its [public Mac installer](https://github.com/reowens/runlist/releases/tag/desktop-v0.92.0-rc.1)
+Its [public Mac installer](https://github.com/reowens/runlist/releases/tag/desktop-v0.94.0-rc.1)
 is separate from [CLI 0.94.0](https://github.com/reowens/runlist/releases/tag/v0.94.0),
 which includes optional plan-filing checks and the owner-written product yardstick,
 corrected hub-category inheritance, updates for every saved Claude plugin scope,
 and `runlist desktop install`.
-Updating the CLI does not replace the GUI's bundled 0.92.0 engine.
+Updating the CLI does not replace the GUI's bundled engine; this GUI reports 0.94.0-rc.1.
 No further Apple checks are selected.
 The earlier development snapshots and qualification notes below are historical;
 see the current release record.
@@ -84,8 +84,8 @@ The remaining work, in order:
    The GUI/backend and guarded protocol fixtures are implemented; installed
    artifacts do not include this change. Optional local model chat follows later.
 3. Complete native plan lifecycle, legacy migration,
-   settings/diagnostics, and GUI filing reports. Stage filters/groups and guarded
-   Stage editing are delivered in GUI 0.92.0-rc.1.
+   settings/diagnostics. GUI yardstick and Filing reports are delivered in
+   0.94.0-rc.1. Stage filters/groups and guarded Stage editing are also delivered.
 4. Finish platform qualification: a terminal-ready Windows host, Linux x64 and
    older distributions, real-version upgrades, fresh/minimum-version and Intel
    Macs, plus native rendering, focus, accessibility and whole-window memory.
@@ -115,7 +115,7 @@ private pipes, with no listening server. Choose your checkout folder in the app.
 No checkout configuration is loaded by these CLI commands.
 
 The GUI is versioned separately: the current Mac installer is
-[Runlist 0.92.0-rc.1](https://github.com/reowens/runlist/releases/tag/desktop-v0.92.0-rc.1).
+[Runlist 0.94.0-rc.1](https://github.com/reowens/runlist/releases/tag/desktop-v0.94.0-rc.1).
 Windows, Linux and Intel Mac GUI downloads are not yet available through this
 command. An existing app is kept as-is. To replace it using a downloaded signed
 DMG, quit Runlist and run:
@@ -287,11 +287,11 @@ The installer currently supports Apple Silicon Macs. It verifies the published
 download checksum, Runlist developer signature and Apple approval, and installs
 without opening the app. An existing app is kept unless `--from` supplies a
 replacement; replacement keeps a rollback copy. `--dry-run` uses no network and
-changes no files. The [Mac GUI download](https://github.com/reowens/runlist/releases/download/desktop-v0.92.0-rc.1/Runlist-0.92.0-rc.1-macOS-arm64.dmg) is now public in Runlist's GitHub
+changes no files. The [Mac GUI download](https://github.com/reowens/runlist/releases/download/desktop-v0.94.0-rc.1/Runlist-0.94.0-rc.1-macOS-arm64.dmg) is now public in Runlist's GitHub
 releases; `--from` also works with a local approved installer. These commands ship
 in [CLI 0.92.0](https://github.com/reowens/runlist/releases/tag/v0.92.0) and can also
 be used from this checkout as `node bin/runlist.mjs desktop …`. The GUI remains
-separately versioned at **0.92.0-rc.1**; npm installation does not download it.
+separately versioned at **0.94.0-rc.1**; npm installation does not download it.
 
 The optional browser document app is available from this source checkout (unreleased):
 
@@ -833,14 +833,14 @@ local model or server. GUI controls are implemented in the source checkout:
 Product goal shows the saved statement, delivery and assessment, with reviewed
 Serves/Clear/Close/Fold actions and retained recovery. Structured plans display
 the comparison with an explanation when assessment changes are unavailable.
-These controls are included in local desktop package 0.94.0-rc.1. The current
-public download remains 0.92.0-rc.1; updating the CLI alone does not replace it.
+These controls are included in the public desktop package 0.94.0-rc.1;
+updating the CLI alone does not replace an existing app.
 
 ### Plan Homes And Filing Checks
 
 This policy is available in CLI 0.93.0. From a source checkout, invoke the
 commands below as `node bin/runlist.mjs …`. The separately versioned GUI
-0.92.0-rc.1 retains its earlier engine; these are CLI reports. The correction
+0.94.0-rc.1 also includes a read-only Filing view. The correction
 for category inheritance from status-less hub indexes is included in CLI
 0.93.1.
 
@@ -885,7 +885,7 @@ is labeled and suppresses absence/uniqueness findings. Path/type-scoped output
 keeps the full hub/ancestor evidence while reporting only selected plans.
 The source checkout also includes a read-only Filing view: open it to scan,
 filter 50-plan pages, and inspect exact hub rows in 20-row evidence pages. Saved
-edits invalidate the report. This view is included in local desktop package 0.94.0-rc.1.
+edits invalidate the report. This view is included in public desktop package 0.94.0-rc.1.
 The policy is off when `filing` is unset, false, or `{ enabled: false }`.
 It can replace a repository's older “any link counts” coverage script once
 that repository enables it and retires its custom check.

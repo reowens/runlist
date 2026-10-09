@@ -10,9 +10,10 @@ covering the yardstick/Filing controls, recovery, private helper, source-row
 navigation and review/quit guards. Resource/snapshot hashes matched; static
 architecture, deployment, bundle identity and version checks passed.
 Evidence is retained at `desktop/releases/yardstick-filing-20261009/`.
-Global CLI remains 0.94.0; public GUI remains 0.92.0-rc.1. No app/WebView/window
-control, live gmax/model, npm release, public GUI publication or new native visual
-acceptance claim occurred. Local delivery is complete; Apple requests are accepted
+Global CLI remains 0.94.0; [public GUI 0.94.0-rc.1](https://github.com/reowens/runlist/releases/tag/desktop-v0.94.0-rc.1)
+is available, with source/docs pushed and exact GitHub installer digest verified.
+The CLI download resolver selects this new installer. No app/WebView/window
+control, live gmax/model, npm release or new native visual acceptance claim occurred. Local delivery is complete; Apple requests are accepted
 and must not be repeatedly polled. Broader/native tests below remain historical.
 
 ## Earlier installed snapshot — 2026-10-06
