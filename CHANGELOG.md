@@ -2,6 +2,12 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- Optional owner-written Markdown yardstick: show the product goal beside a plan's delivery on pickup cards or with `yardstick show`, record explicit serves assessments, and fold/close through the existing atomic archive workflow with reasons and repaired replacement links. Goal revisions label earlier assessments for review; clear preserves execution status. Text/JSON, write previews and ownership checks are supported without a provider or model.
+
 ## 0.93.2 — 2026-10-09
 
 ### Fixed

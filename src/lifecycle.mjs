@@ -68,7 +68,8 @@ function commitLifecycleMutation(filePath, targetPath, config, updates, historyF
   const render = sourceContent => {
     const currentFm = parseSimpleFrontmatter(extractFrontmatter(sourceContent).frontmatter);
     const currentOldStatus = asString(currentFm.status) ?? 'unknown';
-    let content = renderLifecycleMutation(sourceContent, updates, historyForOldStatus(currentOldStatus), options);
+    let content = renderLifecycleMutation(options.sourceTransform ? options.sourceTransform(sourceContent) : sourceContent,
+      updates, historyForOldStatus(currentOldStatus), options);
     const beforeSelfRefs = content;
     if (targetPath) content = renderMovedFileRefs(content, filePath, targetPath, config);
     return {
@@ -805,6 +806,7 @@ export function runArchive(argv, config, opts = {}) {
         creations: opts.creations,
         guards: opts.guards,
         testHooks: opts.testHooks,
+        sourceTransform: opts.sourceTransform,
       });
     if (!noIndex && !opts.deferIndex) regenIndex(config);
     out.write(`${green('✓ Healed')}: ${repoPathHeal} (${oldStatus} → ${targetStatus}; file already under \`${config.archiveDir}/\`)\n`);
@@ -877,6 +879,7 @@ export function runArchive(argv, config, opts = {}) {
       creations: opts.creations,
       guards: opts.guards,
       skipInboundRefs: opts.skipInboundRefs,
+      sourceTransform: opts.sourceTransform,
       bodyTransform: closeoutTemplate ? currentBody => {
         committedCloseoutAction = planCloseoutInjection(currentBody);
         return committedCloseoutAction.action === 'inject' ? committedCloseoutAction.newBody : currentBody;

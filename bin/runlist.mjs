@@ -309,6 +309,8 @@ Lifecycle:
   roadmaps                          List roadmap hubs (the Roadmaps dashboard)
   status <file> <status>            Transition document status (deprecated; prefer \`set\`)
   archive <file>                    Archive (status + move + update refs)
+  yardstick show [plan]             Read the product goal beside a plan's delivery
+  yardstick mark|close|fold|clear   Record an explicit owner assessment
   bulk archive <f1> <f2> ...        Archive multiple files at once
   ship [patch|minor|major]          Regen + commit + bump in one step (default: patch)
   bulk-tag [files...]               Tag pre-existing untagged .md files
@@ -669,6 +671,25 @@ Options:
                          of body. Fill it in after archive (the archived
                          file is still editable).
   --dry-run, -n          Preview changes without writing anything.`,
+
+  yardstick: `runlist yardstick — compare a plan with the owner's product goal
+
+Configure one repository-relative Markdown source:
+  export const yardstick = 'docs/product-yardstick.md';
+
+  runlist yardstick show [plan] [--json]
+  runlist yardstick mark <plan> serves [--reason "why"]
+  runlist yardstick close <plan> --reason "why"
+  runlist yardstick fold <plan> --into <replacement-plan> --reason "why"
+  runlist yardstick clear <plan>
+
+Show is read-only. Pickup cards display the same goal and literal delivers field.
+Close/fold actually archive the plan through the existing lifecycle workflow.
+Clear removes an assessment; it does not reopen an archived plan. Assessment
+commands record explicit owner choices and never infer fit. Changed goal bodies
+label older assessments for review. Writes support --dry-run, --json and
+--no-index; they respect ownership and preserve archive/reference repair.
+The feature is optional. No model, provider or server is required.`,
 
   coverage: `runlist coverage — metadata and configured plan-filing coverage
 
@@ -2136,6 +2157,7 @@ async function main() {
 
   // Commands that handle their own index building
   if (command === 'app') { const { runApp } = await import('../src/app.mjs'); await runApp(restArgs, config, { dryRun }); return; }
+  if (command === 'yardstick') { const { runYardstick } = await import('../src/yardstick-command.mjs'); await runYardstick(restArgs, config, { dryRun }); return; }
   if (command === 'diff') { const { runDiff } = await import('../src/diff.mjs'); runDiff(restArgs, config); return; }
   if (command === 'summary') { const { runSummary } = await import('../src/summary.mjs'); runSummary(restArgs, config); return; }
   if (command === 'deps') { const { runDeps } = await import('../src/deps.mjs'); runDeps(restArgs, config); return; }

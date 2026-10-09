@@ -5,6 +5,7 @@ import { toRepoPath } from './util.mjs';
 import { detectMarker, isPhaseHeading, phaseMarkerConflict, walkSections } from './section.mjs';
 import { resolveBodyLinkTarget } from './body-link.mjs';
 import { getStageDefinitions, readPlanStage } from './stages.mjs';
+import { assessmentIssues } from './yardstick.mjs';
 
 const NOW = new Date();
 
@@ -77,6 +78,10 @@ function isValidStatus(status, root, config, type) {
 
 export function validateDoc(doc, frontmatter, headingTitle, config) {
   if (doc.type === 'plan') {
+    const archived = config.lifecycle.archiveStatuses.has(doc.status) || doc.path.split('/').includes(config.archiveDir);
+    for (const message of assessmentIssues(frontmatter, archived)) {
+      doc.warnings.push({ path: doc.path, level: 'warning', message });
+    }
     const stage = readPlanStage(frontmatter.ships);
     const milestones = (config.raw ?? config).taxonomy?.milestones;
     if (stage.invalid) {

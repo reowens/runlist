@@ -63,6 +63,13 @@ const definitions = [
   command('list', none, 'read', [form('', { options: [flag('--json'), flag('--verbose')] })]),
   command('json', none, 'read', [form('')]),
   command('coverage', none, 'read', [form('', { options: [flag('--json')] })]),
+  command('yardstick', mutates('explicit owner assessments and existing archive workflow; show is read-only'), 'mutate', [
+    form('show [plan]', { subcommands: ['show'], args: positionals(0, 1), options: [flag('--json')] }),
+    form('mark <plan> serves', { subcommands: ['mark'], args: positionals(2, 2), options: [value('--reason'), flag('--json'), flag('--no-index')] }),
+    form('close <plan> --reason <text>', { subcommands: ['close'], args: positionals(1, 1), options: [value('--reason'), flag('--json'), flag('--no-index')] }),
+    form('fold <plan> --into <plan> --reason <text>', { subcommands: ['fold'], args: positionals(1, 1), options: [value('--into'), value('--reason'), flag('--json'), flag('--no-index')] }),
+    form('clear <plan>', { subcommands: ['clear'], args: positionals(1, 1), options: [flag('--json'), flag('--no-index')] }),
+  ]),
   command('stats', none, 'read', [form('', { options: [flag('--json')] })]),
   command('graph', none, 'read', [form('', { options: [flag('--dot'), flag('--json'), value('--status'), value('--module'), value('--surface')] })]),
   command('deps', none, 'read', [form('[file]', { args: positionals(0, 1), options: [flag('--json'), value('--depth')] })]),

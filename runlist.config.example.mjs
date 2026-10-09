@@ -7,6 +7,12 @@
 // Directory containing your markdown docs (relative to this config file)
 export const root = 'docs';
 
+// Optional owner-written product goal. Read its Markdown body beside a plan's
+// delivers: field with `runlist yardstick show <plan>` or on pickup cards.
+// Explicit mark/close/fold commands record owner choices; no fit is inferred.
+// Closing/folding uses the existing archive workflow. Leave unset to disable.
+// export const yardstick = 'docs/product-yardstick.md';
+
 // Optional plan-home policy. A home is a status-bearing hub table row whose
 // first cell links the plan; prose/commentary links do not count. A child can
 // inherit its parent's home through parent_plan:. Closed plans/hubs are excluded.

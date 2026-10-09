@@ -5,6 +5,7 @@ import { die, warn } from './util.mjs';
 import { CONFIG_FILENAMES } from './naming.mjs';
 import { validateStageDefinitions } from './stages.mjs';
 import { validateFilingConfig } from './filing.mjs';
+import { validateYardstickConfig } from './yardstick.mjs';
 
 // Keys where user config replaces defaults entirely (not deep-merged).
 // These are flat maps or config sections where the user's version is authoritative —
@@ -24,6 +25,7 @@ const DEFAULTS = {
   externalBodyLinkRoots: [],
   records: null,
   filing: null,
+  yardstick: null,
   // Floor under the scan surface; null = off. See `applyScanFloor` in validate.mjs.
   minDocs: null,
 
@@ -360,6 +362,7 @@ const VALID_CONFIG_KEYS = new Set(Object.keys(DEFAULTS));
 function validateConfig(userConfig, config, validStatuses, indexPath) {
   const warnings = validateStageDefinitions(config);
   warnings.push(...validateFilingConfig(config.filing));
+  warnings.push(...validateYardstickConfig(config.yardstick));
 
   // statuses.order must be array
   if (config.statuses && config.statuses.order !== undefined && !Array.isArray(config.statuses.order)) {
@@ -499,6 +502,11 @@ export async function resolveConfig(cwd, explicitConfigPath) {
   }
 
   const config = deepMerge(DEFAULTS, userConfig);
+  // Replacement links remain repairable even with custom reference-field lists
+  // or after the repository turns off goal display.
+  config.referenceFields.unidirectional = [...new Set([
+    ...(config.referenceFields.unidirectional ?? []), 'yardstick_into',
+  ])];
 
   // Normalize rich status definitions (object form → array + derived config)
   const derived = normalizeRichStatuses(config, userConfig);
@@ -683,6 +691,7 @@ export async function resolveConfig(cwd, explicitConfigPath) {
     display: config.display,
     referenceFields: config.referenceFields,
     filing: config.filing,
+    yardstick: config.yardstick,
     presets: config.presets,
     configuredPresetNames: new Set(Object.keys(userConfig.presets ?? {})),
     journal: config.journal === true,

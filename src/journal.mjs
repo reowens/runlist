@@ -25,7 +25,7 @@ const LEGACY_MISUSE_LOG_BACKUP = 'dotmd-misuse.log.1';
 const TELEMETRY_SCHEMA = 2;
 const REDACTED = '[redacted]';
 const SENSITIVE_VALUE_FLAGS = new Set([
-  '--body', '--message', '--note', '--question', '--answers', '--choice', '--title',
+  '--body', '--message', '--note', '--reason', '--question', '--answers', '--choice', '--title',
   '--token', '--password', '--passphrase', '--secret', '--api-key', '--apikey',
   '--auth', '--authorization', '--cookie', '--header',
 ]);
@@ -120,7 +120,7 @@ export function sanitizeTelemetryText(value, secrets = []) {
     text = text.split(secret).join(REDACTED);
   }
   return sanitizeCredentialShapes(text)
-    .replace(/((?:--body|--message|--note|--token|--password|--passphrase|--secret|--api-key|--apikey|--auth|--authorization|--cookie|--header)(?:=|\s+))([^\s]+)/gi, `$1${REDACTED}`)
+    .replace(/((?:--body|--message|--note|--reason|--token|--password|--passphrase|--secret|--api-key|--apikey|--auth|--authorization|--cookie|--header)(?:=|\s+))([^\s]+)/gi, `$1${REDACTED}`)
     .replace(/(git\s+commit\b[^\n]*?(?:\s-m|\s--message)(?:=|\s+))((?:"[^"]*")|(?:'[^']*')|[^\s]+)/gi, `$1${REDACTED}`)
     .replace(/((?:sed|perl|g?awk)\b[^\n]*?\s(?:-e\s+)?)((?:"[^"]*")|(?:'[^']*'))/gi, `$1${REDACTED}`);
 }

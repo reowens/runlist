@@ -2,7 +2,8 @@ import { referenceValues } from './reference-values.mjs';
 import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
-import { asString, toRepoPath, resolveDocPath, resolveRefPath } from './util.mjs';
+import { asString, toRepoPath, resolveDocPath, resolveRefPath, isArchivedPath } from './util.mjs';
+import { compareYardstick, readYardstick, renderYardstick } from './yardstick.mjs';
 import { walkSections, findSection, findActivePhase, summarizePhases, isPhaseHeading, detectMarker } from './section.mjs';
 import { dim, green } from './color.mjs';
 
@@ -106,6 +107,10 @@ export function buildCard(filePath, raw, config) {
   const updated = asString(fm.updated) ?? null;
   const currentState = truncate(cleanInline(fm.current_state), CAPS.currentState);
   const nextStep = truncate(cleanInline(fm.next_step), CAPS.nextStep);
+  const delivers = typeof fm.delivers === 'string' ? fm.delivers.trim() : null;
+  const goal = asString(fm.type) === 'plan' ? readYardstick(config) : { enabled: false };
+  const yardstick = goal.enabled ? compareYardstick(fm, config, goal,
+    isArchivedPath(toRepoPath(filePath, config.repoRoot), config) || config.lifecycle?.archiveStatuses?.has(status)) : null;
 
   // Related plans (compressed: slug + status only — show all, don't cap count).
   // docDir lets the resolver try same-dir basenames first — graph/validate do this
@@ -193,6 +198,8 @@ export function buildCard(filePath, raw, config) {
     blurb,
     currentState,
     nextStep,
+    delivers,
+    yardstick,
     related,
     phases: phaseSummaryForCard,
     activePhase: activePhasePointer,
@@ -223,6 +230,14 @@ export function renderCard(card) {
     lines.push('');
     if (card.currentState) lines.push(`${green('Current:')} ${card.currentState}`);
     if (card.nextStep) lines.push(`${green('Next:')}    ${card.nextStep}`);
+  }
+
+  if (card.yardstick) {
+    lines.push('');
+    lines.push(renderYardstick(card.yardstick, { compact: true }).trimEnd());
+  } else if (card.delivers) {
+    lines.push('');
+    lines.push(`This plan delivers: ${truncate(card.delivers, 400)}`);
   }
 
   if (card.related.length > 0) {

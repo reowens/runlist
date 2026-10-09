@@ -783,6 +783,51 @@ their child hubs. They can also link plans directly. Hubs, including roadmaps,
 are held out of actionable plan counts so dashboards do not double-count their
 children.
 
+### Product Yardstick (Source Checkout)
+
+Current source has optional yardstick support; it is not yet in the published
+CLI 0.93.2 or the separately installed GUI. Use `node bin/runlist.mjs` in this
+checkout for the commands below.
+
+Write your description of the finished product in an ordinary Markdown document
+and opt in from repository config:
+
+```js
+export const yardstick = 'docs/product-yardstick.md';
+```
+
+Runlist reads that document's body and shows it beside a plan's literal
+`delivers:` text on pickup cards. It records your judgment; it does not generate
+the goal, score plans or decide which ones belong. Unset assessments are
+**not yet reviewed**. The goal file must stay inside the repository; an unset
+or false config disables the feature.
+
+```bash
+node bin/runlist.mjs yardstick show
+node bin/runlist.mjs yardstick show docs/plans/navigation.md --json
+node bin/runlist.mjs yardstick mark docs/plans/navigation.md serves
+node bin/runlist.mjs yardstick fold docs/plans/old-navigation.md --into docs/plans/navigation.md --reason "Combined into navigation work." --dry-run
+node bin/runlist.mjs yardstick close docs/plans/unused-navigation.md --reason "No longer needed." --dry-run
+node bin/runlist.mjs yardstick clear docs/plans/navigation.md
+```
+
+**Close and fold actually archive the plan**, retaining the owner reason and
+replacement link when folded. Removing `--dry-run` applies the displayed action.
+Writes respect plan ownership, and archive/reference updates remain one
+transaction. Replacement links are repaired when their targets move, including
+with custom reference-field lists. Clearing an assessment does not reopen or
+unarchive a plan. Every write supports `--dry-run` and `--json`; `--no-index`
+leaves generated-index refresh to the caller.
+
+Assessments use flat `yardstick_disposition`, `yardstick_into`,
+`yardstick_reason` and `yardstick_revision` fields in plan frontmatter. After
+the goal body changes, older assessments remain recorded and are labeled
+**Reviewed against an earlier goal**. Goal frontmatter date edits and line-ending
+changes alone do not require reassessment. `runlist check` warns about malformed
+assessment fields or closed/folded metadata on live plans, and never closes
+them automatically. Goal reads and assessments require no semantic provider,
+local model or server. GUI controls are separate follow-up work.
+
 ### Plan Homes And Filing Checks
 
 This policy is available in CLI 0.93.0. From a source checkout, invoke the
