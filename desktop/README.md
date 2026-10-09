@@ -17,7 +17,7 @@ plans display comparison and explain unavailable assessment actions.
 
 ## Current release and next steps
 
-**Runlist 0.94.0-rc.1 is installed locally** at `~/Applications/Runlist.app`.
+**Runlist 0.94.0-rc.1 is public and installed locally** at `~/Applications/Runlist.app`.
 The personal Developer ID signed this new app and installer; Apple accepted both,
 tickets were stapled, Gatekeeper accepted both and the existing secure installer
 kept the previous app for rollback. Six focused packaged and six installed checks
@@ -25,6 +25,7 @@ passed with networking denied. No app/window control or live gmax work ran.
 The [public Mac installer](https://github.com/reowens/runlist/releases/download/desktop-v0.94.0-rc.1/Runlist-0.94.0-rc.1-macOS-arm64.dmg) is **0.94.0-rc.1**,
 and its GitHub checksum matches this exact approved/installed package.
 Source and delivery docs are pushed; publication performed no rebuild or Apple checks.
+Selected delivery is complete. Deferred work below awaits a separate selection.
 Older dated candidate/release statements below are historical snapshots.
 
 ### Historical unsigned build and earlier packages
@@ -81,7 +82,8 @@ The later release audit's source items 1–6 are now fixed and requalified:
 worker RSS retirement, native-read draining, required generation fields, idle
 MLX readiness, bounded partial coverage/freshness and ARM64-only Git writes.
 The rebuilt external provider passes the current helper fixture on Node 22 and
-bundled Node 24. These fixes are not installed. Frozen fresh-consumer results are historical;
+bundled Node 24. This external provider candidate has not been deployed.
+Frozen fresh-consumer results are historical;
 the latest selected app passes the retained required-provider fixture. Provider
 deployment, live qualification and hosted CI remain open.
 The compatibility plan
@@ -92,8 +94,8 @@ Markdown review, persisted repository identity and exclusive recoverable creatio
 These additions are retained in the delivered rc.3 source snapshot. See the
 [creation evidence](VALIDATION.md#gui-native-record-creation--2026-10-07).
 At that snapshot, native plan lifecycle, migration, settings/diagnostics and
-stage/filing were follow-up work. Stage support has since been delivered as
-described below; GUI filing reports remain unselected. Broader host qualification
+stage/filing were follow-up work. Stage support, Product goal and Filing have
+since been delivered in 0.94.0-rc.1, as described below. Broader host qualification
 remains open. Optional local-model chat remains deferred. The retained rc.3 app includes experimental semantic controls; older packages
 predate the integration. These controls do not establish working live retrieval.
 The local release and work runbook
@@ -197,7 +199,7 @@ computer. A query scans at most 128 MiB; files over 8 MiB or unavailable files
 are skipped, with a partial/unavailable notice. Narrow the folder or filters for
 large checkouts. Text/content search continues to work without gmax.
 
-Current source adds **Semantic · gmax (experimental)** to quick navigation and the library, with
+The delivered app includes **Semantic · gmax (experimental)** in quick navigation and the library, with
 explicit **Search** and **Cancel**. It reuses an external compatible
 `gmax mcp --existing-index-only` provider and a ready daemon/warm embedding worker.
 It does not start services, watches, indexing or models, add a server, bundle gmax,
@@ -214,8 +216,8 @@ verify it. Primary-store
 retrieval is supported; external/secondary stores and local chat are deferred.
 Results are top matches in relevance order; verified hashes gate section jumps.
 Real-index relevance, large-checkout performance and native/platform qualification
-remain open. This addition is retained in the unsigned local Runlist `0.91.0-rc.3` candidate,
-and absent from the existing installed app and earlier packages.
+remain open. Runlist's adapter is included in the installed/public `0.94.0-rc.1`
+app; this does not establish deployment or live qualification of the external provider.
 
 **Recovery** brings together retained drafts, conflicts, interrupted saves,
 creation reviews and status/record reviews for this checkout. Disk drafts remain
@@ -228,10 +230,10 @@ the qualified platform/version combinations; Git Changes explains unavailable
 commit support while keeping diff review usable. Push remains deferred. Save
 writes the local document without committing or pushing.
 
-The latest selected-source candidate is unsigned and separate from the older
-personally signed Apple-submitted snapshot. The installed app still contains the
-older snapshot. Apple/signing/distribution work remains stopped; see
-[the validation record](VALIDATION.md#first-release-steps-14--2026-10-08).
+The earlier unsigned selected-source candidate and its qualification are
+historical; see [the validation record](VALIDATION.md#first-release-steps-14--2026-10-08).
+The current installed/public app is the signed, accepted and stapled 0.94.0-rc.1
+release described above.
 
 JavaScript configuration and hooks are executable code. Trust grants that code
 the permissions of your user, including possible file and network access.

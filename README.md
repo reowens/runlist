@@ -34,14 +34,17 @@ npm uninstall -g dotmd-cli
 npm install -g runlist
 ```
 
-The desktop app is a separate build with the same Markdown engine; see
-[desktop setup and validation](desktop/README.md). Current source includes
+The optional desktop app is a separate download with the same Markdown engine; see
+[desktop setup and validation](desktop/README.md). The delivered app includes
 reviewed plan/doc/hub creation, ⌘/Ctrl+K navigation, on-demand local content
 search, saved library views, checkout-wide recovery and reviewed local Git commits
 for qualified macOS checkouts. Saving writes local Markdown; committing remains
-a separate reviewed action. Current source also has optional grepmax semantic
-search in quick navigation and the library; local chat and push are deferred. The installed signed app and release artifacts
-have their own qualification snapshots.
+a separate reviewed action. **Product goal** shows your written yardstick beside
+a plan's delivery statement, with explicit Review/Apply for your assessment.
+**Filing** shows where plans are homed and opens the supporting hub rows.
+Stage filters, grouping and editing are included. Optional grepmax semantic
+controls are experimental; live retrieval depends on a compatible external
+provider. Local chat and push are deferred.
 
 The delivered Apple Silicon GUI is **0.94.0-rc.1**, personally signed, accepted
 by Apple and installed at `~/Applications/Runlist.app`, with rollback retained.
@@ -51,19 +54,10 @@ which includes optional plan-filing checks and the owner-written product yardsti
 corrected hub-category inheritance, updates for every saved Claude plugin scope,
 and `runlist desktop install`.
 Updating the CLI does not replace the GUI's bundled engine; this GUI reports 0.94.0-rc.1.
-No further Apple checks are selected.
-The earlier development snapshots and qualification notes below are historical;
-see the current release record.
+Earlier development packages and their qualification results are historical;
+see the [desktop validation record](desktop/VALIDATION.md).
 
-A newer unsigned Mac development package includes guarded local
-commits, configured hooks, noninteractive signing and one-shot clean-filter review.
-Its bundled engine passed **44 checks with networking denied**; source qualification
-covers 49 commit/read cases on each existing Mac/Linux ARM64 matrix, with passing
-focused corrections recorded in the package evidence. It has not
-been installed, signed for distribution or submitted to Apple. The earlier
-Apple request is unchanged and its checks remain stopped.
-
-The remaining work, in order:
+Deferred work awaiting selection:
 
 1. Expand local-commit qualification to process filters, broader clean-filter
    command profiles, Windows, Linux x64/other Git versions and additional signing profiles.
@@ -81,8 +75,9 @@ The remaining work, in order:
    checks remain separate gates.
    Large-checkout inventory,
    unavailable-state memory/latency and bridge cleanup have terminal evidence.
-   The GUI/backend and guarded protocol fixtures are implemented; installed
-   artifacts do not include this change. Optional local model chat follows later.
+   The Runlist GUI/backend adapter and guarded protocol fixtures are included
+   in GUI 0.94.0-rc.1. External provider deployment and successful live retrieval
+   remain unverified. Optional local model chat is deferred.
 3. Complete native plan lifecycle, legacy migration,
    settings/diagnostics. GUI yardstick and Filing reports are delivered in
    0.94.0-rc.1. Stage filters/groups and guarded Stage editing are also delivered.
@@ -90,7 +85,8 @@ The remaining work, in order:
    older distributions, real-version upgrades, fresh/minimum-version and Intel
    Macs, plus native rendering, focus, accessibility and whole-window memory.
 
-Mac GUI delivery is complete. CLI 0.94.0 adds the optional product yardstick.
+Mac GUI delivery is complete; the deferred items above are not release gates.
+CLI 0.94.0 adds the optional product yardstick.
 The supported desktop
 release is Apple Silicon macOS 13.5 or newer. Broader platform work and
 experimental semantic search remain separate follow-up work.

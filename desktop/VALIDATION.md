@@ -1,6 +1,6 @@
 # Desktop validation
 
-**Latest local GUI is 0.94.0-rc.1**, installed on 2026-10-09. Source commit
+**Delivered GUI is 0.94.0-rc.1**, published and installed on 2026-10-09. Source commit
 05af6b7 was frozen into a 455-file snapshot. The current app/DMG are personally
 signed, Apple accepted/stapled and Gatekeeper accepted; the secure installer
 preserved quarantine and saved the previous 0.92.0-rc.1 app for rollback.
@@ -14,7 +14,9 @@ Global CLI remains 0.94.0; [public GUI 0.94.0-rc.1](https://github.com/reowens/r
 is available, with source/docs pushed and exact GitHub installer digest verified.
 The CLI download resolver selects this new installer. No app/WebView/window
 control, live gmax/model, npm release or new native visual acceptance claim occurred. Local delivery is complete; Apple requests are accepted
-and must not be repeatedly polled. Broader/native tests below remain historical.
+and must not be repeatedly polled. The README and delivery records now distinguish
+this release from earlier snapshots and deferred work. Broader/native tests below
+remain historical; they add no requirement to the completed delivery.
 
 ## Earlier installed snapshot — 2026-10-06
 
