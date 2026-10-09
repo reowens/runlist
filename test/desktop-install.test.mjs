@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 import {runDesktopInstall,selectDesktopRelease} from '../src/desktop-install.mjs';
 import {commandCompletionWords,validateCommandArgs,COMMAND_POLICIES} from '../src/commands.mjs';
 
@@ -62,14 +63,14 @@ test('install dry-run is outside-checkout, network/file/process-free',async t=>{
  const config=path.join(f.home,'evil.config.mjs'),sentinel=path.join(f.home,'imported');
  writeFileSync(config,`import {writeFileSync} from 'node:fs';writeFileSync(${JSON.stringify(sentinel)},'loaded');throw new Error('must not import');`);
  const bin=new URL('../bin/runlist.mjs',import.meta.url);
- const cli=spawnSync(process.execPath,[bin.pathname,'desktop','install','--dry-run','--config',config],{cwd:f.home,encoding:'utf8'});
+ const cli=spawnSync(process.execPath,[fileURLToPath(bin),'desktop','install','--dry-run','--config',config],{cwd:f.home,encoding:'utf8'});
  if(process.platform==='darwin'&&process.arch==='arm64') {
   assert.equal(cli.status,0,cli.stderr);assert.match(cli.stdout,/Would install/);
  } else {
   assert.notEqual(cli.status,0);assert.match(cli.stderr,/Mac Apple Silicon only/);
  }
  assert.ok(!existsSync(sentinel));
- const help=spawnSync(process.execPath,[bin.pathname,'desktop','--help','--config',config],{cwd:f.home,encoding:'utf8'});
+ const help=spawnSync(process.execPath,[fileURLToPath(bin),'desktop','--help','--config',config],{cwd:f.home,encoding:'utf8'});
  assert.equal(help.status,0,help.stderr);assert.match(help.stdout,/desktop install/);assert.ok(!existsSync(sentinel));
  assert.deepEqual(readFileSync(bin),before);
 });
