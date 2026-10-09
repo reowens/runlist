@@ -9,12 +9,12 @@ helper through private stdin/stdout pipes. There is no listening HTTP server,
 runtime download, online account, telemetry, automatic updater or login daemon.
 
 Desktop distribution is separate from the npm CLI. The checkout engine is
-Runlist 0.91.0 and desktop protocol 1. The delivered desktop release is separately
-versioned at 0.91.0-rc.3; additional source features retain their own support limits.
+Runlist 0.92.0 and desktop protocol 1. The delivered desktop release is separately
+versioned at 0.92.0-rc.1; additional source features retain their own support limits.
 
 ## Current release and next steps
 
-**Runlist 0.91.0-rc.3 is now installed locally.** The personally signed app and
+**Runlist 0.92.0-rc.1 is now installed locally and publicly available.** The personally signed app and
 Mac installer
 were both accepted by Apple, stapled and accepted by Gatekeeper. The previous app
 is retained for rollback. Delivery record
@@ -94,19 +94,19 @@ The local release and work runbook
 records their scope and the gated release sequence for an explicit future resume.
 That runbook and release artifacts are local repository files, excluded from Git.
 
-## Stages in development source
+## Plan stages
 
 Library → Plans now supports repository-defined Stage filtering/grouping and
 saved views. The plan Stage selector keeps its selection in the existing draft,
 review, save and recovery flow. `ships:` metadata and `taxonomy.milestones` are
 shared with CLI stage filters/checks; unset is separate from explicit Later and
 never derived from status. Semantic results preserve relevance order. These
-additions have not been built into or installed over the delivered rc.3 app.
+additions are included in the delivered 0.92.0-rc.1 app.
 
 ## Install and open
 
 The new app is installed at `~/Applications/Runlist.app`. Open **Runlist** normally.
-For another Apple Silicon Mac, use the [public Mac installer](https://github.com/reowens/runlist/releases/tag/desktop-v0.91.0-rc.3).
+For another Apple Silicon Mac, use the [public Mac installer](https://github.com/reowens/runlist/releases/tag/desktop-v0.92.0-rc.1).
 
 The versioned `Runlist-0.90.0-macOS-arm64.dmg` in `desktop/releases/` is an
 **earlier accepted snapshot**. The usual DMG installation steps are:
@@ -131,7 +131,7 @@ fresh-host installation qualification remain open. The [gap check](VALIDATION.md
 records source fixes and remaining host checks. The published Node CLI's
 cross-platform CI remains separate from desktop qualification.
 
-The GUI needs no system Node installation. The optional CLI 0.91.0 shortcut is:
+The GUI needs no system Node installation. The optional CLI 0.92.0 shortcut is:
 
 ```sh
 runlist desktop
@@ -148,10 +148,10 @@ a download. Existing installations are kept as-is unless `--from` explicitly
 supplies a replacement; replacements require the app to be closed and retain a
 rollback copy. Installation keeps Mac quarantine and never opens the app.
 `--dry-run` uses no network, processes or file writes. The command does not load
-checkout configuration or add a CLI runtime dependency. The [Mac GUI download](https://github.com/reowens/runlist/releases/download/desktop-v0.91.0-rc.3/Runlist-0.91.0-rc.3-macOS-arm64.dmg) is now public
+checkout configuration or add a CLI runtime dependency. The [Mac GUI download](https://github.com/reowens/runlist/releases/download/desktop-v0.92.0-rc.1/Runlist-0.92.0-rc.1-macOS-arm64.dmg) is now public
 in GitHub Releases and can be discovered by the published installer in
-[CLI 0.91.0](https://github.com/reowens/runlist/releases/tag/v0.91.0). The GUI remains
-separately versioned at 0.91.0-rc.3. Source-checkout invocations remain available
+[CLI 0.92.0](https://github.com/reowens/runlist/releases/tag/v0.92.0). The GUI remains
+separately versioned at 0.92.0-rc.1. Source-checkout invocations remain available
 as `node bin/runlist.mjs desktop …`. Installing the npm CLI does not download
 the GUI automatically.
 

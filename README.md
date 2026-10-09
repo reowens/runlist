@@ -43,10 +43,10 @@ a separate reviewed action. Current source also has optional grepmax semantic
 search in quick navigation and the library; local chat and push are deferred. The installed signed app and release artifacts
 have their own qualification snapshots.
 
-The delivered Apple Silicon GUI is **0.91.0-rc.3**, personally signed, accepted
+The delivered Apple Silicon GUI is **0.92.0-rc.1**, personally signed, accepted
 by Apple and installed at `~/Applications/Runlist.app`, with rollback retained.
-Its [public Mac installer](https://github.com/reowens/runlist/releases/tag/desktop-v0.91.0-rc.3)
-is separate from [CLI 0.91.0](https://github.com/reowens/runlist/releases/tag/v0.91.0),
+Its [public Mac installer](https://github.com/reowens/runlist/releases/tag/desktop-v0.92.0-rc.1)
+is separate from [CLI 0.92.0](https://github.com/reowens/runlist/releases/tag/v0.92.0),
 which now includes `runlist desktop install`. No further Apple checks are selected.
 The earlier development snapshots and qualification notes below are historical;
 see the current release record.
@@ -85,7 +85,7 @@ The remaining work, in order:
    older distributions, real-version upgrades, fresh/minimum-version and Intel
    Macs, plus native rendering, focus, accessibility and whole-window memory.
 
-Mac GUI delivery and CLI 0.91.0 publication are complete. The supported desktop
+Mac GUI delivery and CLI 0.92.0 publication are complete. The supported desktop
 release is Apple Silicon macOS 13.5 or newer. Broader platform work and
 experimental semantic search remain separate follow-up work.
 
@@ -109,7 +109,7 @@ private pipes, with no listening server. Choose your checkout folder in the app.
 No checkout configuration is loaded by these CLI commands.
 
 The GUI is versioned separately: the current Mac installer is
-[Runlist 0.91.0-rc.3](https://github.com/reowens/runlist/releases/tag/desktop-v0.91.0-rc.3).
+[Runlist 0.92.0-rc.1](https://github.com/reowens/runlist/releases/tag/desktop-v0.92.0-rc.1).
 Windows, Linux and Intel Mac GUI downloads are not yet available through this
 command. An existing app is kept as-is. To replace it using a downloaded signed
 DMG, quit Runlist and run:
@@ -259,7 +259,7 @@ uses that core; managed record domain writers remain upcoming work.
 Runlist also has a [macOS desktop application](desktop/README.md) built from this
 source checkout. Install `Runlist.app`, open it normally, and choose a trusted
 checkout. It bundles its runtime and uses private pipes; normal desktop work
-needs no installed Node, browser access link or listening server. CLI 0.91.0 provides the desktop commands below.
+needs no installed Node, browser access link or listening server. CLI 0.92.0 provides the desktop commands below.
 The GUI remains optional:
 
 ```bash
@@ -272,11 +272,11 @@ The installer currently supports Apple Silicon Macs. It verifies the published
 download checksum, Runlist developer signature and Apple approval, and installs
 without opening the app. An existing app is kept unless `--from` supplies a
 replacement; replacement keeps a rollback copy. `--dry-run` uses no network and
-changes no files. The [Mac GUI download](https://github.com/reowens/runlist/releases/download/desktop-v0.91.0-rc.3/Runlist-0.91.0-rc.3-macOS-arm64.dmg) is now public in Runlist's GitHub
+changes no files. The [Mac GUI download](https://github.com/reowens/runlist/releases/download/desktop-v0.92.0-rc.1/Runlist-0.92.0-rc.1-macOS-arm64.dmg) is now public in Runlist's GitHub
 releases; `--from` also works with a local approved installer. These commands ship
-in [CLI 0.91.0](https://github.com/reowens/runlist/releases/tag/v0.91.0) and can also
+in [CLI 0.92.0](https://github.com/reowens/runlist/releases/tag/v0.92.0) and can also
 be used from this checkout as `node bin/runlist.mjs desktop …`. The GUI remains
-separately versioned at **0.91.0-rc.3**; npm installation does not download it.
+separately versioned at **0.92.0-rc.1**; npm installation does not download it.
 
 The optional browser document app is available from this source checkout (unreleased):
 
@@ -291,8 +291,8 @@ and undoes a save through a new revision-checked operation. Related legacy
 flags retain their original observation beside their current location; missing
 observed revisions are explicit. Browser sessions identify as the local human
 and respect agent claims. Save writes the Markdown file; Git commit and sharing
-remain separate. Stop the server with Ctrl+C. The published 0.91.0 CLI does not include the browser-app command;
-use this source-checkout invocation.
+remain separate. Stop the server with Ctrl+C. CLI 0.92.0 also includes this explicitly launched browser-app command;
+use `runlist app` from an installed CLI.
 
 Click headings, paragraphs, list items, quotes, or code to edit them in place.
 Enter creates the next block; an empty list item exits the list. Type `/` in an
@@ -525,7 +525,7 @@ saved installation must be selected again. No queries/snippets are saved by Runl
 and this gmax mode suppresses query logging without changing global gmax settings.
 See the integration plan for
 qualification limits. Older frozen packages omitted these additions; the delivered
-0.91.0-rc.3 GUI includes the experimental semantic controls. An external provider
+0.92.0-rc.1 GUI includes the experimental semantic controls. An external provider
 and live-search qualification remain separate.
 
 Terminal checks on the real platform checkout covered 2,757 library documents.
@@ -577,7 +577,7 @@ remains available in Source. The optional `test/browser-app-smoke.mjs` exercises
 real browser save/CLI readback, undo, reload recovery, conflict review, lost
 acknowledgements, and narrow-screen layouts with Playwright supplied externally.
 
-### Plan stages (development source)
+### Plan stages
 
 Stages describe when a plan should ship. Status describes its progress. Each
 repository owns its ordered vocabulary in `taxonomy.milestones`; existing string
@@ -598,18 +598,17 @@ separate from an explicit `later`. Runlist never assigns a stage from status.
 `check` reports stage coverage and rejects malformed or unknown configured values.
 
 ```bash
-node bin/runlist.mjs plans --stage beta
-node bin/runlist.mjs plans --stage @unset
-node bin/runlist.mjs plans --group-by stage
+runlist plans --stage beta
+runlist plans --stage @unset
+runlist plans --group-by stage
 ```
 
 Use `word:<name>` for a literal stage named `@unset` or beginning with `word:`.
-In the source GUI, Library → Plans can filter/group by Stage and save that view.
+In the GUI, Library → Plans can filter/group by Stage and save that view.
 A plan's Stage dropdown changes the draft; review and save publishes it through
 the existing revision, ownership and recovery guards. Other document metadata
 stays protected. Semantic results retain relevance order when filtered by stage.
-These additions are in the development checkout; they are not in the published
-CLI 0.91.0 or delivered GUI 0.91.0-rc.3 yet.
+Plan stages are available in CLI 0.92.0 and GUI 0.92.0-rc.1.
 
 ## Core Workflow
 
