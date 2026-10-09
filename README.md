@@ -776,8 +776,8 @@ children.
 This policy is available in CLI 0.93.0. From a source checkout, invoke the
 commands below as `node bin/runlist.mjs …`. The separately versioned GUI
 0.92.0-rc.1 retains its earlier engine; these are CLI reports. The correction
-for category inheritance from status-less hub indexes is in source and has
-not yet been released in the CLI.
+for category inheritance from status-less hub indexes is included in CLI
+0.93.1.
 
 Repositories can enable the plan-home policy in `runlist.config.mjs`:
 
