@@ -1,6 +1,6 @@
 {
   "name": "runlist",
-  "version": "0.91.0",
+  "version": "0.92.0",
   "description": "Primes sessions and subagents with the runlist workflow and guards common mistakes. Requires `runlist` on PATH (npm i -g runlist).",
   "author": {
     "name": "Robert Owens"
