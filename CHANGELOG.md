@@ -2,6 +2,12 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- Retain explicit categories from first-cell hub index rows without status columns. Nested hubs inherit these mappings with cycle protection, and competing categories remain visible. Plan homes still require recognized status-bearing subject rows; category-only indexes do not file plans or their children.
+
 ## 0.93.0 — 2026-10-08
 
 ### Added

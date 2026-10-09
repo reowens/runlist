@@ -35,6 +35,8 @@ async function repo(filing = true, extra = '') {
 
 const rowTable = rows => `| Plan | Notes | Status |\n|---|---|---|\n${rows}\n`;
 const home = (name, notes = '', status = 'active') => `| [Plan](${name}) | ${notes} | ${status} |`;
+const hubIndex = rows => `| Hub | Pickup source |\n|---|---|\n${rows}\n`;
+const hubPointer = name => `| [Hub](${name}) | Follow the hub's next step. |`;
 const get = (report, name) => report.plans.find(plan => plan.path === `docs/${name}`);
 const findings = (index, kind) => index.warnings.filter(warning => warning.meta?.kind === kind);
 
@@ -128,6 +130,76 @@ ${rowTable('| [`real.md`](real.md) | | <!--s-->active<!--/s--> |\n| `[fake](samp
 });
 
 describe('explicit parent homes and category propagation', () => {
+  it('reads status-less hub index categories without filing ordinary plans or hub children', async () => {
+    const r = await repo();
+    r.hub('root.md', `### Delivery\n${hubIndex(hubPointer('area.md') + '\n' + hubPointer('pointer.md'))}`, 'execution_mode: roadmap');
+    r.hub('area.md', rowTable(home('work.md')));
+    r.write('work.md'); r.write('child.md', '', 'parent_plan: work.md');
+    r.write('pointer.md'); r.write('hub-child.md', '', 'parent_plan: area.md');
+    const index = r.index();
+    const report = index.filingCoverage;
+    deepStrictEqual(get(report, 'work.md').rows[0].categories, ['Delivery']);
+    deepStrictEqual(get(report, 'child.md').rows[0].categories, ['Delivery']);
+    strictEqual(get(report, 'child.md').filing, 'parent');
+    strictEqual(get(report, 'pointer.md').filing, 'unfiled');
+    strictEqual(get(report, 'hub-child.md').filing, 'unfiled');
+    deepStrictEqual(report.totals, { plans: 4, filedDirect: 1, filedThroughParent: 1, unfiled: 2, multiplyFiled: 0, noCategory: 0 });
+    strictEqual(findings(index, 'filing-no-category').length, 0);
+    strictEqual(scanFilingRows(`### Delivery\n${hubIndex(hubPointer('area.md'))}`).length, 0);
+  });
+
+  it('propagates category-only indexes through nested hubs and cycles', async () => {
+    const r = await repo();
+    r.hub('root.md', `### Delivery\n${hubIndex(hubPointer('middle.md'))}`);
+    r.hub('middle.md', hubIndex(hubPointer('area.md')));
+    r.hub('area.md', `${hubIndex(hubPointer('middle.md'))}\n${rowTable(home('work.md'))}`);
+    r.write('work.md');
+    deepStrictEqual(get(r.index().filingCoverage, 'work.md').rows[0].categories, ['Delivery']);
+  });
+
+  it('retains competing category-only mappings and category evidence from home rows', async () => {
+    const r = await repo();
+    r.hub('root.md', `### Delivery\n${hubIndex(hubPointer('area.md'))}\n### Operations\n${hubIndex(hubPointer('area.md'))}\n### Research\n${rowTable(home('area.md'))}`);
+    r.hub('area.md', rowTable(home('work.md'))); r.write('work.md');
+    const report = r.index().filingCoverage;
+    deepStrictEqual(get(report, 'work.md').rows[0].categories, ['Delivery', 'Operations', 'Research']);
+    strictEqual(report.totals.multiplyFiled, 1);
+    strictEqual(report.totals.noCategory, 0);
+  });
+
+  it('keeps a plan row category ahead of inherited hub mappings at the configured depth', async () => {
+    const r = await repo({ categoryDepth: 2 });
+    r.hub('root.md', `## Delivery\n### Detail\n${hubIndex(hubPointer('area.md'))}`);
+    r.hub('area.md', `## Operations\n${rowTable(home('work.md'))}\n# Unclassified\n${rowTable(home('other.md'))}`);
+    r.write('work.md'); r.write('other.md');
+    const report = r.index().filingCoverage;
+    deepStrictEqual(get(report, 'work.md').rows[0].categories, ['Operations']);
+    deepStrictEqual(get(report, 'other.md').rows[0].categories, ['Delivery']);
+  });
+
+  it('ignores category mappings from prose, commentary, examples and closed hubs', async () => {
+    const r = await repo();
+    r.hub('area.md', rowTable(home('work.md'))); r.write('work.md');
+    r.hub('closed.md', `### Closed\n${hubIndex(hubPointer('area.md'))}`, 'status: archived');
+    r.hub('root.md', `### Ignored
+See [Hub](area.md).
+| Plan | Notes |
+|---|---|
+| [Work](work.md) | [Hub](area.md) |
+
+~~~md
+${hubIndex(hubPointer('area.md'))}
+~~~
+<!--
+${hubIndex(hubPointer('area.md'))}
+-->
+${hubIndex('| `[fake](area.md)` | example |')}`);
+    strictEqual(r.index().filingCoverage.totals.noCategory, 1);
+    // A genuine index subject is admitted after the excluded references.
+    r.hub('index.md', `### Delivery\n${hubIndex('| [`area.md`](area.md) | |')}`);
+    deepStrictEqual(get(r.index().filingCoverage, 'work.md').rows[0].categories, ['Delivery']);
+  });
+
   it('files a child and grandchild through a rowed parent and says where', async () => {
     const r = await repo();
     r.write('parent.md'); r.write('child.md', '', 'parent_plan: parent.md');
@@ -253,7 +325,8 @@ export function transformDoc(doc) { if (doc.path === 'docs/area.md') unlinkSync(
 
   it('exposes the same homes in check and coverage JSON and keeps full evidence for path scopes', async () => {
     const r = await repo(); r.write('parent.md'); r.write('child.md', '', 'parent_plan: parent.md');
-    r.hub('area.md', `### Delivery\n${rowTable(home('parent.md'))}`);
+    r.hub('root.md', `### Delivery\n${hubIndex(hubPointer('area.md'))}`);
+    r.hub('area.md', rowTable(home('parent.md')));
     const run = args => {
       const result = spawnSync(process.execPath, [cli, ...args, '--json'], { cwd: r.directory, encoding: 'utf8' });
       strictEqual(result.status, 0, result.stderr || result.stdout);
@@ -261,10 +334,13 @@ export function transformDoc(doc) { if (doc.path === 'docs/area.md') unlinkSync(
     };
     const check = run(['check']); const coverage = run(['coverage']);
     deepStrictEqual(check.filingCoverage, coverage.filing);
+    deepStrictEqual(get(coverage.filing, 'parent.md').rows[0].categories, ['Delivery']);
+    strictEqual(coverage.filing.totals.noCategory, 0);
     const scoped = run(['check', 'docs/child.md']);
     strictEqual(scoped.filingCoverage.totals.plans, 1);
     strictEqual(scoped.filingCoverage.totals.filedThroughParent, 1);
     strictEqual(scoped.filingCoverage.plans[0].rows[0].hub, 'docs/area.md');
+    deepStrictEqual(scoped.filingCoverage.plans[0].rows[0].categories, ['Delivery']);
     const filtered = run(['coverage', '--type', 'plan']);
     strictEqual(filtered.filing.totals.plans, 2);
     strictEqual(run(['coverage', '--type', 'doc']).filing.totals.plans, 0);

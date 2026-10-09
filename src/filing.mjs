@@ -46,10 +46,9 @@ function visibleBody(body) {
 const delimiter = cells => cells.length > 0 && cells.every(cell => /^\s*:?-+:?\s*$/.test(cell.raw));
 const headerWord = cell => cell.raw.replace(/[*_`]/g, '').trim().toLowerCase();
 
-// A home is a status-bearing table row ABOUT the plan: its first cell must
-// link to that plan. Links in commentary, prose, metadata or order lists are
-// references. The caller resolves the subject before reading its vocabulary.
-export function scanFilingRows(body, categoryDepth = 3) {
+// Read first-cell subjects once, retaining category index rows independently
+// of whether they carry the status needed to establish a plan home.
+function scanSubjectRows(body, categoryDepth) {
   const lines = visibleBody(body).split('\n');
   const rows = [];
   let category = null;
@@ -76,10 +75,15 @@ export function scanFilingRows(body, categoryDepth = 3) {
     // A marker belongs in a later cell, never inside the subject or its prose.
     const marked = statusCell ? findMarkedSpan(statusCell.raw) :
       cells.slice(1).map(cell => findMarkedSpan(cell.raw)).find(Boolean);
-    if (!statusCell && !marked) continue;
     rows.push({ lineIndex: i, href: subject.href, category, statusCell, marked });
   }
   return rows;
+}
+
+// A plan home requires a status-bearing subject row. Category index rows can
+// categorize hubs, but do not file plans or establish an inherited parent home.
+export function scanFilingRows(body, categoryDepth = 3) {
+  return scanSubjectRows(body, categoryDepth).filter(row => row.statusCell || row.marked);
 }
 
 function closed(doc, config) {
@@ -119,6 +123,7 @@ export function buildFilingCoverage(docs, config) {
     return byPath.get(relative) ?? folded.get(relative.toLowerCase()) ?? null;
   };
   const homes = new Map();
+  const categoryRows = new Map();
   const failures = [];
   for (const hub of docs) {
     if (!isHubDoc(hub) || closed(hub, config)) continue;
@@ -127,11 +132,15 @@ export function buildFilingCoverage(docs, config) {
     catch (error) { failures.push({ path: hub.path, message: error.message }); continue; }
     const { body, bodyLineOffset } = extractFrontmatter(raw);
     const dir = path.dirname(path.join(config.repoRoot, hub.path));
-    for (const row of scanFilingRows(body, options.categoryDepth)) {
+    for (const row of scanSubjectRows(body, options.categoryDepth)) {
       const resolved = resolveBodyLinkTarget(row.href, dir, config.repoRoot);
       if (!resolved.ok) continue;
       const subject = lookup(resolved.path);
       if (!subject || subject.type !== 'plan' || subject.path === hub.path || closed(subject, config)) continue;
+      if (isHubDoc(subject)) {
+        if (!categoryRows.has(subject.path)) categoryRows.set(subject.path, []);
+        categoryRows.get(subject.path).push({ hub: hub.path, category: row.category });
+      }
       const vocabulary = config.typeStatuses?.get(subject.type) ?? config.validStatuses ?? new Set();
       const span = row.marked ?? readPositionalToken(row.statusCell, word => vocabulary.has(word.toLowerCase()));
       if (!span || !vocabulary.has(span.text.toLowerCase())) continue;
@@ -141,8 +150,8 @@ export function buildFilingCoverage(docs, config) {
     }
   }
 
-  // A hub filed beneath a category passes that category to its own rows. Only
-  // explicit headings/subject rows supply categories; hub titles are not guessed.
+  // Explicit first-cell hub index rows pass categories to the hub's plan rows,
+  // including indexes without status columns. Hub titles are not guessed.
   const hubCategories = new Map();
   const liveHubs = docs.filter(doc => isHubDoc(doc) && !closed(doc, config));
   for (const hub of liveHubs) hubCategories.set(hub.path, new Set());
@@ -152,7 +161,7 @@ export function buildFilingCoverage(docs, config) {
     const categories = hubCategories.get(hub);
     if (categories && !categories.has(category)) { categories.add(category); queue.push([hub, category]); }
   };
-  for (const hub of liveHubs) for (const row of homes.get(hub.path) ?? []) {
+  for (const hub of liveHubs) for (const row of categoryRows.get(hub.path) ?? []) {
     if (row.category) addCategory(hub.path, row.category);
     else {
       if (!dependents.has(row.hub)) dependents.set(row.hub, new Set());

@@ -775,7 +775,9 @@ children.
 
 This policy is available in CLI 0.93.0. From a source checkout, invoke the
 commands below as `node bin/runlist.mjs …`. The separately versioned GUI
-0.92.0-rc.1 retains its earlier engine; these are CLI reports.
+0.92.0-rc.1 retains its earlier engine; these are CLI reports. The correction
+for category inheritance from status-less hub indexes is in source and has
+not yet been released in the CLI.
 
 Repositories can enable the plan-home policy in `runlist.config.mjs`:
 
@@ -792,8 +794,11 @@ order lists, or tables without statuses are references. A numbered row with
 the plan in its second cell is an execution order, not a filing home.
 
 Categories come from `###` headings by default (`categoryDepth` accepts 2–6),
-or are inherited from the category where the containing hub is itself filed.
-Hub titles do not supply an inferred category. Conflicting inherited categories
+or from explicit first-cell hub index rows beneath those headings. These index
+rows can categorize a hub without a status column; they do not establish a
+plan home or a home for its children. Categories propagate through nested hub
+indexes. A plan row's own category takes precedence over inherited categories.
+Hub titles do not supply an inferred category, and competing inherited mappings
 stay visible. A child with no own row can inherit a home through its explicit
 `parent_plan:` chain; the report names the filed ancestor and its home rows.
 A child's own row takes precedence. Missing, ambiguous or cyclic parent links
