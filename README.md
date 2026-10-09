@@ -46,8 +46,10 @@ have their own qualification snapshots.
 The delivered Apple Silicon GUI is **0.92.0-rc.1**, personally signed, accepted
 by Apple and installed at `~/Applications/Runlist.app`, with rollback retained.
 Its [public Mac installer](https://github.com/reowens/runlist/releases/tag/desktop-v0.92.0-rc.1)
-is separate from [CLI 0.93.0](https://github.com/reowens/runlist/releases/tag/v0.93.0),
-which adds optional plan-filing checks and includes `runlist desktop install`.
+is separate from [CLI 0.93.2](https://github.com/reowens/runlist/releases/tag/v0.93.2),
+which includes optional plan-filing checks, corrected hub-category inheritance,
+updates for every saved Claude plugin scope, and `runlist desktop install`.
+Updating the CLI does not replace the GUI's bundled 0.92.0 engine.
 No further Apple checks are selected.
 The earlier development snapshots and qualification notes below are historical;
 see the current release record.
@@ -81,12 +83,13 @@ The remaining work, in order:
    The GUI/backend and guarded protocol fixtures are implemented; installed
    artifacts do not include this change. Optional local model chat follows later.
 3. Complete native plan lifecycle, legacy migration,
-   settings/diagnostics, and stage/filing integration.
+   settings/diagnostics, and GUI filing reports. Stage filters/groups and guarded
+   Stage editing are delivered in GUI 0.92.0-rc.1.
 4. Finish platform qualification: a terminal-ready Windows host, Linux x64 and
    older distributions, real-version upgrades, fresh/minimum-version and Intel
    Macs, plus native rendering, focus, accessibility and whole-window memory.
 
-Mac GUI delivery and CLI 0.92.0 publication are complete. The supported desktop
+Mac GUI delivery and CLI 0.93.2 publication are complete. The supported desktop
 release is Apple Silicon macOS 13.5 or newer. Broader platform work and
 experimental semantic search remain separate follow-up work.
 
@@ -207,7 +210,8 @@ runlist update --cli-only
 runlist update --plugin-only
 ```
 
-Claude plugin updates cover each saved user, project and local installation.
+From CLI 0.93.2, Claude plugin updates cover each saved user, project and local
+installation.
 Project/local updates run from the recorded project folder. `update --check`
 shows each scope separately, and an update verifies the fresh installation
 records before reporting success. Missing project paths, unavailable folders

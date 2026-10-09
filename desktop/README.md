@@ -9,9 +9,12 @@ helper through private stdin/stdout pipes. There is no listening HTTP server,
 runtime download, online account, telemetry, automatic updater or login daemon.
 
 Desktop distribution is separate from the npm CLI. The checkout engine is
-Runlist 0.93.0 and desktop protocol 1. The delivered desktop release is separately
+Runlist 0.93.2 and desktop protocol 1. The delivered desktop release is separately
 versioned at 0.92.0-rc.1 and retains its 0.92.0 engine. Optional filing reports
-are available in CLI 0.93.0; they do not require a desktop rebuild.
+are available from CLI 0.93.0, with hub-category inheritance corrected in 0.93.1.
+Updating the CLI does not replace the delivered app's bundled engine. Stage
+filters/groups and guarded Stage editing are delivered in the GUI; displaying
+filing reports in the GUI remains separate work.
 
 ## Current release and next steps
 
@@ -88,8 +91,10 @@ Current source also includes reviewed New flag/New decision forms, canonical
 Markdown review, persisted repository identity and exclusive recoverable creation.
 These additions are retained in the delivered rc.3 source snapshot. See the
 [creation evidence](VALIDATION.md#gui-native-record-creation--2026-10-07).
-Native plan lifecycle, migration, settings/diagnostics and stage/filing follow. Host qualification remains
-open. Optional local-model chat remains deferred. The delivered rc.3 app includes experimental semantic controls; older packages
+At that snapshot, native plan lifecycle, migration, settings/diagnostics and
+stage/filing were follow-up work. Stage support has since been delivered as
+described below; GUI filing reports remain unselected. Broader host qualification
+remains open. Optional local-model chat remains deferred. The retained rc.3 app includes experimental semantic controls; older packages
 predate the integration. These controls do not establish working live retrieval.
 The local release and work runbook
 records their scope and the gated release sequence for an explicit future resume.
