@@ -8,26 +8,22 @@ system WebView communicates with a native controller, which owns a bundled Node
 helper through private stdin/stdout pipes. There is no listening HTTP server,
 runtime download, online account, telemetry, automatic updater or login daemon.
 
-Desktop distribution is separate from the npm CLI. The checkout engine is
-Runlist 0.94.0 and desktop protocol 1. The delivered desktop release is separately
-versioned at 0.92.0-rc.1 and retains its 0.92.0 engine. Optional filing reports
-are available from CLI 0.93.0, with hub-category inheritance corrected in 0.93.1.
-Updating the CLI does not replace the delivered app's bundled engine. Stage
-filters/groups and guarded Stage editing are delivered in the GUI; displaying
-filing reports in the GUI remains separate work.
-The optional product yardstick is a CLI 0.94.0 feature; GUI goal/assessment
-controls are separate follow-up work and do not trigger a desktop rebuild.
+Desktop distribution is separate from the npm CLI. The CLI is 0.94.0; the local
+GUI **0.94.0-rc.1** includes the current yardstick/Filing source and uses bundled
+engine 0.94.0-rc.1 with desktop protocol 1. Updating the CLI does not replace an
+existing desktop app. GUI Product goal shows literal delivery and human-reviewed
+assessments; Filing scans on demand and opens exact hub-row evidence. Structured
+plans display comparison and explain unavailable assessment actions.
 
 ## Current release and next steps
 
-**Runlist 0.92.0-rc.1 is now installed locally and publicly available.** The personally signed app and
-Mac installer
-were both accepted by Apple, stapled and accepted by Gatekeeper. The previous app
-is retained for rollback. Delivery record
-contains receipts and paths. Additional testing stopped at the owner's direction;
-controlled/native/broader-host evidence is incomplete follow-up, not claimed passed.
-No app/window control or gmax/live work occurred. This latest instruction resumed
-this specific Mac delivery; earlier stopped-release paragraphs are historical.
+**Runlist 0.94.0-rc.1 is installed locally** at `~/Applications/Runlist.app`.
+The personal Developer ID signed this new app and installer; Apple accepted both,
+tickets were stapled, Gatekeeper accepted both and the existing secure installer
+kept the previous app for rollback. Six focused packaged and six installed checks
+passed with networking denied. No app/window control or live gmax work ran.
+The public Mac download remains **0.92.0-rc.1** until separately published.
+Older dated candidate/release statements below are historical snapshots.
 
 ### Historical unsigned build and earlier packages
 
@@ -113,7 +109,7 @@ additions are included in the delivered 0.92.0-rc.1 app.
 
 ## Install and open
 
-The new app is installed at `~/Applications/Runlist.app`. Open **Runlist** normally.
+The new local 0.94.0-rc.1 app is installed at `~/Applications/Runlist.app`. Open **Runlist** normally.
 For another Apple Silicon Mac, use the [public Mac installer](https://github.com/reowens/runlist/releases/tag/desktop-v0.92.0-rc.1).
 
 The versioned `Runlist-0.90.0-macOS-arm64.dmg` in `desktop/releases/` is an

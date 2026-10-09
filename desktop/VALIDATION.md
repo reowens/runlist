@@ -1,20 +1,19 @@
 # Desktop validation
 
-**Latest Mac delivery is installed:** personally signed, Apple-accepted and stapled
-**0.91.0-rc.3** app/DMG. See the [delivery record](#mac-delivery-installed--2026-10-08).
-The unsigned-build and stopped-release notes below predate the owner instruction
-to deliver this specific Mac build; no broader measurements are claimed passed.
+**Latest local GUI is 0.94.0-rc.1**, installed on 2026-10-09. Source commit
+05af6b7 was frozen into a 455-file snapshot. The current app/DMG are personally
+signed, Apple accepted/stapled and Gatekeeper accepted; the secure installer
+preserved quarantine and saved the previous 0.92.0-rc.1 app for rollback.
 
-
-The latest local candidate is unsigned **Runlist 0.91.0-rc.3**. See the
-[first-release steps 1–4 record](#first-release-steps-14--2026-10-08) below for
-selected-source terminal/package evidence and remaining qualification gates.
-It is uninstalled and distinct from earlier installed and Apple-submitted bytes.
-
-**Apple checks, Keychain, signing and final distribution remain stopped until
-explicitly resumed by the owner.** Historical acceptance and pending-request
-observations below do not qualify the new candidate or resume those actions.
-No app/window/browser was opened or controlled for the new candidate.
+Six focused packaged and six installed checks passed with networking denied,
+covering the yardstick/Filing controls, recovery, private helper, source-row
+navigation and review/quit guards. Resource/snapshot hashes matched; static
+architecture, deployment, bundle identity and version checks passed.
+Evidence is retained at `desktop/releases/yardstick-filing-20261009/`.
+Global CLI remains 0.94.0; public GUI remains 0.92.0-rc.1. No app/WebView/window
+control, live gmax/model, npm release, public GUI publication or new native visual
+acceptance claim occurred. Local delivery is complete; Apple requests are accepted
+and must not be repeatedly polled. Broader/native tests below remain historical.
 
 ## Earlier installed snapshot — 2026-10-06
 

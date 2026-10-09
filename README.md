@@ -833,8 +833,8 @@ local model or server. GUI controls are implemented in the source checkout:
 Product goal shows the saved statement, delivery and assessment, with reviewed
 Serves/Clear/Close/Fold actions and retained recovery. Structured plans display
 the comparison with an explanation when assessment changes are unavailable.
-These controls await the next desktop package; the current download remains
-0.92.0-rc.1 with engine 0.92.0.
+These controls are included in local desktop package 0.94.0-rc.1. The current
+public download remains 0.92.0-rc.1; updating the CLI alone does not replace it.
 
 ### Plan Homes And Filing Checks
 
@@ -885,7 +885,7 @@ is labeled and suppresses absence/uniqueness findings. Path/type-scoped output
 keeps the full hub/ancestor evidence while reporting only selected plans.
 The source checkout also includes a read-only Filing view: open it to scan,
 filter 50-plan pages, and inspect exact hub rows in 20-row evidence pages. Saved
-edits invalidate the report. This view awaits the next desktop package.
+edits invalidate the report. This view is included in local desktop package 0.94.0-rc.1.
 The policy is off when `filing` is unset, false, or `{ enabled: false }`.
 It can replace a repository's older “any link counts” coverage script once
 that repository enables it and retires its custom check.
