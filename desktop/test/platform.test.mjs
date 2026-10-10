@@ -1,12 +1,18 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {selectRuntime} from '../scripts/runtime-target.mjs';
+import {selectRuntime,runtimeExtractor} from '../scripts/runtime-target.mjs';
 import {isDesktopAssetLink} from '../../assets/app/transport.mjs';
 import {desktopLaunch} from '../../src/desktop.mjs';
 import {isBundledRunlistRuntime} from '../../src/desktop-runtime.mjs';
 import path from 'node:path';
 const lock=JSON.parse(readFileSync(new URL('../runtime-lock.json',import.meta.url)));
+test('runtime extraction uses the host Windows tar rather than Git Bash PATH',()=>{
+ assert.equal(runtimeExtractor({platform:'win32',env:{SystemRoot:'D:\\Windows',PATH:'C:\\Program Files\\Git\\usr\\bin'}}),'D:\\Windows\\System32\\tar.exe');
+ assert.equal(runtimeExtractor({platform:'win32',env:{WINDIR:'C:\\Windows'}}),'C:\\Windows\\System32\\tar.exe');
+ for(const env of [{},{SystemRoot:'Windows'}])assert.throws(()=>runtimeExtractor({platform:'win32',env}),/absolute SystemRoot/);
+ for(const platform of ['darwin','linux'])assert.equal(runtimeExtractor({platform,env:{SystemRoot:'D:\\Windows'}}),'tar');
+});
 test('bundled worker identification handles Windows extensions/separators and rejects ordinary Node',()=>{
  assert.equal(isBundledRunlistRuntime('C:\\Program Files\\Runlist\\runtime\\RunlistHelper.exe',path.win32),true);
  assert.equal(isBundledRunlistRuntime('/opt/runlist/runtime/RunlistHelper',path.posix),true);

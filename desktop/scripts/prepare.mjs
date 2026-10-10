@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {selectRuntime} from './runtime-target.mjs';
+import {selectRuntime,runtimeExtractor} from './runtime-target.mjs';
 import {syncCargoVersion} from './version.mjs';
 const desktop=fileURLToPath(new URL('../',import.meta.url)),repo=path.resolve(desktop,'..');
 const version=JSON.parse(await readFile(path.join(repo,'package.json'),'utf8')).version;
@@ -14,7 +14,7 @@ const cache=path.join(desktop,'.cache');await mkdir(cache,{recursive:true});
 const archive=path.join(cache,selected.file);
 if(!existsSync(archive)){const response=await fetch(`https://nodejs.org/dist/${pin.version}/${selected.file}`);if(!response.ok)throw new Error('Runtime download failed.');const temporary=archive+'.download';await writeFile(temporary,Buffer.from(await response.arrayBuffer()));const bytes=await readFile(temporary);if(createHash('sha256').update(bytes).digest('hex')!==selected.sha256){await rm(temporary,{force:true});throw new Error('The pinned runtime checksum does not match.');}await cp(temporary,archive);await rm(temporary,{force:true});}
 const digest=createHash('sha256').update(await readFile(archive)).digest('hex');if(digest!==selected.sha256)throw new Error('The pinned runtime checksum does not match.');
-execFileSync('tar',['-xf',archive,'-C',cache],{windowsHide:true});
+execFileSync(runtimeExtractor(),['-xf',archive,'-C',cache],{windowsHide:true});
 const runtime=path.join(cache,selected.folder);
 const resources=path.join(desktop,'src-tauri','resources');await rm(resources,{recursive:true,force:true});await mkdir(path.join(resources,'desktop'),{recursive:true});
 for(const name of ['src','bin','assets','package.json','LICENSE'])await cp(path.join(repo,name),path.join(resources,name),{recursive:true});
