@@ -1,6 +1,7 @@
 import { createHash, createHmac } from 'node:crypto';
 import { lstatSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { PRIVATE_ROOT, CREDENTIAL_FILE, inspectBaselineText } from '../src/public-inspection.mjs';
 
 // Keyed fingerprints keep private vocabulary out of the repository and prevent
 // identifying names by hashing guesses. The key is local/CI-only.
@@ -23,26 +24,17 @@ if (!privateKey) {
 export const privateVocabularyAvailable = Boolean(privateKey);
 const fingerprint = (value, key) => (key ? createHmac('sha256', key) : createHash('sha256'))
   .update(value.toLowerCase()).digest('hex');
-const PRIVATE_ROOT = /^(?:docs|\.runlist|\.dotmd|\.gmax|\.claude\/logs|desktop\/releases)(?:\/|$)/;
-const CREDENTIAL_FILE = /(?:^|\/)(?:\.env(?:\..*)?|\.npmrc|[^/]*\.(?:pem|p12|pfx|key))$/;
 
 export function inspectPublicText(text, file, { fingerprints = PRIVATE_FINGERPRINTS,
   key = fingerprints === PRIVATE_FINGERPRINTS ? privateKey : '' } = {}) {
-  const findings = [];
-  const fixture = /^(?:test|desktop\/test)\//.test(file);
+  const findings = inspectBaselineText(text, file);
   for (const [index, line] of text.split('\n').entries()) {
     const tokens = line.match(/[a-z0-9][a-z0-9._@+:/-]*/gi) ?? [];
     const candidates = tokens.flatMap(token => [token, ...token.split(/[.:/]/), ...token.split(/[._@+:/-]/)]);
     if (candidates.some(token => token && fingerprints.has(fingerprint(token, key)))) {
       findings.push({ file, line: index + 1, category: 'private vocabulary' });
     }
-    const paths = line.match(/\/(?:Users|home)\/[a-z0-9._-]+/g) ?? [];
-    if (paths.some(value => !fixture || !/\/(?:test|me|u|user|example)$/i.test(value))) {
-      findings.push({ file, line: index + 1, category: 'personal absolute path' });
-    }
-    if (file.endsWith('.json') && !fixture && /"email"\s*:/.test(line)) {
-      findings.push({ file, line: index + 1, category: 'contact address in public metadata' });
-    }
+
   }
   return findings;
 }
