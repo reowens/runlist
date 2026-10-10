@@ -6,6 +6,7 @@ import path from 'node:path';
 // identifying names by hashing guesses. The key is local/CI-only.
 // Keep diagnostics limited to paths, line numbers and finding categories.
 const PRIVATE_FINGERPRINTS = new Set([
+  '4456e540ba47af8906520fa312084dad30451c32e887614bf9bafdc4f2b4c224',
   '47d9c885a72a12ab148fb5f8561f0417652d94e044574b999c56e237951b856e',
   'abce09f94a9050cbb40bddc651c6690b3ad616d0e0ea9b41a6f31943d4787285',
   '50bc81e6d2ade7d3398e52ee7a1ba9cdbed9108cc9be6d663e830a19060e0146',
