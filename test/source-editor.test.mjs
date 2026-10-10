@@ -205,7 +205,8 @@ describe('safe source editing core', () => {
     const repoRoot = path.join(parent.repoRoot, 'worktree');
     const git = spawnSync('git', ['worktree', 'add', '--detach', repoRoot], { cwd: parent.repoRoot, encoding: 'utf8' }); strictEqual(git.status, 0, git.stderr);
     ok(statSync(path.join(repoRoot, '.git')).isFile());
-    const f = { repoRoot, file: path.join(repoRoot, 'docs/fixture.md'), raw: base, config: { repoRoot, docsRoot: path.join(repoRoot, 'docs') } };
+    const file = path.join(repoRoot, 'docs/fixture.md');
+    const f = { repoRoot, file, raw: readFileSync(file, 'utf8'), config: { repoRoot, docsRoot: path.join(repoRoot, 'docs') } };
     blockedStorage(f, absentGit(f));
     deepStrictEqual(storageProbe(f, {}, false), { draft: 'accepted', save: 'accepted', lifecycleCommit: 'not-tested' });
     const retained = readFileSync(path.join(repoRoot, '.runlist/editor/operations', `${id(91)}.json`), 'utf8');

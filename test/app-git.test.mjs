@@ -11,10 +11,11 @@ import {startApp} from '../src/app.mjs';
 const roots=[],apps=[];
 afterEach(async()=>{for(const app of apps.splice(0))await app.close();for(const root of roots.splice(0))rmSync(root,{recursive:true,force:true});});
 const source=(title,type='doc')=>`---\ntype: ${type}\nstatus: active\n---\n# ${title}\n\nOriginal text.\n`;
-function git(root,...args){const p=spawnSync('git',['-c','commit.gpgsign=false','-C',root,...args],{encoding:'utf8',env:{PATH:process.env.PATH,GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:os.devNull,LANG:'C',LC_ALL:'C'}});assert.equal(p.status,0,p.stderr);return p.stdout;}
+function git(root,...args){const p=spawnSync('git',['-c','commit.gpgsign=false','-C',root,...args],{encoding:'utf8',env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:path.join(root,'hooks','empty-git-config'),LANG:'C',LC_ALL:'C'}});assert.equal(p.status,0,p.stderr);return p.stdout;}
 async function fixture({initialized=true}={}) {
   const root=mkdtempSync(path.join(os.tmpdir(),'runlist-git-api-'));roots.push(root);
   for(const folder of ['docs/plans','docs/hubs','docs/prompts','docs/evidence','src','hooks'])mkdirSync(path.join(root,folder),{recursive:true});
+  writeFileSync(path.join(root,'hooks','empty-git-config'),'');
   writeFileSync(path.join(root,'runlist.config.mjs'),"export const root=['docs/plans','docs']; export const excludeDirs=['evidence'];\n");
   const write=(name,content)=>writeFileSync(path.join(root,name),content);
   write('.gitignore','.runlist/\n.dotmd/\ndocs/local.md\n');write('docs/plans/plan.md',source('Plan','plan'));write('docs/hubs/hub.md',source('Hub','plan'));write('docs/reference.md',source('Reference'));write('docs/remove.md',source('Deleted'));write('docs/rename.md',source('Renamed'));write('docs/prompts/private.md',source('PRIVATE PROMPT','prompt'));write('docs/forged.md',source('FORGED PROMPT','prompt'));write('docs/evidence/private.md',source('EXCLUDED'));write('src/code.mjs','original code\n');
@@ -60,8 +61,8 @@ it('handles non-Git folders, unborn/detached branches and in-progress operations
 });
 it('pages a large corpus and transports literal names without glob selection',async()=>{
   const f=await fixture();for(let i=0;i<230;i++)f.write(`docs/new-${String(i).padStart(3,'0')}.md`,source('New '+i));
-  const names=['docs/[a].md','docs/:(glob)*.md','docs/new\nline.md','docs/日本語.md'];for(const name of names)f.write(name,source(name));
-  const first=await f.call('git/status'),second=await f.call('git/status?offset=100');assert.equal(first.changes.length,100);assert.equal(second.changes.length,100);assert.equal(first.total,234);assert.ok(!second.changes.some(r=>first.changes.some(p=>p.path===r.path)));
+  const names=['docs/[a].md','docs/日本語.md'];if(process.platform!=='win32')names.push('docs/:(glob)*.md','docs/new\nline.md');for(const name of names)f.write(name,source(name));
+  const first=await f.call('git/status'),second=await f.call('git/status?offset=100');assert.equal(first.changes.length,100);assert.equal(second.changes.length,100);assert.equal(first.total,230+names.length);assert.ok(!second.changes.some(r=>first.changes.some(p=>p.path===r.path)));
   for(const name of names){const diff=await f.call('git/diff?'+new URLSearchParams({path:name}));assert.equal(diff.change.path,name);assert.equal(diff.before,'');}
 });
 it('isolates linked-worktree indexes and discards inherited Git authority overrides',async()=>{

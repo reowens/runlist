@@ -5,8 +5,20 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { inspectPublicText, inspectPublicFiles } from '../scripts/public-content.mjs';
+import { packagePaths } from '../scripts/check-public.mjs';
 
 const fingerprints = new Set([createHash('sha256').update('private-client').digest('hex')]);
+
+test('package inspection covers array and keyed inventories and fails on incomplete output', () => {
+  const first = { files: [{ path: 'package.json' }, { path: 'src/example.mjs' }] };
+  const second = { files: [{ path: 'src/other.mjs' }] };
+  const expected = ['package.json', 'src/example.mjs', 'src/other.mjs'];
+  assert.deepEqual(packagePaths([first, second]), expected);
+  assert.deepEqual(packagePaths({ example: first, other: second }), expected);
+  for (const inventory of [null, [], {}, { example: {} }, [{ files: [] }], [{ files: [{ size: 4 }] }]]) {
+    assert.throws(() => packagePaths(inventory), /incomplete package inventory/);
+  }
+});
 
 test('private vocabulary uses keyed fingerprints without publishing the key', () => {
   const key = 'synthetic-policy-key';

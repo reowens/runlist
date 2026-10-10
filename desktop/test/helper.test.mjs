@@ -12,7 +12,7 @@ import {localActor} from '../../src/app-service.mjs';
 import {parseNativeRecord} from '../../src/native-record.mjs';
 import {nativeFixture,nativeSource,recordId} from '../../test/native-fixtures.mjs';
 import {helperEnvironment} from './helper-environment.mjs';
-import {commitPlatformQualified} from '../../src/git-commit-support.mjs';
+import {commitPlatformQualified,commitVersionQualified} from '../../src/git-commit-support.mjs';
 const version=JSON.parse(readFileSync(new URL('../../package.json',import.meta.url))).version;
 const runtime=process.env.RUNLIST_TEST_RUNTIME??process.execPath;
 const entry=process.env.RUNLIST_TEST_HELPER??path.resolve(import.meta.dirname,'../helper.mjs');
@@ -115,7 +115,7 @@ test('private helper pipe creates native flags and decisions with server authori
  assert.equal(JSON.parse(readFileSync(path.join(root,'runlist.records.json'),'utf8')).repositoryId,repositoryId);
 });
 
-test('native Git jobs return promptly, survive helper shutdown and expose one verified local commit',{skip:!commitPlatformQualified()},async()=>{
+test('native Git jobs refuse unqualified Git or survive helper shutdown with one verified local commit',{skip:!commitPlatformQualified()},async()=>{
  const root=fixture(),home=path.join(root,'isolated-home');mkdirSync(home);writeFileSync(path.join(root,'.gitignore'),'.runlist/\n.dotmd/\n');
  const git=args=>{const q=spawnSync('git',['-C',root,...args],{encoding:'utf8',env:{PATH:process.env.PATH,HOME:home,LANG:'C',LC_ALL:'C'}});assert.equal(q.status,0,q.stderr);return q.stdout.trim();};
  git(['init','-q','-b','main']);git(['config','user.name','Fixture']);git(['config','user.email','fixture@invalid.example']);git(['config','commit.gpgSign','false']);git(['add','docs/plans/fixture.md','runlist.config.mjs','.gitignore']);git(['commit','-qm','base']);
@@ -124,7 +124,9 @@ test('native Git jobs return promptly, survive helper shutdown and expose one ve
  writeFileSync(path.join(root,'docs/plans/fixture.md'),source.replace('Original','Native local commit'));const h=helper(root,checkoutTrust(root).fingerprint,{HOME:home});assert.equal((await h.hello()).ok,true);
  const id=randomUUID(),start=await h.request('git/commit/preview',{operationId:id,paths:['docs/plans/fixture.md'],message:'Native documents'});assert.equal(start.ok,true,JSON.stringify(start));assert.equal(start.value.running,true);assert.equal((await h.call('metrics')).ok,true);
  async function settled(current){for(let i=0;i<500;i++){const response=await current.request('git/operation?id='+id);assert.equal(response.ok,true,JSON.stringify(response));if(!response.value.running)return response.value;await new Promise(resolve=>setTimeout(resolve,50));}assert.fail('native Git job did not settle');}
- const r=await settled(h);assert.equal(r.state,'reviewed',JSON.stringify(r));assert.equal(r.execution.signing,'ssh');assert.deepEqual(r.execution.filters,['docs']);assert.match(r.review[0].after,/Canonical native commit/);assert.ok(r.execution.hooks.includes('pre-commit'));assert.equal(existsSync(path.join(root,'native-hook-marker')),false);assert.equal((await h.request('git/commit/start',{operationId:id})).ok,true);
+ const r=await settled(h);
+ if(!commitVersionQualified(git(['--version']))){assert.equal(r.state,'failed',JSON.stringify(r));assert.equal(r.failure.code,'git-version-unqualified');assert.equal(r.canCommit,false);assert.equal(git(['rev-list','--count','HEAD']),'1');assert.equal(existsSync(path.join(root,'native-hook-marker')),false);assert.match(readFileSync(path.join(root,'docs/plans/fixture.md'),'utf8'),/Native local commit/);return;}
+ assert.equal(r.state,'reviewed',JSON.stringify(r));assert.equal(r.execution.signing,'ssh');assert.deepEqual(r.execution.filters,['docs']);assert.match(r.review[0].after,/Canonical native commit/);assert.ok(r.execution.hooks.includes('pre-commit'));assert.equal(existsSync(path.join(root,'native-hook-marker')),false);assert.equal((await h.request('git/commit/start',{operationId:id})).ok,true);
  const exited=once(h.child,'exit');h.child.stdin.end();await exited;
  const second=helper(root,checkoutTrust(root).fingerprint,{HOME:home});assert.equal((await second.hello()).ok,true);const done=await settled(second);assert.equal(done.state,'committed',JSON.stringify(done));assert.equal(done.indexReady,true);assert.equal(git(['rev-parse','HEAD']),done.commitId);assert.equal(git(['rev-list','--count','HEAD']),'2');assert.equal((await second.request('git/commit/start',{operationId:id})).value.commitId,done.commitId);
  assert.equal(readFileSync(path.join(root,'native-hook-marker'),'utf8'),'hook-ran');assert.match(git(['show','HEAD:docs/plans/fixture.md']),/Canonical native commit/);assert.match(readFileSync(path.join(root,'docs/plans/fixture.md'),'utf8'),/Native local commit/);assert.match(git(['cat-file','commit',done.commitId]),/gpgsig -----BEGIN SSH SIGNATURE-----/);

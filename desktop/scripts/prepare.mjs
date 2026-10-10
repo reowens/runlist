@@ -5,6 +5,7 @@ import {execFileSync} from 'node:child_process';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {selectRuntime} from './runtime-target.mjs';
+import {syncCargoVersion} from './version.mjs';
 const desktop=fileURLToPath(new URL('../',import.meta.url)),repo=path.resolve(desktop,'..');
 const version=JSON.parse(await readFile(path.join(repo,'package.json'),'utf8')).version;
 const pin=JSON.parse(await readFile(path.join(desktop,'runtime-lock.json'),'utf8'));
@@ -24,6 +25,6 @@ await mkdir(path.join(resources,'runtime'),{recursive:true});await cp(path.join(
 const dist=path.join(desktop,'dist');await rm(dist,{recursive:true,force:true});await cp(path.join(repo,'assets','app'),dist,{recursive:true});
 await writeFile(path.join(resources,'bundle-manifest.json'),JSON.stringify({version,protocol:1,runtime:pin.version,architecture:arch,platform,target:selected.target,executable:selected.executable,runtimeSha256:digest},null,2)+'\n');
 const configFile=path.join(desktop,'src-tauri','tauri.conf.json');const config=JSON.parse(await readFile(configFile,'utf8'));config.version=version;await writeFile(configFile,JSON.stringify(config,null,2)+'\n');
-const cargoFile=path.join(desktop,'src-tauri/Cargo.toml');await writeFile(cargoFile,(await readFile(cargoFile,'utf8')).replace(/^(version\s*=\s*)"[^"]+"/m,`$1"${version}"`));
+syncCargoVersion(desktop,version);
 await import('./notices.mjs');
 console.log(`Prepared Runlist ${version}, protocol 1, Node ${pin.version}, ${platform}/${arch}.`);
