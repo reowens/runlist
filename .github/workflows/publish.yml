@@ -10,6 +10,9 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    env:
+      RUNLIST_PUBLIC_CHECK_KEY: ${{ secrets.RUNLIST_PUBLIC_CHECK_KEY }}
+      RUNLIST_REQUIRE_PUBLIC_CHECK_KEY: '1'
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f  # v6
@@ -17,5 +20,6 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
+      - run: npm run check:public
       - run: npm test
       - run: npm publish --access public

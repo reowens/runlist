@@ -342,6 +342,12 @@ The signing script requires Apple's explicit **Accepted** result, staples and
 validates both app and DMG, verifies Gatekeeper, and writes submission IDs and
 the final DMG checksum to `release-manifest.json`.
 
+Desktop builds remap the checkout and home-directory prefixes in Rust output
+to neutral paths, including panic locations. Existing `RUSTFLAGS` or
+`CARGO_ENCODED_RUSTFLAGS` are preserved. Inspect the final executable as well as
+the packaged JavaScript before signing; compiler remapping does not cover every
+possible path introduced by a linker or another build tool.
+
 ## Windows/Linux builds in development
 
 Build on the target host with Rust 1.95+, Cargo, Node, and Tauri's

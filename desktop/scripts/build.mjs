@@ -1,6 +1,7 @@
 import {spawnSync} from 'node:child_process';
 import path from 'node:path';
 import {finalizeLinuxAppImage} from './appimage-runtime.mjs';
+import {privateBuildEnvironment} from './build-environment.mjs';
 const desktop=path.resolve(import.meta.dirname,'..'),args=process.argv.slice(2);
 const index=args.indexOf('--target');
 if(index>=0&&!args[index+1])throw new Error('--target requires a Rust target triple.');

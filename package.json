@@ -42,6 +42,8 @@
   },
   "homepage": "https://github.com/reowens/runlist#readme",
   "scripts": {
+    "check:public": "node scripts/check-public.mjs",
+    "prepack": "node scripts/check-public.mjs",
     "test": "node --import ./test/setup-env.mjs --test --test-concurrency=4 test/*.test.mjs",
     "postinstall": "node scripts/postinstall.mjs",
     "preversion": "node scripts/release-preflight.mjs && npm test",

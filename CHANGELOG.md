@@ -2,6 +2,14 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## 0.94.1 — 2026-10-09
+
+### Fixed
+
+- Removed private consumer references, personal contact metadata and local operational details from public source and documentation.
+- Repository and npm package inventories are checked before packing or publishing, with diagnostics that identify files without repeating private content.
+- Desktop signing requires explicit release identity and team settings.
+
 ## Unreleased
 
 ### Added

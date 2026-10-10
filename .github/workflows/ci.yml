@@ -38,4 +38,7 @@ jobs:
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f  # v6
         with:
           node-version: ${{ matrix.node-version }}
+      - run: npm run check:public
+        env:
+          RUNLIST_PUBLIC_CHECK_KEY: ${{ secrets.RUNLIST_PUBLIC_CHECK_KEY }}
       - run: npm test
