@@ -8,27 +8,30 @@ system WebView communicates with a native controller, which owns a bundled Node
 helper through private stdin/stdout pipes. There is no listening HTTP server,
 runtime download, online account, telemetry, automatic updater or login daemon.
 
-Desktop distribution is separate from the npm CLI. The CLI is 0.94.0; the public/installed
-GUI **0.94.0-rc.1** includes the current yardstick/Filing source and uses bundled
-engine 0.94.0-rc.1 with desktop protocol 1. Updating the CLI does not replace an
+Desktop distribution is separate from the npm CLI. The CLI and public GUI are
+**0.94.1**. The GUI includes the current yardstick/Filing source and uses bundled
+engine 0.94.1 with desktop protocol 1. Updating the CLI does not replace an
 existing desktop app. GUI Product goal shows literal delivery and human-reviewed
 assessments; Filing scans on demand and opens exact hub-row evidence. Structured
 plans display comparison and explain unavailable assessment actions.
 
 ## Current release and next steps
 
-**Public Mac downloads are temporarily unavailable.** The previous installers
-were withdrawn during a privacy cleanup on 2026-10-09. A clean replacement has
-not yet been built; existing installations can still be opened.
+**[Runlist Desktop 0.94.1](https://github.com/reowens/runlist/releases/tag/desktop-v0.94.1)**
+is available for Apple Silicon Macs running macOS 13.5 or newer. It replaces
+the installers withdrawn during the privacy cleanup on 2026-10-09.
+The app and DMG are personally signed, accepted by Apple, stapled and accepted
+by Gatekeeper. The final installer and expanded app passed disclosure checks.
 
-The previous release, Runlist 0.94.0-rc.1, was installed locally at `~/Applications/Runlist.app`.
-The personal Developer ID signed this new app and installer; Apple accepted both,
-tickets were stapled, Gatekeeper accepted both and the existing secure installer
-kept the previous app for rollback. Six focused packaged and six installed checks
-passed with networking denied. No app/window control or live gmax work ran.
-The withdrawn Mac installer was **0.94.0-rc.1**.
-Source and delivery docs are pushed; publication performed no rebuild or Apple checks.
-Selected delivery is complete. Deferred work below awaits a separate selection.
+The production installer passed a fresh installation into a sandbox home,
+preserving quarantine. Both the final app and the sandbox installation passed
+35 checks each with networking denied. Packaged JavaScript and native controller
+checks passed. All three public assets match the reviewed local bytes, and the
+CLI release resolver selects this installer. The existing user installation
+may still be an earlier version; updating the CLI does not replace it.
+
+Fresh physical-Mac, minimum-version and native-window acceptance remain open.
+See the [current validation record](VALIDATION.md#current-mac-release--2026-10-10).
 Older dated candidate/release statements below are historical snapshots.
 
 ### Historical unsigned build and earlier packages
@@ -43,7 +46,7 @@ Candidate evidence and source selection
 record the exact bytes and 62 excluded concurrent changes. Its short allocation
 profile is diagnostic; controlled performance and native acceptance remain open.
 That retained snapshot is unsigned; the separately signed delivery described above
-is now installed and publicly available. The earlier rc.2 full
+is now publicly available. The earlier rc.2 full
 performance failures remain historical evidence for that earlier payload.
 
 An earlier unsigned Apple Silicon development package
@@ -116,13 +119,10 @@ additions are included in the delivered 0.94.0-rc.1 app.
 
 ## Install and open
 
-The new local 0.94.0-rc.1 app is installed at `~/Applications/Runlist.app`. Open **Runlist** normally.
-Installation on another Mac must wait for a clean public replacement or use an
-approved local signed installer.
-
-The versioned `Runlist-0.90.0-macOS-arm64.dmg` in `desktop/releases/` is an
-**earlier accepted snapshot**. The usual DMG installation steps are:
+Download [Runlist 0.94.1 for Apple Silicon](https://github.com/reowens/runlist/releases/download/desktop-v0.94.1/Runlist-0.94.1-macOS-arm64.dmg).
 Open the image, drag **Runlist** to **Applications**, and open **Runlist** normally.
+An existing installation may still be an earlier version. The optional CLI
+installer below preserves an existing app unless `--from` supplies a replacement.
 Choose **Open Folder**, select a checkout, and review its configuration trust
 prompt. **About Runlist** shows the version; the window shows the checkout path
 and **Local files · This computer only**.
@@ -143,7 +143,7 @@ fresh-host installation qualification remain open. The [gap check](VALIDATION.md
 records source fixes and remaining host checks. The published Node CLI's
 cross-platform CI remains separate from desktop qualification.
 
-The GUI needs no system Node installation. The optional CLI 0.92.0 shortcut is:
+The GUI needs no system Node installation. The optional CLI commands are:
 
 ```sh
 runlist desktop
@@ -160,11 +160,10 @@ a download. Existing installations are kept as-is unless `--from` explicitly
 supplies a replacement; replacements require the app to be closed and retain a
 rollback copy. Installation keeps Mac quarantine and never opens the app.
 `--dry-run` uses no network, processes or file writes. The command does not load
-checkout configuration or add a CLI runtime dependency. Public Mac downloads
-are currently withdrawn; automatic installation requires a future clean release.
-The installer commands are included in
-[CLI 0.92.0](https://github.com/reowens/runlist/releases/tag/v0.92.0). The GUI remains
-separately versioned at 0.94.0-rc.1. Source-checkout invocations remain available
+checkout configuration or add a CLI runtime dependency. It selects the public
+Mac 0.94.1 installer. The installer commands are included in CLI 0.94.1 and
+were introduced in [CLI 0.92.0](https://github.com/reowens/runlist/releases/tag/v0.92.0).
+The GUI remains separately versioned at 0.94.1. Source-checkout invocations remain available
 as `node bin/runlist.mjs desktop …`. Installing the npm CLI does not download
 the GUI automatically.
 
@@ -221,7 +220,7 @@ verify it. Primary-store
 retrieval is supported; external/secondary stores and local chat are deferred.
 Results are top matches in relevance order; verified hashes gate section jumps.
 Real-index relevance, large-checkout performance and native/platform qualification
-remain open. Runlist's adapter is included in the installed/public `0.94.0-rc.1`
+remain open. Runlist's adapter is included in the public `0.94.1`
 app; this does not establish deployment or live qualification of the external provider.
 
 **Recovery** brings together retained drafts, conflicts, interrupted saves,
@@ -237,7 +236,7 @@ writes the local document without committing or pushing.
 
 The earlier unsigned selected-source candidate and its qualification are
 historical; see [the validation record](VALIDATION.md#first-release-steps-14--2026-10-08).
-The current installed/public app is the signed, accepted and stapled 0.94.0-rc.1
+The current public app is the signed, accepted and stapled 0.94.1
 release described above.
 
 JavaScript configuration and hooks are executable code. Trust grants that code

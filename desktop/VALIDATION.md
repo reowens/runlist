@@ -1,7 +1,48 @@
 # Desktop validation
 
-**Delivered GUI is 0.94.0-rc.1**, published and installed on 2026-10-09. Source commit
-05af6b7 was frozen into a 455-file snapshot. The current app/DMG are personally
+## Current Mac release — 2026-10-10
+
+**[Runlist Desktop 0.94.1](https://github.com/reowens/runlist/releases/tag/desktop-v0.94.1)**
+is published for Apple Silicon, with bundled engine 0.94.1, desktop protocol 1
+and official Node 24.21.0. Source commit
+`9600fa4c561454ac96ec87aee7b6f0426dd1c9ec` was built with locked dependencies.
+The minimum macOS version is 13.5; terminal qualification ran on macOS 26.7.
+
+- Desktop source: **94 passed, one existing skip**.
+- Packaged helper/frontend: **61 passed**; native controller: **11 passed**.
+- Final notarized app: **35 passed** with networking denied.
+- Fresh sandbox installation through the production installer preserved
+  quarantine and passed another **35 checks** with networking denied.
+- App and DMG deep/strict signatures, stapled tickets and Gatekeeper checks passed.
+  Signing identity: **Developer ID Application: Robert Owens (7GSPYYN5X8)**.
+- Apple app request `a7f43cda-03f0-4cce-807c-3fc51bda73b9`: **Accepted**.
+- Apple DMG request `8bd4f428-8601-46b7-9369-3ad4e6235e84`: **Accepted**.
+- DMG SHA-256: `61484ff1e74b64373b029ccac878aa59e5119ad1cbeaa1ba8fef29988a266e6b`.
+
+The final DMG container and all 182 files in the expanded app passed disclosure
+checks across names, metadata, text encodings and native byte strings. All ten
+icon representations were visually reviewed. Narrow upstream build-path and
+legal-attribution exceptions were verified against pinned vendor content;
+resigned native payloads match their qualified inputs independently of signature
+bytes. No private disclosure policy or audit reports were uploaded.
+These checks are bounded inspection, not an exhaustive semantic guarantee.
+
+The DMG root contains only `Runlist.app` and the Applications link. The public
+DMG, release manifest and checksum file match the reviewed local bytes and
+GitHub digests. The production CLI release resolver selects 0.94.1.
+Private receipts and qualification evidence remain under
+`.runlist/desktop-release/20261010/`.
+
+The existing user installation was not replaced during qualification. Fresh
+physical-Mac, minimum-version, Intel, Windows, Linux and native-window acceptance
+remain unverified for this release. Earlier native-window and performance records
+below describe their dated snapshots.
+
+## Previous GUI 0.94.0-rc.1 — 2026-10-09
+
+GUI 0.94.0-rc.1 was published and installed on 2026-10-09, then its public
+installer was withdrawn during the privacy cleanup. Source commit
+05af6b7 was frozen into a 455-file snapshot. That app/DMG were personally
 signed, Apple accepted/stapled and Gatekeeper accepted; the secure installer
 preserved quarantine and saved the previous 0.92.0-rc.1 app for rollback.
 
@@ -10,9 +51,9 @@ covering the yardstick/Filing controls, recovery, private helper, source-row
 navigation and review/quit guards. Resource/snapshot hashes matched; static
 architecture, deployment, bundle identity and version checks passed.
 Evidence is retained at `desktop/releases/yardstick-filing-20261009/`.
-Global CLI remains 0.94.0; [public GUI 0.94.0-rc.1](https://github.com/reowens/runlist/releases/tag/desktop-v0.94.0-rc.1)
-is available, with source/docs pushed and exact GitHub installer digest verified.
-The CLI download resolver selects this new installer. No app/WebView/window
+The CLI was 0.94.0 at that delivery. The [previous GUI release page](https://github.com/reowens/runlist/releases/tag/desktop-v0.94.0-rc.1)
+remains available, but its installer download was withdrawn. Source/docs and its
+GitHub installer digest were verified before withdrawal. No app/WebView/window
 control, live gmax/model, npm release or new native visual acceptance claim occurred. Local delivery is complete; Apple requests are accepted
 and must not be repeatedly polled. The README and delivery records now distinguish
 this release from earlier snapshots and deferred work. Broader/native tests below

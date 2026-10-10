@@ -46,14 +46,13 @@ Stage filters, grouping and editing are included. Optional grepmax semantic
 controls are experimental; live retrieval depends on a compatible external
 provider. Local chat and push are deferred.
 
-The previous Apple Silicon GUI was **0.94.0-rc.1**, signed and accepted by Apple.
-Its public installers have been withdrawn during a privacy cleanup. A clean
-replacement has not yet been built. Existing installations can still be opened.
-The desktop app is separate from CLI 0.94.1,
+The Apple Silicon GUI is **[0.94.1](https://github.com/reowens/runlist/releases/tag/desktop-v0.94.1)**,
+signed, accepted by Apple and stapled. It replaces the installers withdrawn
+during the privacy cleanup. The desktop app is separate from CLI 0.94.1,
 which includes optional plan-filing checks and the owner-written product yardstick,
 corrected hub-category inheritance, updates for every saved Claude plugin scope,
 and `runlist desktop install`.
-Updating the CLI does not replace the GUI's bundled engine; this GUI reports 0.94.0-rc.1.
+Updating the CLI does not replace the GUI's bundled engine; this GUI reports 0.94.1.
 Earlier development packages and their qualification results are historical;
 see the [desktop validation record](desktop/VALIDATION.md).
 
@@ -85,7 +84,7 @@ Deferred work awaiting selection:
    older distributions, real-version upgrades, fresh/minimum-version and Intel
    Macs, plus native rendering, focus, accessibility and whole-window memory.
 
-Mac GUI downloads are temporarily unavailable pending a clean replacement.
+Mac GUI 0.94.1 is available from the [desktop release](https://github.com/reowens/runlist/releases/tag/desktop-v0.94.1).
 CLI 0.94.1 includes the optional product yardstick.
 The supported desktop
 release is Apple Silicon macOS 13.5 or newer. Broader platform work and
@@ -96,11 +95,11 @@ command-line tools. The published Node.js CLI remains cross-platform.
 
 ### Optional desktop GUI
 
-The CLI works on its own. Public GUI downloads are temporarily unavailable
-during a privacy cleanup; a clean replacement has not yet been built. On an
-Apple Silicon Mac (macOS 13.5 or newer), open an existing installation with:
+The CLI works on its own. On an Apple Silicon Mac (macOS 13.5 or newer),
+install the optional GUI and open it with:
 
 ```bash
+runlist desktop install
 runlist desktop
 ```
 
@@ -110,8 +109,8 @@ without opening it. The app bundles its runtime and reads local files through
 private pipes, with no listening server. Choose your checkout folder in the app.
 No checkout configuration is loaded by these CLI commands.
 
-The GUI is versioned separately from the CLI. There is currently no public Mac
-installer available to `runlist desktop install`.
+The GUI is versioned separately from the CLI. `runlist desktop install` selects
+the public Mac 0.94.1 installer.
 Windows, Linux and Intel Mac GUI downloads are not yet available through this
 command. An existing app is kept as-is. To replace it using a downloaded signed
 DMG, quit Runlist and run:
@@ -274,7 +273,7 @@ needs no installed Node, browser access link or listening server. CLI 0.92.0 pro
 The GUI remains optional:
 
 ```bash
-runlist desktop install                 # requires an available public installer
+runlist desktop install                 # install the public Mac GUI
 runlist desktop                         # open the installed GUI
 runlist desktop install --from /path/to/Runlist.dmg  # install a local signed DMG
 ```
@@ -283,12 +282,11 @@ The installer currently supports Apple Silicon Macs. It verifies the published
 download checksum, Runlist developer signature and Apple approval, and installs
 without opening the app. An existing app is kept unless `--from` supplies a
 replacement; replacement keeps a rollback copy. `--dry-run` uses no network and
-changes no files. Public Mac downloads have been withdrawn during a privacy
-cleanup; a clean replacement is pending. `--from` still works with a local
-approved installer. These commands ship
+changes no files. The public Mac 0.94.1 download replaces the withdrawn
+installers. These commands ship
 in [CLI 0.92.0](https://github.com/reowens/runlist/releases/tag/v0.92.0) and can also
 be used from this checkout as `node bin/runlist.mjs desktop …`. The GUI remains
-separately versioned at **0.94.0-rc.1**; npm installation does not download it.
+separately versioned at **0.94.1**; npm installation does not download it.
 
 The optional browser document app is available from this source checkout (unreleased):
 
@@ -830,14 +828,14 @@ local model or server. GUI controls are implemented in the source checkout:
 Product goal shows the saved statement, delivery and assessment, with reviewed
 Serves/Clear/Close/Fold actions and retained recovery. Structured plans display
 the comparison with an explanation when assessment changes are unavailable.
-These controls are included in the public desktop package 0.94.0-rc.1;
+These controls are included in the public desktop package 0.94.1;
 updating the CLI alone does not replace an existing app.
 
 ### Plan Homes And Filing Checks
 
 This policy is available in CLI 0.93.0. From a source checkout, invoke the
 commands below as `node bin/runlist.mjs …`. The separately versioned GUI
-0.94.0-rc.1 also includes a read-only Filing view. The correction
+The desktop app also includes a read-only Filing view. The correction
 for category inheritance from status-less hub indexes is included in CLI
 0.93.1.
 
@@ -882,7 +880,7 @@ is labeled and suppresses absence/uniqueness findings. Path/type-scoped output
 keeps the full hub/ancestor evidence while reporting only selected plans.
 The source checkout also includes a read-only Filing view: open it to scan,
 filter 50-plan pages, and inspect exact hub rows in 20-row evidence pages. Saved
-edits invalidate the report. This view is included in public desktop package 0.94.0-rc.1.
+edits invalidate the report. This view is included in public desktop package 0.94.1.
 The policy is off when `filing` is unset, false, or `{ enabled: false }`.
 It can replace a repository's older “any link counts” coverage script once
 that repository enables it and retires its custom check.
