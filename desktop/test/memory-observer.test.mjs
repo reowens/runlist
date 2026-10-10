@@ -88,7 +88,7 @@ test('a refused helper request still closes the helper and observer and preserve
   const engine=await mkdtemp(path.join(tmpdir(),'runlist-observer-failure-')),corpus=fixture(100);
   try {
     await mkdir(path.join(engine,'runtime'));await mkdir(path.join(engine,'desktop'));
-    await symlink(process.execPath,path.join(engine,'runtime','RunlistHelper'));
+    await symlink(process.execPath,path.join(engine,'runtime',process.platform==='win32'?'RunlistHelper.exe':'RunlistHelper'));
     await writeFile(path.join(engine,'package.json'),'{"version":"fixture"}');
     await writeFile(path.join(engine,'desktop/helper.mjs'),`import {writeFileSync} from 'node:fs';writeFileSync(process.argv[3]+'/helper-pid',String(process.pid));process.stdin.setEncoding('utf8');process.stdin.on('data',data=>{for(const line of data.trim().split('\\n')){const m=JSON.parse(line);process.stdout.write(JSON.stringify({id:m.id,ok:false,error:{message:'fixture refusal'}})+'\\n');}});process.stdin.on('end',()=>process.exit(0));`);
     await assert.rejects(measureHelper({engine,root:corpus.root,mutable:true,preflightMs:100}),error=>{

@@ -77,7 +77,8 @@ test('unsupported Git keeps selection and diff review but explains and disables 
 
 test('Changes uses real scoped Git reads, keeps selection on refresh and never stages or commits',async()=>{
   const ui=dom(),f=await engine();
-  const git=(...args)=>{const result=spawnSync('git',['-c','commit.gpgsign=false','-C',f.root,...args],{encoding:'utf8',env:{PATH:process.env.PATH,GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:os.devNull}});assert.equal(result.status,0,result.stderr);return result.stdout;};
+  const emptyConfig=path.join(f.root,'empty-git-config');writeFileSync(emptyConfig,'');
+  const git=(...args)=>{const result=spawnSync('git',['-c','commit.gpgsign=false','-C',f.root,...args],{encoding:'utf8',env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:emptyConfig}});assert.equal(result.status,0,result.stderr);return result.stdout;};
   git('init','-q','-b','main');git('config','user.name','Fixture');git('config','user.email','fixture@invalid.example');git('add','--','docs');git('commit','-qm','base');
   const file=path.join(f.root,'docs/plans/existing.md'),base=readFileSync(file,'utf8');writeFileSync(file,base+'\nSaved change <script>literal</script>.\n');
   const index=readFileSync(path.join(f.root,'.git/index')),head=git('rev-parse','HEAD'),state={mode:'home',doc:{path:'docs/plans/existing.md'},dirty:true};let preserved=0,returned=0;
