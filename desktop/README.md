@@ -17,13 +17,16 @@ plans display comparison and explain unavailable assessment actions.
 
 ## Current release and next steps
 
-**Runlist 0.94.0-rc.1 is public and installed locally** at `~/Applications/Runlist.app`.
+**Public Mac downloads are temporarily unavailable.** The previous installers
+were withdrawn during a privacy cleanup on 2026-10-09. A clean replacement has
+not yet been built; existing installations can still be opened.
+
+The previous release, Runlist 0.94.0-rc.1, was installed locally at `~/Applications/Runlist.app`.
 The personal Developer ID signed this new app and installer; Apple accepted both,
 tickets were stapled, Gatekeeper accepted both and the existing secure installer
 kept the previous app for rollback. Six focused packaged and six installed checks
 passed with networking denied. No app/window control or live gmax work ran.
-The [public Mac installer](https://github.com/reowens/runlist/releases/download/desktop-v0.94.0-rc.1/Runlist-0.94.0-rc.1-macOS-arm64.dmg) is **0.94.0-rc.1**,
-and its GitHub checksum matches this exact approved/installed package.
+The withdrawn Mac installer was **0.94.0-rc.1**.
 Source and delivery docs are pushed; publication performed no rebuild or Apple checks.
 Selected delivery is complete. Deferred work below awaits a separate selection.
 Older dated candidate/release statements below are historical snapshots.
@@ -114,7 +117,8 @@ additions are included in the delivered 0.94.0-rc.1 app.
 ## Install and open
 
 The new local 0.94.0-rc.1 app is installed at `~/Applications/Runlist.app`. Open **Runlist** normally.
-For another Apple Silicon Mac, use the [public Mac installer](https://github.com/reowens/runlist/releases/tag/desktop-v0.94.0-rc.1).
+Installation on another Mac must wait for a clean public replacement or use an
+approved local signed installer.
 
 The versioned `Runlist-0.90.0-macOS-arm64.dmg` in `desktop/releases/` is an
 **earlier accepted snapshot**. The usual DMG installation steps are:
@@ -156,8 +160,9 @@ a download. Existing installations are kept as-is unless `--from` explicitly
 supplies a replacement; replacements require the app to be closed and retain a
 rollback copy. Installation keeps Mac quarantine and never opens the app.
 `--dry-run` uses no network, processes or file writes. The command does not load
-checkout configuration or add a CLI runtime dependency. The [Mac GUI download](https://github.com/reowens/runlist/releases/download/desktop-v0.94.0-rc.1/Runlist-0.94.0-rc.1-macOS-arm64.dmg) is now public
-in GitHub Releases and can be discovered by the published installer in
+checkout configuration or add a CLI runtime dependency. Public Mac downloads
+are currently withdrawn; automatic installation requires a future clean release.
+The installer commands are included in
 [CLI 0.92.0](https://github.com/reowens/runlist/releases/tag/v0.92.0). The GUI remains
 separately versioned at 0.94.0-rc.1. Source-checkout invocations remain available
 as `node bin/runlist.mjs desktop …`. Installing the npm CLI does not download

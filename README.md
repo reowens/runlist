@@ -46,10 +46,10 @@ Stage filters, grouping and editing are included. Optional grepmax semantic
 controls are experimental; live retrieval depends on a compatible external
 provider. Local chat and push are deferred.
 
-The delivered Apple Silicon GUI is **0.94.0-rc.1**, personally signed, accepted
-by Apple and installed at `~/Applications/Runlist.app`, with rollback retained.
-Its [public Mac installer](https://github.com/reowens/runlist/releases/tag/desktop-v0.94.0-rc.1)
-is separate from [CLI 0.94.0](https://github.com/reowens/runlist/releases/tag/v0.94.0),
+The previous Apple Silicon GUI was **0.94.0-rc.1**, signed and accepted by Apple.
+Its public installers have been withdrawn during a privacy cleanup. A clean
+replacement has not yet been built. Existing installations can still be opened.
+The desktop app is separate from CLI 0.94.1,
 which includes optional plan-filing checks and the owner-written product yardstick,
 corrected hub-category inheritance, updates for every saved Claude plugin scope,
 and `runlist desktop install`.
@@ -85,8 +85,8 @@ Deferred work awaiting selection:
    older distributions, real-version upgrades, fresh/minimum-version and Intel
    Macs, plus native rendering, focus, accessibility and whole-window memory.
 
-Mac GUI delivery is complete; the deferred items above are not release gates.
-CLI 0.94.0 adds the optional product yardstick.
+Mac GUI downloads are temporarily unavailable pending a clean replacement.
+CLI 0.94.1 includes the optional product yardstick.
 The supported desktop
 release is Apple Silicon macOS 13.5 or newer. Broader platform work and
 experimental semantic search remain separate follow-up work.
@@ -96,11 +96,11 @@ command-line tools. The published Node.js CLI remains cross-platform.
 
 ### Optional desktop GUI
 
-The CLI works on its own. To install the optional GUI on an Apple Silicon Mac
-(macOS 13.5 or newer), run:
+The CLI works on its own. Public GUI downloads are temporarily unavailable
+during a privacy cleanup; a clean replacement has not yet been built. On an
+Apple Silicon Mac (macOS 13.5 or newer), open an existing installation with:
 
 ```bash
-runlist desktop install
 runlist desktop
 ```
 
@@ -110,8 +110,8 @@ without opening it. The app bundles its runtime and reads local files through
 private pipes, with no listening server. Choose your checkout folder in the app.
 No checkout configuration is loaded by these CLI commands.
 
-The GUI is versioned separately: the current Mac installer is
-[Runlist 0.94.0-rc.1](https://github.com/reowens/runlist/releases/tag/desktop-v0.94.0-rc.1).
+The GUI is versioned separately from the CLI. There is currently no public Mac
+installer available to `runlist desktop install`.
 Windows, Linux and Intel Mac GUI downloads are not yet available through this
 command. An existing app is kept as-is. To replace it using a downloaded signed
 DMG, quit Runlist and run:
@@ -274,7 +274,7 @@ needs no installed Node, browser access link or listening server. CLI 0.92.0 pro
 The GUI remains optional:
 
 ```bash
-runlist desktop install                 # download and install the Mac GUI
+runlist desktop install                 # requires an available public installer
 runlist desktop                         # open the installed GUI
 runlist desktop install --from /path/to/Runlist.dmg  # install a local signed DMG
 ```
@@ -283,8 +283,9 @@ The installer currently supports Apple Silicon Macs. It verifies the published
 download checksum, Runlist developer signature and Apple approval, and installs
 without opening the app. An existing app is kept unless `--from` supplies a
 replacement; replacement keeps a rollback copy. `--dry-run` uses no network and
-changes no files. The [Mac GUI download](https://github.com/reowens/runlist/releases/download/desktop-v0.94.0-rc.1/Runlist-0.94.0-rc.1-macOS-arm64.dmg) is now public in Runlist's GitHub
-releases; `--from` also works with a local approved installer. These commands ship
+changes no files. Public Mac downloads have been withdrawn during a privacy
+cleanup; a clean replacement is pending. `--from` still works with a local
+approved installer. These commands ship
 in [CLI 0.92.0](https://github.com/reowens/runlist/releases/tag/v0.92.0) and can also
 be used from this checkout as `node bin/runlist.mjs desktop …`. The GUI remains
 separately versioned at **0.94.0-rc.1**; npm installation does not download it.
