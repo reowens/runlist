@@ -2,6 +2,12 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- A plan named `runlist` or `*-runlist` that declares an `execution_mode` other than `coordination` or `roadmap` is no longer filed as a hub. The plan and hub listings, filing, hub membership and the roadmap nudge now read the declared field first, matching the coordination nudge; the file name stays the fallback only for plans that declare nothing.
+
 ## 0.94.1 — 2026-10-09
 
 ### Fixed

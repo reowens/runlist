@@ -540,6 +540,7 @@ export function checkRoadmapHubExecutionMode(docs, config) {
     if (!d) return false;
     if (d.executionMode === 'coordination' || d.executionMode === 'roadmap') return true;
     if (Array.isArray(d.refFields?.runlist) && d.refFields.runlist.length > 0) return true;
+    if (d.executionMode) return false;
     const b = (d.path.split('/').pop() || '').replace(/\.md$/, '');
     return b === 'runlist' || b.endsWith('-runlist');
   };

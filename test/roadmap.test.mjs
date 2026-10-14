@@ -192,6 +192,25 @@ next_step: x`);
     strictEqual(warnings.find(w => w.path === 'docs/plans/domain-hub.md'), undefined);
   });
 
+  it('does not count an implementation plan named *-runlist as a hub child', async () => {
+    const plans = setupProject();
+    writeDoc(plans, 'domain-hub.md', `type: plan
+status: active
+title: Domain
+execution_mode: coordination
+updated: 2026-06-24
+related_plans:
+  - ./alpha-runlist.md
+  - ./beta-runlist.md
+next_step: x`);
+    writeDoc(plans, 'alpha-runlist.md', 'type: plan\nstatus: active\nexecution_mode: implementation\ntitle: Alpha\nupdated: 2026-06-24\nnext_step: -');
+    writeDoc(plans, 'beta-runlist.md', 'type: plan\nstatus: active\nexecution_mode: implementation\ntitle: Beta\nupdated: 2026-06-24\nnext_step: -');
+    const config = await resolveConfig(tmpDir);
+    const index = buildIndex(config);
+    const warnings = checkRoadmapHubExecutionMode(index.docs, config);
+    strictEqual(warnings.find(w => w.path === 'docs/plans/domain-hub.md'), undefined);
+  });
+
   it('does not nudge a hub that is already a roadmap', async () => {
     setupRoadmap();
     const config = await resolveConfig(tmpDir);

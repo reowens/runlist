@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { resolveConfig } from '../src/config.mjs';
 import { buildIndex } from '../src/index.mjs';
 import { buildRunlistIndex, buildCoordinationIndex, isCoordinationHub, runRunlist } from '../src/runlist.mjs';
+import { isHubDoc } from '../src/hub.mjs';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
 let tmpDir;
@@ -747,6 +748,25 @@ describe('isCoordinationHub / buildCoordinationIndex', () => {
     strictEqual(isCoordinationHub({ path: 'docs/plans/auth-revamp.md', type: 'plan' }), false);
     // a non-plan doc named *-runlist is not a plan hub
     strictEqual(isCoordinationHub({ path: 'docs/x-runlist.md', type: 'doc' }), false);
+  });
+
+  it('a declared execution_mode beats the runlist file name', () => {
+    // A plan ABOUT runlists, named for them, that declares ordinary work.
+    const work = { path: 'docs/plans/runlist.md', type: 'plan', executionMode: 'implementation' };
+    strictEqual(isCoordinationHub(work), false);
+    strictEqual(isHubDoc(work), false);
+    strictEqual(isCoordinationHub({ path: 'docs/plans/foo-runlist.md', type: 'plan', executionMode: 'implementation' }), false);
+    // No execution_mode: the file-name fallback still applies.
+    strictEqual(isCoordinationHub({ path: 'docs/plans/foo-runlist.md', type: 'plan' }), true);
+    strictEqual(isHubDoc({ path: 'docs/plans/foo-runlist.md', type: 'plan' }), true);
+    // coordination and roadmap are hubs whatever the name.
+    for (const executionMode of ['coordination', 'roadmap']) {
+      for (const name of ['runlist.md', 'foo-runlist.md', 'plain.md']) {
+        strictEqual(isCoordinationHub({ path: `docs/plans/${name}`, type: 'plan', executionMode }), true, `${executionMode} ${name}`);
+      }
+    }
+    // A frontmatter sprint is still a hub even when it declares implementation.
+    strictEqual(isHubDoc({ path: 'docs/plans/runlist.md', type: 'plan', executionMode: 'implementation', refFields: { runlist: ['a.md'] } }), true);
   });
 
   it('counts related_plans children resolved against the index', async () => {

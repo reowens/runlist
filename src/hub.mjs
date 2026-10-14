@@ -25,6 +25,10 @@ export function isCoordinationHub(doc) {
   // use to promote a roadmap above the Runlists section; here a roadmap counts as
   // a coordination hub so all the existing held-out plumbing covers it for free.
   if (doc.executionMode === 'coordination' || doc.executionMode === 'roadmap') return true;
+  // Any other declared `execution_mode` has answered: the name is only a fallback
+  // for hubs that predate the field, so a plan ABOUT runlists that declares
+  // `implementation` stays a plan. Same rule as the slug nudge in validate.mjs.
+  if (doc.executionMode) return false;
   const base = (doc.path.split('/').pop() || '').replace(/\.md$/, '');
   return base === 'runlist' || base.endsWith('-runlist');
 }
