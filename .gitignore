@@ -59,4 +59,4 @@ yarn.lock
 /desktop/src-tauri/resources/
 /desktop/src-tauri/target/
 /desktop/src-tauri/gen/
-/desktop/releases/
+/desktop/releases
