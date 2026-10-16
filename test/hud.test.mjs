@@ -110,7 +110,7 @@ describe('runlist hud', () => {
     writeDoc(docsDir, 'prompts/urgent.md', 'type: prompt\nstatus: urgent\ncreated: 2025-01-01', 'act now\n');
     const result = runCli(['hud']);
     strictEqual(result.status, 0, result.stderr);
-    ok(result.stdout.includes('docs/prompts/urgent.md'), result.stdout);
+    ok(result.stdout.includes('pending prompt: urgent.'), result.stdout);
   });
 
   it('surfaces pending prompts as an actionable instruction; passive state stays suppressed', () => {
@@ -126,7 +126,9 @@ describe('runlist hud', () => {
     // queued, or batons rot unconsumed (the 0.50.0 scrub broke this).
     ok(/1 pending prompt\b/.test(r.stdout), `stdout must announce the pending prompt; got: ${r.stdout}`);
     ok(r.stdout.includes('runlist use'), `the announcement must name the consume verb; got: ${r.stdout}`);
-    ok(r.stdout.includes('docs/prompts/x.md'), `the oldest prompt is named; got: ${r.stdout}`);
+    ok(/pending prompt: x\./.test(r.stdout), `the prompt is listed by name; got: ${r.stdout}`);
+    ok(r.stdout.includes('only when the user asks'), `resuming waits for the user; got: ${r.stdout}`);
+    ok(!/consume the oldest \(/.test(r.stdout), `no steering to the oldest; got: ${r.stdout}`);
     // Passive state stays out — these nudged phantom work.
     ok(!/errors:/.test(r.stdout), `stdout must not mention validation errors; got: ${r.stdout}`);
     ok(!r.stdout.includes('run runlist check'), `stdout must not point at check; got: ${r.stdout}`);
@@ -410,6 +412,42 @@ describe('runlist hud --prompt-submit', () => {
     ok(!r.stdout.includes('theirs.md'), 'another session’s in-session plan is not offered');
   });
 
+  it('prints the repo definition of baton in place of the tool steps, with the command form for the session', () => {
+    const docsDir = setupProject();
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';\nexport const templates = { prompt: { baton: 'Baton, in this order:\\n1. Save the full prompt first.\\n2. Bring the owning plan up to date.' } };\n`);
+    writeDoc(docsDir, 'mine.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# Mine\n');
+    strictEqual(runCli(['use', 'docs/mine.md']).status, 0);
+    const r = runCli(['hud', '--prompt-submit'], { input: ask('baton') });
+    strictEqual(r.status, 0, r.stderr);
+    ok(r.stdout.includes('This repo defines baton'), r.stdout);
+    ok(r.stdout.includes('2. Bring the owning plan up to date.'), r.stdout);
+    ok(r.stdout.includes('`runlist baton @<file>`'), r.stdout);
+    ok(r.stdout.includes('`runlist baton --done`'), r.stdout);
+    ok(!r.stdout.includes('Write the resume first'), `the tool's own steps give way to the repo's: ${r.stdout}`);
+  });
+
+  it('keeps the tool steps for a repo without a definition', () => {
+    setupProject();
+    const r = runCli(['hud', '--prompt-submit'], { input: ask('baton now') });
+    strictEqual(r.status, 0, r.stderr);
+    ok(r.stdout.includes('Write the resume first'), r.stdout);
+    ok(!r.stdout.includes('This repo defines baton'), r.stdout);
+  });
+
+  it('fires on a request for a baton and stays silent on a question about one', () => {
+    setupProject();
+    const requests = ['baton', 'baton this', 'baton now', 'do a baton', 'baton and commit the plans', 'ok, baton', 'fix the test, then baton', 'can you baton this?', 'why did that fail? baton now'];
+    const questions = ['what is the deal with the baton?', 'why does baton print the name first', 'why does baton...', 'is baton broken?', 'baton prints its name first, fix that', 'how does the hand off work?'];
+    for (const prompt of requests) {
+      const r = runCli(['hud', '--prompt-submit'], { input: ask(prompt) });
+      ok(r.stdout.includes('[runlist] Baton:'), `expected the hint for ${JSON.stringify(prompt)}; got: ${r.stdout}`);
+    }
+    for (const prompt of questions) {
+      const r = runCli(['hud', '--prompt-submit'], { input: ask(prompt) });
+      strictEqual(r.stdout, '', `expected silence for ${JSON.stringify(prompt)}`);
+    }
+  });
+
   it('is silent for a background agent report that names its handoff file', () => {
     const docsDir = setupProject();
     writeDoc(docsDir, 'mine.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', '# Mine\n');
@@ -451,7 +489,7 @@ describe('hud pending prompts without the index', () => {
     const r = runCli(['hud']);
     strictEqual(r.status, 0, r.stderr);
     ok(r.stdout.includes('2 pending prompts'), r.stdout);
-    ok(r.stdout.includes('consume the oldest (docs/prompts/older.md)'), r.stdout);
+    ok(r.stdout.includes('2 pending prompts: older, newer.'), r.stdout);
     const j = JSON.parse(runCli(['hud', '--json']).stdout);
     strictEqual(JSON.stringify(j.prompts), JSON.stringify(['docs/prompts/older.md', 'docs/prompts/newer.md']));
   });

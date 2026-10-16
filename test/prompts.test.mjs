@@ -553,3 +553,15 @@ describe('runlist prompts new', () => {
     ok(r.stderr.includes('Usage'));
   });
 });
+
+describe('a prompt named as session start lists it', () => {
+  beforeEach(() => setupProject());
+  it('`use <name>` takes the live prompt over its consumed copies under archived/', () => {
+    writePrompt('resume-twin', { body: 'the live one' });
+    mkdirSync(path.join(promptsDir, 'archived'), { recursive: true });
+    writeFileSync(path.join(promptsDir, 'archived', 'resume-twin.md'), '---\ntype: prompt\nstatus: archived\ncreated: 2024-01-01\n---\nthe old one\n');
+    const r = run(['use', 'resume-twin']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(r.stdout.includes('the live one'), r.stdout);
+  });
+});

@@ -1337,8 +1337,9 @@ Usage (write the resume to a file first, then pick the form that matches):
   runlist baton @/tmp/draft.md               # a plan is in-session: save resume-<plan-slug>, release the plan
   runlist baton <plan-file> @/tmp/draft.md   # hand off a named plan
   runlist baton <slug> @/tmp/draft.md        # no plan: save resume-<slug>, change nothing else
+  runlist baton --done [<plan-file>]         # after a plan handoff: confirm the plan was brought up to date
   The resume can also come from stdin (\`-\`, or a pipe) or --message "..." for one-liners.
-  Baton prints the prompt name it saved and, in plan mode, the git commit to run.
+  Baton prints the prompt name it saved, as its last line too, and, in plan mode, the git commit to run.
 
 The resume (10–20 lines): the next concrete decision plus any gotchas, and the
 paths of the plans/docs it concerns — not a recap of the plan body.
@@ -1349,6 +1350,7 @@ Options:
   --message / --body     Inline body (one-liners; prefer @path or stdin)
   --force                Recover another session's plan (explicit path required)
   --replace              Replace exactly one pending handoff; archive its prior text
+  --done                 Report a plan handoff done once next_step changed after the prompt was saved
   --json                 Structured repository/session/generated file result
   --dry-run, -n          Preview without writing
 
@@ -1376,6 +1378,11 @@ cooperating transaction:
   3. Defers the shared generated index and prints exact repository-only commit
      guidance. Prompt and ownership records stay session-local and OUT of the
      pathspec.
+  4. When the plan was in-session and has a next_step field, the handoff is not
+     done yet: bring the plan up to date (the body, then next_step), then run
+     \`runlist baton --done\`, which refuses while next_step still reads as it
+     did when the prompt was saved. The prompt is saved first, so a stop between
+     the two steps loses nothing, and \`--done <plan-file>\` works from any session.
   Which plan? Pass it explicitly, or baton resolves exactly one plan owned by
   this authoritative session. Journal entries and global in-session counts never
   grant ownership. A live pickup-hook delivery lease blocks release and force

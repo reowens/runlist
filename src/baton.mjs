@@ -5,7 +5,8 @@ import { asString, toRepoPath, die, warn, isArchivedPath, resolveRefPath, nowIso
 import { buildIndex, resolveDocArg } from './index.mjs';
 import { preparePromptDocument, runNew, readBodyInput, readPipedBodyInput } from './new.mjs';
 import { ensurePlanCompletionBeforeRelease, planHasPendingCompletion, renderLifecycleMutation, runSet } from './lifecycle.mjs';
-import { green, dim } from './color.mjs';
+import { green, dim, yellow } from './color.mjs';
+import { handoffNotDoneLine, recordPendingHandoff, runBatonDone } from './handoff-record.mjs';
 import { authorizeManagedDestination, authorizeManagedSource } from './managed-path.mjs';
 import { mutateFileSet } from './atomic-mutation.mjs';
 import { assertPlanMutationAuthorized, authoritativeSessionId, listOwnedPlans, readPlanOwnership } from './pickup.mjs';
@@ -99,6 +100,12 @@ function commitCommand(config, message, paths) {
   return argv.map(shellQuote).join(' ');
 }
 
+// With no plan named, --done finds this session's record; a named plan is
+// echoed back so the command works from any session.
+function explicitPlanDone(planArg, record) {
+  return planArg ? `runlist baton --done ${record.plan}` : 'runlist baton --done';
+}
+
 // Is this positional a filesystem reference (must resolve, typos die) or a
 // bare word (may be a plan slug, may be a brand-new handoff name)?
 function looksLikePath(arg) {
@@ -115,6 +122,7 @@ export async function runBaton(argv, config, opts = {}) {
   let bodyFlag = null;
   let force = false;
   let replace = false;
+  let done = false;
   const positionals = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -123,6 +131,7 @@ export async function runBaton(argv, config, opts = {}) {
     if ((a === '--body' || a === '--message') && argv[i + 1]) { bodyFlag = argv[++i]; continue; }
     if (a === '--force') { force = true; continue; }
     if (a === '--replace') { replace = true; continue; }
+    if (a === '--done') { done = true; continue; }
     if (a === '--json') continue;
     if (!a.startsWith('-') || a === '-' || a.startsWith('@')) { positionals.push(a); continue; }
     die(`Unknown flag for \`runlist baton\`: ${a}`);
@@ -134,6 +143,13 @@ export async function runBaton(argv, config, opts = {}) {
     if (p === '-' || p.startsWith('@')) { bodyArg = p; continue; }
     if (!planArg) { planArg = p; continue; }
     if (bodyArg === null) bodyArg = p; // trailing inline body
+  }
+
+  // The second half of a plan handoff: the prompt is already saved, and this
+  // confirms the plan was brought up to date after it (src/handoff-record.mjs).
+  if (done) {
+    if (dryRun) die('`runlist baton --done` changes nothing but its own record; run it without --dry-run.');
+    return runBatonDone(planArg, config, { json });
   }
 
   // Body FIRST — it's the common failure (`new prompt` without a body was the
@@ -382,6 +398,14 @@ export async function runBaton(argv, config, opts = {}) {
   const repositoryFiles = [...new Set(touched.filter(candidate => candidate && candidate !== ownershipRepoPath && candidate !== promptRepoPath && candidate !== archivedPromptRepoPath && candidate !== normalizeRepoPath(config.indexPath)))];
   const sessionFiles = [...new Set([...(newResult?.sessionFiles ?? []), promptRepoPath, archivedPromptRepoPath, ownershipRepoPath].filter(Boolean))];
   const deferredGeneratedFiles = [...new Set(newResult?.deferredGeneratedFiles ?? (config.indexPath ? [normalizeRepoPath(config.indexPath)] : []))];
+  // A released in-session plan is not handed off until its next_step says
+  // where the work now stands. The prompt is already saved either way.
+  let pendingHandoff = null;
+  if (planPath && !dryRun && !planGuard && (oldStatus === 'in-session' || wouldReleaseClaim)) {
+    try {
+      pendingHandoff = recordPendingHandoff(config, { planRepoPath: normalizeRepoPath(archiveResult?.newRepoPath) ?? repoPath, promptRepoPath, promptName: createdSlug });
+    } catch (err) { warn(`Could not record the pending plan update (${err.message}); bring the plan up to date anyway.`); }
+  }
   const operationResult = {
     operation: 'baton',
     dryRun: Boolean(dryRun),
@@ -403,6 +427,8 @@ export async function runBaton(argv, config, opts = {}) {
       alreadyCurrent: replacement.alreadyCurrent,
     } : null,
     claimRelease: planPath ? { wouldRelease: wouldReleaseClaim, released: !dryRun && wouldReleaseClaim } : null,
+    handoffDone: !pendingHandoff,
+    savedPrompt: createdSlug,
   };
 
   const prefix = dryRun ? dim('[dry-run] ') : '';
@@ -410,7 +436,7 @@ export async function runBaton(argv, config, opts = {}) {
     process.stdout.write(JSON.stringify(operationResult, null, 2) + '\n');
     return operationResult;
   }
-  const verdict = replacement?.alreadyCurrent ? '✓ Handoff kept' : replacement ? '✓ Baton replaced' : '✓ Baton passed';
+  const verdict = replacement?.alreadyCurrent ? '✓ Handoff kept' : pendingHandoff ? '✓ Prompt saved' : replacement ? '✓ Baton replaced' : '✓ Baton passed';
   process.stderr.write(`\n${prefix}${green(verdict)}: ${createdSlug} (the next session's hud surfaces it — nothing to paste into chat)\n`);
   if (archivedPromptRepoPath) process.stderr.write(dim(`${prefix}Previous handoff preserved: ${archivedPromptRepoPath}\n`));
   if (planGuard) {
@@ -431,5 +457,8 @@ export async function runBaton(argv, config, opts = {}) {
     }
   }
   if (operationResult.deferredGeneratedFiles.length) process.stderr.write(dim(`Generated index deferred: ${operationResult.deferredGeneratedFiles.join(', ')}\n`));
+  if (pendingHandoff) process.stderr.write(yellow(handoffNotDoneLine(pendingHandoff, explicitPlanDone(planArg, pendingHandoff))) + '\n');
+  // The name again, last, so a piped `| tail` still shows what was saved.
+  process.stderr.write(`${prefix}Saved prompt: ${createdSlug}\n`);
   return operationResult;
 }

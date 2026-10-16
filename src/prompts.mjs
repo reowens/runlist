@@ -17,6 +17,7 @@ import {
 } from './pickup.mjs';
 import { actionablePromptStatuses, comparePromptDocs } from './status-metadata.mjs';
 import { LEGACY_STATE_DIR, STATE_DIR } from './naming.mjs';
+import { formatPlanChanges, planChangesSince } from './plan-changes.mjs';
 
 // `resume` is an alias for `use` — agents reach for "resume" when continuing a
 // session; `use` reads as internal mechanics. Both names stay valid; the
@@ -234,6 +235,10 @@ export function resolvePromptInput(input, config, options = {}) {
 
   const byBasename = prompts.filter(d => path.basename(d.path, '.md') === slug);
   if (byBasename.length === 1) return path.resolve(config.repoRoot, byBasename[0].path);
+  // A name session start lists is the live prompt; its consumed copies under
+  // archived/ share the basename and are reached by path.
+  const live = byBasename.filter(d => d.status !== 'archived' && !isArchivedPath(d.path, config));
+  if (live.length === 1) return path.resolve(config.repoRoot, live[0].path);
   if (byBasename.length > 1) {
     die(`Multiple prompts match "${input}" by basename:\n${byBasename.map(d => '  ' + d.path).join('\n')}`);
   }
@@ -345,6 +350,12 @@ export async function consumePrompt(filePath, config, opts) {
   }
   if (claimSkipReason) process.stderr.write(`${yellow('→ Not claimed')}: ${claimSkipReason}\n`);
   process.stderr.write(`${green('✓ Consumed')}: ${consumedPath}\n`);
+  if (planRef) {
+    try {
+      const linked = linkedClaim?.repoPath ?? linkedPlanRepoPath(planRef, filePath, config);
+      for (const line of formatPlanChanges(linked ? planChangesSince(linked, asString(parsed.created), config) : null)) process.stderr.write(`${line}\n`);
+    } catch { /* what changed is advice; the consume already happened */ }
+  }
   const ownershipRecordPath = linkedClaim?.prepared?.recordPath ?? (linkedClaim ? readPlanOwnership(linkedClaim.repoPath, config)?.recordPath : null);
   const ownershipPath = ownershipRecordPath ? toRepoPath(ownershipRecordPath, config.repoRoot) : null;
   const normalize = candidate => path.isAbsolute(candidate) ? toRepoPath(candidate, config.repoRoot) : candidate.split(path.sep).join('/');
@@ -371,6 +382,11 @@ export async function consumePrompt(filePath, config, opts) {
     deferredGeneratedFiles: config.indexPath && noIndex ? [toRepoPath(config.indexPath, config.repoRoot)] : [],
     claim: linkedClaim ? { plan: linkedClaim.repoPath, changed: linkedClaim.planChanged, pendingCompletion: completion.pending, hook: completion.hook } : null,
   };
+}
+
+function linkedPlanRepoPath(planRef, promptPath, config) {
+  const abs = resolveRefPath(planRef, path.dirname(promptPath), config.repoRoot);
+  return abs && existsSync(abs) ? toRepoPath(abs, config.repoRoot) : null;
 }
 
 export async function writeConsumedBody(body, archivedPath, write = null, linkedPlan = null) {

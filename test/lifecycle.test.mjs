@@ -1322,7 +1322,9 @@ describe('set — baton-on-exit nudge', () => {
     writeFileSync(draft, 'resume draft body\n');
     const r = runCli(['baton', 'docs/zeta.md', `@${draft}`]);
     strictEqual(r.status, 0, r.stderr);
-    match(r.stderr, /Baton passed/);
+    // A plan with next_step: the prompt is saved and baton waits on the plan update itself.
+    match(r.stderr, /Prompt saved/);
+    match(r.stderr, /Handoff not done yet/);
     ok(!NUDGE.test(r.stderr), `baton double-nudged: ${r.stderr}`);
   });
 

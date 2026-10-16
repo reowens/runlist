@@ -11,6 +11,7 @@ import { readJournalEntries, journalFilePath, readMisuseEntries } from './journa
 import { compareVersions } from './update.mjs';
 import { findOwnedPlan } from './baton.mjs';
 import { listOwnedPlans, surveyOwnershipClaims } from './pickup.mjs';
+import { handoffNotDoneLine, pendingHandoffsForSession } from './handoff-record.mjs';
 import { actionablePromptStatuses, comparePromptDocs, resolveStatusMetadata } from './status-metadata.mjs';
 
 export { actionablePromptStatuses } from './status-metadata.mjs';
@@ -327,14 +328,47 @@ export function buildPlanStatusPrimer(config, { maxChars = 220 } = {}) {
 // form for its situation before it goes looking. Sessions ran `baton --help`
 // before nearly every baton even with the form in CLAUDE.md, because the right
 // form depends on whether this session owns a plan, which only runlist knows.
-const HANDOFF_ASK = /\bbaton\b|\bhand[\s-]?off\b|\bresume[\s-]prompt\b|\bsave (?:a |the )?resume\b|\bpick (?:it|this|that) (?:back )?up (?:next time|later|tomorrow)\b/i;
+//
+// Only a request fires it. Matching the word anywhere answered questions about
+// batons ("what is the deal with the baton?") with handoff steps, and sessions
+// read that as a go to hand off. So the prompt is read clause by clause: a
+// clause that opens as a question never counts, and "baton" counts only as a
+// verb (opening the clause, after "and"/"then", or "do a baton"), never as the
+// subject of a sentence ("baton prints its name first").
+const HANDOFF_PHRASE = /\bhand[\s-]?off\b|\bresume[\s-]prompt\b|\bsave (?:a |the )?resume\b|\bpick (?:it|this|that) (?:back )?up (?:next time|later|tomorrow)\b/i;
+const LEAD_WORDS = String.raw`(?:(?:ok(?:ay)?|alright|right|now|then|and|also|but|so|yes|yep|great|good|cool|thanks|please|pls|go ahead and|let'?s|lets|time to)\b[,\s]*)*`;
+const POLITE = String.raw`(?:(?:can|could|would|will) you (?:please )?(?:mind )?)`;
+const BATON_AS_NOUN = String.raw`(?:(?:do|doing|make|write|leave|save|pass|run|drop) (?:a |the |your |another |one more )?)`;
+// A word here after "baton" makes it the subject or a noun ("baton is",
+// "baton prints", "baton command"), not a request.
+const NOT_A_VERB = String.raw`(?!\s+(?:is|isn'?t|was|wasn'?t|are|were|does|doesn'?t|did|didn'?t|do|has|had|have|seems|should|shall|would|will|won'?t|can|can'?t|could|keeps|kept|works|worked|fails|failed|prints|printed|says|said|saves|saved|refuses|refused|output|outputs|command|commands|text|hint|hook|line|skill|tool|step|steps|definition|prompt|prompts)\b)(?!'s\b)`;
+const BATON_REQUEST = [
+  new RegExp(String.raw`^${LEAD_WORDS}${POLITE}?(?:please )?${BATON_AS_NOUN}?batons?\b${NOT_A_VERB}`, 'i'),
+  new RegExp(String.raw`(?:\band|\bthen|&)\s+(?:please )?${BATON_AS_NOUN}?batons?\b${NOT_A_VERB}`, 'i'),
+  new RegExp(String.raw`\b(?:do|make|write|leave|save|pass) (?:a |your |another |one more )baton\b`, 'i'),
+];
+const QUESTION_START = new RegExp(String.raw`^${LEAD_WORDS}(?:what'?s|whats|what|why|how|when|where|who|whose|which|is|isn'?t|are|aren'?t|was|wasn'?t|were|does|doesn'?t|did|didn'?t|has|have|had|should|shall|do(?! (?:a |the |your |another |one more )?baton)|(?:can|could|would|will)(?! you\b))\b`, 'i');
 
 // The harness hands background-task events to UserPromptSubmit as if typed.
 // A finished agent's report that names its handoff file is not a request.
 const SYSTEM_EVENT = /<task-notification>|\[SYSTEM NOTIFICATION\b/;
 
+function clauses(prompt) {
+  return prompt.split(/(?<=[.!?;\n])/).map(clause => clause.trim()).filter(Boolean);
+}
+
 export function isHandoffAsk(prompt) {
-  return typeof prompt === 'string' && !SYSTEM_EVENT.test(prompt) && HANDOFF_ASK.test(prompt);
+  if (typeof prompt !== 'string' || SYSTEM_EVENT.test(prompt)) return false;
+  return clauses(prompt).some(clause => !QUESTION_START.test(clause)
+    && (BATON_REQUEST.some(re => re.test(clause)) || HANDOFF_PHRASE.test(clause)));
+}
+
+// The repo's own definition of baton (`templates.prompt.baton` in its config),
+// when it has one. Read from the loaded config only: the hook path never builds
+// the index.
+export function repoBatonDefinition(config) {
+  const text = config?.raw?.templates?.prompt?.baton;
+  return typeof text === 'string' && text.trim() ? text.trim() : null;
 }
 
 export function buildHandoffContext(config) {
@@ -346,15 +380,26 @@ export function buildHandoffContext(config) {
     const records = listOwnedPlans(config);
     if (!records.diagnostics?.length) ownedPaths = records.map(record => record.plan);
   } catch { /* fall through to the no-plan form */ }
-  const draft = 'Write the resume first (the next concrete decision, any gotchas, the plan/doc paths it concerns; not a recap) to a file in your scratchpad.';
-  const tail = 'Baton prints the prompt name it saved; tell the user that name. No `--help` needed.';
+  const done = 'Baton does not report the handoff done until the plan\'s next_step has been updated after the prompt was saved: update the plan, then run';
+  let who;
+  let command;
   if (ownedPaths.length === 1) {
-    return `[runlist] Baton: this session owns ${ownedPaths[0]}. ${draft} Then run \`runlist baton @<file>\`: it saves the prompt, releases the plan to active (\`--status paused|awaiting|partial|blocked\` and \`--note "why"\` if that fits better), and prints the commit to run. ${tail}`;
+    who = `this session owns ${ownedPaths[0]}.`;
+    command = `Save the prompt with \`runlist baton @<file>\`: it releases the plan to active (\`--status paused|awaiting|partial|blocked\` and \`--note "why"\` if that fits better). ${done} \`runlist baton --done\`.`;
+  } else if (ownedPaths.length > 1) {
+    who = `this session owns ${ownedPaths.length} plans (${ownedPaths.join(', ')}), so name the one to hand off.`;
+    command = `Save it with \`runlist baton <plan-file> @<file>\`. ${done} \`runlist baton --done <plan-file>\`.`;
+  } else {
+    who = 'this session owns no plan.';
+    command = 'Save the prompt with `runlist baton <slug> @<file>` (saves resume-<slug>, changes nothing else), or `runlist baton <plan-file> @<file>` to hand off a plan by path.';
   }
-  if (ownedPaths.length > 1) {
-    return `[runlist] Baton: this session owns ${ownedPaths.length} plans (${ownedPaths.join(', ')}), so name the one to hand off. ${draft} Then run \`runlist baton <plan-file> @<file>\`. ${tail}`;
+  const tail = 'Baton prints the prompt name it saved as its last line; tell the user that name. No `--help` needed.';
+  const definition = repoBatonDefinition(config);
+  if (definition) {
+    return `[runlist] Baton: ${who} ${command} Where the definition below names a command, use this form. ${tail}\nThis repo defines baton (templates.prompt.baton in its runlist config):\n${definition}`;
   }
-  return `[runlist] Baton: this session owns no plan. ${draft} Then run \`runlist baton <slug> @<file>\` (saves resume-<slug>, changes nothing else), or \`runlist baton <plan-file> @<file>\` to hand off a plan by path. ${tail}`;
+  const draft = 'Write the resume first (the next concrete decision, any gotchas, the plan/doc paths it concerns; not a recap) to a file in your scratchpad.';
+  return `[runlist] Baton: ${who} ${draft} ${command} ${tail}`;
 }
 
 export async function runPromptSubmitHud(config, { readStdin } = {}) {
@@ -366,6 +411,16 @@ export async function runPromptSubmitHud(config, { readStdin } = {}) {
   } catch { return; }
   if (!isHandoffAsk(prompt)) return;
   process.stdout.write(buildHandoffContext(config) + '\n');
+}
+
+// Names, not paths, and at most PROMPT_NAMES_SHOWN of them, so the line stays
+// one line however long the queue grows.
+const PROMPT_NAMES_SHOWN = 12;
+export function pendingPromptsLine(prompts) {
+  const n = prompts.length;
+  const names = prompts.slice(0, PROMPT_NAMES_SHOWN).map(p => path.basename(p, '.md'));
+  const more = n > names.length ? ` (+${n - names.length} more: \`runlist prompts\`)` : '';
+  return `[runlist] ${n} pending prompt${n === 1 ? '' : 's'}: ${names.join(', ')}${more}. Resume one only when the user asks for it (\`runlist use <name>\`); never consume the oldest by default. Peek without consuming: \`runlist prompts show <name>\`.`;
 }
 
 function isRunlistRepo(config) {
@@ -409,21 +464,29 @@ export function runHud(argv, config) {
   // `runlist hud --json`. Two signals ARE instructions and must print, because
   // the handoff loop dies without them (sessions were saving batons that no
   // next session ever picked up):
-  //   - pending prompts: the previous session queued work for THIS one;
-  //     consuming it is the very next action.
+  //   - pending prompts: earlier sessions queued work. The line lists them
+  //     and says to resume one only when the user asks. It used to say
+  //     "consume the oldest" unless told otherwise, but a new session nearly
+  //     always has a task from the user, the hook cannot see it, and the
+  //     oldest prompt is rarely the useful one.
   //   - an in-session plan attributed to this sid via durable ownership: this
   //     session (pre-compaction) owns it and should continue or hand it off.
   //     Global in-session counts never provide a fallback.
   // The misuse recap stays for the same reason: a repeat-offense rule means
   // the primer alone isn't landing, so name the habit to break.
-  process.stdout.write(dim('runlist: plans|briefing  set <status> [<file>]  new <type> <slug>  use [<file>]  archive <file>  baton [<plan-or-slug>] @<draft-file> (save a resume prompt; releases the in-session plan if any)  (use [no-arg] → oldest pending prompt)') + '\n');
+  process.stdout.write(dim('runlist: plans|briefing  set <status> [<file>]  new <type> <slug>  use [<file>]  archive <file>  baton [<plan-or-slug>] @<draft-file> (save a resume prompt; releases the in-session plan if any)') + '\n');
   process.stdout.write(dim(buildPlanStatusPrimer(config)) + '\n');
   if (hud.owned && hud.owned.via === 'ownership') {
     process.stdout.write(yellow(`[runlist] in-session (yours): ${hud.owned.path} — continue it; hand off with \`runlist baton @/tmp/draft.md\` before stopping.`) + '\n');
   }
+  // A handoff this session started and did not finish (a compaction or a stop
+  // between saving the prompt and updating the plan).
+  try {
+    for (const record of pendingHandoffsForSession(config)) process.stdout.write(yellow(`[runlist] ${handoffNotDoneLine(record, `runlist baton --done ${record.plan}`)}`) + '\n');
+  } catch { /* advisory */ }
   if (hud.prompts.length > 0) {
     const n = hud.prompts.length;
-    process.stdout.write(yellow(`[runlist] ${n} pending prompt${n === 1 ? '' : 's'} queued for this session — unless the user asks for something else, start by running \`runlist use\` to consume the oldest (${hud.prompts[0]}) and act on it. Peek first: \`runlist prompts show <file>\`; list: \`runlist prompts\`.`) + '\n');
+    process.stdout.write(yellow(pendingPromptsLine(hud.prompts)) + '\n');
   }
   if (hud.misuseRecap) process.stdout.write(yellow(`[runlist] ${hud.misuseRecap}`) + '\n');
   if (hud.deadClaimsLine) process.stdout.write(yellow(hud.deadClaimsLine) + '\n');

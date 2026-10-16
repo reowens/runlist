@@ -20,11 +20,18 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ### Added
 
+- The `UserPromptSubmit` baton hint prints a repo's own `templates.prompt.baton` definition in place of the tool's steps, still naming the command form for the session; repos without one keep the tool text.
+- `runlist baton --done [<plan>]`: when baton releases an in-session plan that has a `next_step`, it saves the prompt first and reports the handoff not done until `next_step` has changed since; `--done` confirms it, from any session when the plan is named, and session start names an unfinished one.
+- `runlist use` on a prompt linked to a plan prints the plan's commits since the prompt was written and whether `next_step` changed, or the file's edit time for a plan git does not track.
 - Desktop Product goal comparisons with reviewed Serves/Clear/Close/Fold actions, exact guarded goal and delivery snapshots, retained human recovery, draft protection and CLI archive/reference behavior.
 - Read-only desktop Filing reports with shared subject-row/category/inheritance policy, on-demand bounded scans, plan and home-row pages, incomplete-scan explanations and guarded source-row navigation.
 
 ### Fixed
 
+- The baton hint fires only on a request for a baton ("baton", "baton this", "do a baton", "baton and ..."), not on a question about one ("why does baton ...").
+- Baton prints the saved prompt name as its last line, so a piped `| tail` still shows it.
+- Session start lists the pending prompts by name and says to resume one only when the user asks, instead of telling the session to consume the oldest.
+- The `/baton` command no longer forbids updating other plans; it says to bring the owning plan and every touched plan up to date after the prompt is saved.
 - Yardstick archive previews for a plan already under the archive directory can heal its status without expecting a move result.
 
 ## 0.94.0 — 2026-10-09

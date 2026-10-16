@@ -912,3 +912,83 @@ describe('runlist hud --json owned', () => {
     strictEqual(JSON.parse(r.stdout).owned, null);
   });
 });
+
+describe('runlist baton: the plan update after the prompt, and the name last', () => {
+  beforeEach(() => setupProject());
+
+  function writePlanWithNextStep(name, nextStep) {
+    const file = path.join(plansDir, `${name}.md`);
+    writeFileSync(file, `---\ntype: plan\nstatus: in-session\ntitle: ${name}\nnext_step: ${nextStep}\n---\n# ${name}\n\nbody\n`);
+    spawnSync('git', ['add', file], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-qm', `add ${name}`], { cwd: tmpDir });
+    return file;
+  }
+  const lastLine = text => text.trim().split('\n').at(-1);
+
+  it('saves the prompt first, then refuses done until next_step changes', () => {
+    const plan = writePlanWithNextStep('widget', 'build the frame');
+    const r = run(['baton', 'docs/plans/widget.md', '--message', 'resume: the frame is half built']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(existsSync(path.join(docsDir, 'prompts', 'resume-widget.md')), 'prompt saved before anything else is asked');
+    match(r.stderr, /Prompt saved/);
+    ok(!/Baton passed/.test(r.stderr), `not reported as a finished handoff:\n${r.stderr}`);
+    match(r.stderr, /Handoff not done yet/);
+    match(r.stderr, /runlist baton --done docs\/plans\/widget\.md/);
+    strictEqual(lastLine(r.stderr), 'Saved prompt: resume-widget');
+
+    const early = run(['baton', '--done', 'docs/plans/widget.md']);
+    ok(early.status !== 0, 'done refused while next_step is unchanged');
+    match(early.stderr, /Not done: docs\/plans\/widget\.md next_step is the same/);
+    strictEqual(lastLine(early.stderr), 'Saved prompt: resume-widget');
+
+    writeFileSync(plan, readFileSync(plan, 'utf8').replace('next_step: build the frame', 'next_step: fit the panels'));
+    // Another session (a usage stop, then a fresh one) can confirm it by naming the plan.
+    const confirmed = run(['baton', '--done', 'docs/plans/widget.md'], { sid: 'other-sid' });
+    strictEqual(confirmed.status, 0, confirmed.stderr);
+    match(confirmed.stderr, /Handoff done/);
+    strictEqual(lastLine(confirmed.stderr), 'Saved prompt: resume-widget');
+
+    const again = run(['baton', '--done', 'docs/plans/widget.md']);
+    ok(again.status !== 0, 'the record is gone once confirmed');
+  });
+
+  it('bare --done finds this session\'s handoff', () => {
+    const plan = writePlanWithNextStep('gadget', 'first');
+    strictEqual(run(['baton', 'docs/plans/gadget.md', '--message', 'resume']).status, 0);
+    writeFileSync(plan, readFileSync(plan, 'utf8').replace('next_step: first', 'next_step: second'));
+    ok(run(['baton', '--done'], { sid: 'someone-else' }).status !== 0, 'another session has no handoff of its own');
+    const r = run(['baton', '--done']);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stderr, /Handoff done: docs\/plans\/gadget\.md/);
+  });
+
+  it('a plan without next_step is handed off in one step, name last', () => {
+    writePlan('plain');
+    const r = run(['baton', 'docs/plans/plain.md', '--message', 'resume']);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stderr, /Baton passed/);
+    ok(!/Handoff not done/.test(r.stderr), r.stderr);
+    strictEqual(lastLine(r.stderr), 'Saved prompt: resume-plain');
+  });
+
+  it('slug mode prints the name last', () => {
+    const r = run(['baton', 'side-quest', '--message', 'resume']);
+    strictEqual(r.status, 0, r.stderr);
+    strictEqual(lastLine(r.stderr), 'Saved prompt: resume-side-quest');
+  });
+});
+
+describe('hud names a handoff this session left unfinished', () => {
+  beforeEach(() => setupProject());
+  it('prints the not-done line at session start until --done', () => {
+    const file = path.join(plansDir, 'unfinished.md');
+    writeFileSync(file, '---\ntype: plan\nstatus: in-session\nnext_step: one\n---\n# u\n');
+    strictEqual(run(['baton', 'docs/plans/unfinished.md', '--message', 'resume']).status, 0);
+    const before = run(['hud']);
+    ok(before.stdout.includes('Handoff not done yet') && before.stdout.includes('runlist baton --done docs/plans/unfinished.md'), before.stdout);
+    ok(!run(['hud'], { sid: 'other' }).stdout.includes('Handoff not done yet'), 'only the session that saved it');
+    writeFileSync(file, readFileSync(file, 'utf8').replace('next_step: one', 'next_step: two'));
+    strictEqual(run(['baton', '--done']).status, 0);
+    ok(!run(['hud']).stdout.includes('Handoff not done yet'));
+  });
+});

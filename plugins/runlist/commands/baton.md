@@ -1,9 +1,9 @@
 ---
 description: "Baton: save a resume prompt for whatever this session is doing, and release the plan if one is in-session. Use when the user says baton (\"baton this\", \"baton now\", \"baton those items\"), save a resume, hand off, wrap up, or pick it up next time, or when context is getting tight. Gives the exact command form, so no --help call is needed."
-allowed-tools: "Bash(runlist:*), Bash(rl:*), Bash(dotmd:*), Bash(git commit:*), Write"
+allowed-tools: "Bash(runlist:*), Bash(rl:*), Bash(dotmd:*), Bash(git commit:*), Write, Edit"
 ---
 
-Save a resume prompt for the work in flight. Two steps, one command:
+Save a resume prompt for the work in flight, then bring the plans up to date. If the repo defines baton (`templates.prompt.baton` in its runlist config, printed by the hook when the user asks for a baton), that definition wins wherever it differs from the steps below.
 
 1. **Write the draft** to a temp file (`/tmp/baton.md`): 10–20 lines — the next concrete decision plus any gotchas, NOT a recap. Reference the relevant plan/doc paths inside the draft so the next session can orient.
 
@@ -20,12 +20,13 @@ Save a resume prompt for the work in flight. Two steps, one command:
    - `--status paused|awaiting|partial|blocked` — when the plan's reality changed; default `active` is right for plain "work continues".
    - `--note "why"` — records the reason in `## Version History` in the same call.
 
-   If baton printed a `git commit` command, run it as-is. If it didn't, nothing repo-tracked changed — you're done. Tell the user the prompt name baton printed.
-
    Always pass the draft (`@<file>`). A bare `runlist baton` saves nothing: it prints these same forms and exits. If a handoff may already be pending, inspect it with `runlist prompts show <resume-slug>` first. Keep it if current; if stale, pass `--replace` with the new draft. Baton archives the prior text and refreshes exactly one pending handoff with the plan release. Never consume a prompt merely to replace it. If baton refuses, it names the pending prompt to inspect.
 
-**Scope guard — baton is the whole closeout. Do NOT:**
+3. **Bring the plans up to date, after the prompt is saved.** The owning plan first: its body, then `current_state` and `next_step`. Then every other plan this session touched. When baton released an in-session plan that has a `next_step`, it prints `Handoff not done yet`: the handoff is not done until you update the plan and run `runlist baton --done` (or `runlist baton --done <plan-file>`), which refuses while `next_step` still reads as it did when the prompt was saved. The prompt is saved first, so a stop between the two steps loses nothing.
+
+4. **Commit and report.** If baton printed a commit command, run it once the plans are updated, with the other plans you updated named too. Tell the user the prompt name baton printed; it is the last line of the output. Do not pipe baton through `tail`, `head` or `grep`.
+
+**Do NOT:**
 - run `runlist use` (that *consumes* prompts / *starts* plans — the wrong direction during a handoff; running it on your own freshly saved prompt destroys the handoff),
-- change the status of any other plan, or triage the repo on the way out,
-- commit the prompt or the generated index (only run the commit baton printed, verbatim),
+- commit the prompt or the generated index (prompts are session-local),
 - paste the resume text into chat for copy-paste; the next session's `runlist hud` surfaces the saved prompt automatically.
