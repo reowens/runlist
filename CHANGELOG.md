@@ -2,20 +2,6 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
-## 0.94.2 — 2026-10-14
-
-### Fixed
-
-- A plan named `runlist` or `*-runlist` that declares an `execution_mode` other than `coordination` or `roadmap` is no longer filed as a hub. The plan and hub listings, filing, hub membership and the roadmap nudge now read the declared field first, matching the coordination nudge; the file name stays the fallback only for plans that declare nothing.
-
-## 0.94.1 — 2026-10-09
-
-### Fixed
-
-- Removed private consumer references, personal contact metadata and local operational details from public source and documentation.
-- Repository and npm package inventories are checked before packing or publishing, with diagnostics that identify files without repeating private content.
-- Desktop signing requires explicit release identity and team settings.
-
 ## Unreleased
 
 ### Added
@@ -33,6 +19,20 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 - Session start lists the pending prompts by name and says to resume one only when the user asks, instead of telling the session to consume the oldest.
 - The `/baton` command no longer forbids updating other plans; it says to bring the owning plan and every touched plan up to date after the prompt is saved.
 - Yardstick archive previews for a plan already under the archive directory can heal its status without expecting a move result.
+
+## 0.94.2 — 2026-10-14
+
+### Fixed
+
+- A plan named `runlist` or `*-runlist` that declares an `execution_mode` other than `coordination` or `roadmap` is no longer filed as a hub. The plan and hub listings, filing, hub membership and the roadmap nudge now read the declared field first, matching the coordination nudge; the file name stays the fallback only for plans that declare nothing.
+
+## 0.94.1 — 2026-10-09
+
+### Fixed
+
+- Removed private consumer references, personal contact metadata and local operational details from public source and documentation.
+- Repository and npm package inventories are checked before packing or publishing, with diagnostics that identify files without repeating private content.
+- Desktop signing requires explicit release identity and team settings.
 
 ## 0.94.0 — 2026-10-09
 
