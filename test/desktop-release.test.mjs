@@ -4,7 +4,7 @@ import {mkdtempSync,mkdirSync,readFileSync,writeFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {notarizeArtifact} from '../desktop/scripts/notarize.mjs';
-import {preflightDesktopRelease} from '../scripts/desktop-release-config.mjs';
+import {desktopReleaseEnvironment,preflightDesktopRelease} from '../scripts/desktop-release-config.mjs';
 import {validateDesktopManifest} from '../scripts/release-desktop.mjs';
 import {prepareReleaseDocUpdates} from '../scripts/stamp-release-docs.mjs';
 import {planUpdate} from '../src/update.mjs';
@@ -35,6 +35,14 @@ test('release preflight rejects missing signing inputs before starting a product
  const env={RUNLIST_SIGN_IDENTITY:'fixture identity',RUNLIST_SIGN_TEAM:'7GSPYYN5X8',RUNLIST_NOTARY_PROFILE:'fixture profile'};
  assert.equal(preflightDesktopRelease(root,{platform:'darwin',arch:'arm64',env}).CARGO_BUILD_JOBS,'1');
  assert.throws(()=>preflightDesktopRelease(root,{platform:'darwin',arch:'arm64',env:{...env,RUNLIST_SIGN_TEAM:'other'}}),/trust policy/);
+});
+
+test('desktop child npm installs do not inherit npm version lifecycle policy or prefix',t=>{
+ const root=fixture(t);
+ const result=desktopReleaseEnvironment(root,{PATH:'/fixture/bin',npm_config_allow_scripts:'true',npm_config_prefix:'/fixture/other-prefix',npm_package_version:'0.95.2',npm_lifecycle_event:'postversion',RUNLIST_SIGN_IDENTITY:'fixture identity',RUNLIST_PUBLIC_CHECK_KEY:'fixture-key'});
+ for(const key of ['npm_config_allow_scripts','npm_config_prefix','npm_package_version','npm_lifecycle_event'])assert.ok(!(key in result));
+ assert.equal(result.RUNLIST_SIGN_IDENTITY,'fixture identity');assert.equal(result.RUNLIST_PUBLIC_CHECK_KEY,'fixture-key');
+ assert.ok(result.PATH.endsWith('/fixture/bin'));
 });
 
 test('desktop publication refuses old source, old versions and unaccepted payloads',()=>{

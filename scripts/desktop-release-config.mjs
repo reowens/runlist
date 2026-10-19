@@ -1,7 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { cleanNpmEnv } from './sync-global-cli.mjs';
 
 export function desktopReleaseEnvironment(root, env = process.env) {
+  env = cleanNpmEnv(path.dirname(process.execPath), env);
   const file = env.RUNLIST_RELEASE_CONFIG || path.join(root, '.runlist', 'release-config.json');
   const config = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {};
   return {

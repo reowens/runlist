@@ -64,12 +64,12 @@ function siblingNpm(dotmdPath) {
 // isNpmManagedGlobalPath, was skipped as "tool-managed", and then failed the
 // release as stale. `npm run release:resume` inherits the same variables, so it
 // could not recover either. Strip them before spawning any sibling npm.
-export function cleanNpmEnv(binDir) {
-  const env = { ...process.env };
+export function cleanNpmEnv(binDir, sourceEnv = process.env) {
+  const env = { ...sourceEnv };
   for (const key of Object.keys(env)) {
     if (/^npm_(config|lifecycle|package)_/i.test(key) || key.toLowerCase() === 'npm_config_prefix') delete env[key];
   }
-  env.PATH = [binDir, process.env.PATH ?? ''].filter(Boolean).join(delimiter);
+  env.PATH = [binDir, sourceEnv.PATH ?? ''].filter(Boolean).join(delimiter);
   return env;
 }
 

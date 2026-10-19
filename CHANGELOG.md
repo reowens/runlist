@@ -2,6 +2,12 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- Release automation clears inherited npm lifecycle policy and prefix settings before desktop dependency installation. Recovery with newer release tooling builds the immutable CLI tag in an isolated checkout rather than packaging newer application sources.
+
 ## 0.95.2 — 2026-10-18
 
 ### Fixed

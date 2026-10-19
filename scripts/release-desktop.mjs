@@ -20,19 +20,30 @@ export function validateDesktopManifest(manifest, version, source) {
   }
 }
 
-export async function releaseDesktop(root = process.cwd(), version, source) {
-  const env = preflightDesktopRelease(root);
+export async function releaseDesktop(root = process.cwd(), version, source, { environment = process.env } = {}) {
+  const env = preflightDesktopRelease(root, { env: environment });
   if (!env) return;
   const capture = (command, args) => execFileSync(command, args, { cwd: root, env, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
   const run = (command, args, extraEnv = env) => execFileSync(command, args, { cwd: root, env: extraEnv, stdio: 'inherit' });
   const head = capture('git', ['rev-parse', 'HEAD']).trim();
   source ??= head;
   version ??= JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version;
-  if (source !== head || !/^[a-f0-9]{40}$/.test(source) || !/^\d+\.\d+\.\d+$/.test(version)
+  if (!/^[a-f0-9]{40}$/.test(source) || !/^\d+\.\d+\.\d+$/.test(version)
       || JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version !== version) {
     throw new Error('Desktop release must use the exact stable CLI release commit and version.');
   }
   if (capture('git', ['status', '--porcelain=v1', '--untracked-files=all']).trim()) throw new Error('Desktop release source must be clean.');
+  if (source !== head) {
+    // Recovery may need newer release tooling after the immutable CLI tag was
+    // published. Build that tag in its own checkout, never newer app sources.
+    capture('git', ['merge-base', '--is-ancestor', source, head]);
+    const selected = path.join(root, '.runlist', 'desktop-release', version, 'source');
+    if (!existsSync(selected)) {
+      mkdirSync(path.dirname(selected), { recursive: true });
+      run('git', ['worktree', 'add', '--detach', selected, source]);
+    }
+    return releaseDesktop(selected, version, source, { environment: env });
+  }
   let verified = false;
   for (const workflow of ['publish.yml', 'ci.yml']) {
     const runs = JSON.parse(capture('gh', ['api', `repos/reowens/runlist/actions/workflows/${workflow}/runs?head_sha=${source}&status=success&per_page=100`]));
