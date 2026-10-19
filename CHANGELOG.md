@@ -4,6 +4,8 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ## Unreleased
 
+- Exclude dated execution, acceptance and attempt receipts from delivery-phase counts.
+
 - Preserve outer filing categories through nested hub indexes and cycles without promoting local track labels to competing homes.
 
 ### Fixed

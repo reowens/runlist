@@ -306,3 +306,15 @@ describe('summarizePhases and findActivePhase', () => {
     strictEqual(findActivePhase(sections).heading, 'Phase 2 — real next work ⬜');
   });
 });
+
+it('excludes dated execution receipts while retaining executable phase names', () => {
+  for (const title of [
+    'Phase 1 execution, October 9, 2026 PDT',
+    'Phase 5 completed-work record, October 9, 2026 PDT',
+    'Phase 5 personal billing acceptance, October 10, 2026 PDT',
+    'Phase 5 portal attempt, closed October 10, 2026 PDT',
+  ]) ok(!isPhaseHeading({ level: 3, heading: title }), title);
+  for (const title of ['Phase 1 execution', 'Phase 5 portal attempt', 'Phase 2: billing acceptance']) {
+    ok(isPhaseHeading({ level: 3, heading: title }), title);
+  }
+});

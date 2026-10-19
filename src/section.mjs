@@ -154,12 +154,21 @@ const PHASE_COMPOUND_COMMENTARY = new RegExp(
   'i',
 );
 
+// Dated execution receipts describe an attempt or acceptance record, not a work phase.
+const PHASE_DATED_RECEIPT = new RegExp(
+  `^${PHASE_DECORATION}phase\\s+\\S+\\s+` +
+  `(?:execution|completed[- ]work\\s+record|personal\\s+billing\\s+acceptance|portal\\s+attempt)` +
+  `\\s*,\\s*(?:closed\\s+)?(?:[A-Z][a-z]+\\s+\\d{1,2},\\s+\\d{4}|\\d{4}-\\d{2}-\\d{2})\\b`,
+  'i',
+);
+
 export function isPhaseHeading(section) {
   if (section.level !== 3) return false;
   if (FILES_MANIFEST_ANCESTOR.test(section.h2Ancestor ?? '')) return false;
   return PHASE_LEAD.test(section.heading)
     && !PHASE_COMMENTARY.test(section.heading)
-    && !PHASE_COMPOUND_COMMENTARY.test(section.heading);
+    && !PHASE_COMPOUND_COMMENTARY.test(section.heading)
+    && !PHASE_DATED_RECEIPT.test(section.heading);
 }
 
 // A phase's OWN checklist — the boxes directly under its heading, stopping at
