@@ -9,6 +9,7 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 - Git commit cancellation reports a stable error when the operating system refuses to stop the worker, preserving its receipt for inspection.
 - Guarded Git integration tests report an unqualified toolchain once, with version diagnostics, while keeping refusal checks independent.
 - Publication bridge tests use a native executable on Windows while retaining shell-free invocation, fixed arguments and private-output checks.
+- Native helper fixtures normalize copied executable permissions so writable hosted tool caches do not fail the helper trust check.
 - Filing home evidence has a stable source-path and line order across asynchronous scans, keeping CLI/GUI reports and pagination consistent.
 
 ### Development

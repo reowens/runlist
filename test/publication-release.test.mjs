@@ -26,7 +26,12 @@ function fixture(t, body, helperName = 'local-helper', { nativeNode = windows } 
     if (windows) symlinkSync(process.execPath, helper, 'file');
     // A local copy satisfies the POSIX owner check even when system Node is
     // root-owned; reflink where supported to avoid copying the binary's bytes.
-    else copyFileSync(process.execPath, helper, constants.COPYFILE_FICLONE);
+    else {
+      copyFileSync(process.execPath, helper, constants.COPYFILE_FICLONE);
+      // Hosted tool caches can be writable by other users. The fixture's own
+      // executable must meet the bridge's trust policy regardless of that mode.
+      chmodSync(helper, 0o700);
+    }
   }
   const request = path.join(directory, 'request.json');
   const recorded = path.join(directory, 'recorded.json');
@@ -256,7 +261,7 @@ test('native Node fixture exercises the isolated helper transport on every platf
   const f = fixture(t, undefined, 'helper $(touch unwanted); executable', { nativeNode: true });
   const before = readFileSync(f.artifact);
   const result = await runFixture(f, args(f, 'prepare'));
-  assert.equal(result.state, 'ready');
+  assert.equal(result.state, 'ready', JSON.stringify(result));
   assert.equal(result.dryRun, true);
   assert.deepEqual(JSON.parse(readFileSync(f.recorded)), ['publication', 'prepare', '--request', f.request]);
 
