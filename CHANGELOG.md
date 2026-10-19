@@ -7,6 +7,15 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 ### Fixed
 
 - Release automation clears inherited npm lifecycle policy and prefix settings before desktop dependency installation. Recovery with newer release tooling builds the immutable CLI tag in an isolated checkout rather than packaging newer application sources.
+- Releases refresh and verify installed Claude, OpenCode and Codex integrations. A failed host update still allows desktop publication to finish, while retaining release intent for recovery.
+- CLI self-updates run host installers from the updated package and verify fresh installation records. Codex checks distinguish the installed cache from its marketplace source.
+- Release staging and rollback use canonical Git paths on Windows, avoiding false index mismatches for desktop files.
+
+### Changed
+
+- Bundle official Node 24.22.0 with verified checksums for all six runtime targets.
+- Update Tauri CLI to 2.12.3, Tauri to 2.12.4, its build helper to 2.7.3, and dialog/opener/clipboard plugins to 2.8.3/2.7.2/2.5.0. Update Tokio to 1.53.3.
+- Update Acorn to 8.19.0 and generate third-party notices from the installed version.
 
 ## 0.95.2 — 2026-10-18
 
