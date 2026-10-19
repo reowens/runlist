@@ -2,7 +2,7 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
-## Unreleased
+## 0.95.3 — 2026-10-18
 
 - Honor lint file allowlists in reports and fixes; prepare all transformations before atomic publication with claim and content guards.
 
