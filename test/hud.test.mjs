@@ -81,6 +81,20 @@ describe('runlist hud', () => {
     ok(r.stdout.includes('Plan statuses: in-session, active, planned'), `primer should include configured plan vocabulary; got: ${r.stdout}`);
   });
 
+  it('teaches explicit child handoffs in a bounded subagent primer', () => {
+    setupProject();
+    const child = runCli(['hud', '--subagent']);
+    strictEqual(child.status, 0, child.stderr);
+    ok(child.stdout.includes('runlist baton --subagent <task-slug> @<draft-file>'), child.stdout);
+    ok(child.stdout.includes('subagent-<task-slug>'), child.stdout);
+    ok(child.stdout.includes('parent-owned plan'), child.stdout);
+    ok(child.stdout.includes('release only your own plan'), child.stdout);
+    ok(child.stdout.length < 1600, `child primer too large: ${child.stdout.length}`);
+    const parent = runCli(['hud']);
+    strictEqual(parent.status, 0, parent.stderr);
+    ok(!parent.stdout.includes('baton --subagent'), parent.stdout);
+  });
+
   it('prints bounded custom status vocabulary for sessions and subagents', () => {
     setupProject();
     const statuses = Array.from({ length: 20 }, (_, i) => `status-${String(i).padStart(2, '0')}`);

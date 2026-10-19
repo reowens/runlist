@@ -294,6 +294,7 @@ export function buildHud(config) {
 const SUBAGENT_PRIMER = [
   'runlist manages this repo\'s plans/docs/prompts (markdown + YAML frontmatter).',
   'Verbs: plans|briefing | query <filters> | use [<file>] | set <status> <file> | new <type> <slug> | archive <file>.',
+  'Child handoff: `runlist baton --subagent <task-slug> @<draft-file>` saves subagent-<task-slug>. Use a task slug under a parent-owned plan; release only your own plan. Parent batons default to resume-<name>.',
   'Claims: `runlist doctor --claims` lists which session holds each plan; `--apply` releases the ones whose session is gone.',
   'Do NOT: cat/read a docs/prompts/*.md (use `runlist use <file>` — archive/claim commits before at-most-once output);',
   'git add/commit a prompt (they are session-local, often gitignored); hand-edit a `status:` field (use `runlist set`).',
