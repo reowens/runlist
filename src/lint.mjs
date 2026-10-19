@@ -1,12 +1,13 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter, replaceFrontmatter } from './frontmatter.mjs';
 import { asString, toRepoPath, escapeRegex, warn } from './util.mjs';
-import { buildIndex, collectDocFiles } from './index.mjs';
-import { updateFrontmatter } from './lifecycle.mjs';
+import { buildIndex } from './index.mjs';
+import { resolveRepairSources, publishRepairs } from './repair-sources.mjs';
+import { renderLifecycleMutation } from './lifecycle.mjs';
 import { runModel } from './ai.mjs';
 import { bold, green, yellow, dim } from './color.mjs';
-import { authorizeManagedSweep, findLexicalDocsRoot } from './managed-path.mjs';
+import { findLexicalDocsRoot } from './managed-path.mjs';
 
 const KEY_RENAMES = {
   nextStep: 'next_step',
@@ -69,7 +70,8 @@ function formatYamlScalar(value) {
 export function runLint(argv, config, opts = {}) {
   const { dryRun } = opts;
   const fix = argv.includes('--fix');
-  const allFiles = collectDocFiles(config);
+  const allFiles = resolveRepairSources(argv.filter(arg => !arg.startsWith('-')), config);
+  const selectedPaths = new Set(allFiles.map(file => toRepoPath(file, config.repoRoot)));
   const fixable = [];
 
   for (const filePath of allFiles) {
@@ -164,7 +166,7 @@ export function runLint(argv, config, opts = {}) {
     }
 
     if (fixes.length > 0) {
-      fixable.push({ filePath, repoPath, fixes });
+      fixable.push({ filePath, repoPath, fixes, source: raw });
     }
   }
 
@@ -187,6 +189,7 @@ export function runLint(argv, config, opts = {}) {
       }
     }
     nonFixable = [...index.errors, ...index.warnings].filter(issue => {
+      if (!selectedPaths.has(issue.path)) return false;
       if (issue.message.includes('Missing frontmatter `status`') && fixablePaths.has(issue.path)) return false;
       const dep = issue.message.match(/^`(module|surface):` \(singular\) is deprecated/);
       if (dep && fixableSingularKeys.has(`${issue.path}::${dep[1]}`)) return false;
@@ -235,11 +238,12 @@ export function runLint(argv, config, opts = {}) {
   }
 
   // Fix mode
-  authorizeManagedSweep(fixable.map(item => item.filePath), config, { kind: 'Lint fix source' });
+  const repairs = [];
   const prefix = dryRun ? dim('[dry-run] ') : '';
   let totalFixes = 0;
 
-  for (const { filePath, repoPath, fixes } of fixable) {
+  for (const { filePath, repoPath, fixes, source } of fixable) {
+    let raw = source;
     const updates = {};
     const keyRenames = [];
     let needsEofFix = false;
@@ -258,101 +262,94 @@ export function runLint(argv, config, opts = {}) {
         singularToPlural.push(f);
       } else if (f.type === 'drop-singular') {
         dropSingular.push(f);
-      } else {
+      } else if (f.type !== 'infer-status') {
         updates[f.field] = f.newValue;
       }
     }
 
-    if (!dryRun) {
-      // Apply infer-status fixes via AI
-      for (const f of fixes.filter(f => f.type === 'infer-status')) {
-        const raw = readFileSync(filePath, 'utf8');
-        const { frontmatter: fmInfer } = extractFrontmatter(raw);
-        const parsedInfer = parseSimpleFrontmatter(fmInfer);
-        const inferType = asString(parsedInfer.type);
-        const inferTypeSet = inferType ? config.typeStatuses?.get(inferType) : null;
-        const statusList = inferTypeSet ? [...inferTypeSet].join(', ') : config.statusOrder.join(', ');
-        const { body } = extractFrontmatter(raw);
-        const prompt = `Given this markdown document, classify it into exactly one of these statuses: ${statusList}.\nReply with ONLY the status word, nothing else.\n\nFile: ${repoPath}\n\n${(body ?? '').slice(0, 4000)}`;
-        const result = runModel(prompt, { maxTokens: 10 });
-        const suggested = result?.trim().toLowerCase().split(/\s+/)[0];
-        const inferValid = inferTypeSet ?? config.validStatuses;
-        if (suggested && inferValid.has(suggested)) {
-          updateFrontmatter(filePath, { status: suggested });
-          f.newValue = suggested;
-        }
-      }
-
-      // Apply singular-to-plural fixes (module/surface → modules/surfaces array).
-      // Removes the singular key block; merges its value(s) into the plural array,
-      // or creates the plural block if absent. Duplicates are skipped.
-      for (const sa of singularToPlural) {
-        let raw = readFileSync(filePath, 'utf8');
-        const { frontmatter: fm } = extractFrontmatter(raw);
-        const parsedFm = parseSimpleFrontmatter(fm);
-        const pluralValue = parsedFm[sa.pluralKey];
-        const existing = Array.isArray(pluralValue)
-          ? pluralValue.filter(value => typeof value === 'string' && value.trim())
-          : asString(pluralValue) ? [asString(pluralValue)] : [];
-        const merged = [...new Set([...sa.newValue, ...existing])];
-        const comments = [...frontmatterFieldComments(fm, sa.field), ...frontmatterFieldComments(fm, sa.pluralKey)];
-        let newFm = replaceFrontmatterFieldBlock(fm, sa.field);
-        const pluralLines = [sa.pluralKey + ':', ...comments.map(comment => `  ${comment}`), ...merged.map(v => `  - ${formatYamlScalar(v)}`)];
-        const pluralBlock = pluralLines.join('\n');
-        if (Object.prototype.hasOwnProperty.call(parsedFm, sa.pluralKey)) {
-          newFm = replaceFrontmatterFieldBlock(newFm, sa.pluralKey, pluralBlock);
-        } else {
-          newFm = `${newFm.trim()}\n${pluralBlock}`;
-        }
-        raw = replaceFrontmatter(raw, newFm.trim());
-        writeFileSync(filePath, raw, 'utf8');
-      }
-
-      // Drop empty deprecated singular keys. The value is known-empty (the fix
-      // is only emitted for `[]`/`''`), so this matches the bare `key:` line
-      // exactly — never a line carrying content — and removes it.
-      for (const ds of dropSingular) {
-        let raw = readFileSync(filePath, 'utf8');
-        const { frontmatter: fm } = extractFrontmatter(raw);
-        const comments = frontmatterFieldComments(fm, ds.field);
-        const newFm = replaceFrontmatterFieldBlock(fm, ds.field, comments.join('\n'));
-        raw = replaceFrontmatter(raw, newFm.trim());
-        writeFileSync(filePath, raw, 'utf8');
-      }
-
-      // Apply key renames and trim fixes via raw string manipulation
-      if (keyRenames.length > 0 || trimFixes.length > 0) {
-        let raw = readFileSync(filePath, 'utf8');
-        const { frontmatter: fm } = extractFrontmatter(raw);
-        let newFm = fm;
-        for (const kr of keyRenames) {
-          const regex = new RegExp(`^${escapeRegex(kr.oldValue)}:`, 'm');
-          newFm = newFm.replace(regex, `${kr.newValue}:`);
-        }
-        for (const tf of trimFixes) {
-          const regex = new RegExp(`^(${escapeRegex(tf.field)}:)${escapeRegex(tf.oldValue)}$`, 'm');
-          newFm = newFm.replace(regex, `$1${tf.newValue}`);
-        }
-        if (newFm !== fm) {
-          raw = replaceFrontmatter(raw, newFm);
-          writeFileSync(filePath, raw, 'utf8');
-        }
-      }
-
-      // Apply value updates via updateFrontmatter
-      if (Object.keys(updates).length > 0) {
-        updateFrontmatter(filePath, updates);
-      }
-
-      // EOF fix
-      if (needsEofFix) {
-        const current = readFileSync(filePath, 'utf8');
-        if (!current.endsWith('\n')) {
-          writeFileSync(filePath, current + '\n', 'utf8');
-        }
+    // Apply infer-status fixes via AI
+    for (const f of dryRun ? [] : fixes.filter(f => f.type === 'infer-status')) {
+      const { frontmatter: fmInfer } = extractFrontmatter(raw);
+      const parsedInfer = parseSimpleFrontmatter(fmInfer);
+      const inferType = asString(parsedInfer.type);
+      const inferTypeSet = inferType ? config.typeStatuses?.get(inferType) : null;
+      const statusList = inferTypeSet ? [...inferTypeSet].join(', ') : config.statusOrder.join(', ');
+      const { body } = extractFrontmatter(raw);
+      const prompt = `Given this markdown document, classify it into exactly one of these statuses: ${statusList}.\nReply with ONLY the status word, nothing else.\n\nFile: ${repoPath}\n\n${(body ?? '').slice(0, 4000)}`;
+      const result = runModel(prompt, { maxTokens: 10 });
+      const suggested = result?.trim().toLowerCase().split(/\s+/)[0];
+      const inferValid = inferTypeSet ?? config.validStatuses;
+      if (suggested && inferValid.has(suggested)) {
+        updates.status = suggested;
+        f.newValue = suggested;
       }
     }
 
+    // Apply singular-to-plural fixes (module/surface → modules/surfaces array).
+    // Removes the singular key block; merges its value(s) into the plural array,
+    // or creates the plural block if absent. Duplicates are skipped.
+    for (const sa of singularToPlural) {
+      const { frontmatter: fm } = extractFrontmatter(raw);
+      const parsedFm = parseSimpleFrontmatter(fm);
+      const pluralValue = parsedFm[sa.pluralKey];
+      const existing = Array.isArray(pluralValue)
+        ? pluralValue.filter(value => typeof value === 'string' && value.trim())
+        : asString(pluralValue) ? [asString(pluralValue)] : [];
+      const merged = [...new Set([...sa.newValue, ...existing])];
+      const comments = [...frontmatterFieldComments(fm, sa.field), ...frontmatterFieldComments(fm, sa.pluralKey)];
+      let newFm = replaceFrontmatterFieldBlock(fm, sa.field);
+      const pluralLines = [sa.pluralKey + ':', ...comments.map(comment => `  ${comment}`), ...merged.map(v => `  - ${formatYamlScalar(v)}`)];
+      const pluralBlock = pluralLines.join('\n');
+      if (Object.prototype.hasOwnProperty.call(parsedFm, sa.pluralKey)) {
+        newFm = replaceFrontmatterFieldBlock(newFm, sa.pluralKey, pluralBlock);
+      } else {
+        newFm = `${newFm.trim()}\n${pluralBlock}`;
+      }
+      raw = replaceFrontmatter(raw, newFm.trim());
+    }
+
+    // Drop empty deprecated singular keys. The value is known-empty (the fix
+    // is only emitted for `[]`/`''`), so this matches the bare `key:` line
+    // exactly — never a line carrying content — and removes it.
+    for (const ds of dropSingular) {
+      const { frontmatter: fm } = extractFrontmatter(raw);
+      const comments = frontmatterFieldComments(fm, ds.field);
+      const newFm = replaceFrontmatterFieldBlock(fm, ds.field, comments.join('\n'));
+      raw = replaceFrontmatter(raw, newFm.trim());
+    }
+
+    // Apply key renames and trim fixes via raw string manipulation
+    if (keyRenames.length > 0 || trimFixes.length > 0) {
+      const { frontmatter: fm } = extractFrontmatter(raw);
+      let newFm = fm;
+      for (const kr of keyRenames) {
+        const regex = new RegExp(`^${escapeRegex(kr.oldValue)}:`, 'm');
+        newFm = newFm.replace(regex, `${kr.newValue}:`);
+      }
+      for (const tf of trimFixes) {
+        const regex = new RegExp(`^(${escapeRegex(tf.field)}:)${escapeRegex(tf.oldValue)}$`, 'm');
+        newFm = newFm.replace(regex, `$1${tf.newValue}`);
+      }
+      if (newFm !== fm) {
+        raw = replaceFrontmatter(raw, newFm);
+      }
+    }
+
+    // Apply value updates to the prepared source
+    if (Object.keys(updates).length > 0) {
+      raw = renderLifecycleMutation(raw, updates, null);
+    }
+
+    // EOF fix
+    if (needsEofFix) {
+      if (!raw.endsWith('\n')) raw += '\n';
+    }
+
+    repairs.push({ path: filePath, expectedContent: source, content: raw });
+  }
+  publishRepairs(repairs, config, opts);
+
+  for (const { repoPath, fixes } of fixable) {
     process.stdout.write(`${prefix}${green('Fixed')}: ${repoPath} (${fixes.length} issue${fixes.length > 1 ? 's' : ''})\n`);
     for (const f of fixes) {
       if (f.type === 'rename-key') {

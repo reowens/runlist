@@ -4,6 +4,8 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ## Unreleased
 
+- Honor lint file allowlists in reports and fixes; prepare all transformations before atomic publication with claim and content guards.
+
 - Honor explicit doctor frontmatter-repair paths and publish prepared repairs atomically with source and claim guards.
 
 - Exclude dated execution, acceptance and attempt receipts from delivery-phase counts.

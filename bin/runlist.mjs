@@ -293,7 +293,7 @@ Validate & Fix:
   doctor --transactions             Report/clear wedged mutation transactions (run this if mutations refuse repo-wide)
   doctor --claims                   Report/release plan claims held by sessions that are gone ("busy in another session")
   self-check                        Project/version skew diagnostic (alias: doctor --project)
-  lint [--fix]                      Check and auto-fix frontmatter issues
+  lint [files...] [--fix]                      Check and auto-fix frontmatter issues
   fix-refs [--dry-run]              Auto-fix broken reference paths + body links
   refs <old> <new> [--fix]          Report (or rewrite) code-root citations of a moved document
   refs repair [--fix]               Same, for every archived document still cited at its old path
@@ -923,7 +923,7 @@ Modes:
                          history; a "Migrated to v0.21 template" entry
                          in their Version History would be misleading).
   --migrate-template --json  Machine-readable result.
-  --frontmatter-fix      Auto-fix the long-frontmatter warnings that
+  --frontmatter-fix [path]  Repair only that document when supplied; otherwise auto-fix the long-frontmatter warnings that
                          \`runlist check\` flags: \`current_state\` >1500 chars
                          or \`next_step\` >800 chars. Truncates the
                          frontmatter field at the nearest sentence
@@ -1195,9 +1195,9 @@ Options:
   --summarize            Generate AI summary using local model
   --model <name>         Model to use (default: the one \`runlist model\` shows)`,
 
-  lint: `runlist lint [--fix] — check and auto-fix frontmatter issues
+  lint: `runlist lint [files...] [--fix] — check and auto-fix frontmatter issues
 
-Scans all docs for fixable problems:
+Scans the selected documents, or all docs when no file is supplied, for fixable problems:
   - Missing status (inferred via local AI model when available)
   - Missing updated date (set to today)
   - Status casing (e.g. Active → active)

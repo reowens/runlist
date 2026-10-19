@@ -1,5 +1,8 @@
+import { resolveConfig } from '../src/config.mjs';
+import { runLint } from '../src/lint.mjs';
+import { commitPlanClaim } from '../src/pickup.mjs';
 import { describe, it, afterEach } from 'node:test';
-import { strictEqual, ok } from 'node:assert';
+import { strictEqual, ok, throws } from 'node:assert';
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -376,4 +379,50 @@ describe('runlist lint', () => {
         `singular deprecation must not be under non-fixable: ${report.stdout}`);
     }
   });
+});
+
+it('scopes CLI reporting, dry runs and fixes to explicit documents', () => {
+  const docs = setupProject();
+  const raw = '---\ntype: plan\nstatus: Active\nupdated: 2025-01-01\nmodule: alpha\nnextStep: Finish.\n---\n# Test';
+  const selected = path.join(docs, 'selected.md'), other = path.join(docs, 'other.md');
+  writeFileSync(selected, raw); writeFileSync(other, raw);
+  const report = run(['lint', selected]);
+  strictEqual(report.status, 0, report.stderr);
+  ok(!report.stdout.includes('other.md'));
+  const preview = run(['lint', '--fix', '--dry-run', selected]);
+  strictEqual(preview.status, 0, preview.stderr);
+  strictEqual(readFileSync(selected, 'utf8'), raw);
+  strictEqual(readFileSync(other, 'utf8'), raw);
+  const fixed = run(['lint', '--fix', selected, selected]);
+  strictEqual(fixed.status, 0, fixed.stderr);
+  const after = readFileSync(selected, 'utf8');
+  ok(after.includes('status: active'));
+  ok(after.includes('modules:') && after.includes('- alpha'));
+  ok(after.includes('next_step: Finish.'));
+  ok(after.endsWith('\n'));
+  strictEqual(readFileSync(other, 'utf8'), raw);
+});
+
+it('refuses a claimed repair before changing any selected source', async () => {
+  const docs = setupProject(), raw = '---\ntype: plan\nstatus: Active\nupdated: 2025-01-01\n---\n# Test\n';
+  const a = path.join(docs, 'a.md'), b = path.join(docs, 'b.md');
+  writeFileSync(a, raw); writeFileSync(b, raw);
+  const config = await resolveConfig(tmpDir);
+  commitPlanClaim({ filePath: b, sourceContent: raw, renderedContent: null,
+    ownership: null, sessionId: 'another-live-session', now: new Date().toISOString(), config });
+  throws(() => runLint(['--fix', a, b], config), /owned|session|claim/i);
+  strictEqual(readFileSync(a, 'utf8'), raw);
+  strictEqual(readFileSync(b, 'utf8'), raw);
+});
+
+it('preserves concurrent edits and leaves other selected files untouched', async () => {
+  const docs = setupProject(), raw = '---\ntype: plan\nstatus: Active\nupdated: 2025-01-01\n---\n# Test\n';
+  const a = path.join(docs, 'a.md'), b = path.join(docs, 'b.md');
+  writeFileSync(a, raw); writeFileSync(b, raw);
+  const config = await resolveConfig(tmpDir);
+  throws(() => runLint(['--fix', a, b], config, { testHooks: {
+    afterSetPreflight() { writeFileSync(a, raw + 'Peer edit.\n'); },
+  } }));
+  strictEqual(readFileSync(a, 'utf8'), raw + 'Peer edit.\n');
+  strictEqual(readFileSync(b, 'utf8'), raw);
 });

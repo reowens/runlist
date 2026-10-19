@@ -170,7 +170,7 @@ const definitions = [
     options: [value('--status'), value('--title'), value('--runlist'), flag('--coordination'), flag('--roadmap'), flag('--lite', '--minimal'), flag('--audit', '--findings'), value('--body', '--message'), value('--root'), flag('--show-files'), flag('--list-templates', '--list-types'), flag('--render-preview'), value('--question'), value('--answers'), value('--disposition')],
     dashPositionalsAfter: 1,
   })]),
-  command('lint', mutates('managed source sweep with --fix; otherwise read-only'), 'mutate', [form('', { options: [flag('--fix')] })]),
+  command('lint', mutates('selected managed sources with --fix; otherwise read-only'), 'mutate', [form('[files...]', { args: positionals(0, Infinity), options: [flag('--fix')] })]),
   command('rename', mutates('managed source, same-root destination, and rewrite sweep'), 'mutate', [form('<old> [new]', { args: positionals(1, 2), options: [flag('--show-files'), flag('--fix-refs'), flag('--strings')] })]),
   command('migrate', mutates('managed source sweep'), 'mutate', [form('<field> <old> <new> [files...]', { args: positionals(3, Infinity), options: [flag('--show-files')] })]),
   command('fix-refs', mutates('managed source sweep'), 'mutate', [form('', { options: [flag('--show-files')] })]),
