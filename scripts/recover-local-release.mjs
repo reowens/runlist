@@ -41,7 +41,7 @@ export function recoverLocalRelease(projectRoot = process.cwd()) {
   const headVersion = packageVersion(projectRoot, 'HEAD');
   if (workingVersion === version && headVersion !== version) {
     const desktopPaths = [...prepareDesktopVersionUpdates(projectRoot, version), ...prepareReleaseDocUpdates(projectRoot, version)]
-      .map(({ file }) => path.relative(projectRoot, file));
+      .map(({ file }) => path.relative(projectRoot, file).split(path.sep).join('/'));
     const changelog = git(projectRoot, ['ls-files', '--error-unmatch', 'CHANGELOG.md']).status === 0 ? ['CHANGELOG.md'] : [];
     const restore = git(projectRoot, ['restore', '--source=HEAD', '--staged', '--worktree', '--', ...RELEASE_PATHS, ...desktopPaths, ...changelog]);
     if (restore.status !== 0) throw new Error(`cannot roll back failed version attempt: ${restore.stderr.trim()}`);

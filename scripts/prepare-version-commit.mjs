@@ -102,7 +102,9 @@ export function prepareVersionCommit(
     if (remoteTag.status !== 2) throw new Error(remoteTag.stderr.trim() || `cannot verify remote release tag ${tag}`);
     manifestsTouched = true;
     const updates = [...prepareDesktopVersionUpdates(projectRoot, version), ...prepareReleaseDocUpdates(projectRoot, version)];
-    desktopPaths = updates.map(({ file }) => path.relative(projectRoot, file));
+    // Git's index always reports slash paths, including on Windows. Convert
+    // paths at this boundary so exact staging verification stays portable.
+    desktopPaths = updates.map(({ file }) => path.relative(projectRoot, file).split(path.sep).join('/'));
     sync(projectRoot);
     for (const { file, content } of updates) writeFileSync(file, content);
     changelogStamped = stampChangelog(projectRoot, version, today);
