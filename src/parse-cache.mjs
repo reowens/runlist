@@ -17,7 +17,7 @@ import { readEnv, stateDir } from './naming.mjs';
 // a missing, unreadable or foreign-version file is treated as empty, a failed
 // write is dropped, and `RUNLIST_NO_PARSE_CACHE=1` turns it off.
 
-const SCHEMA = 1;
+const SCHEMA = 2;
 const FILE_NAME = 'parse-cache';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const VERSION = (() => {

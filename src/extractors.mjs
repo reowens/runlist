@@ -81,7 +81,7 @@ export function extractBodyLinks(body) {
 }
 
 export function extractChecklistCounts(body) {
-  const matches = [...body.matchAll(/^\s*[-*]\s+\[([ xX])\]\s+/gm)];
+  const matches = [...body.matchAll(/^\s*[-*]\s+\[([ xX~])\]\s+/gm)];
   let completed = 0;
   let open = 0;
 

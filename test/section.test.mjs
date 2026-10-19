@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import { deepStrictEqual, ok, strictEqual } from 'node:assert';
-import { detectMarker, findActivePhase, isPhaseHeading, phaseMarkerConflict, summarizePhases, walkSections } from '../src/section.mjs';
+import { detectMarker, findActivePhase, isPhaseHeading, phaseTally, phaseMarkerConflict, summarizePhases, walkSections } from '../src/section.mjs';
 
 // Every heading below is synthetic. Each one preserves the SHAPE of a heading
 // form measured against a real plan corpus — marker-before-the-word, a
@@ -216,6 +216,17 @@ describe('detectMarker', () => {
 
 describe('phaseMarkerConflict', () => {
   const phase = (heading, body) => walkSections(`## Phases\n\n### ${heading}\n\n${body}\n`).find(isPhaseHeading);
+
+  it('keeps partial boxes unfinished and stops at the next subsection', () => {
+    const body = '- [x] Done\n* [~] Partial\n  - [~] Nested partial\n- [ ] Open\n- [-] Unsupported\n#### Evidence\n- [x] Separate box\n- [~] Separate partial';
+    deepStrictEqual(phaseTally(phase('Phase 1 ✅', body)), { checked: 1, unchecked: 3, total: 4 });
+    deepStrictEqual(phaseMarkerConflict(phase('Phase 1 ✅', body)), {
+      declared: 'shipped', implied: 'in progress', checked: 1, unchecked: 3, total: 4,
+    });
+    strictEqual(phaseMarkerConflict(phase('Phase 1 ⬜', '- [x] Done\n- [~] Partial')), null);
+    strictEqual(phaseMarkerConflict(phase('Phase 1 🟨', '- [~] Partial')), null);
+    deepStrictEqual(phaseTally(phase('Phase 1 ⬜', '- [~] Partial')), { checked: 0, unchecked: 1, total: 1 });
+  });
 
   it('flags shipped with an open box', () => {
     const c = phaseMarkerConflict(phase('Phase 2 — Retry backoff ✅ shipped', '- [x] a\n- [x] b\n- [x] c\n- [ ] d'));

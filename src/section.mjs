@@ -186,7 +186,7 @@ export function phaseTally(section) {
   for (const line of String(section?.body ?? '').split('\n')) {
     if (/^#{1,6}\s/.test(line)) break;
     if (/^\s*[-*]\s*\[x\]/i.test(line)) checked++;
-    else if (/^\s*[-*]\s*\[ \]/.test(line)) unchecked++;
+    else if (/^\s*[-*]\s*\[[ ~]\]/.test(line)) unchecked++;
   }
   return { checked, unchecked, total: checked + unchecked };
 }

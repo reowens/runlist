@@ -33,12 +33,13 @@ afterEach(() => {
 describe('parse cache', () => {
   it('a warm build returns what an uncached build does, fast and full', async () => {
     const docsDir = setup();
-    writeDoc(docsDir, 'a.md', '> A summary.\n\n- [x] one\n- [ ] two\n\nSee [`b`](b.md) and `[fake](c.md)`.');
+    writeDoc(docsDir, 'a.md', '> A summary.\n\n- [x] one\n- [ ] two\n- [~] three\n\nSee [`b`](b.md) and `[fake](c.md)`.');
     writeDoc(docsDir, 'b.md', '## Next Step\n\nShip it.');
     const config = await resolveConfig(tmpDir);
     for (const fast of [true, false]) {
       process.env.RUNLIST_NO_PARSE_CACHE = '1';
       const uncached = buildIndex(config, { fast });
+      deepStrictEqual(uncached.docs.find(d => d.path === 'docs/a.md').checklist, { completed: 1, open: 2, total: 3 });
       delete process.env.RUNLIST_NO_PARSE_CACHE;
       const cold = buildIndex(config, { fast });
       ok(existsSync(cachePath()));
@@ -47,6 +48,29 @@ describe('parse cache', () => {
       strictEqual(docs(warm), docs(uncached));
       deepStrictEqual(warm.errors, uncached.errors);
     }
+  });
+
+  it('invalidates old-schema checklist counts even when file stamps still match', async () => {
+    const docsDir = setup();
+    writeDoc(docsDir, 'a.md', '- [x] Done\n- [~] Partial');
+    const config = await resolveConfig(tmpDir);
+    buildIndex(config, { fast: true });
+    const rows = readFileSync(cachePath(), 'utf8').split('\n');
+    const header = JSON.parse(rows[0]);
+    rows[0] = JSON.stringify({ ...header, schema: 1 });
+    rows[1] = rows[1].replace(/\{\"completed\":1,\"open\":1,\"total\":2\}/, '{"completed":1,"open":0,"total":1}');
+    ok(rows[1].includes('"checklist":{"completed":1,"open":0,"total":1}'));
+    writeFileSync(cachePath(), rows.join('\n'));
+
+    const fresh = buildIndex(config, { fast: true });
+    deepStrictEqual(fresh.docs[0].checklist, { completed: 1, open: 1, total: 2 });
+    strictEqual(fresh.docs[0].checklistCompletionRate, 0.5);
+    strictEqual(JSON.parse(readFileSync(cachePath(), 'utf8').split('\n')[0]).schema, header.schema);
+    const warm = buildIndex(config, { fast: true });
+    process.env.RUNLIST_NO_PARSE_CACHE = '1';
+    const uncached = buildIndex(config, { fast: true });
+    strictEqual(docs(warm), docs(uncached));
+    deepStrictEqual(warm.errors, uncached.errors);
   });
 
   it('an edited document is parsed again', async () => {

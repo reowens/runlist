@@ -95,6 +95,12 @@ describe('extractNextStep', () => {
 });
 
 describe('extractChecklistCounts', () => {
+  it('counts partial rows as open without changing completed or unsupported rows', () => {
+    const body = '- [x] Done\n- [~] Partial\n  * [~] Nested partial\n* [ ] Open\n- [X] Done too\n- [-] Unsupported\n';
+    deepStrictEqual(extractChecklistCounts(body), { completed: 2, open: 3, total: 5 });
+    deepStrictEqual(extractChecklistCounts('- [~] Only partial'), { completed: 0, open: 1, total: 1 });
+  });
+
   it('counts checked and unchecked items', () => {
     const body = '- [x] Done\n- [ ] Not done\n- [X] Also done\n- [ ] Open\n';
     deepStrictEqual(extractChecklistCounts(body), { completed: 2, open: 2, total: 4 });
