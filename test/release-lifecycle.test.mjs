@@ -303,6 +303,9 @@ test('version preparation still works in a repo with no changelog', () => {
 
 test('desktop manifests and release docs join the version commit and recover together', () => {
   setupRepo();
+  // Exercise Git's Windows checkout policy on every test host. Recovery
+  // restores HEAD through Git, including its configured working-tree EOLs.
+  git(['config', 'core.autocrlf', 'true']);
   mkdirSync(path.join(root, 'desktop/src-tauri'), { recursive: true });
   const files = {
     'desktop/package.json': JSON.stringify({ name: 'runlist-desktop', version: '1.0.0' }) + '\n',
@@ -327,6 +330,6 @@ test('desktop manifests and release docs join the version commit and recover tog
     'plugins/runlist-codex/.codex-plugin/plugin.json', ...Object.keys(files),
   ].sort());
   assert.equal(recoverLocalRelease(root).action, 'rolled-back');
-  for (const [file, text] of Object.entries(files)) assert.equal(readFileSync(path.join(root, file), 'utf8'), text);
+  for (const [file, text] of Object.entries(files)) assert.equal(readFileSync(path.join(root, file), 'utf8').replaceAll('\r\n', '\n'), text);
   assert.equal(git(['status', '--porcelain']).stdout, '');
 });
