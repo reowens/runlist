@@ -391,3 +391,21 @@ export function transformDoc(doc) { if (doc.path === 'docs/area.md') unlinkSync(
     match(text.stdout, /plan filing: 0 unfiled; 0 multiply filed; 0 under no category; 1 through parent/);
   });
 });
+
+it('inherits outer categories rather than treating local hub tracks as new homes', async () => {
+  const r = await repo(); r.write('work.md');
+  r.hub('root.md', `### Delivery\n${hubIndex(hubPointer('area.md'))}`);
+  r.hub('area.md', `### Track 1\n${hubIndex(hubPointer('leaf.md'))}`);
+  r.hub('leaf.md', rowTable(home('work.md')));
+  const index = r.index();
+  deepStrictEqual(get(index.filingCoverage, 'work.md').rows[0].categories, ['Delivery']);
+  strictEqual(findings(index, 'filing-multiple').length, 0);
+});
+
+it('keeps external categories through labeled hub cycles', async () => {
+  const r = await repo(); r.write('work.md');
+  r.hub('root.md', `### Delivery\n${hubIndex(hubPointer('a.md'))}`);
+  r.hub('a.md', `### Local A\n${hubIndex(hubPointer('b.md'))}`);
+  r.hub('b.md', `### Local B\n${hubIndex(hubPointer('a.md'))}\n## Work\n${rowTable(home('work.md'))}`);
+  deepStrictEqual(get(r.index().filingCoverage, 'work.md').rows[0].categories, ['Delivery']);
+});

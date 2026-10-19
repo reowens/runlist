@@ -4,6 +4,8 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ## Unreleased
 
+- Preserve outer filing categories through nested hub indexes and cycles without promoting local track labels to competing homes.
+
 ### Fixed
 
 - Release automation clears inherited npm lifecycle policy and prefix settings before desktop dependency installation. Recovery with newer release tooling builds the immutable CLI tag in an isolated checkout rather than packaging newer application sources.

@@ -1,3 +1,4 @@
+import { resolveHubCategories } from './filing-categories.mjs';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter } from './frontmatter.mjs';
@@ -167,26 +168,8 @@ export function assembleFilingCoverage(docs, config, preparedRows, parentTargets
 
   // Explicit first-cell hub index rows pass categories to the hub's plan rows,
   // including indexes without status columns. Hub titles are not guessed.
-  const hubCategories = new Map();
   const liveHubs = docs.filter(doc => isHubDoc(doc) && !closed(doc, config));
-  for (const hub of liveHubs) hubCategories.set(hub.path, new Set());
-  const dependents = new Map();
-  const queue = [];
-  const addCategory = (hub, category) => {
-    const categories = hubCategories.get(hub);
-    if (categories && !categories.has(category)) { categories.add(category); queue.push([hub, category]); }
-  };
-  for (const hub of liveHubs) for (const row of categoryRows.get(hub.path) ?? []) {
-    if (row.category) addCategory(hub.path, row.category);
-    else {
-      if (!dependents.has(row.hub)) dependents.set(row.hub, new Set());
-      dependents.get(row.hub).add(hub.path);
-    }
-  }
-  for (let i = 0; i < queue.length; i++) {
-    const [hub, category] = queue[i];
-    for (const dependent of dependents.get(hub) ?? []) addCategory(dependent, category);
-  }
+  const hubCategories = resolveHubCategories(liveHubs.map(hub => hub.path), categoryRows);
   for (const rows of homes.values()) {
     // Metadata reads can finish in any order. Keep CLI/GUI evidence and home
     // pagination stable by source path and physical line, retaining duplicates.
