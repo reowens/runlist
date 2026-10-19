@@ -252,7 +252,7 @@ export function runDoctor(argv, config, opts = {}) {
     return;
   }
   if (argv.includes('--frontmatter-fix')) {
-    runFrontmatterFix(config, opts);
+    runFrontmatterFix(config, { ...opts, files: argv.filter(arg => !arg.startsWith('-')) });
     return;
   }
   if (argv.includes('--transactions')) {

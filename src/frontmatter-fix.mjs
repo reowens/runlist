@@ -1,9 +1,8 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { asString, toRepoPath, escapeRegex, warn } from './util.mjs';
-import { collectDocFiles } from './index.mjs';
+import { resolveRepairSources, publishRepairs } from './repair-sources.mjs';
 import { bold, green, dim } from './color.mjs';
-import { authorizeManagedSweep } from './managed-path.mjs';
 
 // Caps must stay in lockstep with the warnings emitted by validatePlanShape in
 // src/validate.mjs — that's where the user first sees these numbers. Targets
@@ -16,8 +15,8 @@ const FIELDS = [
 
 export function runFrontmatterFix(config, opts = {}) {
   const { dryRun, out = process.stdout } = opts;
-  const allFiles = collectDocFiles(config);
-  authorizeManagedSweep(allFiles, config, { kind: 'Frontmatter fix source' });
+  const allFiles = resolveRepairSources(opts.files ?? [], config);
+  const repairs = [];
   const results = [];
 
   for (const filePath of allFiles) {
@@ -52,11 +51,14 @@ export function runFrontmatterFix(config, opts = {}) {
       newBody = insertOrAppendSection(newBody, op.heading, op.tail);
     }
 
-    if (!dryRun) {
-      writeFileSync(filePath, `---\n${newFm}\n---\n${newBody}`, 'utf8');
-      try { config.hooks.onLint?.({ path: toRepoPath(filePath, config.repoRoot), fixes: ops.map(o => ({ field: o.field, type: 'frontmatter-fix' })) }); } catch (err) { warn(`Hook 'onLint' threw: ${err.message}`); }
-    }
+    repairs.push({ path: filePath, expectedContent: raw, content: `---\n${newFm}\n---\n${newBody}` });
     results.push({ filePath, repoPath: toRepoPath(filePath, config.repoRoot), ops });
+  }
+
+  publishRepairs(repairs, config, opts);
+  if (!dryRun) for (const result of results) {
+    try { config.hooks.onLint?.({ path: result.repoPath, fixes: result.ops.map(op => ({ field: op.field, type: 'frontmatter-fix' })) }); }
+    catch (err) { warn(`Hook 'onLint' threw: ${err.message}`); }
   }
 
   const prefix = dryRun ? dim('[dry-run] ') : '';

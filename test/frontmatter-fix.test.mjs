@@ -1,9 +1,10 @@
 import { describe, it, afterEach } from 'node:test';
-import { strictEqual, deepStrictEqual, ok } from 'node:assert';
+import { strictEqual, deepStrictEqual, ok, throws } from 'node:assert';
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
+import { commitPlanClaim } from '../src/pickup.mjs';
 import { resolveConfig } from '../src/config.mjs';
 import {
   splitAtBoundary,
@@ -178,6 +179,42 @@ describe('runFrontmatterFix (orchestration)', () => {
     // The head's first sentence and the tail's last sentence both survive.
     ok(after.includes('Point 1 '), 'head text preserved');
     ok(after.includes(`Point ${last} `), 'tail text preserved');
+  });
+
+  it('honors the CLI file scope and leaves an unselected over-cap plan unchanged', async () => {
+    const docs = setup(), text = longText(1700).text;
+    const raw = `---\ntype: plan\nstatus: active\ncurrent_state: "${text}"\n---\n# Example\n`;
+    const selected = path.join(docs, 'plans', 'selected.md'), other = path.join(docs, 'plans', 'other.md');
+    writeFileSync(selected, raw); writeFileSync(other, raw);
+    const result = spawnSync(process.execPath, [path.resolve(import.meta.dirname, '../bin/runlist.mjs'),
+      'doctor', '--frontmatter-fix', selected], { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(result.status, 0, result.stderr);
+    ok(readFileSync(selected, 'utf8').includes('## Current State'));
+    strictEqual(readFileSync(other, 'utf8'), raw);
+  });
+
+  it('refuses another live claim before publishing any repair', async () => {
+    const docs = setup(), raw = `---\ntype: plan\nstatus: active\ncurrent_state: "${longText(1700).text}"\n---\n# Example\n`;
+    const a = path.join(docs, 'plans', 'a.md'), b = path.join(docs, 'plans', 'b.md');
+    writeFileSync(a, raw); writeFileSync(b, raw);
+    const config = await resolveConfig(tmpDir);
+    commitPlanClaim({ filePath: b, sourceContent: raw, renderedContent: null,
+      ownership: null, sessionId: 'other-live-session', now: new Date().toISOString(), config });
+    throws(() => runFrontmatterFix(config, { out: fakeOut() }), /owned|session|claim/i);
+    strictEqual(readFileSync(a, 'utf8'), raw);
+    strictEqual(readFileSync(b, 'utf8'), raw);
+  });
+
+  it('refuses a stale source without publishing any other prepared repair', async () => {
+    const docs = setup(), raw = `---\ntype: plan\nstatus: active\ncurrent_state: "${longText(1700).text}"\n---\n# Example\n`;
+    const a = path.join(docs, 'plans', 'a.md'), b = path.join(docs, 'plans', 'b.md');
+    writeFileSync(a, raw); writeFileSync(b, raw);
+    const config = await resolveConfig(tmpDir);
+    throws(() => runFrontmatterFix(config, { out: fakeOut(), testHooks: {
+      afterSetPreflight() { writeFileSync(a, raw + 'Peer edit.\n'); },
+    } }));
+    strictEqual(readFileSync(a, 'utf8'), raw + 'Peer edit.\n');
+    strictEqual(readFileSync(b, 'utf8'), raw);
   });
 
   it('skips a non-plan doc even when a field is over cap', async () => {

@@ -4,6 +4,8 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ## Unreleased
 
+- Honor explicit doctor frontmatter-repair paths and publish prepared repairs atomically with source and claim guards.
+
 - Exclude dated execution, acceptance and attempt receipts from delivery-phase counts.
 
 - Preserve outer filing categories through nested hub indexes and cycles without promoting local track labels to competing homes.
