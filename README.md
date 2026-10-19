@@ -47,8 +47,8 @@ controls are experimental; live retrieval depends on a compatible external
 provider. Local chat and push are deferred.
 
 <!-- runlist:release:start -->
-CLI and desktop release version: **0.95.4**.
-[Mac installer and release notes](https://github.com/reowens/runlist/releases/tag/desktop-v0.95.4).
+CLI and desktop release version: **0.95.5**.
+[Mac installer and release notes](https://github.com/reowens/runlist/releases/tag/desktop-v0.95.5).
 Normal product releases publish both components; an installed Mac app is updated with rollback after it has quit.
 <!-- runlist:release:end -->
 
