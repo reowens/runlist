@@ -146,9 +146,19 @@ node scripts/sync-global-cli.mjs "${VERSION}"
 # planner and fresh verification as normal updates. Do not adopt new hosts.
 # An incomplete local update is resumable, not a successful product release.
 echo "→ refreshing and verifying installed host integrations"
-node scripts/update-installed-hosts.mjs "${VERSION}"
+HOSTS_VERIFIED=""
+if node scripts/update-installed-hosts.mjs "${VERSION}"; then
+  HOSTS_VERIFIED=1
+fi
 
+# A host failure must not strand the independent desktop release. Complete
+# that phase too, then retain release intent if either phase is incomplete.
 node scripts/release-desktop.mjs "${VERSION}" "${SHA}"
+if [ -z "${HOSTS_VERIFIED}" ]; then
+  echo "✗ installed host integrations remain incomplete; desktop publication completed." >&2
+  release_failed
+  exit 1
+fi
 node scripts/release-intent.mjs clear
 trap - ERR
 echo "✓ released ${PACKAGE}@${VERSION}; desktop, visible Node prefixes and installed host integrations are in sync"
