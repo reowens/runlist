@@ -2,6 +2,12 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- Allow guarded repairs of unclaimed documents from plain terminals without an agent identity; live claims remain protected.
+
 ## 0.95.4 — 2026-10-19
 
 ### Fixed

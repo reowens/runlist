@@ -1,6 +1,6 @@
 import { collectDocFiles, resolveDocArg } from './index.mjs';
 import { authorizeManagedSweep } from './managed-path.mjs';
-import { assertPlanMutationAuthorized, ownershipPathFor } from './pickup.mjs';
+import { assertPlanMutationAuthorized, ownershipPathFor, availableSessionId } from './pickup.mjs';
 import { mutateFileSet } from './atomic-mutation.mjs';
 
 export function resolveRepairSources(inputs, config) {
@@ -12,7 +12,7 @@ export function resolveRepairSources(inputs, config) {
 export function publishRepairs(repairs, config, opts = {}) {
   const changed = repairs.filter(item => item.content !== item.expectedContent);
   const guards = changed.map(item => {
-    const ownership = assertPlanMutationAuthorized(item.path, config);
+    const ownership = assertPlanMutationAuthorized(item.path, config, { sessionId: availableSessionId() });
     return ownership ? { path: ownership.recordPath, expectedContent: ownership.raw }
       : { path: ownershipPathFor(item.path, config), absent: true };
   });

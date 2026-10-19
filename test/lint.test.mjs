@@ -426,3 +426,23 @@ it('preserves concurrent edits and leaves other selected files untouched', async
   strictEqual(readFileSync(a, 'utf8'), raw + 'Peer edit.\n');
   strictEqual(readFileSync(b, 'utf8'), raw);
 });
+
+it('repairs an unclaimed document from a plain terminal and still refuses a live claim', async () => {
+  const docs = setupProject(), raw = '---\ntype: plan\nstatus: Active\nupdated: 2025-01-01\n---\n# Test\n';
+  const file = path.join(docs, 'plain.md'); writeFileSync(file, raw);
+  const env = { ...process.env };
+  for (const key of ['RUNLIST_SESSION_ID', 'DOTMD_SESSION_ID', 'CLAUDE_CODE_SESSION_ID',
+    'CLAUDE_SESSION_ID', 'CODEX_THREAD_ID', 'CODEX_SESSION_ID', 'OPENCODE_SESSION_ID',
+    'OPENCODE_SESSION', 'OPENCODE_PID', 'TERM_SESSION_ID']) delete env[key];
+  const fixed = run(['lint', '--fix', file], { env });
+  strictEqual(fixed.status, 0, fixed.stderr);
+  ok(readFileSync(file, 'utf8').includes('status: active'));
+  writeFileSync(file, raw);
+  const config = await resolveConfig(tmpDir);
+  commitPlanClaim({ filePath: file, sourceContent: raw, renderedContent: null,
+    ownership: null, sessionId: 'another-live-session', now: new Date().toISOString(), config });
+  const refused = run(['lint', '--fix', file], { env });
+  strictEqual(refused.status, 1);
+  ok(/busy|session|claim/i.test(refused.stderr));
+  strictEqual(readFileSync(file, 'utf8'), raw);
+});
