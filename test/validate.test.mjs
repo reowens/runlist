@@ -4,7 +4,9 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync, symlinkSync } from 'node
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { computeChecklistCompletionRate } from '../src/validate.mjs';
+import { computeChecklistCompletionRate, validatePlanShape } from '../src/validate.mjs';
+import { parseDocFile, buildIndex } from '../src/index.mjs';
+import { resolveConfig } from '../src/config.mjs';
 
 describe('computeChecklistCompletionRate', () => {
   it('returns ratio for non-empty checklist', () => {
@@ -46,6 +48,52 @@ function run(args) {
     encoding: 'utf8',
   });
 }
+
+describe('phase conflict source coordinates', () => {
+  it('keeps body coordinates for callers without stripped frontmatter', async () => {
+    setupProject();
+    const config = await resolveConfig(tmpDir);
+    const doc = { type: 'plan', status: 'active', path: 'example.md', warnings: [] };
+    validatePlanShape(doc, '\n## Phases\n\n### Phase 1: Work ✅\n- [~] Partial', {}, config);
+    const conflict = doc.warnings.find(w => w.message.startsWith('Phase marker contradicts'));
+    ok(conflict.message.includes('(line 4)'), conflict.message);
+  });
+
+  for (const eol of ['\n', '\r\n']) {
+    it(`reports actual file lines through the parser and CLI for ${eol === '\n' ? 'LF' : 'CRLF'}`, async () => {
+      const dir = setupProject();
+      mkdirSync(path.join(tmpDir, '.runlist'));
+      const raw = [
+        '---', 'type: plan', 'status: active', `updated: ${new Date().toISOString()}`,
+        'current_state: |', '  Work is underway.', '  Acceptance remains open.',
+        'next_step: Finish acceptance.', '---', '# Example', '', '## Phases', '',
+        '### Phase 1: Work ✅', '- [x] Done', '- [~] Partial',
+      ].join(eol);
+      const expectedLine = raw.split(eol).indexOf('### Phase 1: Work ✅') + 1;
+      const file = path.join(dir, 'example.md');
+      writeFileSync(file, raw);
+      const config = await resolveConfig(tmpDir);
+      const parsed = parseDocFile(file, config, { source: raw });
+      const conflicts = doc => doc.warnings.filter(w => w.message.startsWith('Phase marker contradicts'));
+      strictEqual(conflicts(parsed).length, 1);
+      ok(conflicts(parsed)[0].message.includes(`(line ${expectedLine})`));
+      ok(conflicts(parsed)[0].message.includes('1/2 boxes are checked'));
+      ok(!Object.hasOwn(parsed, 'bodyLineOffset'), 'source offsets are internal parser state');
+      // A full build must read coordinates even when text extraction was cached by a fast build.
+      buildIndex(config, { fast: true });
+      const full = buildIndex(config);
+      deepStrictEqual(conflicts(full.docs[0]), conflicts(parsed));
+
+      const json = run(['check', '--json']);
+      strictEqual(json.status, 0, json.stderr);
+      const warnings = JSON.parse(json.stdout).warnings.filter(w => w.message.startsWith('Phase marker contradicts'));
+      deepStrictEqual(warnings, conflicts(parsed));
+      const text = run(['check', '--verbose']);
+      strictEqual(text.status, 0, text.stderr);
+      ok(text.stdout.includes(`(line ${expectedLine})`), text.stdout);
+    });
+  }
+});
 
 describe('modules-required gate (opt-in via taxonomy.modules)', () => {
   it('skips the modules-required error when taxonomy.modules is unset', () => {

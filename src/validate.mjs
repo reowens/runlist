@@ -626,7 +626,7 @@ export function checkGitStaleness(docs, config, options = {}) {
 
 // Plan-shape lint: soft warnings on convention drift. Plan-only.
 // Body is the unparsed plan body (everything after the closing `---`).
-export function validatePlanShape(doc, body, frontmatter, config) {
+export function validatePlanShape(doc, body, frontmatter, config, bodyLineOffset = 0) {
   if (doc.type !== 'plan') return;
   // Skip plans in terminal/archive statuses (closed work shouldn't generate noise)
   if (config.lifecycle.terminalStatuses.has(doc.status) || config.lifecycle.archiveStatuses.has(doc.status)) return;
@@ -707,7 +707,7 @@ export function validatePlanShape(doc, body, frontmatter, config) {
     doc.warnings.push({
       path: doc.path,
       level: 'warning',
-      message: `Phase marker contradicts its own checklist (line ${phase.lineStart}): \`${phase.heading.trim()}\` is marked ${conflict.declared}, but ${conflict.checked}/${conflict.total} boxes are checked — that reads as ${conflict.implied}. Update whichever half is stale.`,
+      message: `Phase marker contradicts its own checklist (line ${bodyLineOffset + phase.lineStart}): \`${phase.heading.trim()}\` is marked ${conflict.declared}, but ${conflict.checked}/${conflict.total} boxes are checked — that reads as ${conflict.implied}. Update whichever half is stale.`,
     });
   }
 }

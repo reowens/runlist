@@ -2,6 +2,15 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- Exclude dated receipt, state, verification, build and shaping-walk records, and explicitly recorded mechanics, from executable phase counts.
+- Recognize the yellow square partial marker as in progress, including before phase headings.
+- Count partial checklist rows as unfinished in document progress and phase checks, and invalidate cached counts from the previous parser.
+- Report phase checklist conflicts at their source-file line, including frontmatter and CRLF documents.
+
 ## 0.95.5 — 2026-10-19
 
 ### Fixed

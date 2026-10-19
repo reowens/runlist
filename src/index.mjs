@@ -335,12 +335,14 @@ export function parseDocFile(filePath, config, opts = {}) {
   if (text && text.shipsMetadataVersion !== 1) text = null;
   // Validation reads the body itself, so only a fast build can skip the read.
   let body = null;
+  let bodyLineOffset = 0;
   let rawSource = null;
   if (!text || !fast) {
     const raw = opts.source ?? readFileSync(filePath, 'utf8');
     rawSource = raw;
     const extracted = extractFrontmatter(raw);
     body = extracted.body;
+    bodyLineOffset = extracted.bodyLineOffset;
     // A file rewritten between the stat and the read no longer matches its stamp.
     if (text && Buffer.byteLength(raw) !== stampSize(stamp)) text = null;
     if (!text) {
@@ -471,7 +473,7 @@ export function parseDocFile(filePath, config, opts = {}) {
       return doc;
     }
     validateDoc(doc, parsedFrontmatter, headingTitle, config);
-    validatePlanShape(doc, body, parsedFrontmatter, config);
+    validatePlanShape(doc, body, parsedFrontmatter, config, bodyLineOffset);
     validateDocShape(doc, body, parsedFrontmatter, config);
   }
   return doc;

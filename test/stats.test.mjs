@@ -323,6 +323,23 @@ describe('renderStatsJson', () => {
 });
 
 describe('stats CLI', () => {
+  it('reports partial checklist work as open rather than fully complete', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-stats-'));
+    mkdirSync(path.join(tmpDir, '.git'));
+    mkdirSync(path.join(tmpDir, 'docs'));
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';`);
+    const header = `---\ntype: plan\nstatus: active\nupdated: ${new Date().toISOString()}\n---\n`;
+    writeFileSync(path.join(tmpDir, 'docs', 'partial.md'), header + '# Partial\n- [x] Done\n- [~] Partial\n');
+    writeFileSync(path.join(tmpDir, 'docs', 'complete.md'), header + '# Complete\n- [x] Done\n');
+    const result = run(['stats', '--json']);
+    strictEqual(result.status, 0, result.stderr);
+    const stats = JSON.parse(result.stdout);
+    strictEqual(stats.checklists.docsWithChecklists, 2);
+    strictEqual(stats.checklists.fullyComplete, 1);
+    strictEqual(stats.checklists.withOpenItems, 1);
+    strictEqual(stats.checklists.avgCompletion, 75);
+  });
+
   it('shows text dashboard', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-stats-'));
     mkdirSync(path.join(tmpDir, '.git'));
