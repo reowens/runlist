@@ -550,6 +550,131 @@ describe('runlist baton', () => {
     ok(!existsSync(path.join(docsDir, 'prompts', 'resume-resume-checkout-fixes.md')));
   });
 
+  it('--subagent saves a child slug once and reports the actual name', () => {
+    const r = run(['baton', '--subagent', 'subagent-totals-review', '--message', 'continue review', '--json']);
+    strictEqual(r.status, 0, r.stderr);
+    const result = JSON.parse(r.stdout);
+    strictEqual(result.savedPrompt, 'subagent-totals-review');
+    strictEqual(result.prompt, 'docs/prompts/subagent-totals-review.md');
+    match(readFileSync(path.join(tmpDir, result.prompt), 'utf8'), /continue review/);
+    ok(!existsSync(path.join(docsDir, 'prompts', 'subagent-subagent-totals-review.md')));
+  });
+
+  it('--subagent normalizes the saved name before reporting or checking prefixes', () => {
+    const r = run(['baton', '--subagent', 'Subagent-Totals_Review', '--message', 'continue', '--json']);
+    strictEqual(r.status, 0, r.stderr);
+    const result = JSON.parse(r.stdout);
+    strictEqual(result.savedPrompt, 'subagent-totals-review');
+    ok(existsSync(path.join(tmpDir, result.prompt)));
+    strictEqual(path.basename(result.prompt, '.md'), result.savedPrompt);
+  });
+
+  it('--subagent previews plan and slug names without releasing or writing', () => {
+    const plan = writePlan('child-preview');
+    const before = readFileSync(plan, 'utf8');
+    for (const target of [plan, 'child-task']) {
+      const r = run(['baton', '--subagent', target, '--message', 'continue', '--dry-run', '--json']);
+      strictEqual(r.status, 0, r.stderr);
+      const result = JSON.parse(r.stdout);
+      strictEqual(result.savedPrompt, target === plan ? 'subagent-child-preview' : 'subagent-child-task');
+      strictEqual(result.dryRun, true);
+      ok(!existsSync(path.join(tmpDir, result.prompt)));
+    }
+    strictEqual(readFileSync(plan, 'utf8'), before);
+    ok(!existsSync(path.join(tmpDir, '.runlist', 'handoffs')));
+  });
+
+  it('rejects contradictory and nested prefixes before writing', () => {
+    for (const [slug, flags] of [
+      ['subagent-task', []], ['resume-task', ['--subagent']],
+      ['Subagent-task', []], ['Resume-task', ['--subagent']],
+      ['resume-resume-task', []], ['subagent-subagent-task', ['--subagent']],
+      ['resume-subagent-task', []], ['subagent-resume-task', ['--subagent']],
+    ]) {
+      const r = run(['baton', slug, ...flags, '--message', 'continue']);
+      ok(r.status !== 0, slug);
+      match(r.stderr, /Nothing saved:/);
+    }
+    ok(!existsSync(path.join(docsDir, 'prompts', 'resume-subagent-task.md')));
+    ok(!existsSync(path.join(docsDir, 'prompts', 'subagent-resume-task.md')));
+    const plan = writePlan('resume-conflict');
+    const before = readFileSync(plan, 'utf8');
+    ok(run(['baton', '--subagent', plan, '--message', 'continue']).status !== 0);
+    strictEqual(readFileSync(plan, 'utf8'), before);
+  });
+
+  it('--subagent respects a parent claim and task slugs leave it owned', () => {
+    const plan = writePlan('parent-work', { status: 'active' });
+    strictEqual(run(['use', plan], { sid: 'parent' }).status, 0);
+    const before = readFileSync(plan, 'utf8');
+    const denied = run(['baton', '--subagent', plan, '--message', 'continue'], { sid: 'child' });
+    ok(denied.status !== 0);
+    ok(!existsSync(path.join(docsDir, 'prompts', 'subagent-parent-work.md')));
+    const child = run(['baton', '--subagent', 'review-task', '--message', 'continue'], { sid: 'child' });
+    strictEqual(child.status, 0, child.stderr);
+    match(child.stderr, /subagent-review-task/);
+    strictEqual(readFileSync(plan, 'utf8'), before);
+    const owner = run(['baton', '--message', 'continue parent'], { sid: 'parent' });
+    strictEqual(owner.status, 0, owner.stderr);
+    ok(existsSync(path.join(docsDir, 'prompts', 'resume-parent-work.md')));
+  });
+
+  it('--subagent releases its owned plan and blocks another prefix for that plan', () => {
+    const plan = writePlan('child-owned', { status: 'active' });
+    writeFileSync(plan, readFileSync(plan, 'utf8').replace('title:', 'next_step: Finish child review\ntitle:'));
+    strictEqual(run(['use', plan], { sid: 'child' }).status, 0);
+    const r = run(['baton', '--subagent', '--message', 'continue child', '--json'], { sid: 'child' });
+    strictEqual(r.status, 0, r.stderr);
+    const result = JSON.parse(r.stdout);
+    strictEqual(result.savedPrompt, 'subagent-child-owned');
+    strictEqual(result.claimRelease.released, true);
+    const pending = JSON.parse(readFileSync(path.join(tmpDir, '.runlist', 'handoffs', 'child-owned.json'), 'utf8'));
+    strictEqual(pending.name, result.savedPrompt);
+    strictEqual(pending.prompt, result.prompt);
+    match(readFileSync(plan, 'utf8'), /^status: active$/m);
+    const duplicate = run(['baton', plan, '--message', 'parent attempt']);
+    ok(duplicate.status !== 0);
+    match(duplicate.stderr, /already pending/);
+    ok(!existsSync(path.join(docsDir, 'prompts', 'resume-child-owned.md')));
+  });
+
+  it('--subagent cannot replace a parent prompt but preserves a legacy alias', () => {
+    const plan = writePlan('replacement-work');
+    const parent = path.join(docsDir, 'prompts', 'resume-replacement-work.md');
+    const old = '---\ntype: prompt\nstatus: pending\nplan: ../plans/replacement-work.md\n---\nold notes\n';
+    writeFileSync(parent, old);
+    const before = readFileSync(plan, 'utf8');
+    for (const flags of [[], ['--replace'], ['--replace', '--dry-run']]) {
+      const r = run(['baton', '--subagent', plan, ...flags, '--message', 'new notes']);
+      ok(r.status !== 0);
+      match(r.stderr, flags.length ? /is a parent handoff/ : /already pending/);
+    }
+    strictEqual(readFileSync(parent, 'utf8'), old);
+    strictEqual(readFileSync(plan, 'utf8'), before);
+    ok(!existsSync(path.join(docsDir, 'prompts', 'archived')));
+    // A differently named legacy prompt linked to another plan keeps its identity.
+    const legacyPlan = writePlan('legacy-work');
+    const legacy = path.join(docsDir, 'prompts', 'old-review.md');
+    writeFileSync(legacy, old.replace('replacement-work.md', 'legacy-work.md'));
+    const replaced = run(['baton', '--subagent', legacyPlan, '--replace', '--message', 'new notes', '--json']);
+    strictEqual(replaced.status, 0, replaced.stderr);
+    strictEqual(JSON.parse(replaced.stdout).savedPrompt, 'old-review');
+    match(readFileSync(legacy, 'utf8'), /new notes/);
+    ok(existsSync(path.join(docsDir, 'prompts', 'archived', 'old-review.md')));
+    ok(!existsSync(path.join(docsDir, 'prompts', 'subagent-legacy-work.md')));
+  });
+
+  it('competing parent and child plan batons publish only one pending handoff', async () => {
+    const plan = writePlan('competing-work', { status: 'active' });
+    const results = await Promise.all([
+      runAsync(['baton', plan, '--message', 'parent draft']),
+      runAsync(['baton', '--subagent', plan, '--message', 'child draft']),
+    ]);
+    strictEqual(results.filter(r => r.status === 0).length, 1, JSON.stringify(results));
+    const prompts = ['resume-competing-work.md', 'subagent-competing-work.md'];
+    strictEqual(prompts.filter(name => existsSync(path.join(docsDir, 'prompts', name))).length, 1);
+  });
+
   it('slug mode: --status and --note are ignored with a warning, not an error', () => {
     const r = run(['baton', 'side-quest', '--status', 'paused', '--note', 'irrelevant', '--message', 'x']);
     strictEqual(r.status, 0, r.stderr);

@@ -1349,6 +1349,7 @@ Options:
   --note "why"           Append the reason to ## Version History (plan mode only)
   --message / --body     Inline body (one-liners; prefer @path or stdin)
   --force                Recover another session's plan (explicit path required)
+  --subagent             Save subagent-<name> instead of the parent default resume-<name>
   --replace              Replace exactly one pending handoff; archive its prior text
   --done                 Report a plan handoff done once next_step changed after the prompt was saved
   --json                 Structured repository/session/generated file result
@@ -1363,6 +1364,7 @@ The function returns argv; baton shell-quotes each argument before printing.
 Examples:
   runlist baton @/tmp/draft.md
   runlist baton checkout-fixes @/tmp/draft.md
+  runlist baton --subagent totals-review @/tmp/draft.md
   runlist baton docs/plans/auth.md @/tmp/draft.md
   runlist baton docs/plans/auth.md @/tmp/new-draft.md --replace
   runlist baton --status paused --note "blocked on review" @/tmp/d.md
@@ -1388,7 +1390,14 @@ cooperating transaction:
   grant ownership. A live pickup-hook delivery lease blocks release and force
   takeover; hooks are at-least-once and deduplicate the stable operationId.
 
-Slug mode (no plan involved) saves resume-<slug> without a status change or
+Use --subagent for a delegated agent handoff, named subagent-<plan-slug> or
+subagent-<slug>. Under a parent-owned plan, pass a task-specific slug rather
+than releasing the parent plan. A child owning its own plan can hand it off.
+Matching prefixes are kept once; conflicting or nested prefixes are refused.
+Existing prompts keep their names. --subagent --replace refuses a parent-named
+handoff rather than reclassifying it.
+
+Slug mode (no plan involved) saves resume-<slug> by default without a status change or
 commit. A bare word that names a plan is treated as that plan.
 
 Baton saves nothing while a handoff for the same work is pending (resume-<name>,

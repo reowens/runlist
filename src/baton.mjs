@@ -3,7 +3,7 @@ import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { asString, toRepoPath, die, warn, isArchivedPath, resolveRefPath, nowIso } from './util.mjs';
 import { buildIndex, resolveDocArg } from './index.mjs';
-import { preparePromptDocument, runNew, readBodyInput, readPipedBodyInput } from './new.mjs';
+import { preparePromptDocument, runNew, readBodyInput, readPipedBodyInput, slugify } from './new.mjs';
 import { ensurePlanCompletionBeforeRelease, planHasPendingCompletion, renderLifecycleMutation, runSet } from './lifecycle.mjs';
 import { green, dim, yellow } from './color.mjs';
 import { handoffNotDoneLine, recordPendingHandoff, runBatonDone } from './handoff-record.mjs';
@@ -123,6 +123,7 @@ export async function runBaton(argv, config, opts = {}) {
   let force = false;
   let replace = false;
   let done = false;
+  let subagent = false;
   const positionals = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -132,6 +133,7 @@ export async function runBaton(argv, config, opts = {}) {
     if (a === '--force') { force = true; continue; }
     if (a === '--replace') { replace = true; continue; }
     if (a === '--done') { done = true; continue; }
+    if (a === '--subagent') { subagent = true; continue; }
     if (a === '--json') continue;
     if (!a.startsWith('-') || a === '-' || a.startsWith('@')) { positionals.push(a); continue; }
     die(`Unknown flag for \`runlist baton\`: ${a}`);
@@ -199,12 +201,30 @@ export async function runBaton(argv, config, opts = {}) {
     }
   }
 
-  const nameBase = planPath ? path.basename(planPath, '.md') : promptSlug;
-  const slugBase = nameBase.startsWith('resume-') ? nameBase : `resume-${nameBase}`;
+  const nameBase = slugify(planPath ? path.basename(planPath, '.md') : promptSlug);
+  const handoffPrefix = subagent ? 'subagent-' : 'resume-';
+  const recognizedPrefix = /^(resume-|subagent-)/.exec(nameBase)?.[0];
+  if (recognizedPrefix && recognizedPrefix !== handoffPrefix) {
+    die(`Nothing saved: ${nameBase} conflicts with ${subagent ? '--subagent' : 'the parent handoff default'}. Use an unprefixed name or ${handoffPrefix}<name>${subagent ? ', or omit --subagent for a parent handoff' : ', or pass --subagent for a child handoff'}.`);
+  }
+  const unprefixed = recognizedPrefix ? nameBase.slice(handoffPrefix.length) : nameBase;
+  if (!unprefixed || /^(resume-|subagent-)/.test(unprefixed)) {
+    die('Nothing saved: use a nonempty handoff name with at most one resume- or subagent- prefix.');
+  }
+  const slugBase = `${handoffPrefix}${unprefixed}`;
   let replacement = null;
+  let alternatePromptPath = null;
   const resolvePending = () => {
     const target = preparePromptDocument(slugBase, body, config, { dryRun: true });
     const pending = pendingHandoffs(target.filePath, planPath, config);
+    if (planPath) {
+      const alternateSlug = `${subagent ? 'resume-' : 'subagent-'}${unprefixed}`;
+      alternatePromptPath = preparePromptDocument(alternateSlug, body, config, { dryRun: true }).filePath;
+      if (existsSync(alternatePromptPath)) {
+        const alternate = toRepoPath(alternatePromptPath, config.repoRoot);
+        if (!pending.includes(alternate)) pending.push(alternate);
+      }
+    }
     if (!replace) {
       if (pending.length) refusePendingHandoff(pending);
       return;
@@ -214,6 +234,9 @@ export async function runBaton(argv, config, opts = {}) {
       die(`Nothing replaced: --replace requires exactly one pending handoff. ${detail}`);
     }
     const oldRepoPath = pending[0];
+    if (subagent && /^resume-/i.test(path.basename(oldRepoPath))) {
+      die(`Nothing replaced: ${oldRepoPath} is a parent handoff. Inspect it with \`runlist prompts show ${path.basename(oldRepoPath, '.md')}\`; use a separate task slug for the child handoff, or omit --subagent to refresh the parent handoff.`);
+    }
     const oldPath = authorizeManagedSource(path.resolve(config.repoRoot, oldRepoPath), config, { kind: 'Baton replacement source' }).path;
     const oldRaw = readFileSync(oldPath, 'utf8');
     const { frontmatter, body: oldBody } = extractFrontmatter(oldRaw);
@@ -344,8 +367,8 @@ export async function runBaton(argv, config, opts = {}) {
         throw err;
       }
     }
-    createdSlug = promptName;
     promptRepoPath = replacement?.oldRepoPath ?? prepared.repoPath;
+    createdSlug = path.basename(promptRepoPath, '.md');
   } else {
     const promptName = replacement ? path.basename(replacement.oldPath, '.md') : slugBase;
     const prepared = preparePromptDocument(promptName, body, config, { plan: repoPath, dryRun });
@@ -361,15 +384,18 @@ export async function runBaton(argv, config, opts = {}) {
         testHooks: opts.testHooks,
         additionalUpdates: dryRun ? [] : mutation.updates,
         creations: dryRun ? [] : replacement ? mutation.creations : [{ path: prepared.filePath, content: prepared.content }],
-        guards: dryRun ? [] : [...mutation.guards, ...(planGuard ? [planGuard] : [])],
+        guards: dryRun ? [] : [
+          ...mutation.guards, ...(planGuard ? [planGuard] : []),
+          ...(!replacement && alternatePromptPath ? [{ path: alternatePromptPath, absent: true }] : []),
+        ],
         deferIndex: true,
       });
     } catch (err) {
       if (/Destination already exists|File already exists/.test(String(err?.message))) refusePendingHandoff([prepared.repoPath]);
       throw err;
     }
-    createdSlug = prepared.slug;
     promptRepoPath = replacement?.oldRepoPath ?? prepared.repoPath;
+    createdSlug = path.basename(promptRepoPath, '.md');
     statusChanged = oldStatus !== status;
     if (!dryRun && !replacement) {
       try { config.hooks.onNew?.({ path: prepared.repoPath, status: 'pending', title: prepared.slug, type: 'prompt' }); }
