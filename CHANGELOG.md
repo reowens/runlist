@@ -2,15 +2,16 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
-## 0.95.3 — 2026-10-18
+## Unreleased
+
+### Fixed
 
 - Honor lint file allowlists in reports and fixes; prepare all transformations before atomic publication with claim and content guards.
-
 - Honor explicit doctor frontmatter-repair paths and publish prepared repairs atomically with source and claim guards.
-
 - Exclude dated execution, acceptance and attempt receipts from delivery-phase counts.
-
 - Preserve outer filing categories through nested hub indexes and cycles without promoting local track labels to competing homes.
+
+## 0.95.3 — 2026-10-18
 
 ### Fixed
 
