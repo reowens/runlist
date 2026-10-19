@@ -12,6 +12,7 @@ import {startApp} from '../src/app.mjs';
 import {commitStore} from '../src/git-commit-store.mjs';
 import {inspectProtocol,verifyCommit,snapshot,plainIndex} from '../src/git-commit-protocol.mjs';
 import {commitPlatformQualified,commitVersionQualified,localCommitSupport} from '../src/git-commit-support.mjs';
+import {inspectGitCommitToolchain,gitCommitToolchainRequirement} from '../scripts/check-git-commit-toolchain.mjs';
 const roots=[],oldHome=process.env.HOME;let home;
 before(()=>{home=mkdtempSync(path.join(os.tmpdir(),'runlist-git-home-'));process.env.HOME=home;});
 after(()=>{if(oldHome===undefined)delete process.env.HOME;else process.env.HOME=oldHome;rmSync(home,{recursive:true,force:true});});
@@ -22,32 +23,42 @@ async function fixture(){const root=mkdtempSync(path.join(os.tmpdir(),'runlist-c
 async function settled(f,id){for(let i=0;i<1600;i++){const r=await f.call('git/operation?id='+id);if(!r.running)return r;await delay(25);}assert.fail('job did not settle '+JSON.stringify(await f.call('git/operation?id='+id)));}
 async function review(f,paths=['docs/a.md'],message='Review documents'){const id=randomUUID();const start=await f.call('git/commit/preview',{operationId:id,paths,message});assert.equal(start.running,true);return settled(f,id);}
 async function commit(f,r){await f.call('git/commit/start',{operationId:r.operationId});return settled(f,r.operationId);}
-const supported=commitPlatformQualified();
-test('guarded local commit reviews the exact tree, preserves unrelated staging and cannot double-commit',{skip:!supported},async()=>{
+const platformQualified=commitPlatformQualified();
+const toolchain=inspectGitCommitToolchain();
+const supported=toolchain.qualified;
+const qualificationRequired=platformQualified||process.env.RUNLIST_REQUIRE_GIT_COMMIT_QUALIFICATION==='1';
+const integrationSkip=supported?false:platformQualified?'guarded Git integration prerequisite failed; select a qualified Git toolchain':'guarded local commits are not qualified on this platform/architecture';
+// Platform-qualified hosts must exercise the integration cases. Unsupported Git
+// produces one prerequisite failure, never a passing run with silent skips.
+test('guarded Git integration toolchain prerequisite',{skip:qualificationRequired?false:'qualification is not available on this platform/architecture'},t=>{
+ t.diagnostic(toolchain.diagnostic);
+ assert.ok(supported,`${gitCommitToolchainRequirement} ${toolchain.diagnostic}`);
+});
+test('guarded local commit reviews the exact tree, preserves unrelated staging and cannot double-commit',{skip:integrationSkip},async()=>{
  const f=await fixture();f.write('docs/a.md',doc('changed'));f.write('code.js','staged\n');git(f.root,'add','code.js');f.write('code.js','unstaged later\n');const index=readFileSync(path.join(f.root,'.git/index')),head=git(f.root,'rev-parse','HEAD'),r=await review(f);
  assert.equal(r.state,'reviewed',JSON.stringify(r));assert.equal(r.canCommit,true);assert.match(r.review[0].after,/# changed/);assert.deepEqual(readFileSync(path.join(f.root,'.git/index')),index);assert.equal(git(f.root,'rev-parse','HEAD'),head);
  await Promise.all([f.call('git/commit/start',{operationId:r.operationId}),f.call('git/commit/start',{operationId:r.operationId})]);const out=await settled(f,r.operationId);assert.equal(out.state,'committed',JSON.stringify(out));assert.equal(out.indexReady,true);assert.equal(git(f.root,'rev-parse','HEAD'),out.commitId);assert.equal(git(f.root,'show','HEAD:code.js'),'original');assert.equal(git(f.root,'show',':code.js'),'staged');assert.equal(readFileSync(path.join(f.root,'code.js'),'utf8'),'unstaged later\n');assert.equal(git(f.root,'show','-s','--format=%B','HEAD'),'Review documents');
  const retry=await f.call('git/commit/start',{operationId:r.operationId});assert.equal(retry.commitId,out.commitId);assert.equal(git(f.root,'rev-list','--count','HEAD'),'2');
 });
-test('whole new/deleted/renamed files and literal filenames stay path limited',{skip:!supported},async()=>{
+test('whole new/deleted/renamed files and literal filenames stay path limited',{skip:integrationSkip},async()=>{
  const f=await fixture();unlinkSync(path.join(f.root,'docs/delete.md'));git(f.root,'mv','docs/rename.md','docs/moved.md');const names=['docs/new.md','docs/:(glob)*.md','docs/[a].md','docs/日本語\nline.md'];for(const name of names)f.write(name,doc(name));f.write('docs/decoy.md',doc('not selected'));const before=git(f.root,'rev-parse','HEAD');const r=await review(f,['docs/delete.md','docs/moved.md',...names]);assert.equal(r.state,'reviewed',JSON.stringify(r));assert.ok(r.paths.includes('docs/rename.md'));const out=await commit(f,r);assert.equal(out.state,'committed',JSON.stringify(out));const changed=git(f.root,'diff-tree','--no-commit-id','--name-only','-r','-z',before,out.commitId).split('\0');for(const name of [...names,'docs/delete.md','docs/rename.md','docs/moved.md'])assert.ok(changed.includes(name),name);assert.ok(!changed.includes('docs/decoy.md'));
 });
-test('source, effective included config, nested attrs and real index changes invalidate a reviewed commit',{skip:!supported},async()=>{
+test('source, effective included config, nested attrs and real index changes invalidate a reviewed commit',{skip:integrationSkip},async()=>{
  for(const seam of ['source','include','attrs','index']){const f=await fixture();f.write('docs/a.md',doc('changed'));if(seam==='include'){f.write('.git/extra-config','[user]\n name = Fixture\n');git(f.root,'config','include.path','extra-config');}const r=await review(f);assert.equal(r.state,'reviewed',JSON.stringify(r));const head=git(f.root,'rev-parse','HEAD');if(seam==='source')f.write('docs/a.md',doc('later'));if(seam==='include')f.write('.git/extra-config','[user]\n name = Later\n');if(seam==='attrs')f.write('docs/.gitattributes','*.md text eol=lf\n');if(seam==='index'){f.write('code.js','foreign index\n');git(f.root,'add','code.js');}const index=readFileSync(path.join(f.root,'.git/index')),out=await commit(f,r);assert.equal(out.state,'not-committed',JSON.stringify(out));assert.equal(out.failure.code,'git-review-changed');assert.equal(git(f.root,'rev-parse','HEAD'),head);assert.deepEqual(readFileSync(path.join(f.root,'.git/index')),index);}
 });
-test('unsupported signing/filter/index requirements refuse before execution without bypassing them',{skip:!supported},async()=>{
+test('unsupported signing/filter/index requirements refuse before execution without bypassing them',{skip:integrationSkip},async()=>{
  for(const kind of ['signing','filter','split-index','assume']){const f=await fixture();f.write('docs/a.md',doc('changed'));if(kind==='hook'){f.write('.git/hooks/pre-commit','#!/bin/sh\ntouch SHOULD_NOT_RUN\n');chmodSync(path.join(f.root,'.git/hooks/pre-commit'),0o755);}if(kind==='signing'){git(f.root,'config','commit.gpgSign','true');git(f.root,'config','gpg.program','definitely-no-signer');}if(kind==='filter'){git(f.root,'config','filter.trap.clean','touch SHOULD_NOT_RUN; cat');f.write('.gitattributes','*.md filter=trap\n');}if(kind==='split-index')git(f.root,'update-index','--split-index');if(kind==='assume')git(f.root,'update-index','--assume-unchanged','code.js');const head=git(f.root,'rev-parse','HEAD'),index=readFileSync(path.join(f.root,'.git/index'));let r;try{r=await review(f);}catch(error){assert.ok(kind==='filter');assert.match(error.code,/filter/);}if(r)assert.equal(r.state,'failed',JSON.stringify(r));assert.equal(git(f.root,'rev-parse','HEAD'),head);assert.deepEqual(readFileSync(path.join(f.root,'.git/index')),index);assert.equal(existsSync(path.join(f.root,'SHOULD_NOT_RUN')),false);}
 });
-test('partial staging, ignored/private files and forged actor/root authority are rejected',{skip:!supported},async()=>{
+test('partial staging, ignored/private files and forged actor/root authority are rejected',{skip:integrationSkip},async()=>{
  const f=await fixture();f.write('docs/a.md',doc('staged'));git(f.root,'add','docs/a.md');f.write('docs/a.md',doc('later'));await assert.rejects(f.call('git/commit/preview',{operationId:randomUUID(),paths:['docs/a.md'],message:'partial'}),e=>/partial/.test(e.message));
  for(const name of ['docs/local.md','docs/prompt.md']){f.write(name,name.includes('prompt')?'---\ntype: prompt\n---\nsecret\n':doc('local'));await assert.rejects(review(f,[name]),e=>['git-review-changed','forbidden'].includes(e.code));}
  await assert.rejects(f.call('git/commit/start',{operationId:randomUUID(),repoRoot:'/tmp'}),{code:'forbidden'});const foreign=createCheckoutService({config:f.config,actor:f.actor,authenticate:()=>({kind:'agent',id:f.actor.id})});await assert.rejects(foreign.request({method:'POST'},'/api/git/commit/preview',{operationId:randomUUID(),paths:['docs/a.md'],message:'forged'}),{code:'forbidden'});
 });
-test('EOL-normalized Git blobs are the reviewed content, linked worktree indexes stay isolated',{skip:!supported},async()=>{
+test('EOL-normalized Git blobs are the reviewed content, linked worktree indexes stay isolated',{skip:integrationSkip},async()=>{
  const f=await fixture();f.write('.gitattributes','*.md text eol=lf\n');f.write('docs/a.md',doc('CRLF').replaceAll('\n','\r\n'));const r=await review(f);assert.equal(r.state,'reviewed',JSON.stringify(r));assert.ok(!r.review[0].after.includes('\r'));assert.equal((await commit(f,r)).state,'committed');
  const mainIndex=readFileSync(path.join(f.root,'.git/index')),mainHead=git(f.root,'rev-parse','HEAD'),work=f.root+'-linked';roots.push(work);git(f.root,'worktree','add','-qb','docs-work',work);writeFileSync(path.join(work,'docs/a.md'),doc('Worktree'));const service=createCheckoutService({config:await resolveConfig(work),actor:f.actor}),linked={root:work,call:(route,body)=>service.request({method:body===undefined?'GET':'POST'},'/api/'+route,body)},lr=await review(linked);assert.equal(lr.state,'reviewed',JSON.stringify(lr));const out=await commit(linked,lr);assert.equal(out.state,'committed',JSON.stringify(out));assert.equal(git(f.root,'rev-parse','HEAD'),mainHead);assert.deepEqual(readFileSync(path.join(f.root,'.git/index')),mainIndex);
 });
-test('disk receipts remain human/checkout-bound and recovery never repeats uncertain commits',{skip:!supported},async()=>{
+test('disk receipts remain human/checkout-bound and recovery never repeats uncertain commits',{skip:integrationSkip},async()=>{
  const f=await fixture();f.write('docs/a.md',doc('changed'));const r=await review(f),out=await commit(f,r);assert.equal(out.state,'committed',JSON.stringify(out));const store=commitStore(f.root,f.actor),retained=store.read(r.operationId);assert.throws(()=>commitStore(f.root,{kind:'human',id:'foreign'}).read(r.operationId),{code:'forbidden'});
  // Model loss of the committed callback plus an external reset, using the
  // actual reviewed commit object. Old HEAD alone never proves no publication.
@@ -67,16 +78,16 @@ function faultShim(f,fault){
  writeFileSync(setup,`import {readFileSync,writeFileSync} from 'node:fs';import path from 'node:path';const arg=process.argv.find(x=>x.startsWith('core.hooksPath='));if(arg){const dir=arg.slice('core.hooksPath='.length),r=JSON.parse(readFileSync(path.join(path.dirname(dir),'receipt.json')));for(const kind of ['pre-commit','prepare-commit-msg','commit-msg','reference-transaction','post-commit','post-index-change'])writeFileSync(path.join(dir,kind),'#!/bin/sh\\nexec '+${JSON.stringify(quote(process.execPath)+' '+quote(driver))}+' '+${JSON.stringify(quote(f.root))}+' '+${JSON.stringify(quote(f.actor.id))}+' '+${JSON.stringify('')}+'\\''+r.id+'\\' '+kind+' "$@"\\n',{mode:0o700});}\n`);
  writeFileSync(path.join(bin,'git'),'#!/bin/sh\nfor arg in "$@"; do if [ "$arg" = commit ]; then '+quote(process.execPath)+' '+quote(setup)+' "$@"; break; fi; done\nexec '+quote(actual)+' "$@"\n',{mode:0o700});return bin;
 }
-test('production guards reject a late actual-message/source mutation without changing refs',{skip:!supported},async()=>{
+test('production guards reject a late actual-message/source mutation without changing refs',{skip:integrationSkip},async()=>{
  for(const fault of ['message-mutation','source-mutation']){const f=await fixture();f.write('docs/a.md',doc('changed'));const r=await review(f);assert.equal(r.state,'reviewed',JSON.stringify(r));const oldPath=process.env.PATH,bin=faultShim(f,fault),head=git(f.root,'rev-parse','HEAD'),index=readFileSync(path.join(f.root,'.git/index'));try{process.env.PATH=bin+path.delimiter+oldPath;const out=await commit(f,r);assert.equal(out.state,'not-committed',JSON.stringify(out));assert.equal(git(f.root,'rev-parse','HEAD'),head);assert.deepEqual(readFileSync(path.join(f.root,'.git/index')),index);assert.ok(existsSync(path.join(f.root,'fault-seen')));if(fault==='source-mutation')assert.equal(readFileSync(path.join(f.root,'docs/a.md'),'utf8'),'late source\n');}finally{process.env.PATH=oldPath;}}
 });
-test('symbolic HEAD compatibility still rejects unchecked branch and extra ref transactions',{skip:!supported},async()=>{
+test('symbolic HEAD compatibility still rejects unchecked branch and extra ref transactions',{skip:integrationSkip},async()=>{
  for(const fault of ['ref-zero-branch','ref-missing-branch','ref-duplicate-branch','ref-extra','ref-wrong-head']){
   const f=await fixture();f.write('docs/a.md',doc('changed'));const r=await review(f);assert.equal(r.state,'reviewed',JSON.stringify(r));const oldPath=process.env.PATH,bin=faultShim(f,fault),head=git(f.root,'rev-parse','HEAD'),index=readFileSync(path.join(f.root,'.git/index'));
   try{process.env.PATH=bin+path.delimiter+oldPath;const out=await commit(f,r);assert.equal(out.state,'not-committed',JSON.stringify(out));assert.equal(readFileSync(path.join(f.root,'ref-fault-seen'),'utf8'),fault);assert.equal(git(f.root,'rev-parse','HEAD'),head);assert.deepEqual(readFileSync(path.join(f.root,'.git/index')),index);assert.equal(git(f.root,'rev-list','--count','HEAD'),'1');}finally{process.env.PATH=oldPath;}
  }
 });
-test('process-group interruption preserves early unverified locks and recovers only proven owned generations',{skip:!supported},async()=>{
+test('process-group interruption preserves early unverified locks and recovers only proven owned generations',{skip:integrationSkip},async()=>{
  for(const fault of ['kill-early','kill-owned','kill-prepared','kill-committed','index-publication-failure']){const f=await fixture();f.write('docs/new.md',doc('new'));const r=await review(f,['docs/new.md']);assert.equal(r.state,'reviewed',JSON.stringify(r));const head=git(f.root,'rev-parse','HEAD'),before=readFileSync(path.join(f.root,'.git/index')),oldPath=process.env.PATH,bin=faultShim(f,fault);try{process.env.PATH=bin+path.delimiter+oldPath;await f.call('git/commit/start',{operationId:r.operationId});await settled(f,r.operationId);await f.call('git/operation/inspect',{operationId:r.operationId});const observed=await settled(f,r.operationId);await f.call('git/operation/recover',{operationId:r.operationId});const recovered=await settled(f,r.operationId);
  if(fault==='kill-early'){assert.equal(recovered.state,'not-committed',JSON.stringify(recovered));assert.equal(recovered.recovery,'foreign-or-unverified-lock-preserved');assert.ok(existsSync(path.join(f.root,'.git/index.lock')));assert.equal(git(f.root,'rev-parse','HEAD'),head);}
  if(fault==='kill-owned'){assert.equal(recovered.state,'not-committed',JSON.stringify(recovered));assert.equal(recovered.recovery,'preparation-restored');assert.deepEqual(readFileSync(path.join(f.root,'.git/index')),before);assert.equal(existsSync(path.join(f.root,'.git/index.lock')),false);}
@@ -86,7 +97,7 @@ test('process-group interruption preserves early unverified locks and recovers o
 });
 
 
-test('browser local commit jobs keep authentication, origin and checkout authority checks',{skip:!supported},async()=>{
+test('browser local commit jobs keep authentication, origin and checkout authority checks',{skip:integrationSkip},async()=>{
  const f=await fixture();f.write('docs/a.md',doc('browser'));const app=await startApp({config:f.config,actor:f.actor,port:0});
  try{const token=new URLSearchParams(new URL(app.launchUrl).hash.slice(1)).get('connect'),session=await fetch(app.origin+'/api/session',{method:'POST',headers:{Origin:app.origin,'Content-Type':'application/json'},body:JSON.stringify({token})}),cookie=session.headers.get('set-cookie').split(';')[0],csrf=(await session.json()).csrf,headers={Origin:app.origin,Cookie:cookie,'Content-Type':'application/json','X-Runlist-CSRF':csrf},request={operationId:randomUUID(),paths:['docs/a.md'],message:'Browser review'};
  assert.equal((await fetch(app.origin+'/api/git/commit/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(request)})).status,401);assert.equal((await fetch(app.origin+'/api/git/commit/preview',{method:'POST',headers:{...headers,Origin:'https://foreign.invalid'},body:JSON.stringify(request)})).status,403);
@@ -96,7 +107,7 @@ test('browser local commit jobs keep authentication, origin and checkout authori
  }finally{await app.close();}
 });
 
-test('uncertain outcomes require fresh inspected ref/index evidence and explicit human acknowledgement',{skip:!supported},async()=>{
+test('uncertain outcomes require fresh inspected ref/index evidence and explicit human acknowledgement',{skip:integrationSkip},async()=>{
  const f=await fixture();f.write('docs/a.md',doc('changed'));const r=await review(f),out=await commit(f,r);assert.equal(out.state,'committed',JSON.stringify(out));const store=commitStore(f.root,f.actor),retained=store.read(r.operationId);
  git(f.root,'update-ref','refs/heads/main',retained.head);store.update(r.operationId,d=>{delete d.commit;d.state='ref-prepared';});await f.call('git/operation/inspect',{operationId:r.operationId});const observed=await settled(f,r.operationId);assert.equal(observed.state,'uncertain-ref-publication');assert.equal(observed.canSettle,true);
  await assert.rejects(f.call('git/operation/settle',{operationId:r.operationId,expectedRef:observed.observedRef,expectedIndexRevision:'0'.repeat(64),note:'inspected'}),{code:'invalid-request'});
@@ -104,19 +115,19 @@ test('uncertain outcomes require fresh inspected ref/index evidence and explicit
  // Corrupt receipt generations never become an executable request.
  const file=store.location(r.operationId),bytes=readFileSync(file,'utf8');writeFileSync(file,bytes.replace('uncertain-ref-publication','reviewed'));assert.throws(()=>store.read(r.operationId),{code:'git-state-corrupt'});
 });
-test('recovery preserves a foreign index or lock instead of overwriting them',{skip:!supported},async()=>{
+test('recovery preserves a foreign index or lock instead of overwriting them',{skip:integrationSkip},async()=>{
  const f=await fixture();f.write('docs/new.md',doc('new'));const r=await review(f,['docs/new.md']),out=await commit(f,r);assert.equal(out.state,'committed',JSON.stringify(out));const store=commitStore(f.root,f.actor),record=store.read(r.operationId),published=snapshot(path.join(f.root,'.git/index'));
  // Reproduce a retained post-ref publication receipt over a foreign index.
  writeFileSync(path.join(f.root,'.git/index'),Buffer.from(record.prepared.bytes,'base64'));f.write('code.js','foreign staged contents\n');git(f.root,'add','code.js');store.update(r.operationId,d=>{d.published=published;d.state='committed-index-recovery';});const foreign=readFileSync(path.join(f.root,'.git/index'));await f.call('git/operation/recover',{operationId:r.operationId});const recovered=await settled(f,r.operationId);assert.equal(recovered.state,'committed-index-recovery');assert.equal(recovered.recovery,'foreign-index-preserved');assert.deepEqual(readFileSync(path.join(f.root,'.git/index')),foreign);
  f.write('.git/index.lock','FOREIGN LOCK');await f.call('git/operation/recover',{operationId:r.operationId});const again=await settled(f,r.operationId);assert.equal(again.recovery,'foreign-or-unverified-lock-preserved');assert.equal(readFileSync(path.join(f.root,'.git/index.lock'),'utf8'),'FOREIGN LOCK');assert.equal(git(f.root,'rev-parse','HEAD'),out.commitId);
 });
 
-test('duplicate preview IDs inspect one job and cancellation never commits or stages',{skip:!supported},async()=>{
+test('duplicate preview IDs inspect one job and cancellation never commits or stages',{skip:integrationSkip},async()=>{
  const f=await fixture();f.write('docs/a.md',doc('changed'));const index=readFileSync(path.join(f.root,'.git/index')),head=git(f.root,'rev-parse','HEAD'),operationId=randomUUID(),request={operationId,paths:['docs/a.md'],message:'Cancel review'};
  const [a,b]=await Promise.all([f.call('git/commit/preview',request),f.call('git/commit/preview',request)]);assert.equal(a.operationId,b.operationId);await f.call('git/operation/cancel',{operationId});const done=await settled(f,operationId);assert.ok(['failed','reviewed'].includes(done.state),JSON.stringify(done));assert.deepEqual(readFileSync(path.join(f.root,'.git/index')),index);assert.equal(git(f.root,'rev-parse','HEAD'),head);await assert.rejects(f.call('git/commit/preview',{...request,message:'Different request'}),{code:'operation-reused'});
 });
 
-test('combined commit review is bounded before retaining the whole selection or touching staging',{skip:!supported},async()=>{
+test('combined commit review is bounded before retaining the whole selection or touching staging',{skip:integrationSkip},async()=>{
  const f=await fixture();f.write('docs/a.md',doc('large')+'x'.repeat(600000));f.write('docs/new.md',doc('large new')+'y'.repeat(600000));const head=git(f.root,'rev-parse','HEAD'),index=readFileSync(path.join(f.root,'.git/index')),r=await review(f,['docs/a.md','docs/new.md']);assert.equal(r.state,'failed',JSON.stringify(r));assert.equal(r.failure.code,'git-limit');assert.equal(r.canCommit,false);assert.equal(git(f.root,'rev-parse','HEAD'),head);assert.deepEqual(readFileSync(path.join(f.root,'.git/index')),index);
 });
 
@@ -138,7 +149,7 @@ test('local commit support explains refusals without widening the execution matr
   const support=localCommitSupport(version,platform,arch);assert.equal(support.available,false);assert.match(support.reason,/review and edit documents.*Git client/);
  }
 });
-test('worker refuses an unqualified Git version without changing HEAD or the real index',{skip:!supported},async()=>{
+test('worker refuses an unqualified Git version without changing HEAD or the real index',{skip:!platformQualified},async()=>{
  const f=await fixture();f.write('docs/a.md',doc('changed'));const head=git(f.root,'rev-parse','HEAD'),index=readFileSync(path.join(f.root,'.git/index')),oldPath=process.env.PATH,actual=spawnSync('/usr/bin/which',['git'],{encoding:'utf8'}).stdout.trim(),bin=path.join(f.root,'version-bin'),quote=x=>"'"+x.replaceAll("'","'\\''")+"'";
  mkdirSync(bin);writeFileSync(path.join(bin,'git'),'#!/bin/sh\nfor arg in "$@"; do if [ "$arg" = --version ]; then echo "git version 2.46.9"; exit 0; fi; done\nexec '+quote(actual)+' "$@"\n',{mode:0o700});
  try{process.env.PATH=bin+path.delimiter+oldPath;const status=await f.call('git/status');assert.equal(status.available,true);assert.equal(status.commitSupport.available,false);assert.match(status.commitSupport.reason,/Git version.*Git client/);assert.ok(status.changes.some(row=>row.path==='docs/a.md'));const r=await review(f);assert.equal(r.state,'failed',JSON.stringify(r));assert.equal(r.failure.code,'git-version-unqualified');assert.equal(r.canCommit,false);assert.equal(git(f.root,'rev-parse','HEAD'),head);assert.deepEqual(readFileSync(path.join(f.root,'.git/index')),index);}finally{process.env.PATH=oldPath;}
@@ -147,7 +158,7 @@ test('worker refuses an unqualified Git version without changing HEAD or the rea
 function hook(f,kind,body,dir='.git/hooks'){
  mkdirSync(path.join(f.root,dir),{recursive:true});f.write(dir+'/'+kind,'#!/bin/sh\n'+body+'\n');chmodSync(path.join(f.root,dir,kind),0o700);
 }
-test('configured hooks chain at their original paths with Git context, never during preview',{skip:!supported},async()=>{
+test('configured hooks chain at their original paths with Git context, never during preview',{skip:integrationSkip},async()=>{
  for(const location of ['default','relative','absolute']){
   const f=await fixture(),dir=location==='default'?'.git/hooks':'custom hooks';if(location!=='default')git(f.root,'config','core.hooksPath',location==='absolute'?path.join(f.root,dir):dir);
   for(const kind of ['pre-commit','prepare-commit-msg','commit-msg','reference-transaction','post-commit','post-index-change'])hook(f,kind,`printf '%s|%s|%s|%s|%s\\n' '${kind}' "$1" "$0" "$GIT_INDEX_FILE" "$(git config --get core.hooksPath)" >> hook-log`,dir);
@@ -156,16 +167,16 @@ test('configured hooks chain at their original paths with Git context, never dur
   const count=lines.length;await f.call('git/commit/start',{operationId:r.operationId});assert.equal(readFileSync(path.join(f.root,'hook-log'),'utf8').trim().split('\n').length,count);
  }
 });
-test('configured hook failures and mutations cannot publish unreviewed content',{skip:!supported},async()=>{
+test('configured hook failures and mutations cannot publish unreviewed content',{skip:integrationSkip},async()=>{
  for(const [kind,body] of [['pre-commit','exit 7'],['prepare-commit-msg','exit 8'],['commit-msg','printf changed > "$1"'],['pre-commit','printf changed > docs/a.md'],['pre-commit','git add code.js'],['reference-transaction','if [ "$1" = prepared ]; then exit 9; fi'],['reference-transaction','if [ "$1" = prepared ]; then for next in .git/next-index-*.lock; do GIT_INDEX_FILE="$next" git add code.js; done; fi'],['reference-transaction','if [ "$1" = prepared ]; then printf changed > docs/a.md; git add docs/a.md; fi']]){
   const f=await fixture();hook(f,kind,body);f.write('docs/a.md',doc('changed'));f.write('code.js','unreviewed code\n');const head=git(f.root,'rev-parse','HEAD'),index=readFileSync(path.join(f.root,'.git/index')),r=await review(f);assert.equal(r.state,'reviewed',JSON.stringify(r));const out=await commit(f,r);assert.equal(out.state,'not-committed',`${kind}: ${JSON.stringify(out)}`);assert.equal(git(f.root,'rev-parse','HEAD'),head);assert.deepEqual(readFileSync(path.join(f.root,'.git/index')),index);
  }
 });
-test('changed hook generations refuse and post-commit failures retain the known commit',{skip:!supported},async()=>{
+test('changed hook generations refuse and post-commit failures retain the known commit',{skip:integrationSkip},async()=>{
  const f=await fixture();hook(f,'pre-commit','exit 0');f.write('docs/a.md',doc('changed'));const r=await review(f);assert.equal(r.state,'reviewed');hook(f,'pre-commit','touch MUST_NOT_RUN');const out=await commit(f,r);assert.equal(out.state,'not-committed');assert.equal(out.failure.code,'git-review-changed');assert.equal(existsSync(path.join(f.root,'MUST_NOT_RUN')),false);
  const second=await fixture();hook(second,'post-commit','exit 7');second.write('docs/a.md',doc('changed'));const good=await review(second),done=await commit(second,good);assert.equal(done.state,'committed',JSON.stringify(done));assert.equal(done.indexReady,true);assert.equal(done.failure.code,'git-hook-rejected');assert.equal(git(second.root,'rev-list','--count','HEAD'),'2');assert.equal((await second.call('git/commit/start',{operationId:good.operationId})).commitId,done.commitId);
 });
-test('configured hook timeout stops its process group and preserves recoverable staging',{skip:!supported},async()=>{
+test('configured hook timeout stops its process group and preserves recoverable staging',{skip:integrationSkip},async()=>{
  const f=await fixture();hook(f,'pre-commit','sleep 20');f.write('docs/new.md',doc('new'));const head=git(f.root,'rev-parse','HEAD'),index=readFileSync(path.join(f.root,'.git/index')),r=await review(f,['docs/new.md']);assert.equal(r.state,'reviewed');await commit(f,r);await f.call('git/operation/recover',{operationId:r.operationId});const done=await settled(f,r.operationId);assert.equal(done.state,'not-committed',JSON.stringify(done));assert.equal(done.failure.code,'git-hook-timeout');assert.equal(done.recovery,'preparation-restored');assert.deepEqual(readFileSync(path.join(f.root,'.git/index')),index);assert.equal(git(f.root,'rev-parse','HEAD'),head);
 });
 
@@ -173,24 +184,24 @@ function command(executable,args,env=process.env){const q=spawnSync(executable,a
 function sshSigning(f,password=''){
  const key=path.join(f.root,'fixture-signing-key');command('/usr/bin/ssh-keygen',['-q','-t','ed25519','-N',password,'-f',key]);git(f.root,'config','commit.gpgSign','true');git(f.root,'config','gpg.format','ssh');git(f.root,'config','user.signingkey',key);return key;
 }
-test('local SSH signed commits preserve reviewed content, staging and recovery without agents',{skip:!supported},async()=>{
+test('local SSH signed commits preserve reviewed content, staging and recovery without agents',{skip:integrationSkip},async()=>{
  const f=await fixture(),key=sshSigning(f);hook(f,'pre-commit','exit 0');hook(f,'reference-transaction','cat > /dev/null');f.write('docs/a.md',doc('signed'));f.write('code.js','staged\n');git(f.root,'-c','core.hooksPath=/dev/null','add','code.js');f.write('code.js','unstaged later\n');const r=await review(f);assert.equal(r.state,'reviewed',JSON.stringify(r));assert.equal(r.execution.signing,'ssh');assert.ok(r.execution.hooks.includes('pre-commit'));const out=await commit(f,r);assert.equal(out.state,'committed',JSON.stringify(out));assert.equal(out.indexReady,true);assert.equal(git(f.root,'show',':code.js'),'staged');assert.equal(git(f.root,'show','HEAD:code.js'),'original');assert.match(git(f.root,'cat-file','commit',out.commitId),/gpgsig -----BEGIN SSH SIGNATURE-----/);
  f.write('allowed-signers','fixture '+readFileSync(key+'.pub','utf8'));git(f.root,'-c','gpg.ssh.allowedSignersFile='+path.join(f.root,'allowed-signers'),'verify-commit',out.commitId);
  const store=commitStore(f.root,f.actor),record=store.read(r.operationId),raw=spawnSync('git',['-C',f.root,'cat-file','commit',out.commitId]).stdout,bad=Buffer.from(raw.toString().replace('-----END SSH SIGNATURE-----','-----END SSH SIGNATURE----X')),object=spawnSync('git',['-C',f.root,'hash-object','-t','commit','-w','--stdin'],{input:bad,encoding:'utf8'});assert.equal(object.status,0);assert.throws(()=>verifyCommit(record,object.stdout.trim()),{code:'git-signing-failed'});
  unlinkSync(key);await f.call('git/operation/inspect',{operationId:r.operationId});const inspected=await settled(f,r.operationId);assert.equal(inspected.commitId,out.commitId);assert.equal(inspected.state,'committed');assert.equal((await f.call('git/commit/start',{operationId:r.operationId})).commitId,out.commitId);assert.equal(git(f.root,'rev-list','--count','HEAD'),'2');
 });
-test('encrypted SSH keys fail noninteractively before preparing the real index',{skip:!supported},async()=>{
+test('encrypted SSH keys fail noninteractively before preparing the real index',{skip:integrationSkip},async()=>{
  const f=await fixture();sshSigning(f,'fixture-passphrase');f.write('docs/new.md',doc('new'));const head=git(f.root,'rev-parse','HEAD'),index=readFileSync(path.join(f.root,'.git/index')),r=await review(f,['docs/new.md']);assert.equal(r.state,'reviewed',JSON.stringify(r));const out=await commit(f,r);assert.equal(out.state,'not-committed',JSON.stringify(out));assert.equal(out.failure.code,'git-signing-failed');assert.equal(git(f.root,'rev-parse','HEAD'),head);assert.deepEqual(readFileSync(path.join(f.root,'.git/index')),index);
 });
-test('signed commits recover a failed final-index publication without creating another commit',{skip:!supported},async()=>{
+test('signed commits recover a failed final-index publication without creating another commit',{skip:integrationSkip},async()=>{
  const f=await fixture();sshSigning(f);f.write('docs/new.md',doc('signed new'));const r=await review(f,['docs/new.md']);assert.equal(r.state,'reviewed');const oldPath=process.env.PATH,bin=faultShim(f,'index-publication-failure');
  try{process.env.PATH=bin+path.delimiter+oldPath;const out=await commit(f,r);assert.equal(out.state,'committed-index-recovery',JSON.stringify(out));assert.ok(out.commitId);await f.call('git/operation/recover',{operationId:r.operationId});const recovered=await settled(f,r.operationId);assert.equal(recovered.state,'committed');assert.equal(recovered.recovery,'published-reviewed-index');assert.equal(recovered.commitId,out.commitId);assert.equal(git(f.root,'rev-list','--count','HEAD'),'2');assert.equal((await f.call('git/commit/start',{operationId:r.operationId})).commitId,out.commitId);}finally{process.env.PATH=oldPath;}
 });
-test('SSH key/config generations and unsupported agent/X509 signers cannot bypass review',{skip:!supported},async()=>{
+test('SSH key/config generations and unsupported agent/X509 signers cannot bypass review',{skip:integrationSkip},async()=>{
  const f=await fixture(),key=sshSigning(f);f.write('docs/a.md',doc('signed'));const r=await review(f);assert.equal(r.state,'reviewed');writeFileSync(key,readFileSync(key,'utf8')+'\n');const out=await commit(f,r);assert.equal(out.state,'not-committed');assert.equal(out.failure.code,'git-review-changed');
  for(const kind of ['agent','x509','custom']){const x=await fixture();sshSigning(x);if(kind==='agent')git(x.root,'config','user.signingkey','key::ssh-ed25519 AAAA fixture');if(kind==='x509')git(x.root,'config','gpg.format','x509');if(kind==='custom')git(x.root,'config','gpg.ssh.program','definitely-no-signer');x.write('docs/a.md',doc('changed'));const before=git(x.root,'rev-parse','HEAD'),reviewed=await review(x);assert.equal(reviewed.state,'failed',JSON.stringify(reviewed));assert.match(reviewed.failure.code,/git-signing/);assert.equal(git(x.root,'rev-parse','HEAD'),before);}
 });
-test('OpenPGP signed commits use an explicit fixture fingerprint and never request pinentry',{skip:!supported},async()=>{
+test('OpenPGP signed commits use an explicit fixture fingerprint and never request pinentry',{skip:integrationSkip},async()=>{
  const f=await fixture(),gpg=command('/usr/bin/which',['gpg']),gpgHome=realpathSync(mkdtempSync('/tmp/runlist-gpg-')),prior=process.env.GNUPGHOME;roots.push(gpgHome);
  try{
   process.env.GNUPGHOME=gpgHome;const env={PATH:process.env.PATH,HOME:home,GNUPGHOME:gpgHome};command(gpg,['--batch','--pinentry-mode','loopback','--passphrase','','--quick-generate-key','Runlist Fixture <fixture@invalid.example>','ed25519','sign','0'],env);
@@ -199,10 +210,10 @@ test('OpenPGP signed commits use an explicit fixture fingerprint and never reque
   command(path.join(path.dirname(realpathSync(gpg)),'gpgconf'),['--homedir',gpgHome,'--kill','gpg-agent'],env);f.write('docs/a.md',doc('agent unavailable'));const head=git(f.root,'rev-parse','HEAD'),index=readFileSync(path.join(f.root,'.git/index')),second=await review(f);assert.equal(second.state,'reviewed');const failed=await commit(f,second);assert.equal(failed.state,'not-committed',JSON.stringify(failed));assert.equal(failed.failure.code,'git-signing-failed');assert.equal(git(f.root,'rev-parse','HEAD'),head);assert.deepEqual(readFileSync(path.join(f.root,'.git/index')),index);
  }finally{command(path.join(path.dirname(realpathSync(gpg)),'gpgconf'),['--homedir',gpgHome,'--kill','gpg-agent'],{PATH:process.env.PATH,HOME:home});if(prior===undefined)delete process.env.GNUPGHOME;else process.env.GNUPGHOME=prior;}
 });
-test('conflicting OpenPGP program aliases refuse without executing either configured signer',{skip:!supported},async()=>{
+test('conflicting OpenPGP program aliases refuse without executing either configured signer',{skip:integrationSkip},async()=>{
  const f=await fixture();git(f.root,'config','commit.gpgSign','true');git(f.root,'config','user.signingkey','A'.repeat(40));git(f.root,'config','gpg.program','/not/executed/gpg');git(f.root,'config','gpg.openpgp.program','/another/unqualified/gpg');f.write('docs/a.md',doc('signed'));const head=git(f.root,'rev-parse','HEAD'),index=readFileSync(path.join(f.root,'.git/index')),r=await review(f);assert.equal(r.state,'failed',JSON.stringify(r));assert.equal(r.failure.code,'git-signing-unsupported');assert.equal(git(f.root,'rev-parse','HEAD'),head);assert.deepEqual(readFileSync(path.join(f.root,'.git/index')),index);
 });
-test('configured shared hooks and SSH signing stay isolated in a linked worktree',{skip:!supported},async()=>{
+test('configured shared hooks and SSH signing stay isolated in a linked worktree',{skip:integrationSkip},async()=>{
  const f=await fixture();sshSigning(f);hook(f,'pre-commit','printf ran > worktree-hook-marker');const mainHead=git(f.root,'rev-parse','HEAD'),mainIndex=readFileSync(path.join(f.root,'.git/index')),work=f.root+'-signed-linked';roots.push(work);git(f.root,'worktree','add','-qb','signed-docs',work);writeFileSync(path.join(work,'docs/a.md'),doc('signed worktree'));const service=createCheckoutService({config:await resolveConfig(work),actor:f.actor}),linked={root:work,call:(route,body)=>service.request({method:body===undefined?'GET':'POST'},'/api/'+route,body)},r=await review(linked);assert.equal(r.state,'reviewed',JSON.stringify(r));assert.equal(existsSync(path.join(work,'worktree-hook-marker')),false);const out=await commit(linked,r);assert.equal(out.state,'committed',JSON.stringify(out));assert.equal(out.indexReady,true);assert.equal(readFileSync(path.join(work,'worktree-hook-marker'),'utf8'),'ran');assert.equal(existsSync(path.join(f.root,'worktree-hook-marker')),false);assert.equal(git(f.root,'rev-parse','HEAD'),mainHead);assert.deepEqual(readFileSync(path.join(f.root,'.git/index')),mainIndex);assert.match(git(work,'cat-file','commit',out.commitId),/gpgsig -----BEGIN SSH SIGNATURE-----/);
 });
 
@@ -210,45 +221,45 @@ function cleanFilter(f,body,{required=true,commandSuffix=''}={}){
  const file=path.join(f.root,'clean driver');f.write('clean driver','#!/bin/sh\n'+body+'\n');chmodSync(file,0o700);
  git(f.root,'config','filter.docs.clean',"'"+file+"'"+commandSuffix);git(f.root,'config','filter.docs.required',String(required));f.write('.gitattributes','docs/*.md filter=docs\n');return file;
 }
-test('clean-filter review uses canonical blobs, literal paths and Git semantics without touching saved files or staging',{skip:!supported},async()=>{
+test('clean-filter review uses canonical blobs, literal paths and Git semantics without touching saved files or staging',{skip:integrationSkip},async()=>{
  const f=await fixture(),file=cleanFilter(f,'printf "%s\\n" "$1" >> filter-paths\nsed "s/Saved text/Canonical text/g"',{commandSuffix:' %f'}),name='docs/literal [a] space.md';f.write(name,doc('new'));f.write('docs/a.md',doc('changed'));unlinkSync(path.join(f.root,'docs/delete.md'));git(f.root,'mv','docs/rename.md','docs/moved.md');git(f.root,'add','docs/moved.md');f.write('code.js','staged\n');git(f.root,'add','code.js');f.write('code.js','unstaged\n');
  const head=git(f.root,'rev-parse','HEAD'),index=readFileSync(path.join(f.root,'.git/index')),saved=readFileSync(path.join(f.root,name));if(existsSync(path.join(f.root,'filter-paths')))unlinkSync(path.join(f.root,'filter-paths'));
  const status=await f.call('git/status');assert.equal(status.available,true);assert.ok(status.changes.find(r=>r.path===name).filterReviewRequired);await f.call('git/diff?'+new URLSearchParams({path:name}));assert.equal(existsSync(path.join(f.root,'filter-paths')),false);
  const r=await review(f,['docs/a.md',name,'docs/delete.md','docs/moved.md']);assert.equal(r.state,'reviewed',JSON.stringify(r));assert.deepEqual(r.execution.filters,['docs']);assert.match(r.review.find(r=>r.path===name).after,/Canonical text/);assert.deepEqual(readFileSync(path.join(f.root,'.git/index')),index);assert.equal(git(f.root,'rev-parse','HEAD'),head);
  const out=await commit(f,r);assert.equal(out.state,'committed',JSON.stringify(out));assert.equal(git(f.root,'show','HEAD:'+name),r.review.find(r=>r.path===name).after.trim());assert.deepEqual(readFileSync(path.join(f.root,name)),saved);assert.equal(git(f.root,'show',':code.js'),'staged');assert.equal(git(f.root,'show','HEAD:code.js'),'original');assert.ok(readFileSync(path.join(f.root,'filter-paths'),'utf8').split('\n').includes(name));assert.equal(existsSync(file),true);
 });
-test('clean-filter canonical no-op and partial staging are resolved by explicit review',{skip:!supported},async()=>{
+test('clean-filter canonical no-op and partial staging are resolved by explicit review',{skip:integrationSkip},async()=>{
  const f=await fixture();cleanFilter(f,'sed "s/Draft text/Saved text/g"');f.write('docs/a.md',doc('a').replace('Saved text','Draft text'));assert.equal((await f.call('git/status')).changes.find(r=>r.path==='docs/a.md').eligible,true);const empty=await review(f);assert.equal(empty.state,'failed');assert.equal(empty.failure.code,'git-empty');
  f.write('docs/a.md',doc('staged'));git(f.root,'add','docs/a.md');f.write('docs/a.md',doc('later'));const index=readFileSync(path.join(f.root,'.git/index')),partial=await review(f);assert.equal(partial.state,'failed');assert.equal(partial.failure.code,'git-partial-staging');assert.deepEqual(readFileSync(path.join(f.root,'.git/index')),index);
  f.write('docs/a.md',doc('staged'));const full=await review(f);assert.equal(full.state,'reviewed',JSON.stringify(full));assert.equal((await commit(f,full)).state,'committed');
 });
-test('nondeterministic clean filters refuse review and late content drift refuses publication',{skip:!supported},async()=>{
+test('nondeterministic clean filters refuse review and late content drift refuses publication',{skip:integrationSkip},async()=>{
  for(const phase of ['review','commit']){const f=await fixture();cleanFilter(f,phase==='review'?'cat\nprintf "%s\\n" "$(date +%s)-$$"':'cat\nif test -f filter-drift; then echo DRIFT; fi');f.write('docs/a.md',doc('changed'));const head=git(f.root,'rev-parse','HEAD'),index=readFileSync(path.join(f.root,'.git/index')),r=await review(f);
   if(phase==='review'){assert.equal(r.state,'failed',JSON.stringify(r));assert.equal(r.failure.code,'git-filter-unstable');}else{assert.equal(r.state,'reviewed',JSON.stringify(r));f.write('filter-drift','late');const out=await commit(f,r);assert.equal(out.state,'not-committed',JSON.stringify(out));assert.ok(out.failure);}
   assert.equal(git(f.root,'rev-parse','HEAD'),head);assert.deepEqual(readFileSync(path.join(f.root,'.git/index')),index);
  }
 });
-test('clean-filter executable, configuration and attribute generations invalidate review',{skip:!supported},async()=>{
+test('clean-filter executable, configuration and attribute generations invalidate review',{skip:integrationSkip},async()=>{
  for(const seam of ['executable','config','attrs']){const f=await fixture();const file=cleanFilter(f,'cat');f.write('docs/a.md',doc('changed'));const r=await review(f);assert.equal(r.state,'reviewed',JSON.stringify(r));const head=git(f.root,'rev-parse','HEAD'),index=readFileSync(path.join(f.root,'.git/index'));
   if(seam==='executable')writeFileSync(file,'#!/bin/sh\ncat\necho LATE\n');if(seam==='config')git(f.root,'config','filter.docs.required','false');if(seam==='attrs')f.write('docs/.gitattributes','*.md -filter\n');const out=await commit(f,r);assert.equal(out.state,'not-committed',JSON.stringify(out));assert.equal(out.failure.code,'git-review-changed');assert.equal(git(f.root,'rev-parse','HEAD'),head);assert.deepEqual(readFileSync(path.join(f.root,'.git/index')),index);
  }
 });
-test('required and optional clean failures retain Git behavior; process and shell profiles never execute',{skip:!supported},async()=>{
+test('required and optional clean failures retain Git behavior; process and shell profiles never execute',{skip:integrationSkip},async()=>{
  for(const required of [true,false]){const f=await fixture();cleanFilter(f,'exit 1',{required});f.write('docs/a.md',doc('changed'));const head=git(f.root,'rev-parse','HEAD'),index=readFileSync(path.join(f.root,'.git/index')),r=await review(f);if(required){assert.equal(r.state,'failed',JSON.stringify(r));assert.equal(git(f.root,'rev-parse','HEAD'),head);assert.deepEqual(readFileSync(path.join(f.root,'.git/index')),index);}else{assert.equal(r.state,'reviewed',JSON.stringify(r));assert.equal(r.review[0].after,doc('changed'));assert.equal((await commit(f,r)).state,'committed');}}
  for(const profile of ['process','shell','encoding']){const f=await fixture();cleanFilter(f,'touch FILTER_RAN\ncat');f.write('docs/a.md',doc('changed'));if(profile==='process')git(f.root,'config','filter.docs.process','touch FILTER_RAN');if(profile==='shell')git(f.root,'config','filter.docs.clean','touch FILTER_RAN; cat');if(profile==='encoding')f.write('.gitattributes','*.md working-tree-encoding=UTF-8 filter=docs\n');let r;try{r=await review(f);}catch(e){assert.equal(profile,'encoding');assert.match(e.message,/encoding/);}if(r){assert.equal(r.state,'failed');assert.equal(r.failure.code,'git-filter-unsupported');}assert.equal(existsSync(path.join(f.root,'FILTER_RAN')),false);}
 });
-test('clean-filter timeouts stop the owned process group and retain an unchanged real index',{skip:!supported},async()=>{
+test('clean-filter timeouts stop the owned process group and retain an unchanged real index',{skip:integrationSkip},async()=>{
  const f=await fixture();cleanFilter(f,'echo started > filter-started\nsleep 20\ncat');f.write('docs/a.md',doc('changed'));const head=git(f.root,'rev-parse','HEAD'),index=readFileSync(path.join(f.root,'.git/index')),r=await review(f);assert.equal(r.state,'failed',JSON.stringify(r));assert.equal(r.failure.code,'git-filter-limits');assert.equal(existsSync(path.join(f.root,'filter-started')),true);assert.equal(git(f.root,'rev-parse','HEAD'),head);assert.deepEqual(readFileSync(path.join(f.root,'.git/index')),index);
 });
-test('clean-filter hook/signing interaction and index recovery retain one reviewed signed commit',{skip:!supported},async()=>{
+test('clean-filter hook/signing interaction and index recovery retain one reviewed signed commit',{skip:integrationSkip},async()=>{
  const f=await fixture();cleanFilter(f,'sed "s/Saved text/Canonical text/g"');sshSigning(f);hook(f,'pre-commit','echo ran >> hook-once');f.write('docs/new.md',doc('new'));const r=await review(f,['docs/new.md']);assert.equal(r.state,'reviewed',JSON.stringify(r));
  const out=await commit(f,r);assert.equal(out.state,'committed',JSON.stringify(out));const store=commitStore(f.root,f.actor),record=store.read(r.operationId),published=snapshot(record.index);writeFileSync(record.index,Buffer.from(record.prepared.bytes,'base64'));store.update(r.operationId,d=>{d.published=published;d.state='committed-index-recovery';});
  await f.call('git/operation/recover',{operationId:r.operationId});const recovered=await settled(f,r.operationId);assert.equal(recovered.state,'committed',JSON.stringify(recovered));assert.equal(recovered.commitId,out.commitId);assert.match(git(f.root,'show','HEAD:docs/new.md'),/Canonical text/);assert.equal(readFileSync(path.join(f.root,'hook-once'),'utf8'),'ran\n');assert.equal(git(f.root,'rev-list','--count','HEAD'),'2');assert.equal((await f.call('git/commit/start',{operationId:r.operationId})).commitId,out.commitId);
 });
-test('filtered binary or expanded output never becomes a reviewable commit',{skip:!supported},async()=>{
+test('filtered binary or expanded output never becomes a reviewable commit',{skip:integrationSkip},async()=>{
  for(const body of ['cat; printf "\\000"','head -c 1048577 /dev/zero | tr "\\000" x']){const f=await fixture();cleanFilter(f,body);f.write('docs/a.md',doc('changed'));const head=git(f.root,'rev-parse','HEAD'),index=readFileSync(path.join(f.root,'.git/index')),r=await review(f);assert.equal(r.state,'failed',JSON.stringify(r));assert.equal(r.failure.code,'git-limit');assert.equal(r.canCommit,false);assert.equal(git(f.root,'rev-parse','HEAD'),head);assert.deepEqual(readFileSync(path.join(f.root,'.git/index')),index);}
 });
-test('clean-filter literal script dependencies are bound and shell builtins/globs are refused',{skip:!supported},async()=>{
+test('clean-filter literal script dependencies are bound and shell builtins/globs are refused',{skip:integrationSkip},async()=>{
  const f=await fixture();const script=cleanFilter(f,'cat');git(f.root,'config','filter.docs.clean',"/bin/sh '"+script+"'");f.write('docs/a.md',doc('changed'));const r=await review(f);assert.equal(r.state,'reviewed',JSON.stringify(r));writeFileSync(script,'#!/bin/sh\ncat\necho CHANGED\n');const out=await commit(f,r);assert.equal(out.state,'not-committed',JSON.stringify(out));assert.equal(out.failure.code,'git-review-changed');await f.call('git/operation/recover',{operationId:r.operationId});assert.equal((await settled(f,r.operationId)).resolved,true);
  for(const command of ["printf 'canonical'","'"+script+"' *"]){git(f.root,'config','filter.docs.clean',command);const result=await review(f);assert.equal(result.state,'failed',JSON.stringify(result));assert.equal(result.failure.code,'git-filter-unsupported');assert.equal(git(f.root,'rev-list','--count','HEAD'),'1');}
 });

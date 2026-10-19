@@ -1,28 +1,95 @@
 name: Desktop qualification
 on:
   workflow_dispatch:
-  pull_request:
-    paths: ['desktop/**', 'src/**', 'assets/**', 'bin/**', 'test/**', 'package.json', '.github/workflows/desktop.yml', '.github/workflows/provider.yml', '.github/workflows/publish.yml']
-  push:
-    branches: [main]
-    paths: ['desktop/**', 'src/**', 'assets/**', 'bin/**', 'test/**', 'package.json', '.github/workflows/desktop.yml', '.github/workflows/provider.yml', '.github/workflows/publish.yml']
+    inputs:
+      source_sha:
+        description: Full lowercase commit SHA with successful CI or Publish source verification
+        required: true
+        type: string
+      platform:
+        description: Native platform to qualify (builds do not sign or publish)
+        required: true
+        default: macos
+        type: choice
+        options: [macos, windows, linux, all]
 permissions:
   contents: read
 jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      sha: ${{ steps.source.outputs.sha }}
+      matrix: ${{ steps.source.outputs.matrix }}
+    steps:
+      - name: Require source verification for the exact selected commit
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          PLATFORM: ${{ inputs.platform }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]] || { echo 'source_sha must be a full lowercase commit SHA'; exit 1; }
+          actual=$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$SOURCE_SHA" --jq .sha)
+          [[ "$actual" == "$SOURCE_SHA" ]] || { echo 'Unknown or mismatched source commit'; exit 1; }
+          qualified=''
+          for workflow in ci.yml publish.yml; do
+            runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?head_sha=$SOURCE_SHA&status=success&per_page=100" \
+              --jq '.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch") | [.head_sha, .html_url] | @tsv')
+            while IFS=$'\t' read -r candidate url; do
+              if [[ "$candidate" == "$SOURCE_SHA" ]]; then qualified="$url"; break; fi
+            done <<< "$runs"
+            [[ -z "$qualified" ]] || break
+          done
+          if [[ -z "$qualified" ]]; then
+            echo "No successful CI or Publish source verification for $SOURCE_SHA."
+            echo 'Run CI on a branch/tag pointing to that commit, then retry desktop qualification.'
+            echo 'PR runs are excluded because they can test a synthetic merge commit.'
+            exit 1
+          fi
+          case "$PLATFORM" in
+            macos) matrix='{"os":["macos-latest"]}' ;;
+            windows) matrix='{"os":["windows-latest"]}' ;;
+            linux) matrix='{"os":["ubuntu-22.04"]}' ;;
+            all) matrix='{"os":["macos-latest","windows-latest","ubuntu-22.04"]}' ;;
+            *) echo 'Unknown qualification platform'; exit 1 ;;
+          esac
+          echo "sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "Source prerequisite: $qualified"
+          echo "Source: $SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "Source verification: $qualified" >> "$GITHUB_STEP_SUMMARY"
   desktop:
+    needs: source
+    timeout-minutes: 60
     strategy:
       fail-fast: false
-      matrix:
-        os: [macos-latest, windows-latest, ubuntu-22.04]
+      matrix: ${{ fromJSON(needs.source.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ needs.source.outputs.sha }}
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
         with:
           node-version: 24
+      - name: Record and verify selected source
+        env:
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+        run: |
+          [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]] || { echo 'Checkout differs from selected source'; exit 1; }
+          echo "Source: $SOURCE_SHA"
+          node --version
+          npm --version
+          git --version
       - name: Linux build dependencies
         if: runner.os == 'Linux'
         run: |
@@ -33,7 +100,6 @@ jobs:
           rustup toolchain install 1.95.0 --profile minimal
           rustup override set 1.95.0
       - run: npm ci --prefix desktop
-      - run: npm test
       - run: npm --prefix desktop test
       - name: Prepare host-specific runtime
         run: npm --prefix desktop run prepare:bundle

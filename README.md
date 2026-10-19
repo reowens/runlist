@@ -1115,6 +1115,11 @@ validation, customize rendering and summaries, or react to lifecycle events.
 Hooks receive the resolved config and command context; mutation hooks participate
 in the command's dry-run and failure contracts.
 
+## Development checks
+
+See [VERIFYING.md](VERIFYING.md) for local checks, qualified Git toolchains,
+and the explicit compatibility and desktop qualification workflows.
+
 ## License
 
 MIT

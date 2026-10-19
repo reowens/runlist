@@ -5,39 +5,37 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
-# Check names here are what `main`'s branch protection matches on. Adding `os` to
-# the matrix renamed every leg from `test (20)` to `test (ubuntu-latest, 20)`, so
-# the required contexts recorded on the branch stopped ever reporting and every PR
-# sits at BLOCKED until an admin overrides. If you change the matrix keys, update
-# the required contexts in the same breath:
-#   gh api -X PATCH repos/reowens/runlist/branches/main/protection/required_status_checks \
-#     -f 'contexts[]=test (ubuntu-latest, 20)' ...
+permissions:
+  contents: read
+
+concurrency:
+  group: source-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
+# Keep this job name stable if repository rules begin requiring it.
+# Native desktop builds and the broader CLI matrix are selected manually.
 jobs:
-  test:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      # Every leg must report. With fail-fast on, the first failure cancels the
-      # others — and a macOS failure cancelling the Windows leg hides exactly the
-      # result you need when you are debugging a Windows-only failure.
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            node-version: 20
-          - os: ubuntu-latest
-            node-version: 22
-          - os: ubuntu-latest
-            node-version: 24
-          - os: macos-latest
-            node-version: 22
-          - os: windows-latest
-            node-version: 22
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          ref: ${{ github.sha }}
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f  # v6
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: 24
+      - name: Record tested source and tools
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]] || { echo 'Checkout differs from event source'; exit 1; }
+          echo "Source: $SOURCE_SHA"
+          node --version
+          npm --version
+          git --version
       - run: npm run check:public
         env:
           RUNLIST_PUBLIC_CHECK_KEY: ${{ secrets.RUNLIST_PUBLIC_CHECK_KEY }}

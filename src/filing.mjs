@@ -187,8 +187,13 @@ export function assembleFilingCoverage(docs, config, preparedRows, parentTargets
     const [hub, category] = queue[i];
     for (const dependent of dependents.get(hub) ?? []) addCategory(dependent, category);
   }
-  for (const rows of homes.values()) for (const row of rows) {
-    row.categories = row.category ? [row.category] : [...(hubCategories.get(row.hub) ?? [])].sort();
+  for (const rows of homes.values()) {
+    // Metadata reads can finish in any order. Keep CLI/GUI evidence and home
+    // pagination stable by source path and physical line, retaining duplicates.
+    rows.sort((a, b) => a.hub < b.hub ? -1 : a.hub > b.hub ? 1 : a.line - b.line);
+    for (const row of rows) {
+      row.categories = row.category ? [row.category] : [...(hubCategories.get(row.hub) ?? [])].sort();
+    }
   }
 
   // Parent inheritance is explicit and cycle-safe. A child's own home takes

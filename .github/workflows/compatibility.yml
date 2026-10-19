@@ -1,0 +1,63 @@
+name: CLI compatibility
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full lowercase commit SHA to qualify (not a branch or tag)
+        required: true
+        type: string
+      platform:
+        description: CLI platform to qualify
+        required: true
+        default: windows
+        type: choice
+        options: [windows, macos, linux, all]
+permissions:
+  contents: read
+jobs:
+  compatibility:
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include: >-
+          ${{ fromJSON(
+            inputs.platform == 'windows' && '[{"os":"windows-latest","node":22},{"os":"windows-latest","node":24}]' ||
+            inputs.platform == 'macos' && '[{"os":"macos-latest","node":24}]' ||
+            inputs.platform == 'linux' && '[{"os":"ubuntu-latest","node":20}]' ||
+            inputs.platform == 'all' && '[{"os":"ubuntu-latest","node":20},{"os":"macos-latest","node":24},{"os":"windows-latest","node":22},{"os":"windows-latest","node":24}]' || '[]'
+          ) }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Require an immutable source selection
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]] || { echo 'source_sha must be a full lowercase commit SHA'; exit 1; }
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ inputs.source_sha }}
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Record and verify selected source
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]] || { echo 'Checkout differs from selected source'; exit 1; }
+          echo "Source: $SOURCE_SHA"
+          node --version
+          npm --version
+          git --version
+      - name: Require a qualified Mac Git commit toolchain
+        if: runner.os == 'macOS'
+        run: node scripts/check-git-commit-toolchain.mjs
+      - run: npm run check:public
+        env:
+          RUNLIST_PUBLIC_CHECK_KEY: ${{ secrets.RUNLIST_PUBLIC_CHECK_KEY }}
+      - run: npm test
+        env:
+          RUNLIST_REQUIRE_GIT_COMMIT_QUALIFICATION: ${{ runner.os == 'macOS' && '1' || '' }}

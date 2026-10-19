@@ -2,6 +2,20 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- Git commit cancellation reports a stable error when the operating system refuses to stop the worker, preserving its receipt for inspection.
+- Guarded Git integration tests report an unqualified toolchain once, with version diagnostics, while keeping refusal checks independent.
+- Publication bridge tests use a native executable on Windows while retaining shell-free invocation, fixed arguments and private-output checks.
+- Filing home evidence has a stable source-path and line order across asynchronous scans, keeping CLI/GUI reports and pagination consistent.
+
+### Development
+
+- Routine CI runs one Linux source check. Compatibility and desktop qualification run on demand against an exact commit; desktop qualification requires successful source verification for that commit. Tag publication and external-provider qualification remain independent.
+- Added local verification instructions in `VERIFYING.md`.
+
 ## 0.95.0 — 2026-10-16
 
 ### Added

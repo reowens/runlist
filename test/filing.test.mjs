@@ -52,6 +52,37 @@ it('assembles detached prepared evidence without rereading or resolving deleted 
   deepStrictEqual(assembleFilingCoverage(index.docs, r.config, rows, parents), index.filingCoverage);
 });
 
+it('orders direct and inherited home evidence by source path and line regardless of scan completion order', async () => {
+  const r = await repo(); r.write('parent.md'); r.write('child.md', '', 'parent_plan: parent.md'); r.write('unfiled.md');
+  r.hub('root.md', `### Delivery\n${hubIndex(hubPointer('area.md'))}`);
+  r.hub('area.md', rowTable(home('parent.md') + '\n' + home('parent.md')));
+  r.hub('second.md', `### Other\n${rowTable(home('parent.md'))}`);
+  const index = r.index();
+  const parents = new Map(index.docs.map(doc => [doc.path, filingParentTarget(doc, r.config)]));
+  const rows = index.docs.filter(doc => filingLiveHub(doc, r.config)).flatMap(hub =>
+    prepareFilingHub(hub, readFileSync(path.join(r.directory, hub.path), 'utf8'), r.config));
+  const originalRows = structuredClone(rows);
+  for (const complete of [true, false]) {
+    const failures = complete ? [] : [{ path: 'docs/unreadable.md', message: 'Hub unavailable.' }];
+    const expected = assembleFilingCoverage(index.docs, r.config, rows, parents, { complete, failures });
+    const reversed = assembleFilingCoverage([...index.docs].reverse(), r.config, [...rows].reverse(), parents, { complete, failures });
+    const direct = get(reversed, 'parent.md'), inherited = get(reversed, 'child.md');
+    deepStrictEqual(direct, get(expected, 'parent.md'));
+    deepStrictEqual(inherited, get(expected, 'child.md'));
+    deepStrictEqual(direct.rows.map(row => row.hub), ['docs/area.md', 'docs/area.md', 'docs/second.md']);
+    ok(direct.rows[0].line < direct.rows[1].line);
+    deepStrictEqual(direct.rows.map(row => row.categories), [['Delivery'], ['Delivery'], ['Other']]);
+    strictEqual(inherited.filing, 'parent');
+    strictEqual(inherited.filedThrough, 'docs/parent.md');
+    deepStrictEqual(inherited.rows, direct.rows);
+    strictEqual(reversed.complete, complete);
+    deepStrictEqual(reversed.failures, failures);
+    deepStrictEqual(reversed.totals, expected.totals);
+    if (!complete) ok(filingFindings(reversed).every(finding => finding.meta.kind === 'filing-read-failure'));
+  }
+  deepStrictEqual(rows, originalRows);
+});
+
 describe('subject rows define filing, rather than any link', () => {
   it('ignores prose, commentary, metadata, link lists, ranked non-subject cells and pointer tables', async () => {
     const r = await repo();
