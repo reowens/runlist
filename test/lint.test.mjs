@@ -383,7 +383,7 @@ describe('runlist lint', () => {
 
 it('scopes CLI reporting, dry runs and fixes to explicit documents', () => {
   const docs = setupProject();
-  const raw = '---\ntype: plan\nstatus: Active\nupdated: 2025-01-01\nmodule: alpha\nnextStep: Finish.\n---\n# Test';
+  const raw = '---\ntype: plan\nstatus: Active\nupdated: 2025-01-01\nmodule: kiosk\nnextStep: Finish.\n---\n# Test';
   const selected = path.join(docs, 'selected.md'), other = path.join(docs, 'other.md');
   writeFileSync(selected, raw); writeFileSync(other, raw);
   const report = run(['lint', selected]);
@@ -397,7 +397,7 @@ it('scopes CLI reporting, dry runs and fixes to explicit documents', () => {
   strictEqual(fixed.status, 0, fixed.stderr);
   const after = readFileSync(selected, 'utf8');
   ok(after.includes('status: active'));
-  ok(after.includes('modules:') && after.includes('- alpha'));
+  ok(after.includes('modules:') && after.includes('- kiosk'));
   ok(after.includes('next_step: Finish.'));
   ok(after.endsWith('\n'));
   strictEqual(readFileSync(other, 'utf8'), raw);
