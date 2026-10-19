@@ -22,7 +22,7 @@ export function validateDesktopManifest(manifest, version, source) {
 
 export async function releaseDesktop(root = process.cwd(), version, source, { environment = process.env } = {}) {
   const env = preflightDesktopRelease(root, { env: environment });
-  if (!env) return;
+  if (!env) throw new Error('The selected desktop release checkout is missing its desktop sources.');
   const capture = (command, args) => execFileSync(command, args, { cwd: root, env, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
   const run = (command, args, extraEnv = env) => execFileSync(command, args, { cwd: root, env: extraEnv, stdio: 'inherit' });
   const head = capture('git', ['rev-parse', 'HEAD']).trim();
@@ -41,6 +41,9 @@ export async function releaseDesktop(root = process.cwd(), version, source, { en
     if (!existsSync(selected)) {
       mkdirSync(path.dirname(selected), { recursive: true });
       run('git', ['worktree', 'add', '--detach', selected, source]);
+    }
+    if (!existsSync(path.join(selected, '.git')) || capture('git', ['-C', selected, 'rev-parse', 'HEAD']).trim() !== source) {
+      throw new Error('The recovery checkout is incomplete or belongs to different source; preserve it for inspection.');
     }
     return releaseDesktop(selected, version, source, { environment: env });
   }

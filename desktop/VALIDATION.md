@@ -1,5 +1,38 @@
 # Desktop validation
 
+## Current Mac release — 2026-10-18
+
+[Runlist Desktop 0.95.2](https://github.com/reowens/runlist/releases/tag/desktop-v0.95.2)
+is published and installed through the production installer, with bundled engine
+0.95.2, desktop protocol 1 and official Node 24.21.0. It was built from immutable
+CLI release source `8149801e0a790f008eb9ac5cbf8c55cfcad6aa4c`. The supported target remains
+Apple Silicon macOS 13.5+.
+
+- Local source: **2,479 passed, one filesystem-case skip**.
+- Hosted publication/source checks passed; publication suite: **2,442 passed, 38 platform skips**.
+- Desktop source: **94 passed, one existing skip**; native library: **11 passed**.
+- Packaged helper/frontend: **61 passed**.
+- Signed app and installed app passed terminal checks with networking denied.
+- Private-vocabulary/source checks and unsigned/signed bundle inspection passed.
+- App and installer signatures, Apple acceptance, stapled tickets and Gatekeeper checks passed.
+- App request `2d39294f-28d0-4d10-85a0-a86f756b05fd` and installer request `63e858a6-2ab1-4d0a-8651-00179b55348f`: **Accepted**.
+- DMG SHA-256: `05e5b3b7494c315cc72b6830ef162d35624029e228c794617c5c1f95e59c0804`.
+
+The release command now stamps desktop/package/Cargo versions and current README
+blocks, publishes the matching Mac installer and updates an existing local app
+before completing. `runlist desktop install` and normal `runlist update` replace
+older stopped apps with verified downloads and retained rollback; current/newer
+apps are preserved. The replaced app's 181 files match the recorded baseline;
+the installed app's 185 files match the signed qualified bundle. No app
+or WebView was opened. Fresh/minimum-host, native-window/accessibility/performance
+and other desktop platform acceptance remain separate and unverified.
+
+The CLI release intent survived an initial inherited npm-policy refusal before
+building/signing. Updated release tooling cleared that policy and resumed the
+same 0.95.2 tag in an isolated source checkout; no tag or npm version was replaced.
+Older dated sections below retain their original evidence and limits.
+
+
 ## Current Mac release — 2026-10-10
 
 **[Runlist Desktop 0.94.1](https://github.com/reowens/runlist/releases/tag/desktop-v0.94.1)**

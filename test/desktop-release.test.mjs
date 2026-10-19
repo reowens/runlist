@@ -5,11 +5,15 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {notarizeArtifact} from '../desktop/scripts/notarize.mjs';
 import {desktopReleaseEnvironment,preflightDesktopRelease} from '../scripts/desktop-release-config.mjs';
-import {validateDesktopManifest} from '../scripts/release-desktop.mjs';
+import {releaseDesktop,validateDesktopManifest} from '../scripts/release-desktop.mjs';
 import {prepareReleaseDocUpdates} from '../scripts/stamp-release-docs.mjs';
 import {planUpdate} from '../src/update.mjs';
 
 function fixture(t){const root=mkdtempSync(path.join(tmpdir(),'runlist-desktop-release-'));t.after(()=>rmSync(root,{recursive:true,force:true}));return root;}
+
+test('an incomplete recovery checkout cannot report desktop release success',async t=>{
+ await assert.rejects(releaseDesktop(fixture(t),'0.95.2','a'.repeat(40)),/missing its desktop sources/);
+});
 
 test('notarization saves the request before timeout and resumes without submitting again',t=>{
  const root=fixture(t),artifact=path.join(root,'app.zip'),receipt=path.join(root,'request.json');writeFileSync(artifact,'exact artifact');
