@@ -9,8 +9,8 @@ helper through private stdin/stdout pipes. There is no listening HTTP server,
 runtime download, online account, telemetry, automatic updater or login daemon.
 
 <!-- runlist:release:start -->
-CLI and desktop release version: **0.95.3**.
-[Mac installer and release notes](https://github.com/reowens/runlist/releases/tag/desktop-v0.95.3).
+CLI and desktop release version: **0.95.4**.
+[Mac installer and release notes](https://github.com/reowens/runlist/releases/tag/desktop-v0.95.4).
 Normal product releases publish both components; an installed Mac app is updated with rollback after it has quit.
 <!-- runlist:release:end -->
 
