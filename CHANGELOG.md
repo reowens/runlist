@@ -2,6 +2,14 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- Add `runlist baton --subagent` for explicit `subagent-*` handoffs, with child-agent guidance and the existing `resume-*` parent default.
+- Refuse conflicting or nested handoff prefixes and child replacement of parent-named prompts. Preserve legacy prompt names, plan ownership and consumption behavior.
+- Guard competing parent and child plan handoffs against publishing both destinations.
+
 ## 0.95.6 — 2026-10-19
 
 ### Fixed

@@ -15,6 +15,14 @@ Save a resume prompt for the work in flight, then bring the plans up to date. If
    runlist baton <slug> @/tmp/baton.md         # no plan involved: saves resume-<slug>, touches NOTHING else
    ```
 
+   Delegated agents use `runlist baton --subagent <task-slug> @/tmp/baton.md`,
+   which saves `subagent-<task-slug>`. Under a parent-owned plan, choose a distinct
+   task slug that does not resolve to a plan; do not release the parent's claim.
+   A child owning a dedicated plan can pass `<plan-file>` with `--subagent`.
+   Parent-session batons default to `resume-*`. Existing prompts keep their names.
+   Matching prefixes are kept once and conflicting prefixes are refused;
+   `--subagent --replace` refuses a parent-prefixed pending prompt.
+
    The user saying "save a resume prompt for this" does NOT require a plan — slug mode exists precisely for that. Variations (plan mode only):
    - `runlist baton <plan-file> @/tmp/baton.md` — when baton can't tell which plan is yours.
    - `--status paused|awaiting|partial|blocked` — when the plan's reality changed; default `active` is right for plain "work continues".

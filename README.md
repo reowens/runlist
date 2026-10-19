@@ -652,6 +652,13 @@ operation:
 runlist baton @/tmp/resume.md
 ```
 
+Parent handoffs use `resume-<name>`. Delegated agents explicitly use
+`runlist baton --subagent <task-slug> @/tmp/resume.md` for `subagent-<task-slug>`.
+Under a parent-owned plan, use a distinct task slug that does not resolve to a
+plan. A child owning a dedicated plan can pass that plan with `--subagent`.
+Existing prompts keep their names. See `runlist baton --help` for prefix and
+replacement checks.
+
 Baton refuses when a handoff for the same work is already pending, so one piece
 of work never has two resume prompts. Inspect the pending handoff with
 `runlist prompts show <slug>`. Keep it if current; if stale, pass `--replace`

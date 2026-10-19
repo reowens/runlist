@@ -51,6 +51,17 @@ describe('command schema', () => {
     strictEqual(commandOwnsOption('health', '--type'), false);
   });
 
+  it('declares the explicit child baton flag without changing positional grammar', () => {
+    ok(commandOwnsOption('baton', '--subagent'));
+    ok(commandCompletionWords('baton').includes('--subagent'));
+    for (const args of [
+      ['--subagent', 'review-task', '@/tmp/draft.md'],
+      ['docs/plans/review.md', '@/tmp/draft.md', '--subagent', '--json'],
+      ['review-task', '@/tmp/draft.md'],
+    ]) deepStrictEqual(validateCommandArgs('baton', args), args);
+    throws(() => validateCommandArgs('baton', ['--child', 'review-task']), /Unknown flag/);
+  });
+
   it('normalizes roadmap grammar and enforces options and arity', () => {
     deepStrictEqual(normalizeCommandArgs('roadmap', ['hub', 'next', '--json']), ['next', 'hub', '--json']);
     deepStrictEqual(validateCommandArgs('roadmap', ['hub', 'next']), ['next', 'hub']);

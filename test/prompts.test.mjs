@@ -216,6 +216,68 @@ describe('runlist prompts next', () => {
 describe('runlist prompts use', () => {
   beforeEach(setupProject);
 
+  it('keeps legacy parent prompts ahead of newer child handoffs in the same queue', () => {
+    const legacy = writePrompt('resume-older-work', { created: '2025-01-01', body: 'LEGACY-CONTINUE' });
+    const child = run(['baton', '--subagent', 'newer-task', '--message', 'CHILD-CONTINUE']);
+    strictEqual(child.status, 0, child.stderr);
+    const peek = run(['prompts', 'show', 'resume-older-work']);
+    strictEqual(peek.status, 0, peek.stderr);
+    match(peek.stdout, /LEGACY-CONTINUE/);
+    ok(existsSync(legacy), 'peek preserves legacy identity');
+    const next = run(['use']);
+    strictEqual(next.status, 0, next.stderr);
+    match(next.stdout, /LEGACY-CONTINUE/);
+    ok(!next.stdout.includes('CHILD-CONTINUE'));
+    const childFile = path.join(promptsDir, 'subagent-newer-task.md');
+    ok(existsSync(childFile), 'newer child remains queued');
+    const consume = run(['use', 'subagent-newer-task']);
+    strictEqual(consume.status, 0, consume.stderr);
+    match(consume.stdout, /CHILD-CONTINUE/);
+    for (const name of ['resume-older-work', 'subagent-newer-task']) {
+      ok(existsSync(path.join(promptsDir, 'archived', `${name}.md`)));
+      const again = run(['use', `docs/prompts/archived/${name}.md`]);
+      ok(again.status !== 0, 'archived handoff cannot emit twice');
+      strictEqual(again.stdout, '');
+      const recover = run(['prompts', 'show', `docs/prompts/archived/${name}.md`]);
+      strictEqual(recover.status, 0, recover.stderr);
+      match(recover.stdout, /CONTINUE/);
+    }
+  });
+
+  for (const kind of ['legacy-parent', 'new-child']) {
+    for (const noClaim of [false, true]) {
+      it(`${kind} consumption ${noClaim ? 'preserves' : 'claims'} its linked plan`, () => {
+        const planDir = path.join(docsDir, 'plans');
+        mkdirSync(planDir, { recursive: true });
+        const plan = path.join(planDir, 'linked-work.md');
+        writeFileSync(plan, '---\ntype: plan\nstatus: active\n---\n# Linked work\n');
+        let name;
+        if (kind === 'legacy-parent') {
+          name = 'resume-linked-work';
+          const file = writePrompt(name, { body: 'LINKED-CONTINUE' });
+          writeFileSync(file, readFileSync(file, 'utf8').replace('related_plans: []', 'plan: ../plans/linked-work.md'));
+        } else {
+          const saved = run(['baton', '--subagent', plan, '--message', 'LINKED-CONTINUE', '--json'], { RUNLIST_SESSION_ID: 'writer' });
+          strictEqual(saved.status, 0, saved.stderr);
+          name = JSON.parse(saved.stdout).savedPrompt;
+          strictEqual(name, 'subagent-linked-work');
+        }
+        const consumed = run(['use', name, ...(noClaim ? ['--no-claim'] : [])], { RUNLIST_SESSION_ID: 'reader' });
+        strictEqual(consumed.status, 0, consumed.stderr);
+        match(consumed.stdout, /LINKED-CONTINUE/);
+        match(readFileSync(plan, 'utf8'), noClaim ? /^status: active$/m : /^status: in-session$/m);
+        ok(!existsSync(path.join(promptsDir, `${name}.md`)));
+        ok(existsSync(path.join(promptsDir, 'archived', `${name}.md`)));
+        if (noClaim) match(consumed.stderr, /Not claimed.*--no-claim/);
+        else {
+          const handoff = run(['baton', '--message', 'READER-CONTINUE'], { RUNLIST_SESSION_ID: 'reader' });
+          strictEqual(handoff.status, 0, handoff.stderr);
+          match(readFileSync(plan, 'utf8'), /^status: active$/m);
+        }
+      });
+    }
+  }
+
   it('consumes specific file regardless of queue order', () => {
     writePrompt('older', { created: '2025-01-01', body: 'older body' });
     const target = writePrompt('target', { created: '2025-06-01', body: 'target body' });
