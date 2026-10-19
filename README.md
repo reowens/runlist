@@ -219,7 +219,14 @@ and managed scopes are reported rather than silently updating another scope.
 The release workflow uses the same scope selection and verifies every entry
 against the released version.
 
-Restart Claude Code, or run `/reload-plugins`, after a plugin update.
+Updates also refresh already installed OpenCode and Codex integrations. After
+upgrading the CLI, host installers run from the updated package so their version
+and assets match. Codex verification checks the host's installed copy separately
+from its marketplace source. Releases use these same checks and remain resumable
+if an installed host fails to update. Uninstalled hosts are not added.
+
+Restart the affected host sessions to load updated integrations; Claude Code also
+supports `/reload-plugins`.
 
 ## Quick Start
 

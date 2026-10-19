@@ -268,7 +268,10 @@ describe('npm version lifecycle prepares release artifacts', () => {
   it('postversion synchronizes every PATH-visible CLI copy', () => {
     const script = readFileSync(path.resolve(import.meta.dirname, '..', 'scripts', 'postversion.sh'), 'utf8');
     ok(script.includes('scripts/sync-global-cli.mjs'), 'postversion should run the global CLI synchronizer');
-    ok(script.includes('scripts/verify-installed-plugin.mjs'), 'postversion should verify the installed plugin record');
+    ok(script.includes('node scripts/update-installed-hosts.mjs "${VERSION}"'), 'postversion should update and verify all installed hosts');
+    ok(script.indexOf('node scripts/update-installed-hosts.mjs') < script.indexOf('node scripts/release-intent.mjs clear'),
+      'host verification must succeed before clearing release intent');
+    ok(!script.includes('PLUGIN_VERIFIED'), 'host failure must propagate to the resumable release failure trap');
     ok(script.includes('npm run release:resume'), 'push failure should print the resumable recovery command');
     ok(/gh release view/.test(script), 'GitHub release creation should be idempotent for resume mode');
     ok(script.includes('git push --atomic origin "HEAD:refs/heads/main" "refs/tags/${TAG}:refs/tags/${TAG}"'),

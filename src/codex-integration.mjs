@@ -4,6 +4,8 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, r
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
+import { executableName } from './util.mjs';
 
 const SOURCE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'plugins', 'runlist-codex');
 const NAME = 'runlist-codex';
@@ -31,6 +33,26 @@ export function codexStatus({ version, homedir = os.homedir() } = {}) {
   try { installed = JSON.parse(readFileSync(path.join(paths.plugin, MARKER), 'utf8')).version; } catch { /* absent or foreign */ }
   const exists = existsSync(paths.plugin);
   return { ...paths, exists, foreign: exists && !installed, version: installed, stale: Boolean(installed && version && installed !== version) };
+}
+
+// The marketplace source is not the plugin Codex loads. Ask the host about its
+// installed copy rather than treating our generated source marker as proof.
+export function installedCodexStatus({ homedir = os.homedir(), run = spawnSync } = {}) {
+  try {
+    const marketplace = marketplaceAt(codexPaths(homedir).marketplace).name;
+    const pluginId = `${NAME}@${marketplace}`;
+    const result = run(executableName('codex'), ['plugin', 'list', '--marketplace', marketplace, '--json'], {
+      encoding: 'utf8', shell: process.platform === 'win32', timeout: 30_000,
+    });
+    if (result.status !== 0) return { ok: false, reason: result.error?.message ?? `codex plugin list exited ${result.status ?? '?'}` };
+    const installed = JSON.parse(result.stdout).installed;
+    if (!Array.isArray(installed)) return { ok: false, reason: 'codex plugin list returned no installed plugin records' };
+    const plugin = installed.find(entry => entry.pluginId === pluginId && entry.installed === true);
+    return plugin?.version ? { ok: true, version: plugin.version, pluginId }
+      : { ok: false, reason: `${pluginId} is not installed in Codex` };
+  } catch (err) {
+    return { ok: false, reason: `cannot verify installed Codex plugin: ${err.message}` };
+  }
 }
 
 export function installCodexPlugin({ version, homedir = os.homedir(), dryRun = false } = {}) {

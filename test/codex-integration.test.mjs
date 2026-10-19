@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
-import { codexStatus, installCodexPlugin } from '../src/codex-integration.mjs';
+import { codexStatus, installCodexPlugin, installedCodexStatus } from '../src/codex-integration.mjs';
 
 let home;
 const root = path.resolve(import.meta.dirname, '..');
@@ -69,9 +69,9 @@ describe('Codex plugin distribution', () => {
     const calls = path.join(h, 'codex-calls');
     const stub = path.join(fakeBin, process.platform === 'win32' ? 'codex.cmd' : 'codex');
     if (process.platform === 'win32') {
-      writeFileSync(stub, '@echo off\r\necho %*>>"%CODEX_CALLS%"\r\n');
+      writeFileSync(stub, `@echo off\r\necho %*>>"%CODEX_CALLS%"\r\nif "%2"=="list" echo {"installed":[{"pluginId":"runlist-codex@personal","installed":true,"version":"${version}"}]}\r\n`);
     } else {
-      writeFileSync(stub, `#!/bin/sh\nprintf '%s\\n' "$*" >> "$CODEX_CALLS"\n`);
+      writeFileSync(stub, `#!/bin/sh\nprintf '%s\\n' "$*" >> "$CODEX_CALLS"\nif [ "$2" = list ]; then printf '%s\\n' '{"installed":[{"pluginId":"runlist-codex@personal","installed":true,"version":"${version}"}]}'; fi\n`);
       chmodSync(stub, 0o755);
     }
     const run = spawnSync(process.execPath, [bin, 'install', 'codex', '--json'], {
@@ -80,6 +80,18 @@ describe('Codex plugin distribution', () => {
     strictEqual(run.status, 0, run.stderr);
     strictEqual(JSON.parse(run.stdout).pluginAdd, 'installed');
     match(readFileSync(calls, 'utf8'), /plugin add runlist-codex@personal/);
+    match(readFileSync(calls, 'utf8'), /plugin list --marketplace personal --json/);
+  });
+
+  it('verifies the host installation independently from the generated source version', () => {
+    const h = fresh();
+    installCodexPlugin({ version, homedir: h });
+    const read = output => installedCodexStatus({ homedir: h, run: () => ({ status: 0, stdout: JSON.stringify(output) }) });
+    strictEqual(read({ installed: [{ pluginId: 'runlist-codex@personal', installed: true, version: '0.1.0' }] }).version, '0.1.0');
+    strictEqual(read({ installed: [] }).ok, false);
+    strictEqual(read({ available: [] }).ok, false);
+    strictEqual(installedCodexStatus({ homedir: h, run: () => ({ status: 0, stdout: 'invalid' }) }).ok, false);
+    strictEqual(installedCodexStatus({ homedir: h, run: () => ({ status: 1 }) }).ok, false);
   });
 });
 

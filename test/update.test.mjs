@@ -1,10 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, writeFileSync, rmSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, writeFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { compareVersions, readInstalledPlugin, planMarketplaceRepair, planUpdate, planPluginUpdates, verifyPluginScopeUpdates } from '../src/update.mjs';
+import { compareVersions, readInstalledPlugin, planMarketplaceRepair, planUpdate, planPluginUpdates, verifyPluginScopeUpdates, verifyManagedHostUpdates } from '../src/update.mjs';
+import { installCodexPlugin } from '../src/codex-integration.mjs';
 import { installOpencodePlugin, installedVersion } from '../src/host-integration.mjs';
 import { detectVersionDrift } from '../src/hud.mjs';
 import { verifyInstalledPluginVersion } from '../scripts/verify-installed-plugin.mjs';
@@ -387,9 +388,112 @@ test('update runs every host step past a failed one, then exits 1 naming the fai
     });
     assert.equal(result.status, 1, result.stdout + result.stderr);
     assert.match(result.stdout, /claude exited 1/);
-    assert.match(result.stdout, /refreshed opencode integration/);
+    assert.match(result.stdout, /updated opencode integration/);
     assert.match(result.stdout, /1 step failed: claude plugin update runlist@runlist/);
     assert.notEqual(installedVersion(stale.path), '0.1.0');
+  });
+});
+
+test('managed host verification rejects no-op updates, disappeared installs and stale Codex caches', () => {
+  const current = { exists: true, version: '1.0.0', stale: false };
+  const before = { opencode: current, codex: current };
+  const after = { opencode: current, codex: { ...current, installed: { ok: true, version: '1.0.0' } } };
+  assert.deepEqual(verifyManagedHostUpdates(before, after, '1.0.0'), []);
+  assert.match(verifyManagedHostUpdates(before, { ...after, opencode: { ...current, version: '0.9.0' } }, '1.0.0').join(), /opencode.*expected 1.0.0/);
+  assert.match(verifyManagedHostUpdates(before, { ...after, codex: { ...current, installed: { ok: true, version: '0.9.0' } } }, '1.0.0').join(), /Codex installed plugin.*0.9.0/);
+  assert.equal(verifyManagedHostUpdates(before, {}, '1.0.0').length, 3);
+  assert.deepEqual(verifyManagedHostUpdates({ opencode: { ...current, foreign: true } }, {}, '1.0.0'), []);
+});
+
+function writeNodeCommand(dir, name, body) {
+  const script = path.join(dir, `${name}.cjs`);
+  writeFileSync(script, body);
+  const wrapper = path.join(dir, process.platform === 'win32' ? `${name}.cmd` : name);
+  writeFileSync(wrapper, process.platform === 'win32' ? `@"${process.execPath}" "${script}" %*\r\n`
+    : `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`);
+  chmodSync(wrapper, 0o755);
+}
+
+test('self-update refreshes initially current hosts using the new CLI and assets, even with a different runlist on PATH', () => {
+  withHome(home => {
+    const root = path.resolve(import.meta.dirname, '..');
+    const fixture = path.join(home, 'cli with spaces');
+    const fakeBin = path.join(home, 'bin');
+    mkdirSync(fixture); mkdirSync(fakeBin);
+    for (const dir of ['bin', 'src', 'assets', 'plugins/runlist-codex']) cpSync(path.join(root, dir), path.join(fixture, dir), { recursive: true });
+    const oldVersion = JSON.parse(readFileSync(path.join(root, 'package.json'))).version;
+    const newVersion = '9.8.7';
+    writeFileSync(path.join(fixture, 'package.json'), JSON.stringify({ type: 'module', version: oldVersion }));
+    const ocDir = path.join(home, 'oc');
+    const oc = installOpencodePlugin({ version: oldVersion, env: { OPENCODE_CONFIG_DIR: ocDir }, homedir: home });
+    installCodexPlugin({ version: oldVersion, homedir: home });
+    const installed = path.join(home, 'installed-codex-version');
+    writeFileSync(installed, oldVersion);
+    writeNodeCommand(fakeBin, 'npm', `const fs = require('node:fs');
+const root = ${JSON.stringify(fixture)};
+fs.writeFileSync(root + '/package.json', JSON.stringify({type: 'module', version: ${JSON.stringify(newVersion)}}));
+const plugin = root + '/plugins/runlist-codex/.codex-plugin/plugin.json';
+const manifest = JSON.parse(fs.readFileSync(plugin)); manifest.version = ${JSON.stringify(newVersion)};
+fs.writeFileSync(plugin, JSON.stringify(manifest));
+fs.appendFileSync(root + '/assets/opencode/plugin.js', '\\n// new release asset\\n');`);
+    writeNodeCommand(fakeBin, 'codex', `const fs = require('node:fs');
+const installed = ${JSON.stringify(installed)};
+if (process.argv[3] === 'add') fs.writeFileSync(installed, JSON.parse(fs.readFileSync(${JSON.stringify(path.join(home, 'plugins/runlist-codex/.codex-plugin/plugin.json'))})).version);
+if (process.argv[3] === 'list') console.log(JSON.stringify({installed: [{pluginId: 'runlist-codex@personal', installed: true, version: fs.readFileSync(installed, 'utf8')}]}));`);
+    const sentinel = path.join(home, 'wrong-cli-used');
+    writeNodeCommand(fakeBin, 'runlist', `require('node:fs').writeFileSync(${JSON.stringify(sentinel)}, 'wrong'); process.exitCode = 1;`);
+    const result = spawnSync(process.execPath, [path.join(fixture, 'bin/runlist.mjs'), 'update'], {
+      cwd: home, encoding: 'utf8', env: { ...process.env, HOME: home, USERPROFILE: home, OPENCODE_CONFIG_DIR: ocDir,
+        PATH: `${fakeBin}${path.delimiter}${process.env.PATH}`, NO_COLOR: '1' },
+    });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.equal(installedVersion(oc.path), newVersion);
+    assert.match(readFileSync(oc.path, 'utf8'), /new release asset/);
+    assert.equal(readFileSync(installed, 'utf8'), newVersion);
+    assert.equal(existsSync(sentinel), false);
+  });
+});
+
+test('release host updater refuses a version mismatch before touching installations', () => {
+  withHome(home => {
+    const root = path.resolve(import.meta.dirname, '..');
+    const result = spawnSync(process.execPath, [path.join(root, 'scripts/update-installed-hosts.mjs'), '0.0.0'], {
+      cwd: home, encoding: 'utf8', env: { ...process.env, HOME: home, USERPROFILE: home },
+    });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /host update requires this CLI version/);
+    assert.equal(existsSync(path.join(home, 'plugins')), false);
+  });
+});
+
+test('release host updater repairs cache-only drift after a Claude failure and rejects a successful Codex no-op', () => {
+  withHome(home => {
+    const root = path.resolve(import.meta.dirname, '..');
+    const version = JSON.parse(readFileSync(path.join(root, 'package.json'))).version;
+    const fakeBin = path.join(home, 'bin'); mkdirSync(fakeBin);
+    const cache = path.join(home, 'codex-cache-version');
+    writeNodeCommand(fakeBin, 'claude', 'process.exitCode = 1;');
+    writeNodeCommand(fakeBin, 'codex', `const fs = require('node:fs');
+const file = ${JSON.stringify(cache)};
+if (process.argv[3] === 'add' && process.env.CODEX_NOOP !== '1') fs.writeFileSync(file, ${JSON.stringify(version)});
+if (process.argv[3] === 'list') console.log(JSON.stringify({installed: [{pluginId: 'runlist-codex@personal', installed: true, version: fs.readFileSync(file, 'utf8')}]}));`);
+    installCodexPlugin({ version, homedir: home }); // source is already current
+    writeInstalled(home, { 'runlist@runlist': [{ version: '0.1.0' }] });
+    const ocDir = path.join(home, 'oc');
+    for (const noOp of [false, true]) {
+      writeFileSync(cache, '0.1.0');
+      const oc = installOpencodePlugin({ version: '0.1.0', env: { OPENCODE_CONFIG_DIR: ocDir }, homedir: home });
+      const result = spawnSync(process.execPath, [path.join(root, 'scripts/update-installed-hosts.mjs'), version], {
+        cwd: home, encoding: 'utf8', env: { ...process.env, HOME: home, USERPROFILE: home, OPENCODE_CONFIG_DIR: ocDir,
+          PATH: `${fakeBin}${path.delimiter}${process.env.PATH}`, NO_COLOR: '1', CODEX_NOOP: noOp ? '1' : '0' },
+      });
+      assert.equal(result.status, 1, result.stdout + result.stderr);
+      assert.match(result.stdout, /claude exited 1/);
+      assert.equal(installedVersion(oc.path), version, 'an independent host failure must not strand OpenCode');
+      assert.equal(readFileSync(cache, 'utf8'), noOp ? '0.1.0' : version);
+      assert.ok(!result.stdout.includes('Installed host integrations verified'));
+      if (noOp) assert.match(result.stdout + result.stderr, /Codex.*has 0.1.0, expected/);
+    }
   });
 });
 

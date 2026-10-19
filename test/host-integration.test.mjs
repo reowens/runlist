@@ -555,7 +555,9 @@ describe('update keeps the opencode file in lockstep', () => {
     ok(stale.some(step => step.kind === 'opencode'));
 
     const current = planUpdate({}, { ...ctx, opencode: { exists: true, stale: false, path: '/x/runlist.js' } });
-    ok(!current.some(step => step.kind === 'opencode'));
+    ok(current.some(step => step.kind === 'opencode'), 'a CLI upgrade can make a previously current file stale');
+    const pluginOnly = planUpdate({ pluginOnly: true }, { ...ctx, opencode: { exists: true, stale: false } });
+    ok(!pluginOnly.some(step => step.kind === 'opencode'));
 
     const foreign = planUpdate({}, { ...ctx, opencode: { exists: true, foreign: true, path: '/x/runlist.js' } });
     ok(!foreign.some(step => step.kind === 'opencode'));

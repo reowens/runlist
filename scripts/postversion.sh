@@ -141,35 +141,14 @@ npm install -g "${PACKAGE}@${VERSION}"
 echo "→ checking every PATH-visible runlist installation"
 node scripts/sync-global-cli.mjs "${VERSION}"
 
-# The Claude Code plugin ships from this repo in lockstep with the CLI, but
-# `npm install -g` doesn't refresh the installed plugin copy (the CLI's
-# postinstall only nudges, and allow-scripts policies can suppress even that).
-# Refresh it here, where `claude` is known to be on the release machine. Local
-# plugin refresh remains recoverable, but success is only reported after the
-# installed plugin record agrees with the released version.
-PLUGIN_VERIFIED=""
-if command -v claude >/dev/null 2>&1; then
-  echo "→ installing or refreshing Claude Code plugin runlist@runlist"
-  if runlist install claude && node scripts/update-installed-plugin.mjs "${VERSION}"; then
-    if node scripts/verify-installed-plugin.mjs "${VERSION}"; then
-      PLUGIN_VERIFIED=1
-      echo "  restart your Claude Code session (or /reload-plugins) to apply."
-    else
-      echo "⚠ plugin command completed but installed version is not ${VERSION}; run \`runlist update --plugin-only\`." >&2
-    fi
-  else
-    echo "⚠ plugin refresh failed — run \`runlist update --plugin-only\` manually." >&2
-  fi
-else
-  echo "⚠ \`claude\` not on PATH — plugin not refreshed; run \`runlist update --plugin-only\`." >&2
-fi
+# npm's postinstall is only a notice and may be suppressed. Refresh every
+# already installed host, including Codex's installed cache, using the same
+# planner and fresh verification as normal updates. Do not adopt new hosts.
+# An incomplete local update is resumable, not a successful product release.
+echo "→ refreshing and verifying installed host integrations"
+node scripts/update-installed-hosts.mjs "${VERSION}"
 
 node scripts/release-desktop.mjs "${VERSION}" "${SHA}"
 node scripts/release-intent.mjs clear
 trap - ERR
-if [ -n "${PLUGIN_VERIFIED}" ]; then
-  echo "✓ released ${PACKAGE}@${VERSION}; desktop, visible Node prefixes and the plugin are in sync"
-else
-  echo "✓ released and installed ${PACKAGE}@${VERSION} across all visible Node prefixes"
-  echo "⚠ local plugin verification remains incomplete; the published CLI release is complete." >&2
-fi
+echo "✓ released ${PACKAGE}@${VERSION}; desktop, visible Node prefixes and installed host integrations are in sync"

@@ -9,7 +9,7 @@ import {
 } from './host-integration.mjs';
 import { LEGACY_PLUGIN_ID, readInstalledPlugin, readInstalledPluginRecords } from './update.mjs';
 import { executableName, which } from './util.mjs';
-import { codexStatus, installCodexPlugin } from './codex-integration.mjs';
+import { codexStatus, installCodexPlugin, installedCodexStatus } from './codex-integration.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
@@ -111,9 +111,12 @@ function installCodex(argv, dryRun, json) {
     stdio: json ? 'pipe' : 'inherit', encoding: json ? 'utf8' : undefined,
     shell: process.platform === 'win32',
   });
-  if (json) process.stdout.write(JSON.stringify({ ...result, pluginAdd: added.status === 0 ? 'installed' : 'failed', pluginAddExit: added.status }, null, 2) + '\n');
-  if (added.status !== 0) {
-    process.stderr.write(`Codex plugin source is ready; finish installation with: codex plugin add ${selector}\n`);
+  const installed = added.status === 0 ? installedCodexStatus() : { ok: false, reason: added.error?.message ?? `codex plugin add exited ${added.status ?? '?'}` };
+  const verified = installed.ok && installed.version === pkg.version;
+  if (json) process.stdout.write(JSON.stringify({ ...result, pluginAdd: verified ? 'installed' : 'failed', pluginAddExit: added.status,
+    installedVersion: installed.version ?? null, ...(!verified ? { reason: installed.reason ?? `Codex has ${installed.version}, expected ${pkg.version}` } : {}) }, null, 2) + '\n');
+  if (!verified) {
+    process.stderr.write(`Codex plugin installation is unverified: ${installed.reason ?? `has ${installed.version}, expected ${pkg.version}`}. Retry: codex plugin add ${selector}\n`);
     process.exitCode = 1;
   } else if (!json) {
     process.stdout.write('Start a new Codex thread and review/trust the plugin hooks to enable the primer and guard.\n');
