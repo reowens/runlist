@@ -12,7 +12,7 @@ const h3 = heading => ({ level: 3, heading });
 const STATUS_GLYPHS = [
   { kind: 'shipped', glyphs: ['✅', '☑', '✔', '✓'] },
   { kind: 'skipped', glyphs: ['⏭'] },
-  { kind: 'in-progress', glyphs: ['🟡', '🔄'] },
+  { kind: 'in-progress', glyphs: ['🟡', '🟨', '🔄'] },
   { kind: 'blocked', glyphs: ['🚧', '🔴'] },
   { kind: 'todo', glyphs: ['⬜', '⬛', '◻', '☐'] },
 ];
@@ -317,4 +317,58 @@ it('excludes dated execution receipts while retaining executable phase names', (
   for (const title of ['Phase 1 execution', 'Phase 5 portal attempt', 'Phase 2: billing acceptance']) {
     ok(isPhaseHeading({ level: 3, heading: title }), title);
   }
+});
+
+
+it('excludes dated receipts and recorded mechanics without hiding executable work', () => {
+  const receipts = [
+    'Phase 1 receipts, 2026-10-19',
+    'Phase 2 state, 2026-10-19',
+    'Phase 3 verification, October 19, 2026',
+    'Phase 4 build, 2026-10-19',
+    'Phase 5 shaping walk, 2026-10-19',
+    'Phase 6 mechanics, recorded',
+    '🟨 Phase 7 receipts, 2026-10-19',
+  ];
+  for (const heading of receipts) ok(!isPhaseHeading(h3(heading)), heading);
+  for (const heading of [
+    'Phase 1 receipts',
+    'Phase 2 state',
+    'Phase 3 verification',
+    'Phase 4 build',
+    'Phase 5 shaping walk',
+    'Phase 6 mechanics',
+    'Phase 7 build, validate and ship',
+    'Phase 8 verification, 2026 integration cases',
+    'Phase 9 — build, 2026-10-19',
+    'Phase 10 mechanics, record the result',
+  ]) ok(isPhaseHeading(h3(heading)), heading);
+
+  const sections = walkSections([
+    '## Phases',
+    '### Phase 0: Previous work ✅',
+    ...receipts.map(heading => `### ${heading}`),
+    '### Phase 8: Next work ⬜',
+  ].join('\n'));
+  deepStrictEqual(summarizePhases(sections).counts, { shipped: 1, todo: 1 });
+  strictEqual(summarizePhases(sections).total, 2);
+  strictEqual(findActivePhase(sections).heading, 'Phase 8: Next work ⬜');
+});
+
+it('keeps a partial glyph unfinished even when its prose says local work is complete', () => {
+  for (const heading of [
+    '🟨 Phase 1: Local code verified',
+    '🟨️ Phase 1: Local code complete',
+    'Phase 1: Boundary 🟨 local code complete',
+  ]) {
+    ok(isPhaseHeading(h3(heading)), heading);
+    strictEqual(detectMarker(heading), 'in-progress', heading);
+  }
+  const sections = walkSections([
+    '### Phase 0: Previous work ✅',
+    '### Phase 1: Unstarted ⬜',
+    '### 🟨 Phase 2: Local code complete',
+  ].join('\n'));
+  deepStrictEqual(summarizePhases(sections).counts, { shipped: 1, todo: 1, 'in-progress': 1 });
+  strictEqual(findActivePhase(sections).heading, '🟨 Phase 2: Local code complete');
 });

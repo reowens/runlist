@@ -73,7 +73,7 @@ export function findSection(sections, name) {
 const GLYPH_PATTERNS = [
   { kind: 'shipped',     re: /(✅|☑|✔|✓)/ },
   { kind: 'skipped',     re: /(⏭)/ },
-  { kind: 'in-progress', re: /(🟡|🔄)/ },
+  { kind: 'in-progress', re: /(🟡|🟨|🔄)/ },
   { kind: 'blocked',     re: /(🚧|🔴)/ },
   { kind: 'todo',        re: /(⬜|⬛|◻|☐)/ },
 ];
@@ -115,7 +115,7 @@ export function detectMarker(heading) {
 // and the space, is not \s, and ends the run — so a heading led by the
 // emoji-presentation form was not a phase heading at all, while the bare
 // codepoint was. Reported by the owner, 2026-08-16.
-const PHASE_DECORATION = String.raw`[\s>*_~\`#-]*(?:[✅🚧⬜🟡⏭☑✔✓◻☐⬛🔴🔄][︎️]?\s*)*`;
+const PHASE_DECORATION = String.raw`[\s>*_~\`#-]*(?:[✅🚧⬜🟡🟨⏭☑✔✓◻☐⬛🔴🔄][︎️]?\s*)*`;
 const PHASE_LEAD = new RegExp(`^${PHASE_DECORATION}phase\\b`, 'i');
 const FILES_MANIFEST_ANCESTOR = new RegExp(`^${PHASE_DECORATION}files\\b`, 'i');
 
@@ -157,8 +157,14 @@ const PHASE_COMPOUND_COMMENTARY = new RegExp(
 // Dated execution receipts describe an attempt or acceptance record, not a work phase.
 const PHASE_DATED_RECEIPT = new RegExp(
   `^${PHASE_DECORATION}phase\\s+\\S+\\s+` +
-  `(?:execution|completed[- ]work\\s+record|personal\\s+billing\\s+acceptance|portal\\s+attempt)` +
+  `(?:execution|completed[- ]work\\s+record|personal\\s+billing\\s+acceptance|portal\\s+attempt|` +
+  `receipts?|state|verification|build|shaping\\s+walk)` +
   `\\s*,\\s*(?:closed\\s+)?(?:[A-Z][a-z]+\\s+\\d{1,2},\\s+\\d{4}|\\d{4}-\\d{2}-\\d{2})\\b`,
+  'i',
+);
+
+const PHASE_RECORDED_MECHANICS = new RegExp(
+  `^${PHASE_DECORATION}phase\\s+\\S+\\s+mechanics\\s*,\\s*recorded\\b`,
   'i',
 );
 
@@ -168,7 +174,8 @@ export function isPhaseHeading(section) {
   return PHASE_LEAD.test(section.heading)
     && !PHASE_COMMENTARY.test(section.heading)
     && !PHASE_COMPOUND_COMMENTARY.test(section.heading)
-    && !PHASE_DATED_RECEIPT.test(section.heading);
+    && !PHASE_DATED_RECEIPT.test(section.heading)
+    && !PHASE_RECORDED_MECHANICS.test(section.heading);
 }
 
 // A phase's OWN checklist — the boxes directly under its heading, stopping at
