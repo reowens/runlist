@@ -2,6 +2,15 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- Product releases now synchronize desktop/package/Cargo versions and current release documentation, build and qualify the matching signed/notarized Mac installer, publish it and update an existing local app before declaring completion. Failed desktop steps retain the same release intent for resume.
+- Desktop installation and `runlist update` upgrade older installed Mac apps with verified downloads, running-app protection and rollback, instead of silently leaving them on an older bundled engine. Current or newer apps are preserved.
+- Notarization persists request IDs before waiting and reuses the same request on retry, refusing changed artifact bytes.
+
+
 ## 0.95.1 — 2026-10-18
 
 ### Fixed

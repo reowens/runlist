@@ -300,3 +300,33 @@ test('version preparation still works in a repo with no changelog', () => {
   assert.equal(git(['diff', '--cached', '--name-only']).stdout.trim().split('\n').sort().join(','),
     '.claude-plugin/marketplace.json,plugins/runlist-codex/.codex-plugin/plugin.json,plugins/runlist/.claude-plugin/plugin.json');
 });
+
+test('desktop manifests and release docs join the version commit and recover together', () => {
+  setupRepo();
+  mkdirSync(path.join(root, 'desktop/src-tauri'), { recursive: true });
+  const files = {
+    'desktop/package.json': JSON.stringify({ name: 'runlist-desktop', version: '1.0.0' }) + '\n',
+    'desktop/package-lock.json': JSON.stringify({ version: '1.0.0', packages: { '': { version: '1.0.0' }, vendor: { version: '9.0.0' } } }) + '\n',
+    'desktop/src-tauri/tauri.conf.json': JSON.stringify({ version: '1.0.0' }) + '\n',
+    'desktop/src-tauri/Cargo.toml': '[package]\nname = "runlist-desktop"\nversion = "1.0.0"\n',
+    'desktop/src-tauri/Cargo.lock': 'version = 4\n[[package]]\nname = "runlist-desktop"\nversion = "1.0.0"\n',
+    'README.md': 'Historical 0.9.0\n<!-- runlist:release:start -->1.0.0<!-- runlist:release:end -->\n',
+    'CHANGELOG.md': '# Changelog\n\n## Unreleased\n\nFix desktop drift.\n',
+  };
+  for (const [file, text] of Object.entries(files)) writeFileSync(path.join(root, file), text);
+  git(['add', '.']); git(['commit', '-m', 'desktop fixture']);
+  seedIntent();
+  for (const file of ['package.json', 'package-lock.json']) writeFileSync(path.join(root, file), JSON.stringify({ version: '1.0.1' }) + '\n');
+  prepareVersionCommit(root);
+  assert.equal(JSON.parse(readFileSync(path.join(root, 'desktop/package.json'))).version, '1.0.1');
+  assert.equal(JSON.parse(readFileSync(path.join(root, 'desktop/package-lock.json'))).packages.vendor.version, '9.0.0');
+  assert.match(readFileSync(path.join(root, 'desktop/src-tauri/Cargo.lock'), 'utf8'), /version = "1.0.1"/);
+  assert.match(readFileSync(path.join(root, 'README.md'), 'utf8'), /desktop-v1.0.1/);
+  assert.deepEqual(git(['diff', '--cached', '--name-only']).stdout.trim().split('\n').sort(), [
+    '.claude-plugin/marketplace.json', 'plugins/runlist/.claude-plugin/plugin.json',
+    'plugins/runlist-codex/.codex-plugin/plugin.json', ...Object.keys(files),
+  ].sort());
+  assert.equal(recoverLocalRelease(root).action, 'rolled-back');
+  for (const [file, text] of Object.entries(files)) assert.equal(readFileSync(path.join(root, file), 'utf8'), text);
+  assert.equal(git(['status', '--porcelain']).stdout, '');
+});

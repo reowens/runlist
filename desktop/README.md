@@ -8,14 +8,21 @@ system WebView communicates with a native controller, which owns a bundled Node
 helper through private stdin/stdout pipes. There is no listening HTTP server,
 runtime download, online account, telemetry, automatic updater or login daemon.
 
-Desktop distribution is separate from the npm CLI. The CLI and public GUI are
-**0.94.1**. The GUI includes the current yardstick/Filing source and uses bundled
-engine 0.94.1 with desktop protocol 1. Updating the CLI does not replace an
-existing desktop app. GUI Product goal shows literal delivery and human-reviewed
+<!-- runlist:release:start -->
+CLI and desktop release version: **0.95.1**.
+[Mac installer and release notes](https://github.com/reowens/runlist/releases/tag/desktop-v0.95.1).
+Normal product releases publish both components; an installed Mac app is updated with rollback after it has quit.
+<!-- runlist:release:end -->
+
+The app bundles the matching Runlist engine with desktop protocol 1.
+GUI Product goal shows literal delivery and human-reviewed
 assessments; Filing scans on demand and opens exact hub-row evidence. Structured
 plans display comparison and explain unavailable assessment actions.
 
 ## Current release and next steps
+
+The release-version section above identifies the current product version.
+The following 0.94.1 evidence is a historical qualification snapshot.
 
 **[Runlist Desktop 0.94.1](https://github.com/reowens/runlist/releases/tag/desktop-v0.94.1)**
 is available for Apple Silicon Macs running macOS 13.5 or newer. It replaces
@@ -160,10 +167,9 @@ a download. Existing installations are kept as-is unless `--from` explicitly
 supplies a replacement; replacements require the app to be closed and retain a
 rollback copy. Installation keeps Mac quarantine and never opens the app.
 `--dry-run` uses no network, processes or file writes. The command does not load
-checkout configuration or add a CLI runtime dependency. It selects the public
-Mac 0.94.1 installer. The installer commands are included in CLI 0.94.1 and
-were introduced in [CLI 0.92.0](https://github.com/reowens/runlist/releases/tag/v0.92.0).
-The GUI remains separately versioned at 0.94.1. Source-checkout invocations remain available
+checkout configuration or add a CLI runtime dependency. It selects the newest
+published Mac installer. The installer commands were introduced in [CLI 0.92.0](https://github.com/reowens/runlist/releases/tag/v0.92.0).
+Normal product releases publish a matching GUI version. Source-checkout invocations remain available
 as `node bin/runlist.mjs desktop …`. Installing the npm CLI does not download
 the GUI automatically.
 
@@ -288,15 +294,36 @@ outstanding edits and uncertain operations are resolved.
 
 ## Updates, rollback and removal
 
-Quit Runlist, keep the previous application if you want a rollback, and replace
-the application with the newly verified app from its DMG. There is no automatic
-update connection. An older application cannot undo Markdown changes or make
+Quit Runlist and run `runlist update` or `runlist desktop install`. The installer
+checks the published version, verifies the download, signature and Apple approval,
+and retains the previous app for rollback. Updates run only when requested;
+there is no background update connection. An older application cannot undo Markdown changes or make
 unknown future protocol/schema versions compatible; resolve outstanding
 operations and review version compatibility before rolling back.
 
 Move `Runlist.app` to Trash to uninstall. This leaves checkouts and recovery
 storage intact. App preferences can be removed separately after recovery work is
 resolved. Removing the desktop app does not uninstall the npm CLI.
+
+## Product release workflow
+
+`npm version patch` now stamps CLI, plugin and desktop manifests plus both
+current-version documentation blocks. Preflight requires the qualified Apple
+Silicon Mac host, the existing signing identity/team and notarytool profile.
+Set `RUNLIST_SIGN_IDENTITY`, `RUNLIST_SIGN_TEAM` and `RUNLIST_NOTARY_PROFILE`, or
+save `signIdentity`, `signTeam` and `notaryProfile` in private
+`.runlist/release-config.json`. `RUNLIST_RELEASE_CONFIG` can select that private
+file from a clean release checkout. The privacy scanner also needs its local
+key or `RUNLIST_PUBLIC_CHECK_KEY`.
+
+After npm publication, the release command builds and checks the matching Mac
+app, signs/notarizes it, publishes the exact installer and updates an existing
+local app with rollback. It never opens or quits an app. A failure retains the
+release intent: use `npm run release:resume` for the same version. Apple request
+IDs are saved before waiting, so retrying waits for the same identified bytes.
+Build/sign/publication receipts remain private under `.runlist/desktop-release/`.
+A standalone retry is `node scripts/release-desktop.mjs VERSION SOURCE_SHA` from
+the clean matching release checkout.
 
 ## Build, sign and notarize
 

@@ -46,13 +46,16 @@ Stage filters, grouping and editing are included. Optional grepmax semantic
 controls are experimental; live retrieval depends on a compatible external
 provider. Local chat and push are deferred.
 
-The Apple Silicon GUI is **[0.94.1](https://github.com/reowens/runlist/releases/tag/desktop-v0.94.1)**,
-signed, accepted by Apple and stapled. It replaces the installers withdrawn
-during the privacy cleanup. The desktop app is separate from CLI 0.94.1,
-which includes optional plan-filing checks and the owner-written product yardstick,
-corrected hub-category inheritance, updates for every saved Claude plugin scope,
-and `runlist desktop install`.
-Updating the CLI does not replace the GUI's bundled engine; this GUI reports 0.94.1.
+<!-- runlist:release:start -->
+CLI and desktop release version: **0.95.1**.
+[Mac installer and release notes](https://github.com/reowens/runlist/releases/tag/desktop-v0.95.1).
+Normal product releases publish both components; an installed Mac app is updated with rollback after it has quit.
+<!-- runlist:release:end -->
+
+The desktop app bundles the matching engine and runtime. Publishing a product
+release now includes building, qualifying, signing/notarizing and publishing the
+Mac installer. `runlist update` also updates an existing Mac app; installing the
+npm package alone does not download an app onto a machine without one.
 Earlier development packages and their qualification results are historical;
 see the [desktop validation record](desktop/VALIDATION.md).
 
@@ -84,8 +87,8 @@ Deferred work awaiting selection:
    older distributions, real-version upgrades, fresh/minimum-version and Intel
    Macs, plus native rendering, focus, accessibility and whole-window memory.
 
-Mac GUI 0.94.1 is available from the [desktop release](https://github.com/reowens/runlist/releases/tag/desktop-v0.94.1).
-CLI 0.94.1 includes the optional product yardstick.
+The current Mac installer is linked in the release-version section above.
+CLI and desktop include the optional product yardstick.
 The supported desktop
 release is Apple Silicon macOS 13.5 or newer. Broader platform work and
 experimental semantic search remain separate follow-up work.
@@ -109,10 +112,10 @@ without opening it. The app bundles its runtime and reads local files through
 private pipes, with no listening server. Choose your checkout folder in the app.
 No checkout configuration is loaded by these CLI commands.
 
-The GUI is versioned separately from the CLI. `runlist desktop install` selects
-the public Mac 0.94.1 installer.
+`runlist desktop install` selects the newest published Mac installer and
+updates an older installed app after you quit it.
 Windows, Linux and Intel Mac GUI downloads are not yet available through this
-command. An existing app is kept as-is. To replace it using a downloaded signed
+command. Current or newer installed apps are preserved. To use a downloaded signed
 DMG, quit Runlist and run:
 
 ```bash
@@ -280,13 +283,13 @@ runlist desktop install --from /path/to/Runlist.dmg  # install a local signed DM
 
 The installer currently supports Apple Silicon Macs. It verifies the published
 download checksum, Runlist developer signature and Apple approval, and installs
-without opening the app. An existing app is kept unless `--from` supplies a
-replacement; replacement keeps a rollback copy. `--dry-run` uses no network and
-changes no files. The public Mac 0.94.1 download replaces the withdrawn
+without opening the app. An older installed app is updated after it has quit;
+replacement keeps a rollback copy. `--dry-run` uses no network and
+changes no files. The current Mac download replaces the withdrawn
 installers. These commands ship
 in [CLI 0.92.0](https://github.com/reowens/runlist/releases/tag/v0.92.0) and can also
-be used from this checkout as `node bin/runlist.mjs desktop …`. The GUI remains
-separately versioned at **0.94.1**; npm installation does not download it.
+be used from this checkout as `node bin/runlist.mjs desktop …`. Normal product releases keep GUI and CLI versions together; an npm install
+does not add a GUI to a machine without one.
 
 The optional browser document app is available from this source checkout (unreleased):
 
@@ -828,13 +831,13 @@ local model or server. GUI controls are implemented in the source checkout:
 Product goal shows the saved statement, delivery and assessment, with reviewed
 Serves/Clear/Close/Fold actions and retained recovery. Structured plans display
 the comparison with an explanation when assessment changes are unavailable.
-These controls are included in the public desktop package 0.94.1;
-updating the CLI alone does not replace an existing app.
+These controls are included in the public desktop package.
+`runlist update` updates an existing Mac app alongside the CLI and integrations.
 
 ### Plan Homes And Filing Checks
 
 This policy is available in CLI 0.93.0. From a source checkout, invoke the
-commands below as `node bin/runlist.mjs …`. The separately versioned GUI
+commands below as `node bin/runlist.mjs …`. The bundled GUI
 The desktop app also includes a read-only Filing view. The correction
 for category inheritance from status-less hub indexes is included in CLI
 0.93.1.
@@ -880,7 +883,7 @@ is labeled and suppresses absence/uniqueness findings. Path/type-scoped output
 keeps the full hub/ancestor evidence while reporting only selected plans.
 The source checkout also includes a read-only Filing view: open it to scan,
 filter 50-plan pages, and inspect exact hub rows in 20-row evidence pages. Saved
-edits invalidate the report. This view is included in public desktop package 0.94.1.
+edits invalidate the report. This view is included in the public desktop package.
 The policy is off when `filing` is unset, false, or `{ enabled: false }`.
 It can replace a repository's older “any link counts” coverage script once
 that repository enables it and retires its custom check.

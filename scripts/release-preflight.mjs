@@ -4,6 +4,10 @@ import { fileURLToPath } from 'node:url';
 import { assertGitIndex } from '../src/git.mjs';
 import { readReleaseIntent } from './release-intent.mjs';
 import { validatePluginManifests } from './sync-plugin-version.mjs';
+import { preflightDesktopRelease } from './desktop-release-config.mjs';
+import { prepareDesktopVersionUpdates } from '../desktop/scripts/version.mjs';
+import { prepareReleaseDocUpdates } from './stamp-release-docs.mjs';
+import { privateVocabularyAvailable } from './public-content.mjs';
 
 function git(projectRoot, args) {
   return spawnSync('git', args, { cwd: projectRoot, encoding: 'utf8' });
@@ -31,6 +35,12 @@ export function runReleasePreflight(projectRoot = process.cwd()) {
   if (ancestry.status !== 0) throw new Error('local main does not descend from origin/main; reconcile before releasing');
 
   validatePluginManifests(projectRoot);
+  const version = JSON.parse((git(projectRoot, ['show', 'HEAD:package.json'])).stdout).version;
+  prepareDesktopVersionUpdates(projectRoot, version);
+  prepareReleaseDocUpdates(projectRoot, version);
+  if (preflightDesktopRelease(projectRoot) && !privateVocabularyAvailable) {
+    throw new Error('Desktop publication requires the private public-content key before versioning.');
+  }
 }
 
 if (path.resolve(process.argv[1] || '') === fileURLToPath(import.meta.url)) {

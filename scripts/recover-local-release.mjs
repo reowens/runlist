@@ -3,6 +3,8 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { clearReleaseIntent, readReleaseIntent } from './release-intent.mjs';
+import { prepareDesktopVersionUpdates } from '../desktop/scripts/version.mjs';
+import { prepareReleaseDocUpdates } from './stamp-release-docs.mjs';
 
 const RELEASE_PATHS = [
   'package.json',
@@ -38,7 +40,10 @@ export function recoverLocalRelease(projectRoot = process.cwd()) {
   const workingVersion = packageVersion(projectRoot);
   const headVersion = packageVersion(projectRoot, 'HEAD');
   if (workingVersion === version && headVersion !== version) {
-    const restore = git(projectRoot, ['restore', '--source=HEAD', '--staged', '--worktree', '--', ...RELEASE_PATHS]);
+    const desktopPaths = [...prepareDesktopVersionUpdates(projectRoot, version), ...prepareReleaseDocUpdates(projectRoot, version)]
+      .map(({ file }) => path.relative(projectRoot, file));
+    const changelog = git(projectRoot, ['ls-files', '--error-unmatch', 'CHANGELOG.md']).status === 0 ? ['CHANGELOG.md'] : [];
+    const restore = git(projectRoot, ['restore', '--source=HEAD', '--staged', '--worktree', '--', ...RELEASE_PATHS, ...desktopPaths, ...changelog]);
     if (restore.status !== 0) throw new Error(`cannot roll back failed version attempt: ${restore.stderr.trim()}`);
     clearReleaseIntent(projectRoot);
     return {

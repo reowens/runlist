@@ -1,7 +1,7 @@
 import {createHash,randomUUID} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {createWriteStream} from 'node:fs';
-import {lstat,mkdir,mkdtemp,rename,rm} from 'node:fs/promises';
+import {lstat,mkdir,mkdtemp,readFile,rename,rm} from 'node:fs/promises';
 import {homedir,tmpdir} from 'node:os';
 import path from 'node:path';
 import {Readable,Transform} from 'node:stream';
@@ -12,6 +12,35 @@ const RELEASES='https://api.github.com/repos/reowens/runlist/releases';
 const DOWNLOADS='https://github.com/reowens/runlist/releases/download/';
 const TEAM='7GSPYYN5X8';
 const MAX_DOWNLOAD=512*1024*1024;
+
+export function compareDesktopVersions(a,b) {
+ const parse=value=>/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([\w.-]+))?$/.exec(value??'');
+ const left=parse(a),right=parse(b);
+ if(!left||!right)throw new Error('Cannot compare the installed and published desktop versions. Nothing was replaced.');
+ for(let i=1;i<=3;i++)if(Number(left[i])!==Number(right[i]))return Number(left[i])<Number(right[i])?-1:1;
+ if(left[4]===right[4])return 0;
+ if(!left[4]||!right[4])return left[4]?-1:1;
+ const x=left[4].split('.'),y=right[4].split('.');
+ for(let i=0;i<Math.max(x.length,y.length);i++) {
+  if(x[i]===y[i])continue;
+  if(x[i]===undefined||y[i]===undefined)return x[i]===undefined?-1:1;
+  const xn=/^\d+$/.test(x[i]),yn=/^\d+$/.test(y[i]);
+  if(xn!==yn)return xn?-1:1;
+  return xn?(Number(x[i])<Number(y[i])?-1:1):(x[i]<y[i]?-1:1);
+ }
+ return 0;
+}
+
+export async function installedDesktopVersion(app) {
+ try {
+  const engine=path.join(app,'Contents/Resources/engine');
+  const manifest=JSON.parse(await readFile(path.join(engine,'bundle-manifest.json'),'utf8'));
+  const pkg=JSON.parse(await readFile(path.join(engine,'package.json'),'utf8'));
+  if(manifest.version!==pkg.version||manifest.protocol!==1)throw new Error('Bundle version mismatch.');
+  compareDesktopVersions(pkg.version,pkg.version);
+  return pkg.version;
+ } catch(error) {throw new Error('Cannot verify the installed desktop version. Use a reviewed local installer with --from to repair it.',{cause:error});}
+}
 const nativeExec=(exe,args)=>{
  try {return {stdout:execFileSync(exe,args,{encoding:'utf8',timeout:60000,stdio:['ignore','pipe','pipe']})};}
  catch(error) {throw new Error(`${path.basename(exe)} failed: ${(error.stderr?.toString()||error.message).trim()}`,{cause:error});}
@@ -19,6 +48,7 @@ const nativeExec=(exe,args)=>{
 
 export function selectDesktopRelease(releases) {
  if(!Array.isArray(releases))throw new Error('Runlist release information is unavailable.');
+ let selected=null;
  for(const release of releases) {
   if(release.draft)continue;
   for(const asset of release.assets??[]) {
@@ -29,10 +59,11 @@ export function selectDesktopRelease(releases) {
    if(!Number.isSafeInteger(asset.size)||asset.size<=0||asset.size>MAX_DOWNLOAD)throw new Error('The Runlist installer size is invalid.');
    const checksum=/^sha256:([a-f0-9]{64})$/i.exec(asset.digest??'')?.[1].toLowerCase();
    if(!checksum)throw new Error('The published Runlist installer is missing its SHA-256 digest.');
-   return {url:url.href,version:match[1],size:asset.size,sha256:checksum};
+   const candidate={url:url.href,version:match[1],size:asset.size,sha256:checksum};
+   if(!selected||compareDesktopVersions(candidate.version,selected.version)>0)selected=candidate;
   }
  }
- return null;
+ return selected;
 }
 
 async function latestInstaller(fetcher) {
@@ -93,7 +124,16 @@ export async function runDesktopInstall(argv,{dryRun=false,platform=process.plat
  if(fromAt>=0&&(!from||from.startsWith('--')))throw new Error('--from requires a local Runlist installer.dmg path.');
  if(dryRun){write(`Would install the optional Runlist GUI from ${from?path.resolve(from):'Runlist GitHub releases'} without opening it. No download or files changed.\n`);return {dryRun:true};}
  const installed=desktopLaunch([],{platform,home}).app;
- if(installed&&!from){write(`Runlist is already installed at ${installed}. Open it with runlist desktop.\n`);return {installed,alreadyInstalled:true};}
+ let installer;
+ if(installed&&!from) {
+  const version=await installedDesktopVersion(installed);
+  installer=await latestInstaller(fetcher);
+  if(compareDesktopVersions(version,installer.version)>=0) {
+   write(`Runlist desktop ${version} is current at ${installed}.\n`);
+   return {installed,version,alreadyInstalled:true};
+  }
+  write(`Updating Runlist desktop ${version} → ${installer.version}…\n`);
+ }
  if(!exec) {
   // Imported only for this explicit installer; no subprocess or download at import time.
   const {spawnSync}=await import('node:child_process');
@@ -119,7 +159,7 @@ export async function runDesktopInstall(argv,{dryRun=false,platform=process.plat
    image=path.resolve(from);const info=await entry(image);
    if(!image.toLowerCase().endsWith('.dmg')||!info?.isFile()||info.isSymbolicLink()||info.size>MAX_DOWNLOAD)throw new Error('--from must name a regular signed Runlist .dmg installer.');
   } else {
-   const installer=await latestInstaller(fetcher);write(`Downloading Runlist ${installer.version} for Mac Apple Silicon…\n`);
+   installer??=await latestInstaller(fetcher);write(`Downloading Runlist ${installer.version} for Mac Apple Silicon…\n`);
    image=path.join(work,'Runlist.dmg');await download(installer,image,fetcher);
   }
   verifySigned(image,exec);
@@ -128,6 +168,8 @@ export async function runDesktopInstall(argv,{dryRun=false,platform=process.plat
   const source=path.join(mount,'Runlist.app');const info=await entry(source);
   if(!info?.isDirectory()||info.isSymbolicLink())throw new Error('The installer does not contain a regular Runlist.app.');
   verifySigned(source,exec,'dev.reowens.runlist');
+  const version=await installedDesktopVersion(source);
+  if(installer&&version!==installer.version)throw new Error('The downloaded app version differs from the published installer. Nothing was replaced.');
   stage=path.join(parent,`.Runlist-install-${randomUUID()}.app`);
   exec('/usr/bin/ditto',[source,stage]);
   // Keep normal Mac download identification instead of stripping quarantine.
@@ -145,7 +187,7 @@ export async function runDesktopInstall(argv,{dryRun=false,platform=process.plat
   catch(error){if(backup)await rename(backup,target);throw error;}
   write(`Installed Runlist at ${target}. Open it with runlist desktop.\n`);
   if(backup)write(`Previous app kept at ${backup}.\n`);
-  return {installed:target,backup:backup??null};
+  return {installed:target,version,backup:backup??null};
  } finally {
   if(stage)await rm(stage,{recursive:true,force:true});
   if(attached) {

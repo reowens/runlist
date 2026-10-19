@@ -164,10 +164,11 @@ else
   echo "⚠ \`claude\` not on PATH — plugin not refreshed; run \`runlist update --plugin-only\`." >&2
 fi
 
+node scripts/release-desktop.mjs "${VERSION}" "${SHA}"
 node scripts/release-intent.mjs clear
 trap - ERR
 if [ -n "${PLUGIN_VERIFIED}" ]; then
-  echo "✓ released ${PACKAGE}@${VERSION}; all visible Node prefixes and the plugin are in sync"
+  echo "✓ released ${PACKAGE}@${VERSION}; desktop, visible Node prefixes and the plugin are in sync"
 else
   echo "✓ released and installed ${PACKAGE}@${VERSION} across all visible Node prefixes"
   echo "⚠ local plugin verification remains incomplete; the published CLI release is complete." >&2

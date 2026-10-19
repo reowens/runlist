@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { assertGitIndex } from '../src/git.mjs';
 import { writeReleaseIntent } from './release-intent.mjs';
 import { syncPluginVersions } from './sync-plugin-version.mjs';
+import { prepareDesktopVersionUpdates } from '../desktop/scripts/version.mjs';
+import { prepareReleaseDocUpdates } from './stamp-release-docs.mjs';
 
 const MANIFEST_PATHS = [
   'plugins/runlist/.claude-plugin/plugin.json',
@@ -70,6 +72,7 @@ export function prepareVersionCommit(
   const today = deps.today ?? localDate();
   let manifestsTouched = false;
   let changelogStamped = false;
+  let desktopPaths = [];
   try {
     assertGitIndex(projectRoot);
     const unexpected = listUnstagedPaths(projectRoot)
@@ -98,14 +101,17 @@ export function prepareVersionCommit(
     if (remoteTag.status === 0) throw new Error(`remote release tag ${tag} already exists`);
     if (remoteTag.status !== 2) throw new Error(remoteTag.stderr.trim() || `cannot verify remote release tag ${tag}`);
     manifestsTouched = true;
+    const updates = [...prepareDesktopVersionUpdates(projectRoot, version), ...prepareReleaseDocUpdates(projectRoot, version)];
+    desktopPaths = updates.map(({ file }) => path.relative(projectRoot, file));
     sync(projectRoot);
+    for (const { file, content } of updates) writeFileSync(file, content);
     changelogStamped = stampChangelog(projectRoot, version, today);
-    const stagedPaths = changelogStamped ? [...MANIFEST_PATHS, CHANGELOG_PATH] : MANIFEST_PATHS;
+    const stagedPaths = [...MANIFEST_PATHS, ...desktopPaths, ...(changelogStamped ? [CHANGELOG_PATH] : [])];
     const add = git(projectRoot, ['add', '--', ...stagedPaths]);
     if (add.status !== 0) throw new Error(add.stderr.trim() || 'git add failed');
     assertGitIndex(projectRoot, stagedPaths);
   } catch (err) {
-    const restorePaths = manifestsTouched ? [...RELEASE_PATHS] : ['package.json', 'package-lock.json'];
+    const restorePaths = manifestsTouched ? [...RELEASE_PATHS, ...desktopPaths] : ['package.json', 'package-lock.json'];
     // Only restore the changelog when this run rewrote it — the path may not
     // exist in HEAD at all, and `git restore` errors on an unmatched pathspec.
     if (changelogStamped) restorePaths.push(CHANGELOG_PATH);

@@ -6,7 +6,7 @@ import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {runDesktopInstall,selectDesktopRelease} from '../src/desktop-install.mjs';
+import {compareDesktopVersions,runDesktopInstall,selectDesktopRelease} from '../src/desktop-install.mjs';
 import {commandCompletionWords,validateCommandArgs,COMMAND_POLICIES} from '../src/commands.mjs';
 
 const image=Buffer.from('a mock signed disk image');
@@ -14,6 +14,12 @@ const asset={name:'Runlist-0.91.0-rc.3-macOS-arm64.dmg',state:'uploaded',size:im
  browser_download_url:'https://github.com/reowens/runlist/releases/download/desktop-v0.91.0-rc.3/Runlist-0.91.0-rc.3-macOS-arm64.dmg',
  digest:'sha256:'+createHash('sha256').update(image).digest('hex')};
 const releases=[{draft:false,assets:[asset]}];
+
+function versionedApp(app,version) {
+ const engine=path.join(app,'Contents/Resources/engine');mkdirSync(engine,{recursive:true});
+ writeFileSync(path.join(engine,'package.json'),JSON.stringify({version}));
+ writeFileSync(path.join(engine,'bundle-manifest.json'),JSON.stringify({version,protocol:1}));
+}
 
 function fixture(t,{team='7GSPYYN5X8',running=false}={}) {
  const home=mkdtempSync(path.join(tmpdir(),'runlist-install-unit-'));
@@ -25,7 +31,7 @@ function fixture(t,{team='7GSPYYN5X8',running=false}={}) {
   if(program==='/usr/bin/codesign'&&args[0]==='-dvv')return {stdout:'',stderr:`Identifier=dev.reowens.runlist\nTeamIdentifier=${team}\n`};
   if(program==='/usr/bin/hdiutil'&&args[0]==='attach') {
    const folder=path.join(args[args.indexOf('-mountpoint')+1],'Runlist.app');
-   mkdirSync(folder);writeFileSync(path.join(folder,'new-version'),'new');
+   versionedApp(folder,'0.91.0-rc.3');writeFileSync(path.join(folder,'new-version'),'new');
   }
   if(program==='/usr/bin/ditto')cpSync(args[0],args[1],{recursive:true});
   return {stdout:'',stderr:''};
@@ -75,11 +81,34 @@ test('install dry-run is outside-checkout, network/file/process-free',async t=>{
  assert.deepEqual(readFileSync(bin),before);
 });
 
-test('an existing app stays untouched without network or processes',async t=>{
+test('a current or newer installed app checks metadata without downloading or replacing it',async t=>{
  const f=fixture(t);const app=path.join(f.home,'Applications/Runlist.app');mkdirSync(app,{recursive:true});writeFileSync(path.join(app,'keep'),'old');
+ versionedApp(app,'0.91.0');
  const result=await runDesktopInstall(['install'],f);
- assert.equal(result.alreadyInstalled,true);assert.equal(f.fetches.length,0);assert.equal(f.commands.length,0);
+ assert.equal(result.alreadyInstalled,true);assert.equal(f.fetches.length,1);assert.equal(f.commands.length,0);
  assert.equal(readFileSync(path.join(app,'keep'),'utf8'),'old');
+});
+
+test('install upgrades an older app from releases and retains a rollback copy',async t=>{
+ const f=fixture(t),app=path.join(f.home,'Applications/Runlist.app');
+ versionedApp(app,'0.90.0');writeFileSync(path.join(app,'keep'),'previous');
+ const result=await runDesktopInstall(['install'],f);
+ assert.equal(result.version,'0.91.0-rc.3');assert.equal(f.fetches.length,2);
+ assert.equal(readFileSync(path.join(result.backup,'keep'),'utf8'),'previous');
+ assert.ok(existsSync(path.join(app,'new-version')));
+});
+
+test('an automatic upgrade refuses a running app before downloading it',async t=>{
+ const f=fixture(t,{running:true}),app=path.join(f.home,'Applications/Runlist.app');versionedApp(app,'0.90.0');
+ await assert.rejects(runDesktopInstall(['install'],f),/Quit Runlist/);
+ assert.equal(f.fetches.length,1);assert.equal(f.commands.length,1);
+});
+
+test('release versions compare prereleases numerically and selection ignores release list order',()=>{
+ assert.equal(compareDesktopVersions('0.95.1-rc.10','0.95.1-rc.2'),1);
+ assert.equal(compareDesktopVersions('0.95.1','0.95.1-rc.10'),1);
+ const newer={...asset,name:'Runlist-0.95.1-macOS-arm64.dmg',browser_download_url:'https://github.com/reowens/runlist/releases/download/desktop-v0.95.1/Runlist-0.95.1-macOS-arm64.dmg'};
+ assert.equal(selectDesktopRelease([...releases,{assets:[newer]}]).version,'0.95.1');
 });
 
 test('download verifies SHA before mounting and installs without opening the GUI',async t=>{

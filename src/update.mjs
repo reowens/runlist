@@ -7,6 +7,8 @@ import { green, dim, yellow } from './color.mjs';
 import { executableName, which } from './util.mjs';
 import { CLAUDE_MARKETPLACE, claudeMarketplaceRefusalHint, installOpencodePlugin, opencodeStatus } from './host-integration.mjs';
 import { codexStatus } from './codex-integration.mjs';
+import { desktopLaunch } from './desktop.mjs';
+import { compareDesktopVersions, installedDesktopVersion } from './desktop-install.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
@@ -212,15 +214,19 @@ export function planUpdate(opts, ctx) {
       steps.push({ kind: 'codex', cmd: ['runlist', 'install', 'codex'] });
     }
   }
+  if (!opts.cliOnly && !opts.pluginOnly && ctx.desktop) {
+    steps.push({ kind: 'desktop', cmd: ['runlist', 'desktop', 'install'] });
+  }
   return steps;
 }
 
-export function runUpdate(argv, _config, opts = {}) {
+export async function runUpdate(argv, _config, opts = {}) {
   const check = argv.includes('--check');
   const cliOnly = argv.includes('--cli-only');
   const pluginOnly = argv.includes('--plugin-only');
   const plugin = readInstalledPlugin();
   const legacyPlugin = readInstalledPluginRecords({ id: LEGACY_PLUGIN_ID });
+  const desktop = process.platform === 'darwin' && process.arch === 'arm64' ? desktopLaunch([]).app : null;
 
   if (check) {
     process.stdout.write(`runlist CLI:    ${pkg.version}\n`);
@@ -250,12 +256,16 @@ export function runUpdate(argv, _config, opts = {}) {
     if (!cx.exists) process.stdout.write(dim('runlist codex: not installed\n'));
     else if (cx.foreign) process.stdout.write(`runlist codex: ${yellow('unmanaged plugin directory')}\n`);
     else process.stdout.write(`runlist codex: ${cx.version} ${cx.stale ? yellow('behind — run `runlist update`') : green('in sync')}\n`);
+    if (desktop) {
+      const version = await installedDesktopVersion(desktop);
+      process.stdout.write(`runlist desktop: ${version} ${compareDesktopVersions(version, pkg.version) < 0 ? yellow('behind — quit Runlist and run `runlist update`') : green('in sync')}\n`);
+    }
     return;
   }
 
   const opencode = opencodeStatus({ version: pkg.version });
   const codex = codexStatus({ version: pkg.version });
-  const steps = planUpdate({ cliOnly, pluginOnly }, { plugin, legacyPlugin, opencode, codex, hasClaude: which('claude'), hasNpm: which('npm') });
+  const steps = planUpdate({ cliOnly, pluginOnly }, { plugin, legacyPlugin, opencode, codex, desktop, hasClaude: which('claude'), hasNpm: which('npm') });
   if (opts.dryRun) {
     for (const step of steps) {
       if (step.kind === 'skip') process.stdout.write(dim(`[dry-run] skip: ${step.reason}\n`));
@@ -322,6 +332,12 @@ export function runUpdate(argv, _config, opts = {}) {
     if (!verified.ok) {
       failures.push({ reason: verified.reason });
       process.stdout.write(yellow(`${verified.reason}\n`));
+    }
+  }
+  if (desktop && steps.some(step => step.kind === 'desktop') && !failedKinds.has('desktop')) {
+    const currentVersion = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')).version;
+    if (compareDesktopVersions(await installedDesktopVersion(desktop), currentVersion) < 0) {
+      failures.push({ reason: 'The matching desktop installer is not published yet; retry `runlist update` after the product release completes.' });
     }
   }
   if (failures.length) {

@@ -1509,8 +1509,8 @@ runlist desktop install [--from /path/to/installer.dmg] — install the optional
 
 Install downloads the latest Mac Apple Silicon GUI from Runlist's GitHub
 releases, or uses a local signed DMG with --from. It verifies the Runlist
-developer signature and Apple approval before installing. An existing app is
-kept as-is unless --from is given; replacements retain a rollback copy.
+developer signature and Apple approval before installing. Older installed apps
+are updated after you quit Runlist; replacements retain a rollback copy.
 Installation does not open the app. Windows/Linux installers are not yet
 available through this command. --dry-run uses no network and changes no files.
 
@@ -2206,7 +2206,7 @@ async function main() {
   }
   if (command === 'hud') { const { runHud } = await import('../src/hud.mjs'); runHud(restArgs, config); return; }
   if (command === 'guard') { const { runGuard } = await import('../src/guard.mjs'); await runGuard(restArgs, config, { dryRun }); return; }
-  if (command === 'update') { const { runUpdate } = await import('../src/update.mjs'); runUpdate(restArgs, config, { dryRun }); return; }
+  if (command === 'update') { const { runUpdate } = await import('../src/update.mjs'); await runUpdate(restArgs, config, { dryRun }); return; }
   if (command === 'install') { const { runInstall } = await import('../src/install.mjs'); runInstall(restArgs, config, { dryRun }); return; }
   if (command === 'errors') { const { runErrors } = await import('../src/errors-read.mjs'); runErrors(restArgs); return; }
   if (command === 'misuse') { const { runMisuse } = await import('../src/misuse-read.mjs'); runMisuse(restArgs, config); return; }

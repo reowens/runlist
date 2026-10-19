@@ -225,9 +225,9 @@ describe('dotmd ship (--dry-run, end-to-end)', () => {
 });
 
 // `npm version` is canonical. Product changes must already be committed by its
-// clean-tree preflight; the lifecycle stages only the two versioned manifests.
+// clean-tree preflight; the lifecycle stages only its synchronized artifacts.
 describe('npm version lifecycle prepares release artifacts', () => {
-  it('git-adds only the synchronized plugin manifests', () => {
+  it('git-adds only the synchronized release artifacts', () => {
     const pkg = JSON.parse(
       readFileSync(path.resolve(import.meta.dirname, '..', 'package.json'), 'utf8'),
     );
@@ -238,14 +238,15 @@ describe('npm version lifecycle prepares release artifacts', () => {
       'utf8',
     );
     // The point is that the version commit stages nothing beyond what it
-    // synchronized itself: the plugin manifests, plus CHANGELOG.md when it
+    // synchronized itself: plugin/desktop manifests and current-version docs,
+    // plus CHANGELOG.md when it
     // promoted the Unreleased heading. `test/release-lifecycle.test.mjs` covers
     // the resulting index for both cases; this guards the derivation so no
     // unrelated path can be appended to the add.
     ok(prepareScript.includes("['add', '--', ...stagedPaths]"),
       'version preparation should stage exactly the paths it derived');
-    ok(prepareScript.includes('const stagedPaths = changelogStamped ? [...MANIFEST_PATHS, CHANGELOG_PATH] : MANIFEST_PATHS;'),
-      'staged paths should come only from the synchronized manifests and the stamped changelog');
+    ok(prepareScript.includes('const stagedPaths = [...MANIFEST_PATHS, ...desktopPaths, ...(changelogStamped ? [CHANGELOG_PATH] : [])];'),
+      'staged paths should come only from synchronized artifacts and the stamped changelog');
     ok(prepareScript.includes('assertGitIndex(projectRoot, stagedPaths)'),
       'version preparation should assert the index matches exactly what it staged');
   });
