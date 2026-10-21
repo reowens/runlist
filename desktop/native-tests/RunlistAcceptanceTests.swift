@@ -75,6 +75,8 @@ final class RunlistAcceptanceTests: XCTestCase {
         capture("before-quit")
         let pickerCancel = app.sheets["open-panel"].buttons["CancelButton"].firstMatch
         if pickerCancel.exists && pickerCancel.isHittable { pickerCancel.click() }
+        let trustCancel = app.sheets.matching(NSPredicate(format: "label == %@", "alert")).buttons["action-button-2"].firstMatch
+        if trustCancel.exists && trustCancel.isHittable { trustCancel.click() }
         app.typeKey("q", modifierFlags: .command)
         let quit = app.wait(for: .notRunning, timeout: 10)
         XCTAssertTrue(quit, "Normal Quit did not stop the owned app.")
@@ -97,7 +99,7 @@ final class RunlistAcceptanceTests: XCTestCase {
         let open = app.sheets["open-panel"].buttons["OKButton"].firstMatch
         XCTAssertTrue(open.waitForExistence(timeout: 5))
         open.click()
-        let trust = app.buttons["Trust and open"].firstMatch
+        let trust = app.sheets.matching(NSPredicate(format: "label == %@", "alert")).buttons.matching(NSPredicate(format: "identifier == %@ AND title == %@", "action-button-1", "Trust and open")).firstMatch
         XCTAssertTrue(trust.waitForExistence(timeout: 10), "Native configuration trust confirmation is inaccessible.")
         capture("trust-confirmation")
         trust.click()
