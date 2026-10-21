@@ -1,5 +1,195 @@
 # Desktop validation
 
+## Installed-check source selection (2026-10-20)
+
+`node desktop/scripts/check-installed.mjs` now selects test sources using both
+the installed package version and shared engine fingerprint. It prefers a
+matching checkout, then searches local `desktop/releases/*/source` snapshots.
+`--source` supports a snapshot stored elsewhere and must pass the same checks.
+Missing matches, incomplete harnesses, missing dependencies and incompatible
+bundle metadata fail before starting the tests. The checker prints the app,
+version, selected test source and fingerprint.
+
+The current checkout automatically selected the matching local .2 snapshot and
+passed **36 installed offline checks**, with no version override or caller-side
+source selection. **Six selector regressions** and the **103-pass/one-skip
+desktop suite** passed. Regressions cover version skew, equal-version source
+differences, explicit sources, missing inputs, host metadata, subprocess errors
+and the network-denied helper command. An initial fixture assertion was corrected
+to compare canonical temporary paths on macOS; production selection was unchanged.
+
+This change is limited to verification tooling and documentation. The installed
+app was not replaced. Checks launched only the helper/test runtime; no app,
+WebView, browser, accessibility controller or screen interaction was used.
+Receipts are retained under
+`.runlist/verification/installed-check-selection-20261020/`.
+
+## Confirmation fix and native investigation (2026-10-20)
+
+The checkout now requires a lifecycle operation in `reviewed` state before
+enabling **Apply status change** or accepting its click handler. Failed previews,
+old retained requests and missing/failed/running/settled outcomes cannot apply.
+A lost commit reply disables confirmation until inspection; inspecting an already
+committed operation follows its saved path without replaying it. Regression tests
+exercise the real missing-local-state-ignore failure, successful review/apply and
+retained or uncertain outcomes.
+
+The dialog accessibility finding remains unresolved. Native attachment recovered
+after the owner confirmed a visible window. The installed app and a normal source
+build still expose no dialog controls to the native inspection client while
+Templates or status change is open; Escape restores the surrounding tree.
+Keyboard interaction remains possible. The failed-preview fix was checked in the
+normal source build: the deliberately rejected review showed a disabled Apply
+button and the plan stayed unchanged.
+
+A separate minimal Tauri window exposed native modal, nonmodal, ARIA and inert
+container controls. The exact template markup and full, preloaded app stylesheet
+also exposed controls, including the sticky header. An earlier failure in that
+minimal case was not repeatable, so it does not establish a markup or CSS cause.
+Explicit modal attributes, a replacement container, reattaching the existing
+native dialog and recreating its container did not restore the full app tree.
+Apple Accessibility Inspector was tried separately but yielded no conclusive
+independent reproduction. Neither screen-reader acceptance nor a WebKit cause
+is established.
+
+All dialog experiments remain excluded from product source and are retained
+privately under `.runlist/verification/native-fixes-20261020/`. The installed
+**0.96.1-review.20261020.2** includes the verified confirmation fix. Public release,
+fresh/minimum-host and broader native accessibility acceptance remain open.
+
+## Local confirmation-fix candidate (2026-10-20)
+
+**0.96.1-review.20261020.2** is signed, notarized and installed locally through
+the production installer. It contains the confirmation fix described above and
+excludes every experimental dialog replacement. Dialog accessibility remains an
+open finding; this candidate does not establish screen-reader acceptance.
+
+- Frozen source: **2,548 passed, one skip, zero failures**.
+- Desktop source: **97 passed, one skip, zero failures**.
+- Packaged helper/frontend: **64 passed** with networking denied.
+- Signed and installed app: **36 offline checks each passed**. The first installed
+  invocation used the checkout's different release label and correctly failed
+  the version guard; rerunning from the matching frozen candidate source passed.
+- Native installed-app check: a retained rejected review kept Apply disabled;
+  inspecting its missing operation also kept it disabled. A fresh reviewed pause
+  enabled Apply and committed at the original nested path with history. The
+  temporary checkout was closed and Runlist was left at its home screen.
+- All **189 installed files** match the qualified signed/stapled bundle. All
+  **189 previous app files** are unchanged in the retained rollback copy.
+- Source and unsigned/signed bundle privacy checks passed. Pinned runtime and
+  Acorn inputs match. Installed bytes match the checked signed bundle.
+- Architecture, deployment, system dependencies and signature checks passed:
+  Apple Silicon, macOS 13.5+, Node v24.22.0, protocol 1; host macOS 26.7.
+- App request `09a67d81-f43d-4b54-bb54-858b7df2663a` and installer request
+  `3607f9a7-f3f9-48bf-a5b3-cc5beebfb709`: **Accepted**, stapled and Gatekeeper-approved.
+- DMG SHA-256: `c73323eea320ed7875d8d080f778d7895e5b887661ea9cb998550e8c6007ffe8`.
+- Frozen source inventory: `1d9d3e9826e2d8a53e57477680f08672c7074547e0d0c1db3252d69a0a4e25e6`.
+- Shared engine fingerprint: `68c868ca162e4b1556faae25e52d63b4248fd71090c3c6b7ee71ba30eb2da437`. The checkout,
+  frozen candidate, prepared engine, bundled engine and installed engine match;
+  the running app executable also matches the installed app.
+
+Receipts, logs, the original failed harness invocation and the frozen source are
+retained under `desktop/releases/native-fixes-20261020/` (private generated
+artifacts). CLI/host package versions were not changed by this local desktop
+installation. No public release or provider work ran; broader native,
+fresh/minimum-host and performance acceptance remain open. The earlier .1
+qualification below is historical snapshot evidence.
+
+## Native workflow review (2026-10-20)
+
+The installed **0.96.1-review.20261020.1** was reviewed through its macOS window
+using an isolated temporary Git checkout. The running translocated app reports
+the expected version, and its executable matches the installed app. This is a
+bounded workflow review with open findings, not full native acceptance.
+
+- **Resume draft and Subagent draft:** edited in the native Markdown editor,
+  reviewed the addition diff, saved, and confirmed CLI `baton --template` readback.
+  Used **Use original template**, reviewed the removal diff, saved, and confirmed
+  both CLI outlines returned to `Built-in` with no saved overrides remaining.
+  The child retained its explicit parent metadata. Repository baton instructions
+  remained visible, and generating a fixture handoff retained the custom wrapper.
+- **Stable status paths:** the native preview and apply changed a nested plan
+  from `planned` to `paused` at its original path. A subsequent archive preview
+  showed the move into `docs/archived/`; applying it moved the file, retained
+  lifecycle history and opened the new path in the app.
+- **Prompt families:** pending prompts are excluded from the desktop library.
+  CLI review showed the parent and `[+ 2 subagent prompts]` on one line;
+  `--verbose` expanded both names and `doctor --prompts` reported two explicit
+  links with zero findings. These are CLI checks, not a native prompt-queue view.
+
+The review identified two findings. The confirmation finding is now fixed in
+source as recorded above; native dialog accessibility remains open:
+
+1. Templates and status-change dialogs are visible and operable by pointer and
+   keyboard, but the native accessibility tool returned no dialog controls.
+   Closing a dialog restored the surrounding controls. Reproduce with a second
+   accessibility client before attributing this to WebKit, app markup or the
+   inspection tool; screen-reader acceptance is not established.
+2. A rejected lifecycle preview displayed `Review not yet received.` while
+   **Apply status change** remained enabled. This occurred before adding the
+   fixture's required local-state Git ignore. No apply was attempted in that
+   state. The frontend enables confirmation based only on its blocked flag;
+   confirmation should also require a successfully prepared review.
+
+The fixture setup was corrected and the native lifecycle checks then passed.
+Native writes were confined to that fixture. Both outlines were reset, the
+fixture was closed, and the app was left at its home screen. No rebuild,
+installation, publication or provider work occurred. Broader editing, VoiceOver,
+minimum-host and performance acceptance remain open. Private review outcomes are
+retained under `.runlist/verification/native-workflow-20261020/`.
+
+## Local workflow review candidate (2026-10-20)
+
+**0.96.1-review.20261020.1** is a local review candidate, signed, notarized and installed
+through the existing installer with quarantine and rollback. It is not a public
+npm or desktop release; the current-release README blocks remain unchanged.
+The selected snapshot includes stable status-change paths, compact prompt families,
+parent-link repair/diagnostics, editable handoff outlines and installation/source
+provenance. Existing repository baton rules and saved-prompt formatting are retained.
+
+- Frozen candidate source: **2,548 passed, one skip, zero failures**.
+- Desktop source: **95 passed, one skip**.
+- Packaged helper/frontend: **62 passed**. This includes handoff template
+  save/reset, inherited parent metadata, repository formatting and CLI readback.
+- Signed app and installed app: **36 offline checks each passed** with networking
+  denied. Those terminal checks launched no app or WebView; the subsequent native
+  review is recorded above.
+- Pinned runtime: **Node v24.22.0**, desktop protocol 1, Apple Silicon/macOS 13.5+;
+  verification host macOS 26.7. Static architecture/deployment/dependency and
+  developer-signature checks passed. Pinned runtime and Acorn inputs match.
+- Privacy checks passed on the unsigned, signed and installed app (189 final
+  files); source/whitespace checks passed. Installed source comparison confirms
+  the selected engine inputs.
+- App Apple request `333f34a9-5b1b-4fa8-8dcf-97cd6b633c00`: **Accepted**.
+- Installer Apple request `e5637d9d-87d1-45fa-b333-584f9d34163c`: **Accepted**.
+  Both tickets are stapled and Gatekeeper accepted the app and installer.
+- DMG SHA-256: `8f3368d03d77a9978968c9f1a22f7a4c3fce59d54216d8be3f127f7d90ba32d7`.
+- Qualified source inventory: `b48559c72b2cfee0e6d841d6129386ca1923e44c2bd545ca885dad2d4b2e0b8d`.
+- Shared engine source fingerprint: `c05568e751a0dcc79cfb9ede36009bbcb592d3718ba0b2f80f5f9f4f8394bc4c`. The linked checkout,
+  prepared engine, app bundle and installed engine match. This fingerprint excludes
+  private documents, state, runtime binaries and the release version label; it
+  does not replace native-signature or runtime qualification.
+
+The installer retained the earlier app under `~/Applications/.Runlist-backups/`.
+All 187 previous app files match their pre-install hashes. Existing
+checkout files and app recovery/preferences were not migrated. The project-local
+npm dependency and host plugin sources/caches remain separate copies, visible in
+the read-only provenance report; they were not silently replaced by this install.
+
+The initial frozen-source test run found a missing candidate changelog heading
+and a prepack scan without a Git inventory. Candidate metadata and the isolated
+snapshot's Git setup were corrected, then the full candidate suite passed. The
+freeze helper now supplies a candidate changelog heading even without an existing
+Unreleased section. The original source manifest and qualification addendum retain
+those changes. The Homebrew shared-Node helper fixture is also fixed without
+weakening production executable trust checks.
+
+Local receipts and source inventories are retained under
+`desktop/releases/workflow-review-20261020/` (private generated artifacts).
+Fresh/minimum-host, native-window/focus/clipboard/accessibility, controlled memory
+and broader-platform acceptance remain unclaimed. Provider holds are unchanged.
+
+
 ## Current Mac release — 2026-10-18
 
 [Runlist Desktop 0.95.2](https://github.com/reowens/runlist/releases/tag/desktop-v0.95.2)

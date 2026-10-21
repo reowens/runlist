@@ -294,7 +294,8 @@ export function buildHud(config) {
 const SUBAGENT_PRIMER = [
   'runlist manages this repo\'s plans/docs/prompts (markdown + YAML frontmatter).',
   'Verbs: plans|briefing | query <filters> | use [<file>] | set <status> <file> | new <type> <slug> | archive <file>.',
-  'Child handoff: `runlist baton --subagent <task-slug> @<draft-file>` saves subagent-<task-slug>. Use a task slug under a parent-owned plan; release only your own plan. Parent batons default to resume-<name>.',
+  'Child handoff: `runlist baton --subagent <task-slug> @<draft-file>` saves subagent-<task-slug>. Add --parent resume-<name> when known to group it under its parent prompt. Use a task slug under a parent-owned plan; release only your own plan. Parent batons default to resume-<name>.',
+  'Child draft: `runlist baton --subagent --template --parent resume-<name>` prints the checkout’s child outline (built-in: Task, State, Next, Evidence and Boundaries). Carry parent_prompt in the draft or pass RUNLIST_PARENT_PROMPT into the child environment. Save full records at durable repo-relative paths. Repair old links with `runlist prompts link <child...> --parent resume-<name>`.',
   'Claims: `runlist doctor --claims` lists which session holds each plan; `--apply` releases the ones whose session is gone.',
   'Do NOT: cat/read a docs/prompts/*.md (use `runlist use <file>` — archive/claim commits before at-most-once output);',
   'git add/commit a prompt (they are session-local, often gitignored); hand-edit a `status:` field (use `runlist set`).',
@@ -399,7 +400,7 @@ export function buildHandoffContext(config) {
   if (definition) {
     return `[runlist] Baton: ${who} ${command} Where the definition below names a command, use this form. ${tail}\nThis repo defines baton (templates.prompt.baton in its runlist config):\n${definition}`;
   }
-  const draft = 'Write the resume first (the next concrete decision, any gotchas, the plan/doc paths it concerns; not a recap) to a file in your scratchpad.';
+  const draft = 'Write the resume first (current work and exact next move, decisions and waiting approvals, durable evidence paths, unverified claims and authorization boundaries; not a recap). `runlist baton --template` prints the checkout’s editable outline. Draft in a temporary file; keep working material at durable repo-relative paths.';
   return `[runlist] Baton: ${who} ${draft} ${command} ${tail}`;
 }
 

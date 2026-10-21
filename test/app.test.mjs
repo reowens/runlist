@@ -41,6 +41,17 @@ async function fixture(source = raw) {
 }
 
 describe('local plan application',()=>{
+  it('serves the entire browser module graph before session authentication',async()=>{
+    const f=await fixture(),seen=new Set(),queue=['/app.mjs','/theme.mjs'];
+    while(queue.length) {
+      const route=queue.shift();if(seen.has(route))continue;seen.add(route);
+      const response=await fetch(f.app.origin+route);strictEqual(response.status,200,route);match(response.headers.get('content-type'),/text\/javascript/);
+      const source=await response.text();
+      for(const dependency of source.matchAll(/\b(?:import|export)\s[^;]*?\bfrom\s*['"](\.\/[^'"]+\.mjs)['"]/g)) queue.push(new URL(dependency[1],f.app.origin+route).pathname);
+    }
+    ok(seen.has('/template-editor.mjs'));ok(seen.has('/stage-source.mjs'));ok(seen.has('/semantic-search.mjs'));
+    strictEqual((await fetch(f.app.origin+'/runlist.config.mjs')).status,401);
+  });
   it('serves authenticated plan navigation, canonical source and separately retained original/current evidence',async()=>{
     const f=await fixture();
     const response=await fetch(f.app.origin); strictEqual(response.status,200); match(response.headers.get('content-security-policy'),/script-src 'self'/);
@@ -111,7 +122,7 @@ describe('local plan application',()=>{
 
   it('edits real templates with CSRF/CAS, uses them in new documents, and resets without changing existing files',async()=>{
     const f=await fixture(),catalog=(await f.call('templates')).value;
-    strictEqual(catalog.templates.length,3);strictEqual(catalog.revision,null);
+    deepStrictEqual(catalog.templates.map(t=>t.name),['doc','plan','prompt','handoff:resume','handoff:subagent']);strictEqual(catalog.revision,null);
     const plan=catalog.templates.find(t=>t.name==='plan'),source=plan.source.replace('## Goals','## Custom goals');
     strictEqual((await f.call('templates/save',{name:'plan',source,expectedRevision:null},{'X-Runlist-CSRF':''})).status,403);
     strictEqual((await f.call('templates/save',{name:'plan',source:source.replace('{{body}}',''),expectedRevision:null})).status,400);
@@ -137,6 +148,55 @@ describe('local plan application',()=>{
     const catalog=appTemplates(f.config);match(catalog.templates.find(t=>t.name==='plan').configuredSource,/Must not execute/);strictEqual(catalog.templates.find(t=>t.name==='custom').editable,false);
     const target=path.join(f.repoRoot,'outside.json');writeFileSync(target,'{}');symlinkSync(target,path.join(f.repoRoot,'runlist.templates.json'));
     strictEqual((await f.call('templates')).status,400);strictEqual(readFileSync(target,'utf8'),'{}');
+  });
+
+  it('keeps custom document types named resume and subagent visible beside handoff outlines',async()=>{
+    const f=await fixture();
+    f.config.raw.templates={resume:{description:'Repository resume document',body:()=>{throw new Error('CUSTOM_RESUME');}},subagent:{description:'Repository child record',body:()=>{throw new Error('CUSTOM_SUBAGENT');}}};
+    const catalog=(await f.call('templates')).value;
+    for(const name of ['resume','subagent']) {
+      const document=catalog.templates.find(t=>t.name===name),draft=catalog.templates.find(t=>t.name===`handoff:${name}`);
+      strictEqual(document.editable,false);match(document.source,/CUSTOM_/);strictEqual(draft.kind,'handoff');strictEqual(draft.editable,true);
+    }
+  });
+
+  it('rejects an oversized combined template store before replacing readable settings',async()=>{
+    const f=await fixture(),catalog=(await f.call('templates')).value;
+    let revision=null;
+    for(const template of catalog.templates.slice(0,4)) {
+      const result=await f.call('templates/save',{name:template.name,source:template.source+'\n'+'x'.repeat(118*1024),expectedRevision:revision});
+      strictEqual(result.status,200);revision=result.value.revision;
+    }
+    const file=path.join(f.repoRoot,'runlist.templates.json'),before=readFileSync(file,'utf8'),child=catalog.templates.find(t=>t.name==='handoff:subagent');
+    const rejected=await f.call('templates/save',{name:child.name,source:child.source+'\n'+'x'.repeat(118*1024),expectedRevision:revision});
+    strictEqual(rejected.status,400);match(rejected.value.message,/Combined template settings/);strictEqual(readFileSync(file,'utf8'),before);
+    const reopened=await f.call('templates');strictEqual(reopened.status,200);strictEqual(reopened.value.revision,revision);
+  });
+
+  it('edits handoff outlines separately from prompt wrappers and keeps repository baton instructions active',async()=>{
+    const f=await fixture();
+    writeFileSync(path.join(f.repoRoot,'runlist.config.mjs'),`export const root='docs';\nexport const templates={prompt:{baton:'Keep platform-specific waiting items.',body:(title,ctx)=>'\\nPlatform context.\\n'+ctx.bodyInput+'\\n'}};\n`);
+    f.config.raw.templates={prompt:{baton:'Keep platform-specific waiting items.'}};
+    const catalog=(await f.call('templates')).value;
+    const draft=catalog.templates.find(t=>t.name==='handoff:subagent');
+    strictEqual(draft.kind,'handoff');match(draft.configuredSource,/platform-specific waiting/);
+    const source=draft.source.replace('## Evidence','## Durable review evidence');
+    for(const bad of [source.replace('{{parent_prompt}}','resume-hardcoded'),source.replace('{{parent_prompt}}','{{unknown}}'),source.replace('parent_prompt:', 'status: pending\nparent_prompt:')]) {
+      strictEqual((await f.call('templates/save',{name:'handoff:subagent',source:bad,expectedRevision:null})).status,400);
+    }
+    let saved=await f.call('templates/save',{name:'handoff:subagent',source,expectedRevision:null});strictEqual(saved.status,200);
+    const generate=(args=[])=>spawnSync(process.execPath,[bin,'baton','--template',...args],{cwd:path.join(f.repoRoot,'src'),encoding:'utf8'});
+    const child=generate(['--subagent','--parent','resume-platform']);strictEqual(child.status,0,child.stderr);match(child.stdout,/Durable review evidence/);match(child.stdout,/parent_prompt: resume-platform/);ok(!child.stdout.includes('{{'));
+    const file=path.join(f.repoRoot,'child.md');writeFileSync(file,child.stdout+'\nContinue the focused review.\n');
+    const baton=spawnSync(process.execPath,[bin,'baton','--subagent','review','@'+file,'--json'],{cwd:f.repoRoot,encoding:'utf8'});strictEqual(baton.status,0,baton.stderr);
+    const prompt=readFileSync(path.join(f.repoRoot,JSON.parse(baton.stdout).prompt),'utf8');match(prompt,/Platform context/);match(prompt,/parent_prompt: resume-platform/);
+    const resume=catalog.templates.find(t=>t.name==='handoff:resume'),resumeSource=resume.source+'\n## Repository checkpoint\n';
+    strictEqual((await f.call('templates/save',{name:resume.name,source:'---\nparent_prompt: resume-other\n---\n'+resumeSource,expectedRevision:saved.value.revision})).status,400);
+    saved=await f.call('templates/save',{name:'handoff:resume',source:resumeSource,expectedRevision:saved.value.revision});strictEqual(saved.status,200);
+    const parent=generate(['--json']);strictEqual(parent.status,0,parent.stderr);const result=JSON.parse(parent.stdout);strictEqual(result.name,'resume');strictEqual(result.origin,'runlist.templates.json');match(result.template,/Repository checkpoint/);
+    strictEqual((await f.call('templates')).value.templates.find(t=>t.name==='handoff:resume').configuredSource,'Keep platform-specific waiting items.');
+    const reset=await f.call('templates/save',{name:'handoff:subagent',reset:true,expectedRevision:saved.value.revision});strictEqual(reset.status,200);ok(!generate(['--subagent']).stdout.includes('Durable review evidence'));
+    match(generate(['--json']).stdout,/Repository checkpoint/);
   });
 
   it('advertises app grammar and previews startup without starting a listener',async()=>{

@@ -1,4 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { installationReport, formatInstallationReport } from './installation.mjs';
+import { diagnosePromptParents } from './prompt-handoff.mjs';
 import path from 'node:path';
 import { fixBrokenRefs } from './fix-refs.mjs';
 import { runLint } from './lint.mjs';
@@ -235,6 +237,17 @@ function runDoctorSession(argv) {
 }
 
 export function runDoctor(argv, config, opts = {}) {
+  if (argv.includes('--prompts')) {
+    const index=buildIndex(config,{fast:true,invokeHooks:false});
+    const result=diagnosePromptParents(index.docs.filter(doc=>doc.type==='prompt'),config);
+    if(argv.includes('--json'))process.stdout.write(JSON.stringify(result,null,2)+'\n');
+    else {
+      process.stdout.write(`Prompt parent links: ${result.children} child handoffs · ${result.counts.linked??0} explicitly linked\n`);
+      for(const item of result.findings)process.stdout.write(`  ${item.state}: ${item.path}${item.parentPrompt?` → ${item.parentPrompt}`:''}${item.candidates.length?` (${item.candidates.join(', ')})`:''}\n`);
+      if(result.findings.length)process.stdout.write('Inspect with `runlist prompts show <child>`. Repair an existing link with `runlist prompts link <child> --parent <resume-name>`; diagnostics change no prompts.\n');
+    }
+    return result;
+  }
   if (argv.includes('--project')) {
     runDoctorProject(config, { json: argv.includes('--json') });
     return;
@@ -434,6 +447,7 @@ function runDoctorProject(config, { json = false } = {}) {
   const skillDriftWarnings = checkSkillDrift(config);
   const result = {
     cliVersion: cliPackage?.version ?? null,
+    installations: installationReport(config),
     packageDependency: depVersion,
     claudeCommandWarnings,
     deprecatedCommandMentions,
@@ -448,6 +462,7 @@ function runDoctorProject(config, { json = false } = {}) {
   }
 
   process.stdout.write(bold('runlist doctor --project') + '\n\n');
+  process.stdout.write(formatInstallationReport(result.installations)+'\n');
   process.stdout.write(`- running CLI version: ${result.cliVersion ?? 'unknown'}\n`);
   process.stdout.write(`- package dependency: ${result.packageDependency ?? '(none found)'}\n`);
   process.stdout.write(`- stale Claude commands: ${claudeCommandWarnings.length}\n`);

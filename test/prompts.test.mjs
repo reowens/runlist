@@ -1,9 +1,11 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
-import { ok, strictEqual, match } from 'node:assert';
+import { ok, strictEqual, match, rejects } from 'node:assert';
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync, rmSync, chmodSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
+import { resolveConfig } from '../src/config.mjs';
+import { runPrompts } from '../src/prompts.mjs';
 
 const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
 
@@ -27,13 +29,14 @@ function setupProject() {
   writeFileSync(configPath, `export const root = 'docs';\n`);
 }
 
-function writePrompt(name, { status = 'pending', created = '2025-01-01', body = 'do the thing' } = {}) {
+function writePrompt(name, { status = 'pending', created = '2025-01-01', body = 'do the thing', parent = null } = {}) {
   const file = path.join(promptsDir, `${name}.md`);
   const fm = [
     'type: prompt',
     `status: ${status}`,
     `created: ${created}`,
     'related_plans: []',
+    ...(parent ? [`parent_prompt: ${parent}`] : []),
   ].join('\n');
   writeFileSync(file, `---\n${fm}\n---\n${body}\n`);
   spawnSync('git', ['add', file], { cwd: tmpDir });
@@ -81,6 +84,70 @@ describe('runlist prompts list', () => {
     ok(olderIdx > -1 && newerIdx > -1, `expected both prompts:\n${r.stdout}`);
     ok(olderIdx < newerIdx, `oldest pending should be first:\n${r.stdout}`);
     match(r.stdout, /\[NEXT\].*older/);
+  });
+
+  it('shows explicit children on their parent line without changing the next consumed prompt', () => {
+    writePrompt('subagent-review', { parent: 'resume-session', created: '2025-01-01', body: 'CHILD-FIRST' });
+    writePrompt('unrelated', { created: '2025-02-01' });
+    writePrompt('resume-session', { created: '2025-03-01' });
+    const r = run(['prompts']);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stdout, /resume-session[^\n]*\[PENDING\] \[NEXT\] \[\+ 1 subagent prompt\]/);
+    ok(!r.stdout.includes('subagent-review'), r.stdout);
+    ok(r.stdout.indexOf('[+ 1 subagent prompt]') < r.stdout.indexOf('unrelated'), r.stdout);
+    const json = run(['prompts', '--json']);
+    strictEqual(json.status, 0, json.stderr);
+    const data = JSON.parse(json.stdout);
+    strictEqual(data.docs.length, 3, 'JSON retains every individual prompt');
+    ok(data.docs.some(doc => doc.path.endsWith('/subagent-review.md')));
+    const next = run(['prompts', 'next']);
+    strictEqual(next.status, 0, next.stderr);
+    match(next.stdout, /CHILD-FIRST/);
+  });
+
+  it('groups legacy agent prefixes under the longest matching parent name', () => {
+    writePrompt('resume-session');
+    writePrompt('resume-session-api');
+    for (const prefix of ['subagent', 'agent', 'session']) writePrompt(`${prefix}-session-api-review`);
+    const r = run(['prompts']);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stdout, /resume-session-api[^\n]*\[PENDING\](?: \[NEXT\])? \[\+ 3 subagent prompts\]/);
+    for (const prefix of ['subagent', 'agent', 'session']) ok(!r.stdout.includes(`${prefix}-session-api-review`), r.stdout);
+  });
+
+  it('collapses missing-parent children into one count and exposes their names in verbose output', () => {
+    writePrompt('resume-session');
+    writePrompt('resume-missing', { status: 'archived' });
+    writePrompt('subagent-session-review', { parent: 'resume-missing' });
+    writePrompt('agent-sessionish-review');
+    const r = run(['prompts']);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stdout, /\[\+ 2 subagent prompts\]/);
+    ok(!r.stdout.includes('subagent-session-review'), r.stdout);
+    ok(!r.stdout.includes('agent-sessionish-review'), r.stdout);
+    const expanded = run(['prompts', '--verbose']);
+    strictEqual(expanded.status, 0, expanded.stderr);
+    ok(expanded.stdout.includes('subagent-session-review'), expanded.stdout);
+    ok(expanded.stdout.includes('agent-sessionish-review'), expanded.stdout);
+    ok(!expanded.stdout.includes('- subagent-session-review'), 'missing explicit parent must not attach to a different one');
+  });
+
+  it('shows a compact next marker when only subagent prompts are pending', () => {
+    for (let i = 0; i < 5; i++) writePrompt(`subagent-review-${i}`);
+    const r = run(['prompts']);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stdout, /\[NEXT\]\s+\[\+ 5 subagent prompts\]/);
+    ok(!r.stdout.includes('subagent-review-'), r.stdout);
+    match(r.stdout, /rl prompts --verbose/);
+  });
+
+  it('groups children in verbose output with their target information', () => {
+    writePrompt('resume-session');
+    writePrompt('subagent-review', { parent: 'resume-session', body: 'Read [plan](../plans/foo.md).' });
+    const r = run(['prompts', '--verbose']);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stdout, /resume-session[^\n]*\n[^\n]*\n\s+- subagent-review/);
+    match(r.stdout, /docs\/plans\/foo.md/);
   });
 
   it('`prompts list --verbose` shows target plan from related_plans frontmatter', () => {
@@ -210,6 +277,108 @@ describe('runlist prompts next', () => {
     } finally {
       chmodSync(promptsDir, 0o755);
     }
+  });
+});
+
+describe('prompt parent links and resume discovery', () => {
+  beforeEach(setupProject);
+
+  it('links several existing children without changing bodies, status, timestamps, or line endings', () => {
+    writePrompt('resume-session');
+    const paths = [writePrompt('subagent-review-a'), writePrompt('subagent-review-b')];
+    writeFileSync(paths[0], readFileSync(paths[0], 'utf8').replaceAll('\n', '\r\n'));
+    const before = paths.map(file => readFileSync(file, 'utf8'));
+    const args = ['prompts', 'link', 'subagent-review-a', 'subagent-review-b', '--parent', 'resume-session', '--json'];
+    const preview = run([...args, '--dry-run']);
+    strictEqual(preview.status, 0, preview.stderr);
+    strictEqual(JSON.parse(preview.stdout).linked.length, 2);
+    paths.forEach((file, i) => strictEqual(readFileSync(file, 'utf8'), before[i]));
+    const linked = run(args);
+    strictEqual(linked.status, 0, linked.stderr);
+    paths.forEach((file, i) => {
+      const raw = readFileSync(file, 'utf8');
+      const eol = i === 0 ? '\r\n' : '\n';
+      strictEqual(raw, before[i].replace(`${eol}---${eol}`, `${eol}parent_prompt: "resume-session"${eol}---${eol}`));
+    });
+    const retry = run(args);
+    strictEqual(retry.status, 0, retry.stderr);
+    strictEqual(JSON.parse(retry.stdout).linked.length, 0, 'identical linking is a no-op');
+    match(run(['prompts']).stdout, /resume-session[^\n]*\[\+ 2 subagent prompts\]/);
+  });
+
+  it('refuses an invalid batch before changing any child', () => {
+    writePrompt('resume-session');
+    const child = writePrompt('subagent-review');
+    const archived = writePrompt('subagent-old', { status: 'archived' });
+    const before = readFileSync(child, 'utf8');
+    for (const args of [
+      ['subagent-review', 'subagent-old', '--parent', 'resume-session'],
+      ['subagent-review', '--parent', 'resume-missing'],
+      ['resume-session', '--parent', 'resume-session'],
+    ]) {
+      ok(run(['prompts', 'link', ...args]).status !== 0);
+      strictEqual(readFileSync(child, 'utf8'), before);
+    }
+    match(readFileSync(archived, 'utf8'), /status: archived/);
+  });
+
+  it('rejects duplicate parent fields even when the first already names the requested parent', () => {
+    writePrompt('resume-session');
+    const first=writePrompt('subagent-first'),second=writePrompt('subagent-second',{parent:'resume-session'});
+    writeFileSync(second,readFileSync(second,'utf8').replace('parent_prompt: resume-session','parent_prompt: resume-session\nparent_prompt: resume-other'));
+    const before=[first,second].map(file=>readFileSync(file,'utf8'));
+    const result=run(['prompts','link','subagent-first','subagent-second','--parent','resume-session']);
+    ok(result.status!==0);match(result.stderr,/Repair the parent_prompt/);
+    [first,second].forEach((file,i)=>strictEqual(readFileSync(file,'utf8'),before[i]));
+  });
+
+  it('rolls back a linking batch and preserves a child edited during publication', async () => {
+    writePrompt('resume-session');
+    const first = writePrompt('subagent-first');
+    const second = writePrompt('subagent-second');
+    const originals = [first, second].map(file => readFileSync(file, 'utf8'));
+    const config = await resolveConfig(tmpDir, configPath);
+    const args = ['link', first, second, '--parent', 'resume-session'];
+    await rejects(runPrompts(args, config, { testHooks: { afterSetCommit: () => { throw new Error('abort parent linking'); } } }), /abort parent linking/);
+    [first, second].forEach((file, i) => strictEqual(readFileSync(file, 'utf8'), originals[i]));
+    const external = originals[1] + '\nAn independently saved update.\n';
+    await rejects(runPrompts(args, config, { testHooks: { afterSetCommit: count => {
+      if (count === 1) writeFileSync(second, external);
+    } } }), /changed|conflict|generation/i);
+    strictEqual(readFileSync(first, 'utf8'), originals[0]);
+    strictEqual(readFileSync(second, 'utf8'), external);
+  });
+
+  it('surfaces pending children on parent show, preview and consumption without consuming the children', () => {
+    const parent = writePrompt('resume-session', { body: 'PARENT-CONTINUE' });
+    const child = writePrompt('subagent-review', { parent: 'resume-session', body: 'CHILD-PRIVATE-BODY' });
+    writePrompt('subagent-done', { parent: 'resume-session', status: 'archived' });
+    writePrompt('subagent-other', { parent: 'resume-another' });
+    const peek = run(['prompts', 'show', 'resume-session']);
+    strictEqual(peek.status, 0, peek.stderr);
+    match(peek.stdout, /Saved child handoffs/);
+    match(peek.stdout, /docs\/prompts\/subagent-review.md/);
+    ok(!peek.stdout.includes('CHILD-PRIVATE-BODY'));
+    ok(!peek.stdout.includes('subagent-done'));
+    ok(!peek.stdout.includes('subagent-other'));
+    const preview = run(['use', 'resume-session', '--dry-run']);
+    strictEqual(preview.status, 0, preview.stderr);
+    match(preview.stderr, /Saved child handoffs/);
+    ok(existsSync(parent));
+    const used = run(['use', 'resume-session']);
+    strictEqual(used.status, 0, used.stderr);
+    match(used.stdout, /PARENT-CONTINUE/);
+    match(used.stdout, /subagent-review.md/);
+    match(used.stdout, /--parent resume-session/);
+    ok(existsSync(child), 'resuming a parent leaves each child pending');
+    match(readFileSync(child, 'utf8'), /status: pending/);
+    ok(!existsSync(parent));
+    const reopened=run(['prompts','show','docs/prompts/archived/resume-session.md']);
+    strictEqual(reopened.status,0,reopened.stderr);match(reopened.stdout,/subagent-review.md/);ok(!reopened.stdout.includes('CHILD-PRIVATE-BODY'));
+    ok(!reopened.stderr.includes('to consume'),'an archived prompt cannot be consumed again');
+    strictEqual(run(['prompts','archive','subagent-review']).status,0);
+    const refreshed=run(['prompts','show','docs/prompts/archived/resume-session.md']);
+    strictEqual(refreshed.status,0,refreshed.stderr);ok(!refreshed.stdout.includes('Saved child handoffs'),'archive peeks reflect the current pending children');
   });
 });
 

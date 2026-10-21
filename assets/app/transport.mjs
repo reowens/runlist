@@ -21,8 +21,7 @@ export async function mountDesktop({beforeLeave,bootstrap,notice}) {
   const $=id=>document.getElementById(id);
   $('connect-panel').hidden=true;$('desktop-welcome').hidden=false;$('desktop-open').hidden=false;
   $('disconnect').textContent='Close folder';
-  $('bookmark-empty').textContent='Star a heading to keep it here. Bookmarks stay in Runlist on this computer.';
-  const footer=document.querySelector('.sidebar-footer');footer.replaceChildren(document.createTextNode('Local files · This computer only'),document.createElement('br'));const label=document.createElement('span');label.textContent='Save here. Review local commits in Changes.';footer.append(label);
+  document.querySelector('.sidebar-footer').textContent='';
   async function recent(){const state=await invoke('desktop_status');const root=$('desktop-recents');root.replaceChildren();for(const item of state.recent){const button=document.createElement('button');button.className='quiet recent-checkout';button.textContent=item.path;button.onclick=()=>choose(item.id);root.append(button);}return state;}
   let moving=false;
   async function choose(id){if(moving)return;moving=true;try{

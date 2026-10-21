@@ -54,7 +54,7 @@ export function documentCreation({$,api,checkout,state,beforeNavigate,open,libra
     if(template&&!catalog.templates.some(t=>t.name===template))throw new Error(catalog.recordError??'This record template is unavailable.');
     $('create-template').replaceChildren(...catalog.templates.map(t=>new Option(({hub:'Hub',plan:'Plan',flag:'Flag',decision:'Decision'})[t.name]??'Document',t.name)));
     $('create-folders').replaceChildren(...catalog.roots.map(root=>{const option=document.createElement('option');option.value=root;return option;}));
-    $('create-form').reset();setOptions();chooseTemplate();filenameEdited=false;review=null;request=null;feedback('');$('create-diagnostics').replaceChildren();
+    $('create-form').reset();$('create-file-options').removeAttribute('open');setOptions();chooseTemplate();filenameEdited=false;review=null;request=null;feedback('');$('create-diagnostics').replaceChildren();
     try {
       const stored=JSON.parse(localStorage.getItem(key())??'null');
       if(stored){if(catalog.templates.some(t=>t.name===stored.form?.template)){$('create-template').value=stored.form.template;chooseTemplate();}for(const [field,id] of Object.entries({title:'create-name',folder:'create-folder',filename:'create-filename',status:'create-status',body:'create-body',severity:'create-severity'}))if(typeof stored.form?.[field]==='string')$(id).value=stored.form[field];if(Array.isArray(stored.form?.options)){setOptions(stored.form.options);chooseTemplate();}review=stored.review;request=stored.request;filenameEdited=!!stored.form?.filename;}
@@ -65,6 +65,7 @@ export function documentCreation({$,api,checkout,state,beforeNavigate,open,libra
     $('create-preview-button').disabled=!catalog.templates.length;renderReview();dialog.showModal();(review?$('create-confirm'):$('create-name')).focus();
     if(!catalog.templates.length){$('create-preview-button').disabled=true;feedback('This checkout has no supported document templates. Configure a plan or doc type through the CLI.',true);}
   }
+  $('create-form').addEventListener('invalid',event=>{if(event.target.closest('#create-file-options'))$('create-file-options').setAttribute('open','');},true);
   $('create-template').onchange=()=>{chooseTemplate();keep();};
   $('create-filename').oninput=()=>{filenameEdited=true;keep();};
   $('create-name').oninput=()=>{if(!filenameEdited&&!selected()?.native){const slug=$('create-name').value.toLowerCase().replace(/[\s_]+/g,'-').replace(/[^a-z0-9-]/g,'').replace(/-+/g,'-').replace(/^-|-$/g,'').slice(0,120);$('create-filename').value=slug?slug+'.md':'';}keep();};
@@ -75,7 +76,7 @@ export function documentCreation({$,api,checkout,state,beforeNavigate,open,libra
   $('create-inspect').onclick=()=>busy(async()=>{const inspected=await api('create/inspect',{operationId:review.operationId});current();review=inspected;keep();feedback(review?`Creation is ${review.state}.${review.currentRevision&&review.currentRevision!==review.revision?' The destination changed and will not be overwritten.':''}`:'No creation review found.');});
   $('create-confirm').onclick=()=>busy(async()=>{
     if(review.state!=='committed') {const committed=await api('create/commit',{operationId:review.operationId});current();review=committed;keep();}
-    current();const path=review.path,record=review.record;localStorage.removeItem(key());dialog.close();state.busy=false;await library.load({refresh:true});current();if(record&&createdRecord)await createdRecord(record);else await open(path);notice(record?`Created an open ${record.type}. Ready for review.`:'Created local Markdown. Ready to edit.');
+    current();const path=review.path,record=review.record;localStorage.removeItem(key());dialog.close();state.busy=false;await library.load({refresh:true});current();if(record&&createdRecord)await createdRecord(record);else await open(path);notice(record?`${record.type==='flag'?'Flag':'Decision'} created.`:'Document created.');
   });
   $('create-discard').onclick=()=>busy(async()=>{if(review)await api('create/discard',{operationId:review.operationId});current();localStorage.removeItem(key());review=null;request=null;dialog.close();notice('New document draft discarded.');});
   $('create-close').onclick=()=>{if(!state.busy&&keep()){sequence++;dialog.close();}};

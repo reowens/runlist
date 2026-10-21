@@ -86,7 +86,7 @@ async function frontend(core, localStorage = storage()) {
     if (!nodes.has(id)) nodes.set(id, {
       hidden:true, open:false, textContent:'', value:'', children:[],
       classList:{add(){}, remove(){}, toggle(){}}, setAttribute(){},
-      addEventListener(){}, focus(){}, scrollIntoView(){}, replaceChildren(...children){this.children=children;},
+      addEventListener(){}, querySelector(){return null;}, focus(){}, scrollIntoView(){}, replaceChildren(...children){this.children=children;},
       append(...children){this.children.push(...children);}
     });
     return nodes.get(id);
@@ -147,6 +147,27 @@ async function frontend(core, localStorage = storage()) {
 function bridge(runtime) {
   return {actor:runtime.actor, request:runtime.request, close:runtime.close};
 }
+
+test('documents open in Preview and the primary action follows editing and review without saving', async () => {
+  const root=fixture(), ui=await frontend(bridge(await engine(root)));
+  await ui.app.open(relative);
+  assert.equal(ui.app.state.mode,'read');
+  assert.equal(ui.node('edit').textContent,'Edit document');
+  assert.equal(ui.node('notice').hidden,true);
+  assert.equal(ui.node('draft-status').textContent,'');
+  await ui.node('edit').onclick();
+  assert.equal(ui.app.state.mode,'edit');
+  ui.app.bodyChanged(ui.app.state.body.replace('Original paragraph.','A draft to review.'));
+  assert.equal(ui.node('edit').textContent,'Review changes');
+  assert.equal(ui.node('draft-status').textContent,'Unsaved');
+  assert.equal(ui.node('notice').hidden,true);
+  assert.equal(ui.node('edit').hidden,true);
+  await ui.node('review').onclick();
+  assert.equal(ui.app.state.mode,'review');
+  assert.equal(ui.node('edit').hidden,true);
+  assert.equal(readFileSync(path.join(root,relative),'utf8'),source);
+  assert.equal(ui.calls.some(c=>c.args?.route==='save'),false);
+});
 
 test('shipped frontend Quit flushes exact private draft; a new renderer recovers only on explicit action', async () => {
   const root=fixture(), firstEngine=await engine(root), ui=await frontend(bridge(firstEngine));

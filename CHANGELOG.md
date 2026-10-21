@@ -2,6 +2,48 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- Explain CLI launcher and Node scope, project dependency, desktop source identity,
+  and host integration copies in existing doctor/install/update views. Compare
+  shared engine inputs independently of release labels.
+- Add read-only `doctor --prompts` findings for explicit, inferred, missing,
+  archived, ambiguous and invalid parent links.
+- Link child handoffs to parent resumes, collapse them into inline queue counts,
+  and offer editable resume/subagent draft outlines through Templates and baton.
+
+### Changed
+
+- Simplify the desktop workspace and document editor, remove heading bookmarks
+  and routine instruction banners, and keep advanced controls under Details,
+  File options and Settings.
+- Make document navigation explicit with a destination-labeled back button,
+  larger text, stronger contrast and layouts that adapt to narrow windows.
+
+### Fixed
+
+- Retain unreviewed flag and decision drafts across navigation and reload.
+- Clear stale document and record search results on failure and offer a retry.
+- Label document pins and preserve their prior state when local storage fails.
+- Hide empty document reviews, clear routine success notices automatically, and
+  keep errors visible. Keep Settings usable when optional services fail.
+
+- Select installed-app test sources by matching version and engine fingerprint;
+  discover local frozen candidates automatically and explain missing matches
+  before starting the offline helper tests.
+- Require a prepared lifecycle review before enabling status confirmation;
+  inspect uncertain outcomes before retrying and follow committed outcomes without replay.
+- Keep ordinary status changes in their current folders by default; archive still
+  moves documents, and explicit repository filing policy remains available.
+- Preserve custom document template names and parent metadata; validate combined
+  template size and duplicate/invalid parent fields. Restore child discovery when
+  peeking at an archived parent in the default layout.
+- Serve the browser module graph consistently and share one prompt-family model.
+- Support shared-library Homebrew Node in the native publication-helper fixture;
+  supply a changelog heading for isolated local review candidates.
+
 ## 0.96.0 — 2026-10-19
 
 ### Added

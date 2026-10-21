@@ -10,6 +10,8 @@ import { handoffNotDoneLine, recordPendingHandoff, runBatonDone } from './handof
 import { authorizeManagedDestination, authorizeManagedSource } from './managed-path.mjs';
 import { mutateFileSet } from './atomic-mutation.mjs';
 import { assertPlanMutationAuthorized, authoritativeSessionId, listOwnedPlans, readPlanOwnership } from './pickup.mjs';
+import { HANDOFF_TEMPLATES, parentPromptName } from './prompt-handoff.mjs';
+import { readTemplateStore, templateFile } from './template-store.mjs';
 
 // `runlist baton` is the one-command handoff: save the resume prompt AND release
 // the plan in a single atomic-ish verb. It exists because the three-step skill
@@ -124,6 +126,8 @@ export async function runBaton(argv, config, opts = {}) {
   let replace = false;
   let done = false;
   let subagent = false;
+  let parentPrompt = null;
+  let template = false;
   const positionals = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -134,9 +138,30 @@ export async function runBaton(argv, config, opts = {}) {
     if (a === '--replace') { replace = true; continue; }
     if (a === '--done') { done = true; continue; }
     if (a === '--subagent') { subagent = true; continue; }
+    if (a === '--template') { template = true; continue; }
+    if (a === '--parent') {
+      const value = argv[++i];
+      try { parentPrompt = parentPromptName(value); }
+      catch { die('--parent requires a resume prompt name, e.g. --parent resume-session-name.'); }
+      continue;
+    }
     if (a === '--json') continue;
     if (!a.startsWith('-') || a === '-' || a.startsWith('@')) { positionals.push(a); continue; }
     die(`Unknown flag for \`runlist baton\`: ${a}`);
+  }
+  if (parentPrompt && !subagent) die('--parent requires --subagent.');
+  if (template) {
+    if (done || replace || force || statusFlag || note !== null || positionals.length || bodyFlag !== null) {
+      die('Use `runlist baton --template` or `runlist baton --subagent --template [--parent resume-name]` to print a draft without saving.');
+    }
+    if (subagent && !parentPrompt && process.env.RUNLIST_PARENT_PROMPT) parentPrompt = parentPromptName(process.env.RUNLIST_PARENT_PROMPT);
+    const name = subagent ? 'subagent' : 'resume';
+    const key = `handoff:${name}`;
+    const override = config ? readTemplateStore(config).data.templates[key]?.source : null;
+    const source = override ?? HANDOFF_TEMPLATES[key].source;
+    const draft = source.replaceAll('{{parent_prompt}}', parentPrompt ?? '<resume-parent-name>');
+    process.stdout.write(json ? JSON.stringify({ operation: 'baton-template', name, origin: override ? templateFile : 'Built-in', parentPrompt, template: draft }, null, 2) + '\n' : draft);
+    return;
   }
 
   let planArg = null;
@@ -164,6 +189,13 @@ export async function runBaton(argv, config, opts = {}) {
     body = readPipedBodyInput();
   }
   if (!body || !body.trim()) die(BODY_USAGE);
+  const draft = extractFrontmatter(body);
+  const draftFm = parseSimpleFrontmatter(draft.frontmatter);
+  if (!subagent && asString(draftFm.parent_prompt)) die('parent_prompt requires --subagent; a resume handoff cannot be its own child.');
+  if (subagent && !parentPrompt) {
+    const draftParent = asString(draftFm.parent_prompt);
+    if (draftParent) parentPrompt = parentPromptName(draftParent);
+  }
 
   // Resolve what's being handed off. Two modes:
   //   plan mode — a plan is released alongside the prompt (one status flip).
@@ -249,10 +281,14 @@ export async function runBaton(argv, config, opts = {}) {
     if (!planPath && priorPlanRef) {
       die(`Nothing replaced: ${oldRepoPath} links a plan (${priorPlanRef}). Use \`runlist baton <plan-file> @<draft-file> --replace\` so the plan link and release stay together.`);
     }
+    const priorParent = asString(fm.parent_prompt);
+    parentPrompt ??= priorParent;
     replacement = {
-      oldPath, oldRepoPath, oldRaw,
+      oldPath, oldRepoPath, oldRaw, priorParent,
       archivedPath: archivedCopyPath(oldPath, config),
-      alreadyCurrent: oldBody.trim() === body.trim()
+      alreadyCurrent: oldBody.trim() === draft.body.trim()
+        && Object.entries(draftFm).every(([key, value]) => key === 'parent_prompt' || JSON.stringify(fm[key]) === JSON.stringify(value))
+        && (priorParent ?? null) === parentPrompt
         && (!planPath || (priorPlanPath && path.resolve(priorPlanPath) === path.resolve(planPath))),
       canonicalPath: target.filePath,
     };
@@ -324,6 +360,12 @@ export async function runBaton(argv, config, opts = {}) {
     if (note) warn(`--note ignored — no plan involved in this handoff (notes land in a plan's Version History).`);
   }
 
+  if (subagent) {
+    if (!parentPrompt && process.env.RUNLIST_PARENT_PROMPT) parentPrompt = parentPromptName(process.env.RUNLIST_PARENT_PROMPT);
+    if (replacement && (replacement.priorParent ?? null) !== parentPrompt) replacement.alreadyCurrent = false;
+    if (!parentPrompt) warn('Subagent handoff has no parent link. Pass --parent resume-name, include parent_prompt in the draft, or inherit RUNLIST_PARENT_PROMPT. Use `runlist prompts link <child> --parent <resume-name>` to repair an existing handoff.');
+  }
+
   const preparedReplacement = prepared => {
     if (!replacement || replacement.alreadyCurrent) return { updates: [], creations: [], guards: [] };
     let archivedContent = renderLifecycleMutation(replacement.oldRaw,
@@ -353,14 +395,14 @@ export async function runBaton(argv, config, opts = {}) {
   try {
   if (!planPath) {
     const promptName = replacement ? path.basename(replacement.oldPath, '.md') : slugBase;
-    const prepared = preparePromptDocument(promptName, body, config, { dryRun });
+    const prepared = preparePromptDocument(promptName, body, config, { parentPrompt, dryRun });
     if (replacement) {
       const mutation = preparedReplacement(prepared);
       if (!dryRun && !replacement.alreadyCurrent) mutateFileSet(mutation, { repoRoot: config.repoRoot, testHooks: opts.testHooks });
       newResult = { sessionFiles: [replacement.oldRepoPath, ...(replacement.alreadyCurrent ? [] : [toRepoPath(replacement.archivedPath, config.repoRoot)])] };
     } else {
       try {
-        newResult = await runNew(['prompt', slugBase, '--body', body], config, { dryRun, deferIndex: true });
+        newResult = await runNew(['prompt', slugBase, '--body', body], config, { parentPrompt, dryRun, deferIndex: true });
       } catch (err) {
         // Lost a race with another baton between the pending check and the write.
         if (/File already exists/.test(String(err?.message))) refusePendingHandoff([prepared.repoPath]);
@@ -371,7 +413,7 @@ export async function runBaton(argv, config, opts = {}) {
     createdSlug = path.basename(promptRepoPath, '.md');
   } else {
     const promptName = replacement ? path.basename(replacement.oldPath, '.md') : slugBase;
-    const prepared = preparePromptDocument(promptName, body, config, { plan: repoPath, dryRun });
+    const prepared = preparePromptDocument(promptName, body, config, { plan: repoPath, parentPrompt, dryRun });
     const mutation = preparedReplacement(prepared);
     const setArgs = [status, planPath];
     if (force) setArgs.push('--force');
@@ -434,6 +476,7 @@ export async function runBaton(argv, config, opts = {}) {
   }
   const operationResult = {
     operation: 'baton',
+    parentPrompt,
     dryRun: Boolean(dryRun),
     disposition: replacement?.alreadyCurrent && !statusChanged && !wouldReleaseClaim ? 'already-current' : dryRun ? 'would-change' : 'applied',
     wouldChange: Boolean(dryRun),

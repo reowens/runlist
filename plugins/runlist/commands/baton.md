@@ -5,6 +5,8 @@ allowed-tools: "Bash(runlist:*), Bash(rl:*), Bash(dotmd:*), Bash(git commit:*), 
 
 Save a resume prompt for the work in flight, then bring the plans up to date. If the repo defines baton (`templates.prompt.baton` in its runlist config, printed by the hook when the user asks for a baton), that definition wins wherever it differs from the steps below.
 
+Start with `runlist baton --template` if useful. Resume and subagent outlines can be customized in desktop **Templates** (`runlist.templates.json`); repository baton instructions still apply.
+
 1. **Write the draft** to a temp file (`/tmp/baton.md`): 10–20 lines — the next concrete decision plus any gotchas, NOT a recap. Reference the relevant plan/doc paths inside the draft so the next session can orient.
 
 2. **Run the verb** — pick the form that matches reality:
@@ -19,6 +21,15 @@ Save a resume prompt for the work in flight, then bring the plans up to date. If
    which saves `subagent-<task-slug>`. Under a parent-owned plan, choose a distinct
    task slug that does not resolve to a plan; do not release the parent's claim.
    A child owning a dedicated plan can pass `<plan-file>` with `--subagent`.
+   Add `--parent resume-<session-name>` to link the child beneath its parent's
+   prompt in `rl prompts`; the parent may be saved later.
+   Start its draft with `runlist baton --subagent --template --parent resume-<session-name>`.
+   Fill Task, State, Next, Evidence and Boundaries. The draft carries its parent;
+   a launcher may instead pass `RUNLIST_PARENT_PROMPT` into the child environment.
+   State completed work as a result for the parent to record, with commits and
+   verified checks. Keep full records at durable repo-relative paths; scratch
+   files are supplementary. Link an old child without replacing its text with
+   `runlist prompts link <child> --parent resume-<session-name>`.
    Parent-session batons default to `resume-*`. Existing prompts keep their names.
    Matching prefixes are kept once and conflicting prefixes are refused;
    `--subagent --replace` refuses a parent-prefixed pending prompt.

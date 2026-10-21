@@ -26,6 +26,30 @@ same CLI. The npm package is `runlist`; existing `dotmd-cli` installs should be
 replaced with `runlist`. The Claude Code plugin is `runlist@runlist`. Legacy
 `dotmd.config.*` files, `DOTMD_*` variables and `.dotmd/` state keep working.
 
+For local CLI review, run this from the source checkout:
+
+```bash
+npm link --ignore-scripts
+npm ls -g --depth=0 runlist   # shows the checkout path when linked
+```
+
+Now `rl`, `runlist`, and `dotmd` run directly from that checkout wherever this
+Node installation is selected; source edits take effect immediately. npm globals
+and links belong to each Node installation. If entering a repo switches Node
+through NVM, link the checkout using that Node's npm too. Check
+`command -v rl` and `npm ls -g --depth=0 runlist` inside the target repo.
+A normal `npm install -g runlist` instead
+installs a separate copy of the published package. Merely editing or pulling the
+checkout does not update that copy. The version number alone cannot distinguish
+an unreleased checkout from an installed release.
+
+To leave local review and restore a released CLI, run
+`npm install -g runlist@<version>` (replace `<version>` with the release wanted).
+`rl update` also installs the published CLI, replacing the local link. Project
+dependencies installed with `npm install -D` are separate again: project scripts
+and `npx` can resolve those before the global CLI. Linking the CLI does not
+rebuild the desktop app or refresh an agent plugin's installed files.
+
 If you installed the old package globally, remove it before installing the new
 one because both packages provide the same executable names:
 
@@ -58,6 +82,57 @@ Mac installer. `runlist update` also updates an existing Mac app; installing the
 npm package alone does not download an app onto a machine without one.
 Earlier development packages and their qualification results are historical;
 see the [desktop validation record](desktop/VALIDATION.md).
+
+**Current desktop improvements:** the workspace uses quieter navigation, a clear
+back-to-list action, readable text and fewer routine banners. Document pins and
+record drafts persist locally; failed searches clear stale results and offer
+Retry. File options, raw Markdown editing and advanced settings stay available
+through their disclosures.
+
+Read-only installation checks now explain the active source:
+
+```bash
+rl doctor --project --json  # CLI launcher/Node scope, source identity, project and desktop copies
+rl install --json           # host copies plus the same installation report
+rl update --check           # versions, source comparison and what an update replaces
+rl doctor --prompts --json  # parent-link findings; no consumption or repair
+```
+
+Engine fingerprints cover shared source inputs, excluding private documents,
+state, runtime binaries and the release version label. A matching fingerprint
+compares engine code, not signatures, native rendering or runtime qualification.
+Host source, cache and registry copies are labelled separately; a cache entry
+alone does not prove which copy a running host has loaded. No package manager or
+host command runs to produce the `doctor --project` installation report.
+
+The local desktop snapshot passed packaged and installed checks, with
+its previous app retained for rollback. Open the installed app with `rl desktop`;
+native save/reset and status/archive journeys also passed a bounded review, with
+accessibility/confirmation findings recorded in
+[desktop validation](desktop/VALIDATION.md#native-workflow-review-2026-10-20).
+The installed review app includes the failed-status-preview confirmation fix.
+Native review verified disabled confirmation for a failed or missing review, then
+a successful pause at the original path. Dialog accessibility remains unresolved;
+see the [current investigation](desktop/VALIDATION.md#confirmation-fix-and-native-investigation-2026-10-20).
+
+Verify an installed Mac app without opening it:
+
+```bash
+node desktop/scripts/check-installed.mjs
+```
+
+The checker prints the installed version and selected test source. It uses this
+checkout when its version and engine fingerprint match; otherwise it searches
+local frozen sources under `desktop/releases/*/source`. For a snapshot stored
+elsewhere, pass `--source /path/to/matching/source`. A missing match stops the
+check before running tests. Tests use the installed helper/runtime with networking
+denied and create no app window.
+
+Parent-link diagnostics support a
+bounded handoff reconciliation:
+record completed results in durable plans before explicitly archiving the
+selected prompts. Historical nested-archive origin recovery stays deferred until
+a concrete case needs it.
 
 Deferred work awaiting selection:
 
@@ -493,7 +568,7 @@ reference repairs, history and index updates. The review checks source, claims,
 configuration and destination again before publishing. Save or discard drafts
 first. Claimed sources and native plan lifecycle operations are unavailable;
 native flags and decisions use their domain actions instead. Moves retain
-browser pins and heading bookmarks. Lost acknowledgements can be inspected and
+browser pins. Lost acknowledgements can be inspected and
 retried through the retained operation ID. An interrupted runner stays uncertain
 until inspected; acknowledging its outcome records that uncertainty without
 replaying the operation. Retained CLI transactions must be repaired first.
@@ -568,28 +643,37 @@ shows loaded document roots, exclusions, status rules and where changes live.
 Repository configuration remains editable in its source or through the CLI;
 this panel displays its effective rules.
 
-**Appearance** in the header offers Light, Dark, and System. The browser remembers
+**Appearance** in the Workspace menu offers Light, Dark, and System. The browser remembers
 your choice across reloads and shares it with other tabs at the same local app
 address. System follows your OS appearance, including live changes. The theme
 covers the library, inline editor, source, diffs, section tools, and templates.
 
-**Sections** provides a searchable heading outline, heading bookmarks, and section
-insertion. Command/Ctrl+Shift+J focuses section search; Alt+Page Up/Down moves
-between headings. Stars save bookmarks for this checkout and file in the current
-browser. Inline heading renames update their bookmarks; removed or unmatched
-headings stay visible as unavailable bookmarks.
+**Details** provides a searchable heading outline, file information, and section
+insertion. Command/Ctrl+Shift+J opens section search; Alt+Page Up/Down moves
+between headings. Select a heading to jump to that section.
 
-**Templates** in the sidebar opens the doc, plan, and prompt scaffolds with
-Markdown editing, an example preview, and a diff before saving. Template drafts
-stay in browser storage. Saves use revision checks and write the repository's
-`runlist.templates.json`; ordinary `runlist new` commands consume these overrides.
-Existing documents are unaffected. Keep `{{title}}`, `{{body}}`, and the managed
+**Templates** in the sidebar opens doc and plan scaffolds and the prompt wrapper.
+The editor also includes **Resume draft** and **Subagent draft**. All
+support Markdown editing, an example preview, and a diff before saving. Template
+drafts stay in browser storage. Saves use revision checks and write the repository's
+`runlist.templates.json`. Document overrides are used by ordinary `runlist new`
+commands; draft outlines are used by `runlist baton --template` and
+`runlist baton --subagent --template`. Saving a draft outline does not change the
+prompt wrapper or replace the repository's `templates.prompt.baton` instructions,
+which are shown beside the outline. Existing documents are unaffected.
+For document scaffolds, keep `{{title}}`, `{{body}}`, and the managed
 `{{status}}`/`{{date}}` metadata placeholders; `{{version}}` is also available.
 Authored complete bodies and explicit plan variants retain their existing CLI
 behavior. JavaScript templates from `runlist.config.mjs` can be inspected without
 executing them. Built-in types can receive a Markdown override; custom JavaScript
 types remain editable in that config file. The template file can be committed
-with Git; bookmarks and draft recovery remain local.
+with Git; document pins and draft recovery remain local. The subagent outline keeps
+`parent_prompt: {{parent_prompt}}`; the CLI fills it from `--parent` or
+`RUNLIST_PARENT_PROMPT`. Resume outlines have no required placeholders.
+Drafts use the `handoff:resume` and `handoff:subagent` keys inside `templates`;
+repository document types named `resume` or `subagent` remain separate.
+The installed desktop bundles its own engine: an npm link updates CLI and
+`rl app`, while desktop changes need a new desktop build/install.
 
 The renderer covers headings, paragraphs, lists/tasks, tables, quotes, fenced
 code, and safe links. Authored HTML is displayed as text; unsupported syntax
@@ -645,6 +729,12 @@ Use `runlist set <status> [<file>]` for lifecycle changes rather than editing a
 runs lifecycle hooks, repairs references after moves, and synchronizes the
 index.
 
+Ordinary status changes, including `paused`, keep the document in its current
+folder. Archiving still moves it into `archived/`. Repositories that want
+status-based moves can opt in with `lifecycle.filedStatuses` (for example,
+`{ paused: 'held' }`) or a rich status's `filed` setting. Existing files are
+not relocated when this default changes.
+
 For unfinished session work, save the handoff and release the owned plan in one
 operation:
 
@@ -658,6 +748,55 @@ Under a parent-owned plan, use a distinct task slug that does not resolve to a
 plan. A child owning a dedicated plan can pass that plan with `--subagent`.
 Existing prompts keep their names. See `runlist baton --help` for prefix and
 replacement checks.
+
+To associate a child handoff with its parent, use
+`runlist baton --subagent review --parent resume-session-name @/tmp/review.md`.
+This saves `parent_prompt: resume-session-name`; the parent can be saved later.
+`rl prompts` collapses children into a `[+ N subagent prompts]` count on
+the matching `resume-*` prompt's line. Use `rl prompts --verbose` to expand their names
+and target plans. Existing `subagent-*`, `agent-*`
+and `session-*` names also group when they share the parent's name stem (the
+longest match wins). Children without a visible parent share a separate count.
+Grouping preserves consumption order and the `[NEXT]` marker; JSON stays flat.
+
+Handoffs have editable draft outlines:
+
+```bash
+rl baton --template > /tmp/resume.md
+rl baton --subagent --template --parent resume-session-name > /tmp/review.md
+# Fill Task, State, Next, Evidence, and Boundaries, then save:
+rl baton --subagent review @/tmp/review.md
+```
+
+The parent travels in the draft's frontmatter, so it need not be repeated on
+save. A launcher can also pass `RUNLIST_PARENT_PROMPT=resume-session-name` into
+the child's environment. An explicit `--parent` wins; replacement keeps an
+existing link when no new parent is supplied. Unlinked legacy saves warn with
+the repair command. Template generation reads the checkout's saved Markdown
+settings without executing JavaScript configuration or writing session state.
+The built-in resume outline covers current work, next action, decisions and
+waiting items, durable evidence, and authorization boundaries. The child outline
+adds its bounded task, completion state and explicit parent. **Templates** in the
+current source edits both outlines; the prompt wrapper remains a separate setting.
+With the default archive layout, reopening a consumed parent with
+`rl prompts show docs/prompts/archived/resume-name.md`
+also shows children still pending at its former live location. Older archives
+that flattened nested folders may have lost that location; historical recovery
+is not inferred from similar names.
+
+Link existing children without rewriting their handoff, archiving it, or
+changing its timestamps:
+
+```bash
+rl prompts link subagent-review subagent-checks --parent resume-session-name
+```
+
+The parent must already be a pending resume prompt. Use `--dry-run` to review
+the links first. Showing or consuming a parent lists its pending child handoffs
+and how to inspect them; each child stays pending until explicitly consumed or
+archived. A completed child should name the result for the parent to record,
+with commits, verification, and a durable repository record. A temporary
+scratch path alone is not a durable handoff.
 
 Baton refuses when a handoff for the same work is already pending, so one piece
 of work never has two resume prompts. Inspect the pending handoff with

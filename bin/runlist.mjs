@@ -3,7 +3,7 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { resolveConfig } from '../src/config.mjs';
+import { resolveConfig, locateConfig } from '../src/config.mjs';
 import { readPlanStage } from '../src/stages.mjs';
 import { scopeFilingCoverage } from '../src/filing.mjs';
 import { die, warn, levenshtein, isArchivedPath, toRepoPath } from '../src/util.mjs';
@@ -893,6 +893,8 @@ Modes:
                          when a verb says "No authoritative session identity",
                          or on any host runlist has never been tried on.
   --session --json       Machine-readable identity + host-integration state.
+  --prompts              Read-only parent-link findings: linked, inferred, missing, archived,
+                         ambiguous or invalid. Supports --json; never consumes or repairs.
   --statuses             Read-only diagnostic: detect overloaded status
                          buckets where one status holds plans pursuing
                          multiple distinct unstuck-actions. Suggests how
@@ -1295,6 +1297,8 @@ Subcommands:
   show <file-or-slug>        Read-only peek: print the body WITHOUT consuming
                              (triage). \`peek\` is an alias.
   archive <file-or-slug>     Archive a prompt without printing its body
+  link <child...> --parent <resume-name>
+                             Attach existing children without replacing their handoffs
   new <slug> [body]          Create a new prompt (alias for
                              \`runlist new prompt <slug> [body]\`)
 
@@ -1307,6 +1311,14 @@ A prompt saved by \`runlist baton\` links its plan; consuming it (\`use\`,
 Pass \`--no-claim\` to read and archive the prompt without starting the plan.
 
 Default prompt statuses: pending, archived.
+
+The default list shows [+ N subagent prompts] on their resume-* parent's line.
+Use --verbose to expand their names and targets.
+Record the parent with \`baton --subagent <task> --parent resume-<name>\`;
+legacy child names sharing the parent's name stem also group. Missing-parent
+children share a separate count. Grouping does not change which prompt is consumed next.
+Showing or consuming a parent also lists its pending children for inspection;
+the children remain pending until explicitly consumed or archived.
 
 Examples:
   runlist prompts                        # pending prompts (default)
@@ -1350,6 +1362,8 @@ Options:
   --message / --body     Inline body (one-liners; prefer @path or stdin)
   --force                Recover another session's plan (explicit path required)
   --subagent             Save subagent-<name> instead of the parent default resume-<name>
+  --parent <resume-name>  Group this --subagent handoff under its parent in prompts listings
+  --template             Print a resume draft (or --subagent draft), using saved Markdown settings
   --replace              Replace exactly one pending handoff; archive its prior text
   --done                 Report a plan handoff done once next_step changed after the prompt was saved
   --json                 Structured repository/session/generated file result
@@ -1362,9 +1376,12 @@ Repo-specific commit hint (runlist.config.mjs):
 The function returns argv; baton shell-quotes each argument before printing.
 
 Examples:
+  runlist baton --template > /tmp/resume.md
   runlist baton @/tmp/draft.md
   runlist baton checkout-fixes @/tmp/draft.md
   runlist baton --subagent totals-review @/tmp/draft.md
+  runlist baton --subagent totals-review --parent resume-session-name @/tmp/draft.md
+  runlist baton --subagent --template --parent resume-session-name > /tmp/child.md
   runlist baton docs/plans/auth.md @/tmp/draft.md
   runlist baton docs/plans/auth.md @/tmp/new-draft.md --replace
   runlist baton --status paused --note "blocked on review" @/tmp/d.md
@@ -1396,6 +1413,15 @@ than releasing the parent plan. A child owning its own plan can hand it off.
 Matching prefixes are kept once; conflicting or nested prefixes are refused.
 Existing prompts keep their names. --subagent --replace refuses a parent-named
 handoff rather than reclassifying it.
+Use --parent resume-<name> to record the owning parent prompt (it may be saved
+later). Prompt listings show linked child counts on that parent's line; legacy child
+names sharing its name stem also group. Consumption order is unchanged.
+The child draft template covers Task, State, Next, Evidence and Boundaries.
+Its parent_prompt field travels with the draft. A launcher can instead pass
+RUNLIST_PARENT_PROMPT to the child; explicit --parent wins and replacement
+preserves a retained link. An unlinked child save warns with a repair command.
+Keep the full record at a durable repo-relative path, with commits and checked
+results. On completion, say what the parent must record and what remains.
 
 Slug mode (no plan involved) saves resume-<slug> by default without a status change or
 commit. A bare word that names a plan is treated as that plan.
@@ -1909,7 +1935,7 @@ async function main() {
   const doctorSubMode = command === 'doctor' && (
     args.includes('--statuses') || args.includes('--migrate-template')
     || args.includes('--migrate-prompts') || args.includes('--frontmatter-fix')
-    || args.includes('--project')
+    || args.includes('--project') || args.includes('--prompts')
   );
   const doctorExplicitApply = args.includes('--apply') || args.includes('--yes');
   const effectiveDryRun = dryRun || (command === 'doctor' && !doctorSubMode && !doctorExplicitApply);
@@ -1945,6 +1971,15 @@ async function main() {
     try { restArgs = validateCommandArgs(command, restArgs); } catch (err) { die(err.message); }
     const { runCompletions } = await import('../src/completions.mjs');
     runCompletions(restArgs);
+    return;
+  }
+
+  if (command === 'baton' && restArgs.includes('--template')) {
+    _suppressObservability = true;
+    requireCommandPolicy(command, dispatchPolicy);
+    try { restArgs = validateCommandArgs(command, restArgs); } catch (err) { die(err.message); }
+    const { runBaton } = await import('../src/baton.mjs');
+    await runBaton(restArgs, locateConfig(process.cwd(), explicitConfig), { dryRun });
     return;
   }
 

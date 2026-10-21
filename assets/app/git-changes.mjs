@@ -29,7 +29,15 @@ export function gitChanges({$,api,state,checkout,showLibrary,open,returnToDraft=
       button.innerHTML=`<strong>${esc(row.title??displayPath(row.path))}</strong><span class="changes-path">${esc(displayPath(row.path))}</span>${row.original?`<small>From ${esc(displayPath(row.original))}</small>`:''}<span class="changes-meta">${esc(row.kind)}${row.staged?' · Staged':''}${row.partial&&!row.filterReviewRequired?' · Partial staging':''}${row.filterReviewRequired?' · Clean-filter review required':''}</span>${row.blockedReason?`<small class="changes-blocked">${esc(row.blockedReason)}</small>`:''}`;
       button.onclick=run(()=>review(row.path));item.append(check,button);return item;
     }));
-    if(data?.available&&!data.changes.length){const empty=document.createElement('p');empty.className='library-no-results';empty.textContent=$('changes-search').value?'No saved documents match this search.':'No saved document changes. Unsaved drafts stay in the editor.';$('changes-list').append(empty);}
+    if(data?.available&&!data.changes.length){const empty=document.createElement('p');empty.className='library-no-results';empty.textContent=$('changes-search').value?'No changed documents match this search.':'No saved document changes.';$('changes-list').append(empty);}
+    const hasRows=!!data?.changes?.length, available=!!data?.available;
+    root.classList.toggle('changes-empty',!hasRows);
+    $('changes-review').hidden=!hasRows;
+    root.querySelector('.changes-selection').hidden=!hasRows&&!selected.size;
+    root.querySelector('.library-pagination').hidden=!available||(!offset&&!data?.hasMore);
+    root.querySelector('.changes-footer').hidden=!hasRows;
+    root.querySelector('.changes-controls').hidden=!available||(!hasRows&&!$('changes-search').value&&!$('changes-archived').checked&&!data?.changedDocuments);
+    $('changes-checkout').hidden=!hasRows;
     $('changes-list').scrollTop=scroll;selection();
     if(activePath)[...$('changes-list').querySelectorAll('[data-git-path]')].find(node=>node.tagName===activeTag&&node.getAttribute('data-git-path')===activePath)?.focus();
   }
@@ -44,11 +52,12 @@ export function gitChanges({$,api,state,checkout,showLibrary,open,returnToDraft=
       if(old&&old.offset===result.offset&&old.query===params.get('q')&&old.archived===params.get('archived'))for(const row of old.changes)if(!result.changes.some(next=>next.path===row.path))selected.delete(row.path);
       data.query=params.get('q');data.archived=params.get('archived');
       $('changes-checkout').textContent=result.available?`${result.branch??'No branch'} · ${result.head?.slice(0,12)??'No commits yet'}`:'';
-      $('changes-feedback').textContent=[result.reason??`${result.changedDocuments} changed documents · ${result.localOnly} local-only documents`,result.commitSupport?.reason].filter(Boolean).join(' ');
+      $('changes-feedback').textContent=!result.available?result.reason??'Git review is unavailable.':[result.reason,result.changes.length?`${result.changedDocuments} changed documents`:null,result.changes.length?result.commitSupport?.reason:null].filter(Boolean).join(' · ');
       $('changes-range').textContent=result.total?`${offset+1}–${offset+result.changes.length} of ${result.total}`:'0 documents';
       $('changes-previous').disabled=!offset||!result.available;$('changes-next').disabled=!result.hasMore||!result.available;
       $('library-changes-count').textContent=result.available?String(result.changedDocuments):'—';$('library-changes').title='Review saved document changes';
       $('changes-staging').textContent=result.unrelatedStaged?`${result.unrelatedStaged} staged files outside this document scope stay staged.`:'Selection and review leave Git staging unchanged.';
+      if(reviewed&&!result.changes.some(row=>row.path===reviewed)){reviewed=null;diffSequence++;$('changes-review').innerHTML='<h2>Select a file to review</h2>'; }
       rows();if(reviewed)await review(reviewed);
     }catch(error){if(own!==sequence||state.mode!=='changes')return;if(own===sequence&&state.mode==='changes')$('changes-feedback').textContent=`${error.message} Selection is kept. Try Refresh.`;throw error;}
     finally{if(own===sequence){$('changes-list').setAttribute('aria-busy','false');$('changes-refresh').disabled=false;}}

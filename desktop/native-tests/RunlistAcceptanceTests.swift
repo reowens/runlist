@@ -25,8 +25,14 @@ final class RunlistAcceptanceTests: XCTestCase {
             throw NSError(domain: "RunlistAcceptance", code: 1, userInfo: [NSLocalizedDescriptionKey: "Account home is unavailable."])
         }
         accountHome = URL(fileURLWithPath: String(cString: home), isDirectory: true)
-        let jobs = accountHome.appendingPathComponent("hetchy-worker.noindex/native-projects/runlist/jobs", isDirectory: true)
         let bundle = Bundle(for: RunlistAcceptanceTests.self).bundleURL.standardizedFileURL
+        let jobsSuffix = "/native-projects/runlist/jobs/"
+        guard bundle.path.hasPrefix(accountHome.path + "/"),
+              let boundary = bundle.path.range(of: jobsSuffix),
+              String(bundle.path[..<boundary.lowerBound]).hasSuffix("-worker.noindex") else {
+            throw NSError(domain: "RunlistAcceptance", code: 1, userInfo: [NSLocalizedDescriptionKey: "Test bundle is outside the worker jobs directory."])
+        }
+        let jobs = URL(fileURLWithPath: String(bundle.path[..<boundary.upperBound].dropLast()), isDirectory: true)
         guard bundle.path.hasPrefix(jobs.path + "/") else {
             throw NSError(domain: "RunlistAcceptance", code: 1, userInfo: [NSLocalizedDescriptionKey: "Test bundle is outside the Air jobs directory."])
         }
@@ -106,6 +112,12 @@ final class RunlistAcceptanceTests: XCTestCase {
         let title = app.buttons.matching(NSPredicate(format: "title BEGINSWITH %@ AND title CONTAINS %@", "Air acceptance ", "docs/plans/air-acceptance.md")).firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: 15), "Fixture document is absent from the native library tree.")
         title.click()
+        let details = app.buttons["Details"].firstMatch
+        XCTAssertTrue(details.waitForExistence(timeout: 10))
+        details.click()
+        let evidence = app.descendants(matching: .any).matching(NSPredicate(format: "label ==[c] %@", "FILE & EVIDENCE")).firstMatch
+        XCTAssertTrue(evidence.waitForExistence(timeout: 5))
+        evidence.click()
         let markdown = app.buttons["Edit Markdown"].firstMatch
         XCTAssertTrue(markdown.waitForExistence(timeout: 10))
         markdown.click()

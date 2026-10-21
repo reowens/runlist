@@ -19,10 +19,10 @@ import { escapeHtml as esc, splitSource, editedSource, markdownHtml, lineDiff, d
 const $ = id => document.getElementById(id);
 const state = { doc:null, base:null, body:'', csrf:null, mode:'read', dirty:false, draft:null, recovery:null, conflict:null, pending:null, lastSave:null, busy:false, plans:[] };
 const clientId = sessionStorage.runlistClientId ||= crypto.randomUUID();
-let checkoutKey = '', draftTimer, persistence = Promise.resolve();
+let checkoutKey = '', draftTimer, persistence = Promise.resolve(), noticeError = false;
 let editorPath;
 const blockEditor = new BlockEditor($('block-editor'),{onChange:body=>bodyChanged(body),resolveLink:linked});
-const navigation = editorNavigation({state,editor:blockEditor,checkout:()=>checkoutKey,$,view,notice});
+const navigation = editorNavigation({state,editor:blockEditor,$,view,notice});
 templateEditor({api,$,checkout:()=>checkoutKey,notice});
 const library = libraryNavigation({state,$,api,open,showLibrary,checkout:()=>checkoutKey,notice});
 const settings=appSettings({$,api,checkout:()=>checkoutKey,library,notice});
@@ -30,7 +30,7 @@ const lifecycle=documentLifecycle({state,$,api,checkout:()=>checkoutKey,open,lib
 const yardstick=documentYardstick({state,$,api,checkout:()=>checkoutKey,open,library,notice});
 const filing=filingNavigation({state,$,api,open,showLibrary,checkout:()=>checkoutKey,notice});
 const records = recordNavigation({state,$,api,open,showLibrary,checkout:()=>checkoutKey,preferences:()=>settings.read(),notice,create:template=>creation.show({template})});
-const changes=gitChanges({state,$,api,open,showLibrary,checkout:()=>checkoutKey,notice,returnToDraft:()=>{view(state.doc.editable?'edit':'read');const url=new URL(location.href);url.searchParams.delete('view');url.searchParams.set('path',state.doc.path);history.replaceState(null,'',url);}});
+const changes=gitChanges({state,$,api,open,showLibrary,checkout:()=>checkoutKey,notice,returnToDraft:()=>{view(state.doc.editable?'edit':'read',{focus:true});const url=new URL(location.href);url.searchParams.delete('view');url.searchParams.set('path',state.doc.path);history.replaceState(null,'',url);}});
 const commits=gitCommit({$,api,checkout:()=>checkoutKey,selection:changes.selectedPaths,changed:()=>changes.invalidate(),notice});
 $('changes-commit').onclick=()=>{if(!$('changes-commit').disabled)return commits.show().catch(error=>notice(error.message,true));};
 const views = documentViews({$,view});
@@ -49,7 +49,8 @@ const quick=quickNavigation({$,api,state,library,open,jump:section=>navigation.j
   {title:'Templates',run:()=>$('open-templates').click()},{title:'Settings',run:()=>$('open-settings').click()},
   ...(library.savedViews?.()??[]).map(v=>({title:`View: ${v.name}`,detail:'Saved library filters',run:()=>library.applyView(v.id)})),
 ]});
-function notice(message, error = false) { $('notice').textContent = message; $('notice').classList.toggle('error', error); }
+let noticeTimer;
+function notice(message = '', error = false, {persistent=false} = {}) { clearTimeout(noticeTimer); $('notice').textContent = message; $('notice').hidden = !message; $('notice').classList.toggle('error', error); noticeError = error; if(message&&!error&&!persistent)noticeTimer=setTimeout(()=>notice(),3200); }
 async function api(route,body) {const result=await request(route,body,state.csrf);if(body!==undefined&&['save','undo','create/commit','lifecycle/commit','yardstick/commit','native/action','flags/triage'].includes(route)){changes.invalidate();filing.invalidate();}return result;}
 function guarded(fn) { return async () => { try { await fn(); } catch (error) { notice(error.message, true); } }; }
 function key(path = state.doc?.path) { return `runlist:recovery:${checkoutKey}:${encodeURIComponent(path)}:${clientId}`; }
@@ -83,22 +84,29 @@ function updateDirty() {
   state.dirty = candidate() !== state.base.source;
   const rows = lineDiff(state.base.source, candidate()), adds = rows.filter(r => r.kind === 'add').length, removes = rows.filter(r => r.kind === 'remove').length;
   $('change-count').textContent = state.dirty ? `${adds + removes}` : '';
-  $('review-summary').textContent = `${adds} added ${adds === 1 ? 'line' : 'lines'} · ${removes} removed ${removes === 1 ? 'line' : 'lines'} · ${state.doc.path}`;
+  $('review-summary').textContent = `${adds} added ${adds === 1 ? 'line' : 'lines'} · ${removes} removed ${removes === 1 ? 'line' : 'lines'}`;
   const claimed = state.doc.claim?.state === 'owned' || state.doc.claim?.corrupt;
   $('save').disabled = !state.dirty || !state.doc.editable || claimed || !!state.conflict || state.busy;
   $('edit').disabled = !state.doc.editable || state.busy;
+  $('edit').textContent = state.dirty || state.pending ? 'Review changes' : 'Edit document';
+  $('edit').hidden = state.mode === 'edit' || state.mode === 'review';
+  $('document-edit-actions').hidden = !state.dirty && !state.pending;
   $('tab-edit').disabled = !state.doc.editable || state.busy;
+  $('tab-review').disabled = (!state.dirty && !state.pending) || state.busy;
+  $('tab-review').hidden = !state.dirty && !state.pending;
   $('undo').disabled = !state.lastSave || state.dirty || claimed || state.busy;
   $('body-editor').readOnly = !!state.pending;
   blockEditor.setReadOnly(!!state.pending || !state.doc.editable);
-  $('toggle-markdown').disabled = !!state.pending;
+  $('toggle-markdown').disabled = !!state.pending || !state.doc.editable || state.busy;
   $('pending-note').hidden = !state.pending;
   stages.update(candidate());
   yardstick.update();
   $('save').textContent = state.pending ? state.pending.kind === 'undo' ? 'Retry undo' : 'Retry save' : 'Save changes';
 }
-function view(mode) {
+function view(mode, {focus=false} = {}) {
   if (!state.doc) return;
+  if(mode==='review'&&!state.pending&&candidate()===state.base.source)mode=state.mode==='edit'?'edit':'read';
+  records.beforeLeave?.();
   state.mode = mode;
   $('records-home').hidden=true;records.deactivate();changes.deactivate();filing.deactivate();
   $('workspace').classList.remove('library-start');$('empty').hidden=true;$('document').hidden=false;
@@ -109,10 +117,11 @@ function view(mode) {
   $('full-source').textContent = state.doc.source;
   $('diff').innerHTML = diffHtml(state.base.source, source);
   updateDirty();
-  if (mode === 'read' && state.dirty) notice('Previewing your draft. It has not been saved to the file.');
+  if (!noticeError) notice();
   if (mode === 'edit' && (editorPath !== state.doc.path || blockEditor.source() !== state.body)) { blockEditor.set(state.body,{readOnly:!!state.pending || !state.doc.editable}); editorPath=state.doc.path; }
   if (mode !== 'edit') blockEditor.hideTools();
   navigation.update();library.render();
+  if (focus) views.focus(mode);
 }
 function renderList() { library.render(); }
 
@@ -124,7 +133,7 @@ function renderDocumentSummary() {
 function renderEvidence() {
   const doc = state.doc;
   renderConnections();
-  $('file-info').innerHTML = `<dl><dt>Source file</dt><dd>${esc(doc.path)}</dd><dt>Revision</dt><dd><code>${esc(doc.revision.slice(0,23))}…</code></dd><dt>Actor</dt><dd>${esc($('identity').textContent)}</dd></dl><p class="muted">Source is the record. Save changes the file; derived views read it again.</p>`;
+  $('file-info').innerHTML = `<dl><dt>Source file</dt><dd>${esc(doc.path)}</dd><dt>Revision</dt><dd><code>${esc(doc.revision.slice(0,23))}…</code></dd><dt>Actor</dt><dd>${esc($('identity').textContent)}</dd></dl>`;
   $('flags').innerHTML = doc.flags.length ? doc.flags.map(flag => `<section class="flag"><span class="flag-tag">${esc(flag.id)} · ${esc(flag.severity)} · ${esc(flag.state)}</span><h3>${esc(flag.text)}</h3><h4>ORIGINAL OBSERVATION</h4><small>${esc(flag.original.file)}${flag.original.line ? `:${flag.original.line}` : ''}<br>${esc(flag.original.at ?? '')}</small><pre>${esc(flag.original.quote || 'File-level observation; no original quote was recorded.')}</pre><small>${esc(flag.original.revisionReason)}</small><h4>CURRENT LOCATION · ${esc(flag.current.status.toUpperCase())}</h4><pre class="current-quote">${esc(flag.current.quote ?? 'Current evidence is unavailable or ambiguous.')}</pre><small>${flag.current.line ? `Line ${flag.current.line} · ` : ''}${esc(flag.current.revision?.slice(0,23) ?? 'No current revision')}<br>Original evidence is retained.</small></section>`).join('') : '<p class="muted">No related flags recorded for this document.</p>';
 }
 function renderConnections() {
@@ -136,10 +145,11 @@ function renderConnections() {
 }
 async function open(path,selection={}) {
   if (state.busy) throw new Error('Wait for the current operation before switching plans.');
+  records.beforeLeave?.();
   await yardstick.beforeLeave();
   clearTimeout(draftTimer);
   if (state.doc && (state.dirty || state.pending)) { storeLocal(); await persistDraft(); if(!state.recoveryStored)throw new Error('Preserve your current draft before switching documents.'); }
-  notice('Opening document…');
+  notice();
   path=await lifecycle.resolveInitial(path);
   path=await yardstick.resolveInitial(path);
   const doc = await api(`document?path=${encodeURIComponent(path)}`);
@@ -158,13 +168,13 @@ async function open(path,selection={}) {
   if (recovery?.lastSave) state.lastSave = recovery.lastSave;
   const recoverable = recovery && (recovery.source !== recovery.baseSource || recovery.pending);
   $('recovery').hidden = !recoverable;
-  $('recovery-label').textContent = recoverable ? 'A locally preserved draft is available. Recover it to review changes; the Markdown file is unchanged.' : '';
-  $('draft-status').textContent = recoverable ? 'Draft available' : 'Saved source';
+  $('recovery-label').textContent = recoverable ? 'Unsaved draft available.' : '';
+  $('draft-status').textContent = ''; $('draft-status').title = '';
   $('claim').hidden = !(doc.claim?.corrupt || doc.claim?.state === 'owned' || !doc.editable);
   $('claim').textContent = doc.claim?.corrupt ? 'Ownership is corrupt. Repair it through the CLI before saving.' : doc.claim?.state === 'owned' ? `Owned by session ${doc.claim.sessionId}. You can keep a draft; coordinate or release the claim through the CLI before saving.` : !doc.editable ? 'This source is read only. Its format or metadata needs repair before saving.' : '';
   $('conflict').hidden = true; $('operation-repair').hidden = true; $('empty').hidden = true; $('document').hidden = false;$('workspace').classList.remove('library-start');
   $('doc-title').textContent = doc.title; $('doc-path').textContent = doc.path; $('doc-status').textContent = doc.status ?? '';
-  $('body-editor').value = state.body; $('markdown-fallback').hidden=true; $('block-editor').hidden=false; $('toggle-markdown').textContent='Edit Markdown'; $('toggle-markdown').setAttribute('aria-expanded','false'); renderList(); renderEvidence(); view(doc.editable?'edit':'read');
+  $('body-editor').value = state.body; $('markdown-fallback').hidden=true; $('block-editor').hidden=false; $('toggle-markdown').textContent='Edit Markdown'; $('toggle-markdown').setAttribute('aria-expanded','false'); renderList(); renderEvidence(); view('read');
   const url = new URL(location.href); url.searchParams.delete('ref');url.searchParams.delete('from');url.searchParams.delete('view');url.searchParams.delete('record');url.searchParams.set('path',doc.path); history.replaceState(null,'',url);
   library.opened();
   await yardstick.opened();
@@ -178,7 +188,7 @@ async function open(path,selection={}) {
       else sourceNotice='The recorded line is unavailable. Current hub source is open.';
     }
   }
-  $('sidebar').classList.remove('open');$('toggle-plans').setAttribute('aria-expanded','false');if(!selection.line)window.scrollTo(0,0); notice(sourceNotice??(doc.editable?'Your document is ready to edit. Changes are kept as a draft until you save.':'This document is read only. Its source is preserved.'),!!sourceNotice);
+  $('sidebar').classList.remove('open');$('toggle-plans').setAttribute('aria-expanded','false');if(!selection.line)window.scrollTo(0,0); notice(sourceNotice??'',!!sourceNotice);
 }
 async function persistDraft() {
   if (!state.doc || !state.base || (!state.dirty && !state.pending)) return;
@@ -192,8 +202,8 @@ async function persistDraft() {
       if (state.doc?.path !== path || state.draft?.id !== id) return;
       request.expectedDraftRevision = state.draft.revision;
       const stored = await api('draft/write', request);
-      if (state.doc?.path === path && state.draft?.id === id) { state.draft.revision = stored.revision; storeLocal(); state.recoveryStored=true; $('draft-status').textContent = 'Draft preserved locally · not saved to Markdown'; }
-    } catch (error) { $('draft-status').textContent = desktop?'Draft kept in Runlist':'Draft kept in browser'; notice(error.code === 'draft-conflict' ? 'Another editor updated the disk draft. Your text is kept locally; recover or copy it before proceeding.' : `Draft kept ${desktop?'in Runlist':'in browser'}. ${error.message}`, true); }
+      if (state.doc?.path === path && state.draft?.id === id) { state.draft.revision = stored.revision; storeLocal(); state.recoveryStored=true; $('draft-status').textContent = state.dirty ? 'Unsaved' : ''; $('draft-status').title = state.dirty ? 'Draft stored on this computer' : ''; }
+    } catch (error) { $('draft-status').textContent = 'Unsaved'; $('draft-status').title = 'Local draft storage failed'; notice(error.code === 'draft-conflict' ? 'Another editor updated the disk draft. Your text is kept locally; recover or copy it before proceeding.' : `Draft kept ${desktop?'in Runlist':'in browser'}. ${error.message}`, true); }
   };
   persistence = persistence.then(run,run); await persistence;
 }
@@ -210,8 +220,9 @@ async function recover() {
   state.base = { source:r.baseSource, revision:r.baseRevision }; state.draftSource = r.source; state.body = splitSource(r.source).body.replaceAll('\r\n','\n');
   state.draft = r.location === key() ? r.draft : null; state.pending = r.pending; state.lastSave = r.lastSave;
   $('body-editor').value = state.body; $('recovery').hidden = true; updateDirty(); storeLocal(); view('edit');
-  if (state.pending) notice('An interrupted save is retained. Review changes and retry to learn its original outcome.');
-  else notice('Draft recovered. Review changes before saving.');
+  if (state.pending) notice('An interrupted save is retained. Review changes and retry to learn its original outcome.',false,{persistent:true});
+  else notice('Draft recovered.');
+  $('draft-status').textContent = 'Unsaved'; $('draft-status').title = 'Recovered draft';
   if (state.base.revision !== state.doc.revision && !state.pending) conflict({ details:{ currentRevision:state.doc.revision, currentSource:state.doc.source } });
 }
 async function clearDraft() {
@@ -226,7 +237,7 @@ async function save() {
   // Retain the original request identity on disk before publication, even if renderer storage is later lost.
   await persistDraft();
   if(!state.recoveryStored)throw new Error('Preserve the draft and operation identity before saving.');
-  storeLocal(); state.busy = true; $('workspace').inert = true; updateDirty(); notice('Saving the reviewed source…');
+  storeLocal(); state.busy = true; $('workspace').inert = true; updateDirty(); notice('Saving…',false,{persistent:true});
   try {
     const result = await api(state.pending.kind === 'undo' ? 'undo' : 'save',state.pending), pending = state.pending;
     const current = await api(`document?path=${encodeURIComponent(state.doc.path)}`);
@@ -244,8 +255,8 @@ async function save() {
     state.doc = current; state.draftSource = current.source; state.base = { source:current.source, revision:current.revision }; state.body = splitSource(current.source).body.replaceAll('\r\n','\n');
     state.dirty = false; storeLocal(); let cleanupError = null;
     try { await clearDraft(); } catch (error) { cleanupError = error; }
-    $('body-editor').value = state.body; $('draft-status').textContent = 'Saved source'; storeLocal(); renderDocumentSummary(); renderEvidence(); view('edit');
-    notice(cleanupError ? `Saved to Markdown. Recovery draft retained: ${cleanupError.message}` : pending.kind === 'undo' ? 'Undid the save. The CLI reads the same file.' : 'Saved to Markdown. The CLI reads the same file.', !!cleanupError);
+    $('body-editor').value = state.body; $('draft-status').textContent = ''; $('draft-status').title = ''; storeLocal(); renderDocumentSummary(); renderEvidence(); view('edit');
+    notice(cleanupError ? `Saved to Markdown. Recovery draft retained: ${cleanupError.message}` : pending.kind === 'undo' ? 'Undid the save.' : 'Saved to Markdown.', !!cleanupError);
   } catch (error) {
     if (error.code === 'revision-conflict') { state.pending = null; storeLocal(); conflict(error); }
     else if (['repair-required','operation-pending'].includes(error.code)) {
@@ -283,51 +294,57 @@ async function bootstrap(token) {
 }
 async function showLibrary() {
   if(state.busy)throw new Error('Wait for the current operation before returning to the library.');
+  records.beforeLeave?.();
   await yardstick.beforeLeave();
   clearTimeout(draftTimer);
   if(state.doc&&(state.dirty||state.pending)){storeLocal();await persistDraft();if(!state.recoveryStored)throw new Error('Preserve your current draft before leaving the document.');}
   state.mode='home';blockEditor.hideTools();$('records-home').hidden=true;records.deactivate();changes.deactivate();filing.deactivate();
-  $('workspace').classList.add('library-start');$('evidence').classList.remove('outline-open');
+  $('workspace').classList.add('library-start');$('evidence').classList.remove('outline-open');$('toggle-outline').setAttribute('aria-expanded','false');
   $('document').hidden=true;$('empty').hidden=false;$('doc-path').textContent='';
   $('sidebar').classList.remove('open');$('toggle-plans').setAttribute('aria-expanded','false');
   const url=new URL(location.href);for(const key of ['path','ref','from','view','record'])url.searchParams.delete(key);history.replaceState(null,'',url);
   library.render();window.scrollTo(0,0);
-  notice(state.doc&&(state.dirty||state.pending)?'Library ready. Your document draft stays available when you reopen it.':'Library ready.');
+  notice();
 }
 $('document-changes').onclick=guarded(()=>changes.show());
+// Native details keeps checkout utilities available by mouse and keyboard.
+document.addEventListener('click',event=>{const menu=$('workspace-menu');if(menu.open&&(!menu.contains(event.target)||event.target.closest('button')))menu.open=false;});
+document.addEventListener('keydown',event=>{const menu=$('workspace-menu');if(event.key==='Escape'&&menu.open){menu.open=false;menu.querySelector('summary').focus();}});
 $('library-home').onclick=guarded(showLibrary);
 $('back-library').onclick=guarded(showLibrary);
 $('toggle-plans').onclick = () => $('toggle-plans').setAttribute('aria-expanded',String($('sidebar').classList.toggle('open')));
 for (const name of ['read','edit','review','source']) $('tab-' + name).onclick = guarded(() => view(name));
-$('edit').onclick = guarded(() => view(state.dirty ? 'review' : 'edit')); $('review').onclick = guarded(() => view('review')); $('back-edit').onclick = () => view('edit');
+$('edit').onclick = guarded(() => view(state.dirty || state.pending ? 'review' : 'edit',{focus:true})); $('review').onclick = guarded(() => view('review',{focus:true})); $('back-edit').onclick = guarded(() => view('edit',{focus:true}));
 function bodyChanged(body) {
   state.body = body;
   navigation.update();
   $('body-editor').value = body;
   storeLocal();
-  try { updateDirty(); storeLocal(); $('draft-status').textContent = state.dirty ? 'Saving draft…' : 'Saved source'; clearTimeout(draftTimer); if(state.dirty) draftTimer = setTimeout(() => persistDraft(),500); }
+  try { updateDirty(); storeLocal(); if(!noticeError)notice(); $('draft-status').textContent = state.dirty ? 'Unsaved' : ''; $('draft-status').title = state.dirty ? 'Not saved to the file' : ''; clearTimeout(draftTimer); if(state.dirty) draftTimer = setTimeout(() => persistDraft(),500); }
   catch (error) { $('save').disabled = true; notice(error.message,true); }
 }
 $('body-editor').oninput = () => bodyChanged($('body-editor').value);
 $('toggle-markdown').onclick = () => {
+  if(state.mode!=='edit')view('edit');
   const showing = $('markdown-fallback').hidden;
   $('markdown-fallback').hidden = !showing; $('block-editor').hidden = showing;
   $('toggle-markdown').textContent = showing ? 'Back to document' : 'Edit Markdown';
   $('toggle-markdown').setAttribute('aria-expanded',String(showing));
+  $('evidence').classList.remove('outline-open');$('toggle-outline').setAttribute('aria-expanded','false');
   if (showing) { $('body-editor').value=state.body; $('body-editor').focus(); }
   else { blockEditor.set(state.body,{readOnly:!!state.pending}); editorPath=state.doc.path; }
 };
 $('save').onclick = guarded(save);
-$('cancel').onclick = guarded(async () => { await persistDraft(); view('read'); notice(state.dirty ? 'Reading your draft preview. Changes are not saved to the file.' : 'Reading saved source.'); });
-$('discard').onclick = guarded(async () => { if (state.pending) throw new Error('Inspect or retry the interrupted save before discarding its recovery data.'); await clearDraft(); state.body = splitSource(state.doc.source).body.replaceAll('\r\n','\n'); state.base = { source:state.doc.source, revision:state.doc.revision }; state.draftSource = state.doc.source; state.pending = null; state.conflict = null; $('conflict').hidden = true; $('body-editor').value = state.body; storeLocal(); $('draft-status').textContent = 'Saved source'; view('edit'); notice('Changes discarded. The Markdown file is unchanged.'); });
+$('cancel').onclick = guarded(async () => { await persistDraft(); view('read'); });
+$('discard').onclick = guarded(async () => { if (state.pending) throw new Error('Inspect or retry the interrupted save before discarding its recovery data.'); await clearDraft(); state.body = splitSource(state.doc.source).body.replaceAll('\r\n','\n'); state.base = { source:state.doc.source, revision:state.doc.revision }; state.draftSource = state.doc.source; state.pending = null; state.conflict = null; $('conflict').hidden = true; $('body-editor').value = state.body; storeLocal(); $('draft-status').textContent = ''; $('draft-status').title = ''; view('edit'); notice('Changes discarded.'); });
 $('recover').onclick = guarded(recover);
 $('discard-recovery').onclick = guarded(async () => {
   const r = state.recovery;
   if (r?.pending) throw new Error('This draft contains an interrupted save. Recover it and inspect the outcome before discarding.');
   if (r?.draft?.revision) await api('draft/discard',{ path:state.doc.path,draftId:r.draft.id,expectedDraftRevision:r.draft.revision });
-  if (r) localStorage.removeItem(r.location); state.recovery = null; $('recovery').hidden = true; notice('Recovery draft discarded. The file is unchanged.');
+  if (r) localStorage.removeItem(r.location); state.recovery = null; $('recovery').hidden = true; notice('Draft discarded.');
 });
-$('review-merge').onclick = guarded(async () => { const c = state.conflict; if (!c) return; state.draftSource = rebaseSourceStage(state.base.source,state.draftSource ?? state.base.source,c.currentSource); state.base = { source:c.currentSource, revision:c.currentRevision }; state.pending = null; state.conflict = null; $('conflict').hidden = true; storeLocal(); await persistDraft(); view('review'); notice('Review the merged draft against the current file before saving.'); });
+$('review-merge').onclick = guarded(async () => { const c = state.conflict; if (!c) return; state.draftSource = rebaseSourceStage(state.base.source,state.draftSource ?? state.base.source,c.currentSource); state.base = { source:c.currentSource, revision:c.currentRevision }; state.pending = null; state.conflict = null; $('conflict').hidden = true; storeLocal(); await persistDraft(); view('review',{focus:true}); notice('Review the merged draft against the current file before saving.'); });
 $('use-current').onclick = guarded(async () => { await persistDraft(); state.doc = await api(`document?path=${encodeURIComponent(state.doc.path)}`); $('reading').innerHTML = markdownHtml(state.doc.source,linked); view('source'); notice('Current source is shown. Your draft and conflict review are retained.'); });
 $('inspect-pending').onclick = guarded(() => inspectOperation(state.pending.operationId));
 $('settle-operation').onclick = guarded(async () => {
@@ -354,13 +371,14 @@ $('undo').onclick = guarded(async () => {
   } finally { state.busy = false; $('workspace').inert = false; updateDirty(); }
 });
 $('reading').addEventListener('click',event=>{const anchor=event.target.closest('a');if(!anchor||event.metaKey||event.ctrlKey||event.shiftKey)return;const url=new URL(anchor.href,location.href);if(url.origin!==location.origin||!url.searchParams.has('ref'))return;event.preventDefault();guarded(async()=>{const target=await api(`link?${new URLSearchParams({ref:url.searchParams.get('ref'),from:url.searchParams.get('from')??''})}`);if(!target)throw new Error('This linked document is unavailable or outside this library.');await open(target.path);})();});
-$('copy-source').onclick = guarded(async () => { await copyText(state.doc.source); notice('Canonical Markdown source copied.'); });
+$('copy-source').onclick = guarded(async () => { await copyText(state.doc.source); notice('Source copied.'); });
 $('disconnect').onclick = guarded(async () => { await beforeDesktopLeave(); await api('logout',{}); $('workspace').hidden = true; $('connect-panel').hidden = false; for(const id of ['disconnect','new-document','quick-open','open-recovery'])$(id).hidden=true; notice('Disconnected. Private drafts are retained locally.'); await desktopDisconnected(); });
 $('connect-form').onsubmit = event => { event.preventDefault(); guarded(async () => { const value = $('access').value.trim(); let token = value; try { token = new URLSearchParams(new URL(value).hash.slice(1)).get('connect') ?? value; } catch { /* A raw token is also accepted. */ } await bootstrap(token); $('access').value = ''; })(); };
 window.addEventListener('beforeunload', event => { if (state.dirty || state.pending) { storeLocal(); if (!state.recoveryStored) { event.preventDefault(); event.returnValue = ''; } } });
-document.addEventListener('keydown', event => { if (document.querySelector('dialog[open]')) return; if ((event.metaKey || event.ctrlKey) && event.key === 's') { event.preventDefault(); if (state.doc && state.dirty) guarded(() => view('review'))(); } });
+document.addEventListener('keydown', event => { if (document.querySelector('dialog[open]')) return; if ((event.metaKey || event.ctrlKey) && event.key === 's') { event.preventDefault(); if (state.doc && state.dirty) guarded(() => view('review',{focus:true}))(); } });
 async function beforeDesktopLeave() {
   if(state.busy)throw new Error('Wait for the current operation before switching folders or quitting.');
+  records.beforeLeave?.();
   await yardstick.beforeLeave();
   if($('template-dialog').open||$('lifecycle-dialog')?.open||$('create-dialog').open||$('git-commit-dialog').open||$('filter-dialog').open||$('record-review')&&!$('record-review').hidden)throw new Error('Close the current review or template editor before switching folders or quitting.');
   clearTimeout(draftTimer);

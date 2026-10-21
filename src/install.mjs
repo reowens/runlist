@@ -9,6 +9,7 @@ import {
 } from './host-integration.mjs';
 import { LEGACY_PLUGIN_ID, readInstalledPlugin, readInstalledPluginRecords } from './update.mjs';
 import { executableName, which } from './util.mjs';
+import { installationReport, formatInstallationReport } from './installation.mjs';
 import { codexStatus, installCodexPlugin, installedCodexStatus } from './codex-integration.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -38,12 +39,13 @@ function hostStates() {
   };
 }
 
-function reportStatus(json) {
-  const states = hostStates();
+function reportStatus(json, config) {
+  const states = hostStates(), installations = installationReport(config);
   if (json) {
-    process.stdout.write(JSON.stringify({ cli: pkg.version, hosts: states }, null, 2) + '\n');
+    process.stdout.write(JSON.stringify({ cli: pkg.version, hosts: states, installations }, null, 2) + '\n');
     return;
   }
+  process.stdout.write(formatInstallationReport(installations)+'\n');
   const { claude, codex, opencode } = states;
   process.stdout.write(`${bold('runlist host integrations')}  ${dim(`CLI ${pkg.version}`)}\n\n`);
 
@@ -210,7 +212,7 @@ export function runInstall(argv, _config, opts = {}) {
   const json = argv.includes('--json');
   const requested = argv.find(a => !a.startsWith('-'));
 
-  if (!requested) { reportStatus(json); return; }
+  if (!requested) { reportStatus(json, _config); return; }
   const host = ALIASES[requested] ?? requested;
   if (!HOSTS.includes(host)) {
     process.stderr.write(`Unknown host "${requested}". Known: ${HOSTS.join(', ')}\n`);

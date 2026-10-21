@@ -125,7 +125,7 @@ describe('F15: filed-primitive', () => {
     ok(existsSync(expected), `expected classic archive at ${expected}`);
   });
 
-  it('default paused plans move into docs/plans/held/', () => {
+  it('default status changes keep nested plans in their current folder, including existing held folders', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-held-plan-'));
     spawnSync('git', ['init', '-q'], { cwd: tmpDir });
     spawnSync('git', ['config', 'user.email', 't@t.com'], { cwd: tmpDir });
@@ -135,13 +135,17 @@ describe('F15: filed-primitive', () => {
     mkdirSync(plansDir, { recursive: true });
     configPath = path.join(tmpDir, 'dotmd.config.mjs');
     writeFileSync(configPath, `export const root = 'docs';\n`);
-    const file = writePlan('pause-me');
-
-    const r = run(['set', 'paused', file]);
-    strictEqual(r.status, 0, `set paused should succeed: ${r.stderr}`);
-    const expected = path.join(plansDir, 'held', 'pause-me.md');
-    ok(existsSync(expected), `expected paused plan at ${expected}`);
-    match(readFileSync(expected, 'utf8'), /status: paused/);
+    for (const folder of ['topic', 'held']) {
+      mkdirSync(path.join(plansDir, folder), { recursive: true });
+      const file = path.join(plansDir, folder, 'pause-me.md');
+      writeFileSync(file, '---\ntype: plan\nstatus: active\nmodules: [none]\n---\n# Plan\n');
+      for (const status of ['paused', 'blocked', 'active']) {
+        const r = run(['set', status, file]);
+        strictEqual(r.status, 0, r.stderr);
+        ok(existsSync(file), `status ${status} must preserve ${folder}/`);
+        match(readFileSync(file, 'utf8'), new RegExp(`status: ${status}`));
+      }
+    }
   });
 
   it('docs in filed bucket dirs do not trigger archive-drift validator errors', () => {

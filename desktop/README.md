@@ -271,8 +271,8 @@ Local storage:
 
 - `~/Library/Application Support/dev.reowens.runlist/`: recent checkout paths,
   remembered trust fingerprints and the instance lock.
-- `~/Library/WebKit/dev.reowens.runlist/`: WebView preferences, pins, heading
-  bookmarks, saved library views and additional editor recovery storage.
+- `~/Library/WebKit/dev.reowens.runlist/`: WebView preferences, document pins,
+  saved library views and additional editor recovery storage.
 - Checkout `.runlist/editor/`: private drafts, before-images, source-operation
   creation and lifecycle receipts. Legacy checkouts can use `.dotmd/editor/`.
 - Shared Markdown, templates and configured indexes remain in their established
@@ -461,7 +461,15 @@ accessibility-tree omission remain unverified.
 
 Run the terminal-only suite with `node desktop/scripts/check-installed.mjs`;
 it uses the installed bundle's runtime and resources and creates no browser,
-WebView or app window. `node desktop/scripts/inspect-bundle.mjs` verifies identity,
+WebView or app window. The checker selects this checkout when both its version
+and shared engine fingerprint match the app; otherwise it searches frozen source
+directories under `desktop/releases/*/source`. It prints the selected source and
+refuses a missing or mismatched source before starting the tests. An explicit
+snapshot is supported with
+`node desktop/scripts/check-installed.mjs /path/to/Runlist.app --source /path/to/source`.
+The selected source must have its desktop test dependencies installed with
+`npm ci` in its `desktop` directory. Networking remains denied during testing.
+`node desktop/scripts/inspect-bundle.mjs` verifies identity,
 architecture, minimum-OS targets, runtime dependencies and signatures. Two native
 controller tests also pass against the final packaged helper with networking
 denied; reproduce using `cargo test --offline --lib headless_tests` in

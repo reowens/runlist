@@ -58,13 +58,15 @@ function journalArgv(argv, sid = 'test-sid') {
   appendFileSync(path.join(dir, 'journal.jsonl'), JSON.stringify(entry) + '\n');
 }
 
-function run(args, { input, sid = 'test-sid' } = {}) {
+function run(args, { input, sid = 'test-sid', env = {} } = {}) {
   return spawnSync('node', [bin, ...args, '--config', configPath], {
     cwd: tmpDir, encoding: 'utf8', input,
     env: {
       ...process.env, NO_COLOR: '1',
       CLAUDE_CODE_SESSION_ID: sid,
       RUNLIST_ERROR_LOG_DIR: path.join(tmpDir, '.logs'),
+      RUNLIST_PARENT_PROMPT: '',
+      ...env,
     },
   });
 }
@@ -470,7 +472,8 @@ describe('runlist baton', () => {
   }
 
   it('a release status that files the plan elsewhere repoints the prompt link', () => {
-    // `paused` files into docs/plans/held/ (lifecycle.filedStatuses). The
+    appendFileSync(configPath, "export const lifecycle = { filedStatuses: { paused: 'held' } };\n");
+    // Explicit filing moves paused plans into docs/plans/held/. The
     // prompt is created inside the same transaction with its final plan link.
     writePlan('filed', { status: 'active' });
     run(['use', 'docs/plans/filed.md'], { sid: 'first' });
@@ -482,6 +485,7 @@ describe('runlist baton', () => {
   });
 
   it('publishes the filed plan link inside the move transaction and rolls both back on failure', async () => {
+    appendFileSync(configPath, "export const lifecycle = { filedStatuses: { paused: 'held' } };\n");
     const source = writePlan('filed-atomic', { status: 'active' });
     strictEqual(run(['use', 'docs/plans/filed-atomic.md'], { sid: 'first' }).status, 0);
     const config = await resolveConfig(tmpDir, configPath);
@@ -558,6 +562,113 @@ describe('runlist baton', () => {
     strictEqual(result.prompt, 'docs/prompts/subagent-totals-review.md');
     match(readFileSync(path.join(tmpDir, result.prompt), 'utf8'), /continue review/);
     ok(!existsSync(path.join(docsDir, 'prompts', 'subagent-subagent-totals-review.md')));
+  });
+
+  it('prints a child draft without creating files and saves its parent metadata when filled', () => {
+    const originalConfig = readFileSync(configPath, 'utf8');
+    writeFileSync(configPath, 'throw new Error("Template generation must not execute repository configuration");\n');
+    const result = run(['baton', '--subagent', '--template', '--parent', 'resume-session']);
+    writeFileSync(configPath, originalConfig);
+    strictEqual(result.status, 0, result.stderr);
+    match(result.stdout, /^parent_prompt: resume-session$/m);
+    for (const heading of ['Task', 'State', 'Next', 'Evidence', 'Boundaries']) match(result.stdout, new RegExp(`^## ${heading}$`, 'm'));
+    ok(!existsSync(path.join(tmpDir, '.runlist')), 'template generation is read-only');
+    const draft = path.join(tmpDir, 'child-draft.md');
+    writeFileSync(draft, result.stdout.replace('<!-- One sentence: the bounded job and its owning plan or brief. -->', 'Review the document editor.'));
+    const saved = run(['baton', '--subagent', 'editor-review', `@${draft}`, '--json']);
+    strictEqual(saved.status, 0, saved.stderr);
+    strictEqual(JSON.parse(saved.stdout).parentPrompt, 'resume-session');
+    match(readFileSync(path.join(docsDir, 'prompts/subagent-editor-review.md'), 'utf8'), /^parent_prompt: resume-session$/m);
+    const retry = run(['baton', '--subagent', 'editor-review', `@${draft}`, '--replace', '--json']);
+    strictEqual(retry.status, 0, retry.stderr);
+    strictEqual(JSON.parse(retry.stdout).disposition, 'already-current');
+    ok(!existsSync(path.join(docsDir, 'prompts/archived/subagent-editor-review.md')));
+  });
+
+  it('prints a main resume draft without executing configuration or inheriting child parent context', () => {
+    writeFileSync(configPath, 'throw new Error("No JavaScript during draft generation");\n');
+    const result=run(['baton','--template','--json'],{env:{RUNLIST_PARENT_PROMPT:'invalid-parent-for-main-draft'}});
+    strictEqual(result.status,0,result.stderr);
+    const draft=JSON.parse(result.stdout);strictEqual(draft.name,'resume');strictEqual(draft.parentPrompt,null);
+    match(draft.template,/## State and next move/);match(draft.template,/Outstanding decisions, answers or approvals/);
+    ok(!existsSync(path.join(tmpDir,'.runlist')));
+    for(const flags of [['--status','paused'],['--force'],['--note','why']]) ok(run(['baton','--template',...flags]).status!==0);
+  });
+
+  it('inherits explicit parent context without replacing a retained link or overriding --parent', () => {
+    const env = { RUNLIST_PARENT_PROMPT: 'resume-inherited' };
+    let result = run(['baton', '--subagent', 'review-env', '--message', 'continue', '--json'], { env });
+    strictEqual(result.status, 0, result.stderr);
+    strictEqual(JSON.parse(result.stdout).parentPrompt, 'resume-inherited');
+    result = run(['baton', '--subagent', 'review-env', '--replace', '--message', 'updated', '--json'], { env: { RUNLIST_PARENT_PROMPT: 'resume-different' } });
+    strictEqual(result.status, 0, result.stderr);
+    strictEqual(JSON.parse(result.stdout).parentPrompt, 'resume-inherited');
+    result = run(['baton', '--subagent', 'review-explicit', '--parent', 'resume-explicit', '--message', 'continue', '--json'], { env });
+    strictEqual(result.status, 0, result.stderr);
+    strictEqual(JSON.parse(result.stdout).parentPrompt, 'resume-explicit');
+  });
+
+  it('rejects an unfilled template parent and explains an unlinked legacy save', () => {
+    const draft = run(['baton', '--subagent', '--template']);
+    strictEqual(draft.status, 0, draft.stderr);
+    const file = path.join(tmpDir, 'unfilled.md');
+    writeFileSync(file, draft.stdout);
+    ok(run(['baton', '--subagent', 'unfilled', `@${file}`]).status !== 0);
+    const legacy = run(['baton', '--subagent', 'unlinked', '--message', 'continue']);
+    strictEqual(legacy.status, 0, legacy.stderr);
+    match(legacy.stderr, /no parent link/);
+  });
+
+  it('refuses child metadata in a main resume draft before saving', () => {
+    const result=run(['baton','session','--message','---\nparent_prompt: resume-other\n---\nContinue the work.\n']);
+    ok(result.status!==0);match(result.stderr,/parent_prompt requires --subagent/);
+    ok(!existsSync(path.join(docsDir,'prompts/resume-session.md')));
+  });
+
+  it('--parent binds child prompts before the parent is saved and survives replacement', () => {
+    const args = ['baton', '--subagent', 'review', '--parent', 'resume-session.md', '--message', 'continue review'];
+    const preview = run([...args, '--dry-run', '--json']);
+    strictEqual(preview.status, 0, preview.stderr);
+    const prompt = path.join(docsDir, 'prompts', 'subagent-review.md');
+    ok(!existsSync(prompt));
+    const saved = run(args);
+    strictEqual(saved.status, 0, saved.stderr);
+    match(readFileSync(prompt, 'utf8'), /^parent_prompt: resume-session$/m);
+    strictEqual(run(['baton', 'session', '--message', 'parent work']).status, 0);
+    const listed = run(['prompts']);
+    strictEqual(listed.status, 0, listed.stderr);
+    match(listed.stdout, /resume-session[^\n]*\[\+ 1 subagent prompt\]/);
+    ok(!listed.stdout.includes('subagent-review'));
+    const replaced = run(['baton', '--subagent', 'review', '--replace', '--message', 'updated review']);
+    strictEqual(replaced.status, 0, replaced.stderr);
+    match(readFileSync(prompt, 'utf8'), /^parent_prompt: resume-session$/m);
+    const reparented = run(['baton', '--subagent', 'review', '--parent', 'resume-other', '--replace', '--message', 'updated review']);
+    strictEqual(reparented.status, 0, reparented.stderr);
+    match(readFileSync(prompt, 'utf8'), /^parent_prompt: resume-other$/m);
+  });
+
+  it('--parent also binds a child owning a dedicated plan', () => {
+    const plan = writePlan('review-plan', { status: 'active' });
+    const result = run(['baton', '--subagent', plan, '--parent', 'resume-session', '--message', 'continue', '--json']);
+    strictEqual(result.status, 0, result.stderr);
+    const source = readFileSync(path.join(tmpDir, JSON.parse(result.stdout).prompt), 'utf8');
+    match(source, /^parent_prompt: resume-session$/m);
+    match(source, /^plan: docs\/plans\/review-plan.md$/m);
+  });
+
+  it('rejects invalid parent names and parent binding without --subagent before writing', () => {
+    for (const flags of [
+      ['--parent', 'resume-session'],
+      ['--subagent', '--parent', '../resume-session.md'],
+      ['--subagent', '--parent', 'subagent-task'],
+      ['--subagent', '--parent'],
+    ]) {
+      const result = run(['baton', 'review', '--message', 'continue', ...flags]);
+      ok(result.status !== 0, result.stdout);
+      match(result.stderr, /--parent/);
+    }
+    ok(!existsSync(path.join(docsDir, 'prompts', 'subagent-review.md')));
+    ok(!existsSync(path.join(docsDir, 'prompts', 'resume-review.md')));
   });
 
   it('--subagent normalizes the saved name before reporting or checking prefixes', () => {
@@ -842,6 +953,7 @@ describe('runlist baton', () => {
   });
 
   it('--replace with a filed plan links both the refreshed and archived prompts to the final path', () => {
+    appendFileSync(configPath, "export const lifecycle = { filedStatuses: { paused: 'held' } };\n");
     writePlan('replace-filed', { status: 'active' });
     strictEqual(run(['use', 'docs/plans/replace-filed.md'], { sid: 'first' }).status, 0);
     const alias = path.join(docsDir, 'prompts', 'resume-replace-filed-5.md');
@@ -861,6 +973,7 @@ describe('runlist baton', () => {
   });
 
   it('--replace refreshes a filed plan link even when the draft body is unchanged', () => {
+    appendFileSync(configPath, "export const lifecycle = { filedStatuses: { paused: 'held' } };\n");
     writePlan('same-body-filed', { status: 'active' });
     strictEqual(run(['use', 'docs/plans/same-body-filed.md'], { sid: 'first' }).status, 0);
     const prompt = path.join(docsDir, 'prompts', 'resume-same-body-filed.md');

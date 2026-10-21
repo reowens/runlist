@@ -24,7 +24,9 @@ const context=await browser.newContext({viewport:{width:1440,height:900}});
 const page = await context.newPage(), errors = [], checks = [];
 page.on('pageerror',error=>errors.push(error.message));
 const waitNotice = text => page.waitForFunction(text=>document.getElementById('notice').textContent.includes(text),text);
-const sourceMode = async () => { await page.locator('#tab-edit').click(); if(await page.locator('#body-editor').isHidden()) await page.locator('#toggle-markdown').click(); };
+const appearance = async (target,mode) => { await target.locator('#workspace-menu > summary').click(); await target.locator('#theme-mode').selectOption(mode); await target.locator('#workspace-menu > summary').click(); };
+const sections = async () => { if(await page.locator('#section-filter').isHidden()) await page.locator('#toggle-outline').click(); };
+const sourceMode = async () => { await page.locator('#tab-edit').click(); if(await page.locator('#body-editor').isHidden()){await page.locator('#toggle-outline').click();if(!(await page.locator('.file-evidence').evaluate(e=>e.open)))await page.locator('.file-evidence > summary').click();await page.locator('#toggle-markdown').click();} };
 const edit = async paragraph => {
   await sourceMode();
   const body=await page.locator('#body-editor').inputValue();
@@ -35,37 +37,42 @@ try {
   await page.emulateMedia({colorScheme:'dark'});
   await page.goto(app.launchUrl); await page.locator('#edit:not([disabled])').waitFor();
   strictEqual(await page.locator('html').getAttribute('data-theme'),'dark');
-  await page.locator('#theme-mode').selectOption('light');
+  await appearance(page,'light');
   strictEqual(await page.locator('html').getAttribute('data-theme'),'light');
   await page.screenshot({path:path.join(artifacts,'light-desktop.png')});
-  await page.locator('#theme-mode').selectOption('system');await page.emulateMedia({colorScheme:'light'});
+  await appearance(page,'system');await page.emulateMedia({colorScheme:'light'});
   await page.waitForFunction(()=>document.documentElement.dataset.theme==='light');
   await page.emulateMedia({colorScheme:'dark'});await page.waitForFunction(()=>document.documentElement.dataset.theme==='dark');
-  await page.locator('#theme-mode').selectOption('dark');await page.emulateMedia({colorScheme:'light'});await page.reload();await page.locator('#edit:not([disabled])').waitFor();
+  await appearance(page,'dark');await page.emulateMedia({colorScheme:'light'});await page.reload();await page.locator('#edit:not([disabled])').waitFor();
   strictEqual(await page.locator('html').getAttribute('data-theme'),'dark');strictEqual(await page.locator('#theme-mode').inputValue(),'dark');
   strictEqual(await page.evaluate(()=>getComputedStyle(document.documentElement).colorScheme),'dark');
-  const sibling=await page.context().newPage();await sibling.goto(app.origin);await sibling.locator('#theme-mode').selectOption('light');
-  await page.waitForFunction(()=>document.documentElement.dataset.theme==='light');await page.locator('#theme-mode').selectOption('dark');await sibling.close();
+  const sibling=await page.context().newPage();await sibling.goto(app.origin);await appearance(sibling,'light');
+  await page.waitForFunction(()=>document.documentElement.dataset.theme==='light');await appearance(page,'dark');await sibling.close();
   checks.push('dark/light/system appearance / live OS changes / saved explicit choice / cross-tab sync');
+  await sections();await page.locator('.file-evidence > summary').click();
   ok((await page.locator('#flags').innerText()).includes('CURRENT LOCATION · MOVED'));
   await page.screenshot({path:path.join(artifacts,'inline-desktop.png')});
   await page.setViewportSize({width:390,height:844}); await page.screenshot({path:path.join(artifacts,'inline-mobile.png')});
   strictEqual(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false); await page.setViewportSize({width:1440,height:900});
-  // Heading jumps do not mutate source; bookmarks survive reload and inline renaming.
+  // The outline jumps directly to current headings without a separate saved list.
+  strictEqual(await page.locator('#bookmarks,.section-bookmark').count(),0);
+  await page.locator('#outline .section-link').filter({hasText:'Work'}).click();
+  strictEqual(await page.locator('#reading h2:focus').innerText(),'Work');
+  strictEqual(readFileSync(file,'utf8'),raw);
+  await page.locator('#tab-edit').click();await sections();
   await page.locator('#outline .section-link').filter({hasText:'Work'}).click();
   strictEqual(await page.locator('[data-editable]:focus').innerText(),'Work');
-  await page.locator('#outline').getByRole('button',{name:'Bookmark Work',exact:true}).click();
-  await page.reload(); await page.locator('#bookmarks').getByRole('button',{name:'Work',exact:true}).click();
+  strictEqual(await page.locator('#toggle-outline').getAttribute('aria-expanded'),'false');
   strictEqual(readFileSync(file,'utf8'),raw);
   await page.locator('[data-editable]:focus').fill('Renamed work');
-  await page.locator('#bookmarks').getByRole('button',{name:'Renamed work',exact:true}).waitFor(); await save();
-  await page.reload(); await page.locator('#bookmarks').getByRole('button',{name:'Renamed work',exact:true}).click();
-  await page.locator('#undo').click(); await waitNotice('Undid the save.');strictEqual(readFileSync(file,'utf8'),raw);
-  await page.locator('#bookmarks').getByRole('button',{name:'Remove bookmark for Renamed work',exact:true}).click();
-  await sourceMode(); await page.locator('#outline .section-link').filter({hasText:'Work'}).click();
+  await sections();await page.locator('#outline').getByRole('button',{name:'Renamed work',exact:true}).waitFor();await page.locator('#close-outline').click();await save();
+  await page.reload();await page.locator('#edit:not([disabled])').waitFor();await page.locator('#tab-edit').click();await sections();
+  await page.locator('#outline').getByRole('button',{name:'Renamed work',exact:true}).click();
+  await page.locator('#undo').click();await waitNotice('Undid the save.');strictEqual(readFileSync(file,'utf8'),raw);
+  await sourceMode();await sections();await page.locator('#outline .section-link').filter({hasText:'Work'}).click();
   strictEqual(await page.locator('#body-editor').evaluate(el=>el.selectionStart),raw.replaceAll('\r\n','\n').split('---\n').slice(2).join('---\n').indexOf('## Work'));
-  await page.locator('#add-section').click();ok((await page.locator('#body-editor').inputValue()).includes('## New section'));await page.locator('#discard').click();strictEqual(readFileSync(file,'utf8'),raw);
-  checks.push('section outline / Markdown offset jumps / persistent bookmarks / inline rename / section insertion');
+  await sections();await page.locator('#add-section').click();await sourceMode();ok((await page.locator('#body-editor').inputValue()).includes('## New section'));await page.locator('#discard').click();strictEqual(readFileSync(file,'utf8'),raw);
+  checks.push('section outline / Markdown offset jumps / inline rename / section insertion');
   // Template drafts are separate from plan drafts and are consumed by the real CLI.
   await page.locator('#open-templates').click();await page.locator('#template-dialog').waitFor({state:'visible'});
   const template=await page.locator('#template-source').inputValue(),custom=template.replace('## Goals','## Browser template goals');
@@ -79,7 +86,7 @@ try {
   await page.locator('#template-review-button').click();await page.locator('#template-save').click();await page.locator('#template-reload').waitFor();ok((await page.locator('#template-source').inputValue()).includes('Local template goals'));ok(readFileSync(templateFile,'utf8').includes('External template goals'));
   await page.locator('#template-reload').click();await page.waitForFunction(()=>document.getElementById('template-feedback').textContent.startsWith('Saved template reloaded'));await page.locator('#template-review-button').click();ok((await page.locator('#template-diff').innerText()).includes('External template goals'));
   await page.locator('#template-discard').click();await page.locator('#template-reset').click();await page.locator('#template-review-button').click();await page.locator('#template-save').click();await page.waitForFunction(()=>document.getElementById('template-feedback').textContent.startsWith('Template saved'));strictEqual(readFileSync(file,'utf8'),raw);
-  await page.setViewportSize({width:390,height:844});await page.screenshot({path:path.join(artifacts,'template-mobile.png')});strictEqual(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.locator('#close-templates').click();await page.locator('#toggle-outline').click();await page.locator('#section-filter').fill('Work');await page.locator('#section-filter').press('Enter');strictEqual(await page.locator('[data-editable]:focus').innerText(),'Work');await page.setViewportSize({width:1440,height:900});
+  await page.setViewportSize({width:390,height:844});await page.screenshot({path:path.join(artifacts,'template-mobile.png')});strictEqual(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.locator('#close-templates').click();await page.locator('#tab-edit').click();await sections();await page.locator('#section-filter').fill('Work');await page.locator('#section-filter').press('Enter');strictEqual(await page.locator('[data-editable]:focus').innerText(),'Work');await page.setViewportSize({width:1440,height:900});
   checks.push('template preview / draft recovery / reviewed save / CLI consumption / concurrent edit conflict / reset / mobile navigation');
   // Edit the rendered document itself; no whole-file text box is involved.
   const paragraph=page.locator('.block-paragraph [data-editable]').filter({hasText:'Original paragraph.'});
@@ -130,8 +137,8 @@ try {
   checks.push('browser save / exact CRLF bytes / CLI readback');
   await page.locator('#undo').click(); await waitNotice('Undid the save.'); strictEqual(readFileSync(file,'utf8'),raw);
   checks.push('compensating undo');
-  await page.locator('#tab-edit').click(); if(await page.locator('#block-editor').isHidden()) await page.locator('#toggle-markdown').click();
-  await page.locator('.block-paragraph [data-editable]').filter({hasText:'Original paragraph.'}).fill('Recovered paragraph.'); await page.waitForFunction(()=>document.getElementById('draft-status').textContent==='Draft saved locally');
+  await page.locator('#tab-edit').click(); if(await page.locator('#block-editor').isHidden()){await page.locator('#toggle-outline').click();if(!(await page.locator('.file-evidence').evaluate(e=>e.open)))await page.locator('.file-evidence > summary').click();await page.locator('#toggle-markdown').click();}
+  await page.locator('.block-paragraph [data-editable]').filter({hasText:'Original paragraph.'}).fill('Recovered paragraph.'); await page.waitForFunction(()=>document.getElementById('draft-status').title==='Draft stored on this computer');
   await page.reload(); await page.locator('#recover').click(); await sourceMode(); strictEqual((await page.locator('#body-editor').inputValue()).includes('Recovered paragraph.'),true);
   strictEqual(readFileSync(file,'utf8'),raw); checks.push('draft recovery across reload without publishing');
   writeFileSync(file,raw.replace('Original paragraph.','An external agent edit.'));
@@ -170,7 +177,7 @@ try {
   checks.push('exact compensating undo with mixed line endings');
   await page.setViewportSize({width:390,height:844}); await page.evaluate(()=>window.scrollTo(0,0)); await page.screenshot({path:path.join(artifacts,'read-mobile.png')});
   strictEqual(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
-  await page.locator('#toggle-plans').click(); await page.locator('#library-all').click(); await page.locator('#filter').fill('existing'); ok(await page.locator('#plans .plan').first().isVisible());
+  await page.locator('#toggle-plans').click(); await page.locator('#library-all').click(); await page.locator('#filter').fill('existing'); await page.locator('#plans .plan').first().waitFor(); ok(await page.locator('#plans .plan').first().isVisible());
   await page.locator('#plans .plan').filter({hasText:'docs/plans/existing.md'}).click(); await sourceMode(); await page.screenshot({path:path.join(artifacts,'edit-mobile.png')});
   strictEqual(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   await page.locator('#tab-read').click(); await page.setViewportSize({width:1440,height:900}); await page.screenshot({path:path.join(artifacts,'read-desktop.png')});

@@ -18,11 +18,13 @@ import {
 import { actionablePromptStatuses, comparePromptDocs } from './status-metadata.mjs';
 import { LEGACY_STATE_DIR, STATE_DIR } from './naming.mjs';
 import { formatPlanChanges, planChangesSince } from './plan-changes.mjs';
+import { groupPrompts, parentPromptName } from './prompt-handoff.mjs';
+import { mutateFileSet } from './atomic-mutation.mjs';
 
 // `resume` is an alias for `use` — agents reach for "resume" when continuing a
 // session; `use` reads as internal mechanics. Both names stay valid; the
 // canonical output ("Consumed: …") is unchanged.
-const SUBCOMMANDS = new Set(['list', 'next', 'use', 'resume', 'show', 'peek', 'archive', 'new']);
+const SUBCOMMANDS = new Set(['list', 'next', 'use', 'resume', 'show', 'peek', 'archive', 'new', 'link']);
 
 // Removed 2026-08-30 with the `held`/`shelved` statuses. Named rather than left
 // to fall through to the list filter below, which would silently answer a
@@ -53,7 +55,73 @@ export async function runPrompts(argv, config, opts = {}) {
     case 'peek':     return runPromptsShow(rest, config);
     case 'archive':  return runPromptsArchive(rest, config, opts);
     case 'new':      return runPromptsNew(rest, config, opts);
+    case 'link':     return runPromptsLink(rest, config, opts);
   }
+}
+
+function runPromptsLink(argv, config, opts) {
+  let parentInput = null;
+  const inputs = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--parent') { parentInput = parentPromptName(argv[++i]); continue; }
+    if (argv[i] === '--json') continue;
+    if (argv[i].startsWith('-')) die(`Unknown link option: ${argv[i]}`);
+    inputs.push(argv[i]);
+  }
+  if (!parentInput || !inputs.length) die('Usage: runlist prompts link <child...> --parent resume-name');
+  const parentPath = authorizeManagedSource(resolvePromptInput(parentInput, config), config, { kind: 'Parent prompt' }).path;
+  const parentRaw = readFileSync(parentPath, 'utf8');
+  const parentFm = parseSimpleFrontmatter(extractFrontmatter(parentRaw).frontmatter);
+  if (asString(parentFm.type) !== 'prompt' || asString(parentFm.status) !== 'pending'
+    || isArchivedPath(toRepoPath(parentPath, config.repoRoot), config) || asString(parentFm.parent_prompt)
+    || path.basename(parentPath, '.md') !== parentInput) die('The parent must be an existing pending resume prompt without its own parent.');
+  const updates = [];
+  const paths = new Set();
+  for (const input of inputs) {
+    const file = authorizeManagedSource(resolvePromptInput(input, config), config, { kind: 'Child prompt' }).path;
+    if (paths.has(file)) continue;
+    paths.add(file);
+    const raw = readFileSync(file, 'utf8');
+    const fm = parseSimpleFrontmatter(extractFrontmatter(raw).frontmatter);
+    if (file === parentPath || path.basename(file).startsWith('resume-') || asString(fm.type) !== 'prompt'
+      || asString(fm.status) !== 'pending' || isArchivedPath(toRepoPath(file, config.repoRoot), config)) {
+      die(`Child must be a pending non-resume prompt: ${toRepoPath(file, config.repoRoot)}`);
+    }
+    const ref = path.dirname(file) === path.dirname(parentPath) ? parentInput : toRepoPath(parentPath, config.repoRoot);
+    const header = /^(---\r?\n)([\s\S]*?)(\r?\n---(?:\r?\n|$))/.exec(raw);
+    if (!header || (header[2].match(/^parent_prompt:/gm) ?? []).length > 1) die(`Repair the parent_prompt frontmatter first: ${input}`);
+    if (asString(fm.parent_prompt) === ref) continue;
+    const eol = header[1].endsWith('\r\n') ? '\r\n' : '\n';
+    const field = `parent_prompt: ${JSON.stringify(ref)}`;
+    const parentField = /^parent_prompt:[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*/m;
+    const frontmatter = parentField.test(header[2]) ? header[2].replace(parentField, field) : `${header[2]}${eol}${field}`;
+    updates.push({ path: file, expectedContent: raw, content: `${header[1]}${frontmatter}${header[3]}${raw.slice(header[0].length)}` });
+  }
+  if (!opts.dryRun && updates.length) mutateFileSet({ updates, guards: [{ path: parentPath, expectedContent: parentRaw }] }, {
+    repoRoot: config.repoRoot, testHooks: opts.testHooks,
+  });
+  const result = { operation: 'prompts-link', dryRun: Boolean(opts.dryRun), parent: toRepoPath(parentPath, config.repoRoot),
+    linked: updates.map(item => toRepoPath(item.path, config.repoRoot)) };
+  process.stdout.write(argv.includes('--json') ? JSON.stringify(result, null, 2) + '\n'
+    : `${opts.dryRun ? 'Would link' : 'Linked'} ${updates.length} child prompt(s) to ${parentInput}.\n`);
+  return result;
+}
+
+function childHandoffs(repoPath, config, index = null) {
+  if (!path.basename(repoPath).startsWith('resume-')) return { paths: [], notice: '' };
+  index ??= buildIndex(config, { fast: true, invokeHooks: false });
+  const docs = index.docs.filter(doc => doc.type === 'prompt' && doc.status !== 'archived' && !isArchivedPath(doc.path, config));
+  // Consumption removes a parent from the live index. A read-only peek at its
+  // archive can still discover children linked to its former live location.
+  const livePath = repoPath.split('/').filter(part => part !== config.archiveDir).join('/');
+  if (livePath !== repoPath && !docs.some(doc => doc.path === livePath)) {
+    docs.push({ path: livePath });
+  }
+  const children = groupPrompts(docs.sort(comparePromptDocs)).find(group => group.doc.path === livePath)?.children ?? [];
+  if (!children.length) return { paths: [], notice: '' };
+  const parent = path.basename(repoPath, '.md');
+  const names = children.map(doc => `- \`${doc.path}\``).join('\n');
+  return { paths: children.map(doc => doc.path), notice: `\n\n## Saved child handoffs\n\n${children.length} child handoff(s) remain pending:\n\n${names}\n\nInspect a child with \`rl prompts show <name>\`. Review its current state and authorization before resuming its lane. Fold completed results into the owning plan, then archive the completed handoff explicitly.\n\nPass \`--parent ${parent}\` when saving another child, or pass \`RUNLIST_PARENT_PROMPT=${parent}\` into its environment.\n` };
 }
 
 function runPromptsList(argv, config, opts = {}) {
@@ -111,13 +179,29 @@ function renderPromptQueueList(index, config) {
   const summary = Object.entries(counts).map(([s, n]) => `${n} ${s}`).join(' · ');
   process.stdout.write(dim(`${prompts.length} prompts · ${summary}`) + '\n\n');
 
-  const maxSlug = Math.min(36, Math.max(...prompts.map(p => path.basename(p.path, '.md').length)));
-  for (let i = 0; i < prompts.length; i++) {
-    const p = prompts[i];
+  const groups = groupPrompts(prompts);
+  const isAgentHandoff = doc => !path.basename(doc.path).startsWith('resume-')
+    && (doc.parentPrompt || /^(?:subagent|agent|session)-/.test(path.basename(doc.path)));
+  const standalone = groups.filter(group => isAgentHandoff(group.doc));
+  const visible = groups.filter(group => !isAgentHandoff(group.doc));
+  const maxSlug = Math.min(36, Math.max(0, ...visible.map(({ doc }) => path.basename(doc.path, '.md').length)));
+  const nextPath = queue[0]?.doc.path;
+  const childCount = children => `[+ ${children.length} subagent prompt${children.length === 1 ? '' : 's'}]`;
+  for (const { doc: p, children } of visible) {
     const slug = path.basename(p.path, '.md').padEnd(maxSlug);
-    const marker = i === 0 && p.status === 'pending' ? green('[NEXT]') : '      ';
+    const marker = p.path === nextPath ? green('[NEXT]') : '      ';
     const status = `[${(p.status ?? 'unknown').toUpperCase()}]`;
-    process.stdout.write(`  ${marker} ${slug} ${status}\n`);
+    const childMarker = children.some(doc => doc.path === nextPath) ? `${green('[NEXT]')} ` : '';
+    const badge = children.length ? ` ${childMarker}${dim(childCount(children))}` : '';
+    process.stdout.write(`  ${marker} ${slug} ${status}${badge}\n`);
+  }
+  if (standalone.length) {
+    const children = standalone.map(group => group.doc);
+    const marker = children.some(doc => doc.path === nextPath) ? green('[NEXT]') : '      ';
+    process.stdout.write(`  ${marker} ${childCount(children)}\n`);
+  }
+  if (standalone.length || visible.some(group => group.children.length)) {
+    process.stdout.write(dim('\nUse `rl prompts --verbose` to expand subagent prompts.\n'));
   }
 }
 
@@ -173,12 +257,17 @@ function renderPromptsVerbose(index, config, { hasStatusFlag, includeArchived })
   const summary = Object.entries(counts).map(([s, n]) => `${n} ${s}`).join(' · ');
   process.stdout.write(`${prompts.length} prompt${prompts.length === 1 ? '' : 's'} · ${summary}\n\n`);
 
-  for (const p of prompts) {
+  const render = (p, child) => {
     const slug = path.basename(p.path, '.md');
     const target = findPromptTarget(p, config);
     const status = (p.status ?? 'unknown').toUpperCase();
     const arrow = target ? `  ${dim('→')} ${target}` : `  ${dim('→ (no target plan)')}`;
-    process.stdout.write(`  ${green(slug)}  [${status}]\n${arrow}\n`);
+    const indent = child ? '    - ' : '  ';
+    process.stdout.write(`${indent}${green(slug)}  [${status}]\n${child ? '    ' : ''}${arrow}\n`);
+  };
+  for (const {doc,children} of groupPrompts(prompts)) {
+    render(doc, false);
+    for (const child of children) render(child, true);
   }
 }
 
@@ -281,6 +370,7 @@ export async function consumePrompt(filePath, config, opts) {
   if (status === 'archived' || isArchivedPath(repoPath, config)) {
     die(`Already consumed: ${repoPath}`);
   }
+  const family = childHandoffs(repoPath, config);
 
   const planRef = asString(parsed.plan);
   let linkedClaim = null;
@@ -297,12 +387,13 @@ export async function consumePrompt(filePath, config, opts) {
     const prefix = dim('[dry-run]');
     process.stderr.write(`${prefix} Would emit body and archive: ${repoPath} (${status ?? 'unknown'} → archived)\n`);
     if (claimSkipReason) process.stderr.write(`${prefix} Would NOT claim the linked plan: ${claimSkipReason}\n`);
-    const bytes = Buffer.byteLength(body, 'utf8');
-    const lines = body.split('\n').length;
+    const previewBody = body + family.notice;
+    const bytes = Buffer.byteLength(previewBody, 'utf8');
+    const lines = previewBody.split('\n').length;
     process.stderr.write(`${prefix} body preview (${bytes}B, ${lines} lines):\n`);
     process.stderr.write(`${dim('---8<---')}\n`);
-    process.stderr.write(body);
-    if (!body.endsWith('\n')) process.stderr.write('\n');
+    process.stderr.write(previewBody);
+    if (!previewBody.endsWith('\n')) process.stderr.write('\n');
     process.stderr.write(`${dim('--->8---')}\n`);
     runArchive([filePath], config, { dryRun: true, noIndex, out: process.stderr, skipInboundRefs: true });
     return;
@@ -334,7 +425,7 @@ export async function consumePrompt(filePath, config, opts) {
   // Consume output is at-most-once: archive/claim commits before stdout. A
   // downstream failure cannot roll the transaction back or make it consumable
   // again; the archived path remains available through `prompts show`.
-  await writeConsumedBody(consumedBody, consumedPath, opts.writeBody, linkedClaim?.repoPath);
+  await writeConsumedBody(consumedBody + family.notice, consumedPath, opts.writeBody, linkedClaim?.repoPath);
   let completion = { indexRegenerated: false, ownershipChanged: false, hook: 'none', pending: false };
   if (linkedClaim) {
     try {
@@ -375,6 +466,7 @@ export async function consumePrompt(filePath, config, opts) {
   ].filter(Boolean).map(normalize))];
   return {
     operation: 'consume',
+    childPrompts: family.paths,
     status: { from: status ?? null, to: 'archived', changed: true },
     repositoryFiles,
     sessionFiles,
@@ -550,6 +642,7 @@ function runPromptsShow(argv, config) {
   // prompt keep working.
   const multi = targets.length > 1;
   let shown = 0;
+  let familyIndex = null;
   for (const filePath of targets) {
     const prompt = readPromptForShow(filePath, config, { strict: !all && !multi });
     if (!prompt) continue;
@@ -558,10 +651,13 @@ function runPromptsShow(argv, config) {
       if (shown > 0) process.stdout.write('\n');
       process.stdout.write(dim(`──── ${repoPath} [${status}] ────\n`));
     } else {
-      process.stderr.write(dim(`${repoPath} [${status}] — read-only peek; \`runlist use ${repoPath}\` to consume\n`));
+      const hint = status === 'archived' || isArchivedPath(repoPath, config) ? 'archived prompt' : `\`runlist use ${repoPath}\` to consume`;
+      process.stderr.write(dim(`${repoPath} [${status}] — read-only peek; ${hint}\n`));
     }
-    process.stdout.write(body);
-    if (!body.endsWith('\n')) process.stdout.write('\n');
+    if (path.basename(repoPath).startsWith('resume-')) familyIndex ??= buildIndex(config, { fast: true, invokeHooks: false });
+    const displayedBody = body + childHandoffs(repoPath, config, familyIndex).notice;
+    process.stdout.write(displayedBody);
+    if (!displayedBody.endsWith('\n')) process.stdout.write('\n');
     shown++;
   }
 

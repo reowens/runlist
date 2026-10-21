@@ -88,14 +88,10 @@ const DEFAULTS = {
     skipStaleFor: ['archived', 'reference', 'partial', 'queued-after'],
     skipWarningsFor: ['archived', 'partial', 'queued-after'],
     terminalStatuses: ['archived', 'deprecated', 'reference'],
-    // F15: per-status filing buckets (status → dirName). Built-in held/paused
-    // statuses file under the owning type folder; archive remains a separate
-    // primitive untouched.
-    // Plans only. A paused plan files under <plansDir>/held/ so the live plan
-    // list stays readable. Prompts were removed from this map 2026-08-30 along
-    // with their held/shelved statuses — `archived` is the only directory a
-    // prompt ever moves into.
-    filedStatuses: { paused: 'held' },
+    // Optional status → directory filing. Ordinary status changes keep the
+    // current path by default; archive remains a separate move. Repositories
+    // can opt in here or with per-status `filed: true` / `filed: 'held'`.
+    filedStatuses: {},
     // Types whose archive nests under their own type dir (<typeDir>/<archiveDir>,
     // e.g. docs/prompts/archived/) instead of the shared <root>/<archiveDir>.
     // Prompts are session-local churn — keeping their archive out of the shared
@@ -465,14 +461,24 @@ function deepMerge(defaults, overrides, parentPath = '') {
   return result;
 }
 
-export async function resolveConfig(cwd, explicitConfigPath) {
+// Locate repository data without importing or executing its JavaScript config.
+export function locateConfig(cwd, explicitConfigPath) {
   const configPath = explicitConfigPath
     ? path.resolve(cwd, explicitConfigPath)
     : findConfigFile(cwd);
+  const configDir = configPath && existsSync(configPath) ? path.dirname(configPath) : cwd;
+  let repoRoot = configDir;
+  for (let dir = configDir; dir !== path.parse(dir).root; dir = path.dirname(dir)) {
+    if (existsSync(path.join(dir, '.git'))) { repoRoot = dir; break; }
+  }
+  return {configPath,configDir,repoRoot};
+}
+
+export async function resolveConfig(cwd, explicitConfigPath) {
+  const {configPath,configDir,repoRoot} = locateConfig(cwd, explicitConfigPath);
 
   let userConfig = {};
   let hooks = {};
-  let configDir = cwd;
 
   if (configPath && existsSync(configPath)) {
     const configUrl = pathToFileURL(configPath).href;
@@ -482,8 +488,6 @@ export async function resolveConfig(cwd, explicitConfigPath) {
     } catch (err) {
       die('Failed to load config: ' + configPath + '\n' + err.message + '\nCheck for syntax errors in your config file.');
     }
-
-    configDir = path.dirname(configPath);
 
     for (const [key, value] of Object.entries(mod)) {
       if (key === 'default') continue;
@@ -520,20 +524,6 @@ export async function resolveConfig(cwd, explicitConfigPath) {
   for (const dr of docsRoots) {
     if (!existsSync(dr)) {
       earlyWarnings.push('Config: docs root does not exist: ' + dr);
-    }
-  }
-
-  // Find repo root by walking up looking for .git
-  let repoRoot = configDir;
-  {
-    let dir = configDir;
-    const fsRoot = path.parse(dir).root;
-    while (dir !== fsRoot) {
-      if (existsSync(path.join(dir, '.git'))) {
-        repoRoot = dir;
-        break;
-      }
-      dir = path.dirname(dir);
     }
   }
 

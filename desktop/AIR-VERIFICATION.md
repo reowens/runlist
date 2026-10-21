@@ -23,11 +23,15 @@ compiler requirement, and preparation does not launch or install the app.
 The source and dependency directories must already be complete; preparation
 does not fetch packages.
 
-Use the Platform checkout's `just runlist-air <run|status|cancel> <request-file>`
-entry for the fixed `installed-helper` or `native-window` profile. Native-window
-execution is Air-only. The lane requires Runlist and its bundled helper to have
-Robert Owens's personal Developer ID signature; Hetchy signs the execution
-infrastructure. The native harness requires Xcode's macOS UI-testing
+The current Air continuation is planned in [Platform machine-control
+consolidation](../../../platform/docs/plans/developer-machine-control-consolidation.md).
+Its Developer/Worker route must qualify remote unlocking and replace the older
+SSH implementation before another Air run. The former `just runlist-air`
+entry is retained source history, not an instruction to retry that transport or
+request manual unlocking. The fixed `installed-helper` and `native-window`
+profiles retain separate verdicts. Native-window execution is Air-only. The lane requires Runlist and its bundled helper to have
+Robert Owens's personal Developer ID signature; the verification service signs its own
+execution infrastructure. The native harness requires Xcode's macOS UI-testing
 support and macOS 14 or newer; this does not change the product's minimum OS.
 Source checks use `just typecheck runlist-desktop`,
 `just test runlist-desktop desktop/test/prepare-air-tests.test.mjs` and
@@ -44,7 +48,7 @@ the Markdown editor.
 Screenshots and accessibility trees remain in the job's `native.xcresult`.
 An inaccessible control fails the native test. See
 [source validation](AIR-VALIDATION.md).
-The Platform execution plan at
-`../../../platform/docs/plans/runlist-air-verification.md` owns worker policy
-and actual remote acceptance evidence.
+The [Platform execution record](../../../platform/docs/plans/runlist-air-verification.md)
+owns Runlist worker policy and retained remote acceptance evidence; the linked
+consolidation plan owns its current machine-control dependency.
 

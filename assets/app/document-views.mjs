@@ -4,6 +4,23 @@ const modes = Object.keys(panels);
 // Keep the active tab focusable, associate each tab with its panel, and provide
 // the conventional arrow/Home/End navigation without capturing editor keys.
 export function documentViews({$, view}) {
+  // Measure the actual chrome: titles and larger text can wrap.
+  const header = document.querySelector('.app-header'), toolbar = document.querySelector('.document-toolbar');
+  const tabs = document.querySelector('.view-tabs');
+  const measure = () => {
+    const height = node => node?.getBoundingClientRect?.().height ?? 0;
+    const style = document.documentElement?.style;
+    if (!style) return;
+    style.setProperty('--app-header-height', `${height(header)}px`);
+    style.setProperty('--workspace-top', `${height(header)}px`);
+    style.setProperty('--document-toolbar-height', `${height(toolbar)}px`);
+    style.setProperty('--document-tabs-height', `${height(tabs)}px`);
+  };
+  if (typeof ResizeObserver !== 'undefined') {
+    const observer = new ResizeObserver(measure);
+    for (const node of [header, toolbar, tabs]) if (node) observer.observe(node);
+  }
+  measure();
   $('document-tabs').addEventListener('keydown', event => {
     const current = modes.findIndex(mode => event.target === $('tab-' + mode));
     if (current < 0) return;
@@ -22,7 +39,12 @@ export function documentViews({$, view}) {
       next = (next + step + modes.length) % modes.length;
     }
   });
-  return {update(mode) {
+  return {focus(mode) {
+    const panel = $(panels[mode]);
+    // Only explicit primary actions move focus; rerenders preserve the caret.
+    const editor = mode === 'edit' ? (!$('markdown-fallback').hidden ? $('body-editor') : panel.querySelector('[data-editable][contenteditable="true"]')) : null;
+    (editor ?? panel).focus({preventScroll:true});
+  },update(mode) {
     for (const name of modes) {
       const selected = name === mode, tab = $('tab-' + name);
       tab.setAttribute('aria-selected', String(selected));

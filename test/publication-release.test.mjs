@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, constants, copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, constants, copyFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -31,6 +31,12 @@ function fixture(t, body, helperName = 'local-helper', { nativeNode = windows } 
       // Hosted tool caches can be writable by other users. The fixture's own
       // executable must meet the bridge's trust policy regardless of that mode.
       chmodSync(helper, 0o700);
+      // Homebrew Node may use @rpath/libnode.*.dylib relative to its executable.
+      // Keep that dependency reachable when relocating only this test binary.
+      if (process.platform === 'darwin') {
+        const lib = path.resolve(path.dirname(process.execPath), '../lib');
+        if (existsSync(lib)) for (const name of readdirSync(lib).filter(name => /^libnode\.[\d.]+\.dylib$/.test(name))) symlinkSync(path.join(lib,name),path.join(directory,name));
+      }
     }
   }
   const request = path.join(directory, 'request.json');

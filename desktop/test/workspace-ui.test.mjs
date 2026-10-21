@@ -66,6 +66,43 @@ test('unsupported lifecycle shows an explanation without an empty action form an
  await ui.$('lifecycle-confirm').onclick();assert.equal(calls.some(c=>c.route==='lifecycle/commit'),false);await ui.$('lifecycle-inspect').onclick();assert.equal(ui.$('lifecycle-feedback').textContent,'Operation is reviewed.');assert.equal(localStorage.length,1);
 });
 
+test('rejected lifecycle preview cannot apply; a fresh successful review can commit',async()=>{
+ const ui=dom(),f=await engine();
+ assert.equal(spawnSync('git',['init','-q'],{cwd:f.root}).status,0);
+ const doc=await f.api('document?path=docs/plans/existing.md'),state={doc,busy:false,dirty:false,pending:null},opened=[];
+ documentLifecycle({state,$:ui.$,api:f.api,checkout:()=>f.root,open:async path=>opened.push(path),library:{relocated(){},async load(){}},notice(){}});
+ await ui.$('lifecycle-open').onclick();ui.$('lifecycle-status').value='paused';ui.$('lifecycle-note').value='Review pause without moving the plan.';
+ await ui.$('lifecycle-form').onsubmit(event);
+ assert.match(ui.$('lifecycle-feedback').textContent,/ignored and untracked/);
+ assert.equal(ui.$('lifecycle-confirm').disabled,true);
+ await ui.$('lifecycle-confirm').onclick();assert.equal(f.calls.some(c=>c.route==='lifecycle/commit'),false);
+ await ui.$('lifecycle-inspect').onclick();assert.equal(ui.$('lifecycle-confirm').disabled,true);
+ ui.$('lifecycle-back').onclick();writeFileSync(path.join(f.root,'.gitignore'),'.runlist/\n');
+ await ui.$('lifecycle-form').onsubmit(event);assert.equal(ui.$('lifecycle-confirm').disabled,false);
+ await ui.$('lifecycle-confirm').onclick();assert.deepEqual(opened,[doc.path]);
+ assert.match(readFileSync(path.join(f.root,doc.path),'utf8'),/status: paused/);
+});
+
+test('retained or uncertain lifecycle outcomes require inspection before apply and committed inspection never replays',async()=>{
+ const ui=dom(),doc={path:'docs/plans/existing.md',title:'Existing',revision:'base'},state={doc,busy:false,dirty:false,pending:null};
+ const calls=[],opened=[],relocated=[];let outcome={state:'reviewed',report:'Reviewed changes'},failCommit=true;
+ const api=async(route,body)=>{calls.push({route,body});if(route.startsWith('lifecycle?'))return {enabled:true,current:'active',statuses:['active','paused']};if(route==='lifecycle/inspect')return outcome;if(route==='lifecycle/commit'&&failCommit)throw Error('Reply lost');return {state:'reviewed',report:'Reviewed changes'};};
+ const key='runlist:lifecycle:/fixture:'+encodeURIComponent(doc.path);
+ // Old or interrupted local entries have no proof that preview succeeded.
+ localStorage.setItem(key,JSON.stringify({path:doc.path,operationId:'retained',status:'paused',report:'Review not yet received.'}));
+ documentLifecycle({state,$:ui.$,api,checkout:()=>'/fixture',open:async path=>opened.push(path),library:{relocated:(...args)=>relocated.push(args),async load(){}},notice(){}});
+ await ui.$('lifecycle-open').onclick();assert.equal(ui.$('lifecycle-confirm').disabled,true);
+ for(const value of [null,{state:'running',report:'Running'},{state:'failed',report:'Failed'},{state:'settled-unknown',report:'Acknowledged'}]){
+  outcome=value;await ui.$('lifecycle-inspect').onclick();assert.equal(ui.$('lifecycle-confirm').disabled,true);await ui.$('lifecycle-confirm').onclick();
+ }
+ assert.equal(calls.some(c=>c.route==='lifecycle/commit'),false);
+ outcome={state:'reviewed',report:'Reviewed changes'};await ui.$('lifecycle-inspect').onclick();assert.equal(ui.$('lifecycle-confirm').disabled,false);
+ await ui.$('lifecycle-confirm').onclick();assert.equal(ui.$('lifecycle-confirm').disabled,true);assert.equal(JSON.parse(localStorage.getItem(key)).state,'uncertain');
+ await ui.$('lifecycle-confirm').onclick();assert.equal(calls.filter(c=>c.route==='lifecycle/commit').length,1);
+ outcome={state:'committed',report:'Saved',newPath:'docs/archived/existing.md'};
+ await ui.$('lifecycle-inspect').onclick();assert.equal(ui.$('lifecycle-dialog').open,false);assert.deepEqual(opened,[outcome.newPath]);assert.deepEqual(relocated,[[doc.path,outcome.newPath]]);assert.equal(localStorage.getItem(key),null);assert.equal(calls.filter(c=>c.route==='lifecycle/commit').length,1);
+});
+
 test('unsupported Git keeps selection and diff review but explains and disables local commits',async()=>{
  const ui=dom(),state={mode:'home'},calls=[];let supported=false;
  const reason='Local commits are not available with this Git version yet. You can still review and edit documents, then commit with your Git client.';
@@ -267,7 +304,7 @@ test('filing UI scans only after opening and navigates exact current hub row wit
  writeFileSync(path.join(f.root,'docs/hub.md'),'---\ntype: plan\nstatus: active\nexecution_mode: coordination\n---\n# Hub\n\n### Delivery\n\n| Plan | Status |\n|---|---|\n| [Existing](plans/existing.md) | active |\n');
  const state={mode:'home'},opened=[];let controller;
  controller=filingNavigation({state,$:ui.$,api:f.api,checkout:()=>f.root,showLibrary:async()=>controller.deactivate(),open:async(...args)=>opened.push(args),notice:message=>assert.fail(message)});
- assert.equal(f.calls.some(c=>c.route.startsWith('filing')),false);await controller.show();assert.equal(state.mode,'filing');assert.equal(ui.$('library-filing').getAttribute('aria-pressed'),'true');assert.match(ui.$('filing-feedback').textContent,/1 live plans checked/);
+ assert.equal(f.calls.some(c=>c.route.startsWith('filing')),false);await controller.show();assert.equal(state.mode,'filing');assert.equal(ui.$('library-filing').getAttribute('aria-pressed'),'true');assert.match(ui.$('filing-feedback').textContent,/1 plan checked/);
  await ui.$('filing-list').querySelector('[data-path]').onclick();assert.match(ui.$('filing-detail').textContent,/Delivery/);
  const rowButton=[...ui.$('filing-detail').querySelectorAll('button')].find(button=>button.textContent==='Open hub row');assert.ok(rowButton);await rowButton.onclick();assert.equal(opened[0][0],'docs/hub.md');assert.ok(opened[0][1].line>1);assert.match(opened[0][1].expectedRevision,/^sha256:/);
  controller.invalidate();assert.match(ui.$('filing-feedback').textContent,/Refresh/);assert.equal(f.calls.some(c=>c.body!==undefined),false);controller.deactivate();assert.equal(ui.$('filing-home').hidden,true);

@@ -6,7 +6,7 @@ export function filingNavigation({ state, $, api, open, showLibrary, checkout, n
   const button = (label, action) => { const node = element('button', label, 'quiet small'); node.type = 'button'; node.onclick = run(action); return node; };
   const run = fn => async () => { try { await fn(); } catch (error) { notice(error.message, true); } };
   const heading = element('h1', 'Filing'); heading.id = 'filing-title'; heading.tabIndex = -1;
-  const description = element('p', 'Where live plans are homed in status-bearing hub table rows. Links in prose are references. This report changes no files.', 'muted');
+  const description = element('p', 'Find plans missing a home or listed in more than one hub.', 'muted');
   const feedback = element('p'); feedback.id = 'filing-feedback'; feedback.setAttribute('role', 'status'); feedback.setAttribute('aria-live', 'polite');
   const totals = element('div', undefined, 'filing-totals'); totals.id = 'filing-totals';
   const controls = element('div', undefined, 'filing-controls');
@@ -14,7 +14,7 @@ export function filingNavigation({ state, $, api, open, showLibrary, checkout, n
   const search = element('input'); search.type = 'search'; search.id = 'filing-search'; search.placeholder = 'Title or path…'; searchLabel.append(search);
   const groupLabel = element('label', 'Show');
   const group = element('select'); group.id = 'filing-group';
-  for (const [value, label] of [['all', 'All plans'], ['unfiled', 'Unfiled'], ['multiple', 'Multiple homes'], ['no-category', 'No category'], ['parent', 'Through parent'], ['direct', 'Direct home']]) {
+  for (const [value, label] of [['all', 'All plans'], ['unfiled', 'Unfiled'], ['multiple', 'Multiple homes'], ['no-category', 'No category'], ['parent', 'Via parent plan'], ['direct', 'Listed in a hub']]) {
     const option = element('option', label); option.value = value; group.append(option);
   }
   groupLabel.append(group);
@@ -29,26 +29,28 @@ export function filingNavigation({ state, $, api, open, showLibrary, checkout, n
   const previous = button('Previous', () => { offset = Math.max(0, offset - 50); return load(); }); previous.id = 'filing-previous';
   const next = button('Next', () => { offset += 50; return load(); }); next.id = 'filing-next';
   pager.append(previous, next);
-  root.replaceChildren(heading, description, controls, feedback, totals, range, layout, pager);
+  const help = element('details'), helpTitle = element('summary', 'How homes are counted');
+  help.append(helpTitle, element('p', 'A home is a hub table row linking to a plan and showing its status. Links in prose are references. A plan can inherit its parent’s home. Finding groups can overlap. This report does not change files.', 'muted'));
+  root.replaceChildren(heading, description, controls, feedback, totals, range, layout, pager, help);
   const visible = () => state.mode === 'filing' && !root.hidden;
   const call = (op, params = {}) => api(`filing?${new URLSearchParams({ op, ...(scanId ? { scanId } : {}), ...params })}`);
-  const label = plan => plan.filing === 'parent' ? `Through parent · ${plan.filedThrough}` : plan.filing === 'direct' ? 'Direct home' : plan.filing === 'unfiled' ? 'Unfiled' : plan.filing === 'observed' ? 'Observed home evidence · incomplete scan' : 'Home unknown · incomplete scan';
+  const label = plan => plan.filing === 'parent' ? `Via parent plan · ${plan.filedThrough}` : plan.filing === 'direct' ? 'Listed in a hub' : plan.filing === 'unfiled' ? 'Unfiled' : plan.filing === 'observed' ? 'Home found · scan incomplete' : 'Home unknown · incomplete scan';
   function deactivate() { sequence++; detailSequence++; clearTimeout(timer); root.hidden = true; $('library-filing').setAttribute('aria-pressed', 'false'); }
   function invalidate() {
     sequence++; detailSequence++; scanId = null;
-    if (visible()) { feedback.textContent = 'Saved files changed. Refresh to review current filing evidence.'; list.setAttribute('aria-busy', 'false'); refresh.disabled = false; search.disabled = false; group.disabled = false; previous.disabled = true; next.disabled = true; }
+    if (visible()) { feedback.textContent = 'Files changed. Refresh to update this report.'; list.setAttribute('aria-busy', 'false'); refresh.disabled = false; search.disabled = false; group.disabled = false; previous.disabled = true; next.disabled = true; }
   }
   function renderSummary(result) {
     if (!result.enabled) feedback.textContent = result.reason;
-    else if (result.state === 'scanning') feedback.textContent = `Reading filing evidence… ${result.progress.done} of ${result.progress.total} documents checked.`;
-    else if (!result.complete) feedback.textContent = result.reason ?? 'Scan incomplete. Observed evidence is available; unfiled and unique-home findings are unavailable. Refresh to retry.';
-    else feedback.textContent = `${result.totals.plans} live plans checked. Finding groups may overlap.`;
+    else if (result.state === 'scanning') feedback.textContent = `Checking plans… ${result.progress.done} of ${result.progress.total} documents checked.`;
+    else if (!result.complete) feedback.textContent = result.reason ?? 'Scan incomplete. Some homes may be missing; refresh to retry.';
+    else feedback.textContent = `${result.totals.plans} ${result.totals.plans === 1 ? 'plan' : 'plans'} checked.`;
     totals.replaceChildren();
-    if (result.totals) for (const [key, title] of [['unfiled', 'Unfiled'], ['multiplyFiled', 'Multiple homes'], ['noCategory', 'No category'], ['filedThroughParent', 'Through parent']]) totals.append(element('span', `${title}: ${result.totals[key]}`));
+    if (result.totals) for (const [key, title] of [['unfiled', 'Unfiled'], ['multiplyFiled', 'Multiple homes'], ['noCategory', 'No category'], ['filedThroughParent', 'Via parent plan']]) totals.append(element('span', `${title}: ${result.totals[key]}`));
     if (result.failureCount) {
       const failures = element('details'), summary = element('summary', `${result.failureCount} unavailable sources or folders`); failures.append(summary);
       for (const failure of result.failures ?? []) failures.append(element('p', `${failure.path ?? 'Inventory'}: ${failure.message}`));
-      if (result.failureCount > (result.failures?.length ?? 0)) failures.append(element('p', 'Additional failures omitted. Narrow the source problem and refresh.'));
+      if (result.failureCount > (result.failures?.length ?? 0)) failures.append(element('p', 'More sources failed. Fix unavailable sources and refresh.'));
       totals.append(failures);
     }
     for (const option of group.options) option.disabled = option.value !== 'all' && !result.complete;
@@ -65,7 +67,7 @@ export function filingNavigation({ state, $, api, open, showLibrary, checkout, n
       if (plan.noCategory) row.append(element('small', 'No category'));
       return row;
     }));
-    if (!result.plans?.length) list.append(element('p', result.complete ? 'No plans match this filter.' : result.enabled ? 'No plan evidence is available in this scan.' : 'Enable filing in the repository configuration to use this report.', 'library-no-results'));
+    if (!result.plans?.length) list.append(element('p', result.complete ? 'No plans match this filter.' : result.enabled ? 'No plans available in this scan.' : 'Enable filing in the repository configuration to use this report.', 'library-no-results'));
   }
   async function inspect(path, homeOffset = 0) {
     if (!scanId || !visible()) return;
@@ -76,11 +78,11 @@ export function filingNavigation({ state, $, api, open, showLibrary, checkout, n
       const result = await call('detail', { path, homeOffset: String(homeOffset), homeLimit: '20' });
       if (own !== detailSequence || !visible()) return;
       const nodes = [element('h2', result.title), element('p', result.path, 'muted'), element('p', label(result)), button('Open plan', () => open(result.path))];
-      if (result.filedThrough && result.filedThrough !== result.path) nodes.push(button('Open parent home', () => open(result.filedThrough)));
-      if (!result.homes.length) nodes.push(element('p', result.complete ? 'No status-bearing hub subject row homes this plan.' : 'No home observed. Missing sources prevent an unfiled finding.'));
+      if (result.filedThrough && result.filedThrough !== result.path) nodes.push(button('Open parent plan', () => open(result.filedThrough)));
+      if (!result.homes.length) nodes.push(element('p', result.complete ? 'This plan is not listed in a hub.' : 'No home found yet. The scan is incomplete.'));
       for (const home of result.homes) {
         const row = element('article', undefined, 'filing-home-row');
-        row.append(element('h3', `${home.hub}:${home.line}`), element('p', `Categories: ${home.categories.join(', ') || (result.complete ? 'No category' : 'No category observed · incomplete scan')}`), element('p', `Subject: ${home.subject} · Printed status: ${home.printedStatus}`));
+        row.append(element('h3', `${home.hub}:${home.line}`), element('p', `Categories: ${home.categories.join(', ') || (result.complete ? 'No category' : 'No category observed · incomplete scan')}`), element('p', `Plan: ${home.subject} · Status: ${home.printedStatus}`));
         if (home.categoriesShortened) row.append(element('p', 'Category display shortened. Open the hub for its full categories.', 'muted'));
         if (home.current === 'unchanged') row.append(button('Open hub row', () => open(home.hub, { line: home.line, expectedRevision: home.revision })));
         else { row.append(element('p', home.current === 'changed' ? 'Hub changed after this scan. Refresh before using this row location.' : 'Hub source is currently unavailable.', 'inline-note')); row.append(button('Open current hub', () => open(home.hub))); }
@@ -95,12 +97,12 @@ export function filingNavigation({ state, $, api, open, showLibrary, checkout, n
   }
   async function load({ refresh: force = false } = {}) {
     if (!visible()) return;
-    if (!force && !scanId) { feedback.textContent = 'Refresh to review current filing evidence.'; return; }
+    if (!force && !scanId) { feedback.textContent = 'Refresh to update this report.'; return; }
     const own = ++sequence; list.setAttribute('aria-busy', 'true'); refresh.disabled = true;
     if (force) { search.disabled = true; group.disabled = true; previous.disabled = true; next.disabled = true; }
     try {
       if (force) {
-        selected = null; detailSequence++; offset = 0; detail.replaceChildren(element('p', 'Select a plan to inspect its exact home evidence.', 'muted'));
+        selected = null; detailSequence++; offset = 0; detail.replaceChildren(element('p', 'Select a plan to see its hub links.', 'muted'));
         let result = await call('start', { refresh: '1' });
         if (own !== sequence || !visible()) return;
         scanId = result.scanId ?? null; renderSummary(result);

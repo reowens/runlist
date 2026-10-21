@@ -426,6 +426,8 @@ export function parseDocFile(filePath, config, opts = {}) {
     path: relativePath,
     root: rootLabel,
     type: docType,
+    ...(docType === 'prompt' ? { parentPrompt: asString(parsedFrontmatter.parent_prompt) ?? null,
+      parentPromptInvalid: (Object.hasOwn(parsedFrontmatter,'parent_prompt') && typeof parsedFrontmatter.parent_prompt !== 'string') || fmWarnings.some(w=>w.message.includes('`parent_prompt`')) } : {}),
     status: asString(parsedFrontmatter.status) ?? null,
     // Preserve ships without coercing lists/objects into apparently valid stages.
     ships: parsedFrontmatter.ships ?? null,

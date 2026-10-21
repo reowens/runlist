@@ -7,6 +7,14 @@ import { SourceEditError } from './source-editor.mjs';
 import { resolveDocArg } from './index.mjs';
 
 const assets = new URL('../assets/app/', import.meta.url);
+const staticFiles = new Map([
+  'app.mjs','theme.mjs','transport.mjs','shared.mjs','document-create.mjs',
+  'quick-navigation.mjs','recovery-center.mjs','settings.mjs','document-lifecycle.mjs',
+  'record-navigation.mjs','library-navigation.mjs','outline.mjs','editor-navigation.mjs',
+  'template-editor.mjs','block-model.mjs','block-editor.mjs','git-changes.mjs','git-commit.mjs',
+  'document-views.mjs','document-stages.mjs','document-yardstick.mjs',
+  'filing-navigation.mjs','semantic-search.mjs','stage-source.mjs','app.css',
+].map(file => [`/${file}`, [file, file.endsWith('.css') ? 'text/css' : 'text/javascript']]));
 const ttl = 12 * 60 * 60 * 1000;
 const secret = () => randomBytes(32).toString('base64url');
 function problem(code,message) { throw new SourceEditError(code,message); }
@@ -40,10 +48,7 @@ export async function startApp({ config, port = 5173, initialPath = null, actor 
       if (!origin || ![new URL(origin).host, `localhost:${server.address().port}`].includes(req.headers.host)) problem('forbidden', 'Invalid local application host.');
       const url = new URL(req.url, origin);
       if (req.method === 'GET' && url.pathname === '/') return send(200, readFileSync(new URL('index.html', assets)), 'text/html; charset=utf-8');
-      const staticFiles = { '/document-create.mjs':['document-create.mjs','text/javascript'], '/quick-navigation.mjs':['quick-navigation.mjs','text/javascript'], '/recovery-center.mjs':['recovery-center.mjs','text/javascript'], '/transport.mjs':['transport.mjs','text/javascript'], '/settings.mjs':['settings.mjs','text/javascript'], '/document-lifecycle.mjs':['document-lifecycle.mjs','text/javascript'], '/record-navigation.mjs':['record-navigation.mjs','text/javascript'], '/theme.mjs':['theme.mjs','text/javascript'], '/library-navigation.mjs':['library-navigation.mjs','text/javascript'], '/outline.mjs':['outline.mjs','text/javascript'], '/editor-navigation.mjs':['editor-navigation.mjs','text/javascript'], '/template-editor.mjs':['template-editor.mjs','text/javascript'], '/block-model.mjs':['block-model.mjs','text/javascript'], '/block-editor.mjs':['block-editor.mjs','text/javascript'], '/app.mjs': ['app.mjs','text/javascript'], '/shared.mjs':['shared.mjs','text/javascript'], '/app.css':['app.css','text/css'] };
-      staticFiles['/git-changes.mjs']=['git-changes.mjs','text/javascript'];
-      staticFiles['/git-commit.mjs']=['git-commit.mjs','text/javascript'];
-      if (req.method === 'GET' && staticFiles[url.pathname]) { const [file, type] = staticFiles[url.pathname]; return send(200, readFileSync(new URL(file, assets)), `${type}; charset=utf-8`); }
+      if (req.method === 'GET' && staticFiles.has(url.pathname)) { const [file, type] = staticFiles.get(url.pathname); return send(200, readFileSync(new URL(file, assets)), `${type}; charset=utf-8`); }
       const requestOrigin = req.headers.origin;
       const permittedOrigins = [origin, `http://localhost:${server.address().port}`];
       if (requestOrigin && !permittedOrigins.includes(requestOrigin)) problem('forbidden', 'Cross-origin requests are refused.');

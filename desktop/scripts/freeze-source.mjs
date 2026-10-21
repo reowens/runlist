@@ -27,7 +27,10 @@ json('.claude-plugin/marketplace.json',p=>{for(const plugin of p.plugins??[])plu
 json('desktop/src-tauri/tauri.conf.json',p=>{p.version=version;});
 rewrite('desktop/src-tauri/Cargo.toml',text=>text.replace(/^(version\s*=\s*)"[^"]+"/m,`$1"${version}"`));
 rewrite('desktop/src-tauri/Cargo.lock',text=>text.replace(/(name = "runlist-desktop"\nversion = ")[^"]+/,`$1${version}`));
-rewrite('CHANGELOG.md',text=>text.replace(/^## Unreleased[^\n]*$/m,`## Unreleased\n\n## ${version} — ${new Date().toISOString().slice(0,10)} (local candidate)`));
+rewrite('CHANGELOG.md',text=>{
+ const heading=`## ${version} — ${new Date().toISOString().slice(0,10)} (local candidate)`;
+ return /^## Unreleased[^\n]*$/m.test(text)?text.replace(/^## Unreleased[^\n]*$/m,`## Unreleased\n\n${heading}`):text.replace(/^## /m,`${heading}\n\n## `);
+});
 const files=originals.map(item=>({...item,candidateSha256:sha(readFileSync(path.join(source,item.path)))}));
 const manifest={at:new Date().toISOString(),repository:root,baseHead:git(['rev-parse','HEAD']).trim(),gitStatus:git(['status','--porcelain=v1']),
  originalVersion:JSON.parse(readFileSync(path.join(root,'package.json'),'utf8')).version,candidateVersion:version,source,files,

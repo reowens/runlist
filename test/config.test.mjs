@@ -94,21 +94,22 @@ describe('resolveConfig', () => {
     ok(!skipWarningsFor.has('done'));
   });
 
-  it('paused plans file into a held bucket; prompts file nowhere', async () => {
+  it('ordinary statuses do not file documents into buckets by default', async () => {
     const config = await resolveConfig(tmpDir);
-    strictEqual(config.lifecycle.filedStatuses.get('paused'), 'held');
+    strictEqual(config.lifecycle.filedStatuses.size, 0);
     // Prompts were removed from the filing map 2026-08-30 — `archived` is the
     // only directory a prompt ever moves into.
     strictEqual(config.lifecycle.filedStatuses.get('held'), undefined);
     strictEqual(config.lifecycle.filedStatuses.get('shelved'), undefined);
   });
 
-  it('user lifecycle.filedStatuses replaces defaults so projects can opt out', async () => {
+  it('projects can explicitly opt in to status-based filing', async () => {
     writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
-      export const lifecycle = { filedStatuses: {} };
+      export const lifecycle = { filedStatuses: { paused: 'held' } };
     `);
     const config = await resolveConfig(tmpDir);
-    strictEqual(config.lifecycle.filedStatuses.size, 0);
+    strictEqual(config.lifecycle.filedStatuses.size, 1);
+    strictEqual(config.lifecycle.filedStatuses.get('paused'), 'held');
   });
 
   it('new plan statuses require module by default', async () => {

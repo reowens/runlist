@@ -1,4 +1,5 @@
 import { applyTemplateOverride, readTemplateStore, templateFile } from './template-store.mjs';
+import { HANDOFF_TEMPLATES } from './prompt-handoff.mjs';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, mkdirSync, fstatSync } from 'node:fs';
 import path from 'node:path';
@@ -86,7 +87,7 @@ export function catchAllRoot(config) {
 
 const BUILTIN_TEMPLATES = {
   doc: {
-    description: 'Reference doc, design note, module overview — build-up shape lite',
+    description: 'Reference document for context, guidance or design notes; active by default.',
     defaultStatus: 'active',
     // Body input optional. When passed (inline / --body / @file / stdin),
     // it lands in the Overview section. Without it, Overview is left blank
@@ -132,7 +133,7 @@ ${ctx?.bodyInput?.trim() ?? ''}
     },
   },
   plan: {
-    description: 'Execution plan — build-up shape (Problem → Phases → Closeout) with phase status markers and Version History',
+    description: 'Execution plan with goals, constraints, decisions, phases and closeout; planned until work starts.',
     dir: 'plans',
     targetRoot: 'plans',
     // A scaffolded plan is scoped, not being worked; `runlist use` starts it.
@@ -227,7 +228,7 @@ Status markers (put in heading text):
     },
   },
   prompt: {
-    description: 'Saved prompt to seed a future Claude session — body is required',
+    description: 'Saved prompt wrapper: metadata and authored body. Use the resume or subagent draft to write a handoff.',
     dir: 'prompts',
     targetRoot: 'prompts',
     defaultStatus: 'pending',
@@ -419,7 +420,14 @@ export function promptDirectory(config, template = resolveTemplate('prompt', con
   return template.dir && !routed ? path.join(targetRoot, template.dir) : targetRoot;
 }
 
-export function preparePromptDocument(name, bodyInput, config, { plan = null, dryRun = false } = {}) {
+function bindPromptParent(content, parentPrompt) {
+  if (!parentPrompt) return content;
+  const { frontmatter, body } = extractFrontmatter(content);
+  if (!frontmatter) throw new Error('Prompt template must return frontmatter for parent binding.');
+  return `---\n${mergeBodyFrontmatter(frontmatter, { parent_prompt: parentPrompt }, 'prompt')}\n---\n${body}`;
+}
+
+export function preparePromptDocument(name, bodyInput, config, { plan = null, parentPrompt = null, dryRun = false } = {}) {
   const template = resolveTemplate('prompt', config);
   const typeStatuses = config.typeStatuses?.get('prompt');
   const status = template.defaultStatus && (!typeStatuses || typeStatuses.has(template.defaultStatus))
@@ -451,7 +459,7 @@ export function preparePromptDocument(name, bodyInput, config, { plan = null, dr
     if (plan) fm = mergeBodyFrontmatter(fm, { plan }, 'prompt');
     content = `---\n${fm}\n---\n${template.body(title, ctx)}`;
   }
-  return { slug, filePath, repoPath: toRepoPath(filePath, config.repoRoot), content };
+  return { slug, filePath, repoPath: toRepoPath(filePath, config.repoRoot), content: bindPromptParent(content, parentPrompt) };
 }
 
 // Resolve one `--runlist` token to a scaffolded child plan: a bare slug becomes
@@ -1081,6 +1089,8 @@ export async function runNew(argv, config, opts = {}) {
     return;
   }
 
+  if (typeName === 'prompt') content = bindPromptParent(content, opts.parentPrompt);
+
   // Ensure parent dir exists (templates with `dir:` may target a new subdirectory)
   mkdirSync(path.dirname(filePath), { recursive: true });
 
@@ -1314,8 +1324,18 @@ export function appTemplates(config) {
     const ctx = {title:'{{title}}',status:'{{status}}',today:'{{date}}',bodyInput:'{{body}}',validSurfaces:config.raw?.taxonomy?.surfaces ?? (config.validSurfaces ? [...config.validSurfaces] : null),validModules:config.raw?.taxonomy?.modules ?? (config.validModules ? [...config.validModules] : null)};
     const defaultSource = `---\n${builtin.frontmatter(ctx.status,ctx.today,ctx)}\n---\n${builtin.body(ctx.title,ctx)}`.replaceAll(pkg.version,'{{version}}');
     const configured = config.raw?.templates?.[name];
-    return {name,description:builtin.description,source:store.data.templates[name]?.source ?? defaultSource,defaultSource,overridden:!!store.data.templates[name],origin:store.data.templates[name] ? templateFile : configured ? `${configFile} (JavaScript)` : 'Built-in',configuredSource:configured ? code(configured) : null,editable:true};
+    return {name,label:name==='prompt'?'Prompt wrapper':name==='plan'?'Execution plan':'Reference doc',kind:'document',description:builtin.description,source:store.data.templates[name]?.source ?? defaultSource,defaultSource,overridden:!!store.data.templates[name],origin:store.data.templates[name] ? templateFile : configured ? `${configFile} (JavaScript)` : 'Built-in',configuredSource:configured ? code(configured) : null,editable:true};
   });
-  for (const [name,value] of Object.entries(config.raw?.templates ?? {})) if (!BUILTIN_TEMPLATES[name]) templates.push({name,description:value.description ?? 'Repository template',origin:`${configFile} (JavaScript)`,source:code(value),editable:false});
+  const baton = config.raw?.templates?.prompt?.baton;
+  for (const [name,draft] of Object.entries(HANDOFF_TEMPLATES)) templates.push({
+    name,label:draft.label,kind:'handoff',description:draft.description,
+    source:store.data.templates[name]?.source ?? draft.source,defaultSource:draft.source,
+    overridden:!!store.data.templates[name],origin:store.data.templates[name] ? templateFile : 'Built-in',
+    configuredSource:typeof baton==='string'&&baton.trim()?baton.trim():null,
+    configLabel:'Repository baton instructions',
+    configNote:'These repository instructions still apply to handoffs. Saving a draft outline does not replace them or the saved prompt wrapper.',
+    editable:true,
+  });
+  for (const [name,value] of Object.entries(config.raw?.templates ?? {})) if (!BUILTIN_TEMPLATES[name]&&!Object.hasOwn(HANDOFF_TEMPLATES,name)) templates.push({name,description:value.description ?? 'Repository template',origin:`${configFile} (JavaScript)`,source:code(value),editable:false});
   return {templates,revision:store.revision,file:templateFile,version:pkg.version};
 }

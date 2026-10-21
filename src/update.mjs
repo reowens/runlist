@@ -8,6 +8,8 @@ import { executableName, which } from './util.mjs';
 import { CLAUDE_MARKETPLACE, claudeMarketplaceRefusalHint, opencodeStatus } from './host-integration.mjs';
 import { codexStatus, installedCodexStatus } from './codex-integration.mjs';
 import { desktopLaunch } from './desktop.mjs';
+import { installationReport, formatInstallationReport, readInstalledPluginRecords } from './installation.mjs';
+export { readInstalledPluginRecords } from './installation.mjs';
 import { compareDesktopVersions, installedDesktopVersion } from './desktop-install.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -30,30 +32,6 @@ export function compareVersions(a, b) {
   if (!pa || !pb) return null;
   for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pa[i] < pb[i] ? -1 : 1;
   return 0;
-}
-
-// Read Claude Code's plugin install record to find the installed runlist plugin's
-// id + version. Network-free. `opts.home` is injectable for tests. Returns
-// { id, version } or null when nothing is installed / the file is absent.
-export function readInstalledPluginRecords(opts = {}) {
-  const home = opts.home || os.homedir();
-  const file = path.join(home, '.claude', 'plugins', 'installed_plugins.json');
-  try {
-    const j = JSON.parse(readFileSync(file, 'utf8'));
-    const plugins = j.plugins || {};
-    const id = opts.id
-      ? (plugins[opts.id] ? opts.id : null)
-      : plugins[DEFAULT_PLUGIN_ID]
-        ? DEFAULT_PLUGIN_ID
-        : plugins[LEGACY_PLUGIN_ID]
-          ? LEGACY_PLUGIN_ID
-          : Object.keys(plugins).find(k => /^(?:runlist|dotmd)@/.test(k));
-    if (!id) return null;
-    const entries = Array.isArray(plugins[id]) ? plugins[id] : [plugins[id]];
-    return { id, entries: entries.filter(Boolean) };
-  } catch {
-    return null;
-  }
 }
 
 // Claude Code's marketplace registry, keyed by marketplace name. A plugin id
@@ -251,6 +229,7 @@ export async function runUpdate(argv, _config, opts = {}) {
   const desktop = process.platform === 'darwin' && process.arch === 'arm64' ? desktopLaunch([]).app : null;
 
   if (check) {
+    process.stdout.write(formatInstallationReport(installationReport(_config)));
     process.stdout.write(`runlist CLI:    ${pkg.version}\n`);
     if (plugin) {
       if (plugin.id === LEGACY_PLUGIN_ID || (legacyPlugin && plugin.id !== LEGACY_PLUGIN_ID)) {
@@ -258,7 +237,7 @@ export async function runUpdate(argv, _config, opts = {}) {
       }
       for (const entry of plugin.entries) {
         const cmp = compareVersions(entry.version, pkg.version);
-        const tag = cmp === 0 ? green('in sync')
+        const tag = cmp === 0 ? green('version matches')
           : cmp === null ? dim('(unknown)')
           : cmp < 0 ? yellow('behind — run `runlist update`')
           : yellow('ahead — CLI is behind');
@@ -273,14 +252,14 @@ export async function runUpdate(argv, _config, opts = {}) {
     const oc = opencodeStatus({ version: pkg.version });
     if (!oc.exists) process.stdout.write(dim('runlist opencode: not installed\n'));
     else if (oc.foreign) process.stdout.write(`runlist opencode: ${yellow('unmanaged file — not written by runlist')}\n`);
-    else process.stdout.write(`runlist opencode: ${oc.version} ${oc.stale ? yellow('behind — run `runlist update`') : green('in sync')}\n`);
+    else process.stdout.write(`runlist opencode: ${oc.version} ${oc.stale ? yellow('behind — run `runlist update`') : green('version matches')}\n`);
     const cx = currentCodexStatus(pkg.version);
     if (!cx.exists) process.stdout.write(dim('runlist codex: not installed\n'));
     else if (cx.foreign) process.stdout.write(`runlist codex: ${yellow('unmanaged plugin directory')}\n`);
-    else process.stdout.write(`runlist codex: source ${cx.version}; installed ${cx.installed?.version ?? 'unverified'} ${cx.stale ? yellow('out of sync — run `runlist update`') : green('in sync')}\n`);
+    else process.stdout.write(`runlist codex: source ${cx.version}; installed ${cx.installed?.version ?? 'unverified'} ${cx.stale ? yellow('out of sync — run `runlist update`') : green('version matches')}\n`);
     if (desktop) {
       const version = await installedDesktopVersion(desktop);
-      process.stdout.write(`runlist desktop: ${version} ${compareDesktopVersions(version, pkg.version) < 0 ? yellow('behind — quit Runlist and run `runlist update`') : green('in sync')}\n`);
+      process.stdout.write(`runlist desktop: ${version} ${compareDesktopVersions(version, pkg.version) < 0 ? yellow('behind — quit Runlist and run `runlist update`') : dim('version current; see source comparison above')}\n`);
     }
     return;
   }
