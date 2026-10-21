@@ -73,6 +73,8 @@ final class RunlistAcceptanceTests: XCTestCase {
         guard let app else { return }
         defer { if app.state != .notRunning { app.terminate() } }
         capture("before-quit")
+        let pickerCancel = app.sheets["open-panel"].buttons["CancelButton"].firstMatch
+        if pickerCancel.exists && pickerCancel.isHittable { pickerCancel.click() }
         app.typeKey("q", modifierFlags: .command)
         let quit = app.wait(for: .notRunning, timeout: 10)
         XCTAssertTrue(quit, "Normal Quit did not stop the owned app.")
@@ -92,7 +94,7 @@ final class RunlistAcceptanceTests: XCTestCase {
         XCTAssertTrue(location.waitForExistence(timeout: 5), "Go to Folder has no accessible location field.")
         location.typeText(fixture.path)
         app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
-        let open = app.buttons["Open"].firstMatch
+        let open = app.sheets["open-panel"].buttons["OKButton"].firstMatch
         XCTAssertTrue(open.waitForExistence(timeout: 5))
         open.click()
         let trust = app.buttons["Trust and open"].firstMatch
