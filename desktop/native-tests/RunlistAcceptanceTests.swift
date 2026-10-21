@@ -9,13 +9,24 @@ final class RunlistAcceptanceTests: XCTestCase {
     private var document: URL!
     private var appPID: pid_t?
     private var ownedPIDs = Set<pid_t>()
-    private let prefix = "---\ntype: plan\nstatus: active\ncustom: preserved 先 🧭\n---\n"
-    private let originalBody = "# Air acceptance\n\nOriginal paragraph.\n\n## Version History\n\n- Existing history.\n"
-    private let savedBody = "# Air acceptance\n\nSaved exact text 123.\n\n## Version History\n\n- Existing history.\n"
+    private var accountHome: URL!
+    private var prefix = ""
+    private var originalBody = ""
+    private var savedBody = ""
+    private struct FixtureSpec: Decodable {
+        let schemaVersion: Int
+        let prefix: String
+        let originalBody: String
+        let savedBody: String
+    }
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        let jobs = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("hetchy-worker.noindex/native-projects/runlist/jobs", isDirectory: true)
+        guard let account = getpwuid(getuid()), let home = account.pointee.pw_dir else {
+            throw NSError(domain: "RunlistAcceptance", code: 1, userInfo: [NSLocalizedDescriptionKey: "Account home is unavailable."])
+        }
+        accountHome = URL(fileURLWithPath: String(cString: home), isDirectory: true)
+        let jobs = accountHome.appendingPathComponent("hetchy-worker.noindex/native-projects/runlist/jobs", isDirectory: true)
         let bundle = Bundle(for: RunlistAcceptanceTests.self).bundleURL.standardizedFileURL
         guard bundle.path.hasPrefix(jobs.path + "/") else {
             throw NSError(domain: "RunlistAcceptance", code: 1, userInfo: [NSLocalizedDescriptionKey: "Test bundle is outside the Air jobs directory."])
@@ -36,22 +47,21 @@ final class RunlistAcceptanceTests: XCTestCase {
             throw NSError(domain: "RunlistAcceptance", code: 3, userInfo: [NSLocalizedDescriptionKey: "Runlist is already running. Refusing to attach to a user's app."])
         }
         fixture = root.appendingPathComponent("fixture", isDirectory: true)
-        guard !FileManager.default.fileExists(atPath: fixture.path) else {
-            throw NSError(domain: "RunlistAcceptance", code: 4, userInfo: [NSLocalizedDescriptionKey: "Fixture already exists. A qualification job is never reused."])
+        guard FileManager.default.fileExists(atPath: fixture.appendingPathComponent(".git").path),
+              fixture.resolvingSymlinksInPath().path == fixture.path else {
+            throw NSError(domain: "RunlistAcceptance", code: 4, userInfo: [NSLocalizedDescriptionKey: "The admitted worker did not prepare the isolated fixture."])
         }
-        try FileManager.default.createDirectory(at: fixture.appendingPathComponent("docs/plans"), withIntermediateDirectories: true)
+        let spec = try JSONDecoder().decode(FixtureSpec.self, from: Data(contentsOf: root.appendingPathComponent("fixture-spec.json")))
+        XCTAssertEqual(spec.schemaVersion, 1)
+        prefix = spec.prefix
+        originalBody = spec.originalBody
+        savedBody = spec.savedBody
         document = fixture.appendingPathComponent("docs/plans/air-acceptance.md")
-        try "export const root='docs';\n".write(to: fixture.appendingPathComponent("runlist.config.mjs"), atomically: false, encoding: .utf8)
-        try ".runlist/\n".write(to: fixture.appendingPathComponent(".gitignore"), atomically: false, encoding: .utf8)
-        try (prefix + originalBody).write(to: document, atomically: false, encoding: .utf8)
-        try git(["init", "--initial-branch=main"])
-        try git(["config", "core.hooksPath", "/dev/null"])
-        try git(["add", ".gitignore", "runlist.config.mjs", "docs/plans/air-acceptance.md"])
-        try git(["-c", "user.name=Runlist acceptance", "-c", "user.email=acceptance@example.invalid", "-c", "commit.gpgsign=false", "commit", "-m", "Synthetic acceptance fixture"])
+        XCTAssertEqual(try Data(contentsOf: document), Data((prefix + originalBody).utf8), "Prepared fixture differs from its bound specification.")
         app = XCUIApplication(bundleIdentifier: bundleIdentifier)
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20), "Installed app did not launch.")
-        let installed = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Runlist.app").resolvingSymlinksInPath()
+        let installed = accountHome.appendingPathComponent("Applications/Runlist.app").resolvingSymlinksInPath()
         let running = try XCTUnwrap(NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first)
         appPID = running.processIdentifier
         XCTAssertEqual(running.bundleURL?.resolvingSymlinksInPath(), installed, "Launch selected a different application copy.")
@@ -161,27 +171,6 @@ final class RunlistAcceptanceTests: XCTestCase {
             tree.name = name + "-accessibility"
             tree.lifetime = .keepAlways
             add(tree)
-        }
-    }
-
-    private func git(_ arguments: [String]) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = arguments
-        process.currentDirectoryURL = fixture
-        var environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("GIT_") }
-        environment["GIT_CONFIG_NOSYSTEM"] = "1"
-        environment["GIT_CONFIG_GLOBAL"] = "/dev/null"
-        environment["GIT_TERMINAL_PROMPT"] = "0"
-        process.environment = environment
-        let output = Pipe()
-        process.standardOutput = output
-        process.standardError = output
-        try process.run()
-        let bytes = output.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            throw NSError(domain: "RunlistAcceptance", code: Int(process.terminationStatus), userInfo: [NSLocalizedDescriptionKey: String(decoding: bytes, as: UTF8.self)])
         }
     }
 

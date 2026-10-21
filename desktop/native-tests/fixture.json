@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "prefix": "---\ntype: plan\nstatus: active\ncustom: preserved 先 🧭\n---\n",
+  "originalBody": "# Air acceptance\n\nOriginal paragraph.\n\n## Version History\n\n- Existing history.\n",
+  "savedBody": "# Air acceptance\n\nSaved exact text 123.\n\n## Version History\n\n- Existing history.\n"
+}
