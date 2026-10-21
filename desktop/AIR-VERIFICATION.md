@@ -25,7 +25,9 @@ does not fetch packages.
 
 Use the Platform checkout's `just runlist-air <run|status|cancel> <request-file>`
 entry for the fixed `installed-helper` or `native-window` profile. Native-window
-execution is Air-only. The native harness requires Xcode's macOS UI-testing
+execution is Air-only. The lane requires Runlist and its bundled helper to have
+Robert Owens's personal Developer ID signature; Hetchy signs the execution
+infrastructure. The native harness requires Xcode's macOS UI-testing
 support and macOS 14 or newer; this does not change the product's minimum OS.
 Source checks use `just typecheck runlist-desktop`,
 `just test runlist-desktop desktop/test/prepare-air-tests.test.mjs` and

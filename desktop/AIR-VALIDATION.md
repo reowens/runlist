@@ -31,13 +31,15 @@ Its interactions use native accessibility queries, with no coordinate fallback.
 The native harness sends select-all and replacement text to the Markdown editor
 that Runlist focuses when Edit Markdown opens. XCTest typing requires keyboard
 focus; the change removes the extra pointer click, and leaves exact source-byte
-readback after Save in place. This verifies keyboard editing without claiming
+readback after Save in place. This tests keyboard editing without claiming
 that native pointer hit testing is repaired. Configuration trust and document
 selection use the actual native sheet and document-row identities.
 
 The revised harness passed `just typecheck runlist-native-tests`.
 The [focused-editor execution record](../../../platform/docs/plans/runlist-air-verification.md#focused-editor-input-and-runlist-repository-update)
-owns its compile log and current remote verification state.
+owns its compile log. The [latest Air attempt](../../../platform/docs/plans/runlist-air-verification.md#focused-input-staging-and-locked-air-no-start)
+records a locked-console refusal before execution; the changed workflow has no
+live native verdict yet.
 
 This is source evidence, not a native-window pass. The harness preserves the
 [existing dialog investigation](VALIDATION.md#confirmation-fix-and-native-investigation-2026-10-20)
