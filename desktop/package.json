@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "prepare:bundle": "node scripts/prepare.mjs",
+    "prepare:air-tests": "node scripts/prepare-air-tests.mjs",
     "build": "node scripts/build.mjs",
     "dev": "npm run prepare:bundle && tauri dev",
     "test": "node --experimental-vm-modules --test test/*.test.mjs",
