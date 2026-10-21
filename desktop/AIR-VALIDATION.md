@@ -1,11 +1,11 @@
 ---
 type: doc
 status: active
-updated: 2026-10-20
+updated: 2026-10-21
 summary: Source checks for Runlist's portable payload and macOS native acceptance harness.
 ---
 
-# Air harness source verification (2026-10-20)
+# Air harness source verification
 
 The portable payload preparer and standalone macOS UI-test project are source
 verified. The preparer freezes a signed app with its provenance-matched helper
@@ -25,6 +25,19 @@ Its interactions use native accessibility queries, with no coordinate fallback.
 - Initial focused failures exposed macOS temporary-path aliases in output
   ancestry handling. Output parents are now resolved before containment checks;
   the failed and corrected logs remain in the invoking verification lane.
+
+## Focused Markdown input (2026-10-21)
+
+The native harness sends select-all and replacement text to the Markdown editor
+that Runlist focuses when Edit Markdown opens. XCTest typing requires keyboard
+focus; the change removes the extra pointer click, and leaves exact source-byte
+readback after Save in place. This verifies keyboard editing without claiming
+that native pointer hit testing is repaired. Configuration trust and document
+selection use the actual native sheet and document-row identities.
+
+The revised harness passed `just typecheck runlist-native-tests`.
+The [focused-editor execution record](../../../platform/docs/plans/runlist-air-verification.md#focused-editor-input-and-runlist-repository-update)
+owns its compile log and current remote verification state.
 
 This is source evidence, not a native-window pass. The harness preserves the
 [existing dialog investigation](VALIDATION.md#confirmation-fix-and-native-investigation-2026-10-20)

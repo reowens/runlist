@@ -111,8 +111,7 @@ final class RunlistAcceptanceTests: XCTestCase {
         markdown.click()
         let editor = app.textViews["Markdown body"].firstMatch
         XCTAssertTrue(editor.waitForExistence(timeout: 5), "Markdown editor is not exposed to native accessibility.")
-        editor.click()
-        app.typeKey("a", modifierFlags: .command)
+        editor.typeKey("a", modifierFlags: .command)
         editor.typeText(savedBody)
         let review = app.buttons.matching(NSPredicate(format: "label == %@", "Review changes")).firstMatch
         XCTAssertTrue(review.exists && review.isEnabled)

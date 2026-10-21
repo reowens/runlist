@@ -35,6 +35,10 @@ compiles the harness without running the app.
 The native test opens a disposable checkout through the native folder chooser,
 reviews and saves an edit, compares exact source bytes, inspects the status
 confirmation controls and checks ordinary Quit and observed helper cleanup.
+Edit Markdown focuses the native Markdown text view. The harness sends select-all
+and replacement text to that element through XCTest's keyboard APIs; typing
+requires keyboard focus. This workflow does not qualify pointer hit testing of
+the Markdown editor.
 Screenshots and accessibility trees remain in the job's `native.xcresult`.
 An inaccessible control fails the native test. See
 [source validation](AIR-VALIDATION.md).
