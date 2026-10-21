@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Scheme LastUpgradeVersion="1600" version="1.3">
+ <BuildAction parallelizeBuildables="NO" buildImplicitDependencies="YES">
+  <BuildActionEntries><BuildActionEntry buildForTesting="YES" buildForRunning="NO" buildForProfiling="NO" buildForArchiving="NO" buildForAnalyzing="YES"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="A10000000000000000000009" BuildableName="RunlistAcceptance.xctest" BlueprintName="RunlistAcceptance" ReferencedContainer="container:RunlistAcceptance.xcodeproj"/></BuildActionEntry></BuildActionEntries>
+ </BuildAction>
+ <TestAction buildConfiguration="Debug" selectedDebuggerIdentifier="" selectedLauncherIdentifier="Xcode.IDEFoundation.Launcher.PosixSpawn" shouldUseLaunchSchemeArgsEnv="NO">
+  <Testables><TestableReference skipped="NO" parallelizable="NO"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="A10000000000000000000009" BuildableName="RunlistAcceptance.xctest" BlueprintName="RunlistAcceptance" ReferencedContainer="container:RunlistAcceptance.xcodeproj"/></TestableReference></Testables>
+  <EnvironmentVariables><EnvironmentVariable key="RUNLIST_AIR_JOB_ROOT" value="$(RUNLIST_AIR_JOB_ROOT)" isEnabled="YES"/></EnvironmentVariables>
+ </TestAction>
+</Scheme>

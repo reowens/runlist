@@ -1,0 +1,25 @@
+// !$*UTF8*$!
+{
+ archiveVersion = 1;
+ classes = {};
+ objectVersion = 56;
+ objects = {
+  A10000000000000000000001 = {isa = PBXBuildFile; fileRef = A10000000000000000000002; };
+  A10000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunlistAcceptanceTests.swift; sourceTree = "<group>"; };
+  A10000000000000000000003 = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunlistAcceptance.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+  A10000000000000000000004 = {isa = PBXGroup; children = (A10000000000000000000002, A10000000000000000000005); sourceTree = "<group>"; };
+  A10000000000000000000005 = {isa = PBXGroup; children = (A10000000000000000000003); name = Products; sourceTree = "<group>"; };
+  A10000000000000000000006 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000001); runOnlyForDeploymentPostprocessing = 0; };
+  A10000000000000000000007 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+  A10000000000000000000008 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+  A10000000000000000000009 = {isa = PBXNativeTarget; buildConfigurationList = A1000000000000000000000A; buildPhases = (A10000000000000000000006,A10000000000000000000007,A10000000000000000000008); buildRules = (); dependencies = (); name = RunlistAcceptance; productName = RunlistAcceptance; productReference = A10000000000000000000003; productType = "com.apple.product-type.bundle.ui-testing"; };
+  A1000000000000000000000A = {isa = XCConfigurationList; buildConfigurations = (A1000000000000000000000B,A1000000000000000000000C); defaultConfigurationIsVisible = 0; defaultConfigurationName = Debug; };
+  A1000000000000000000000B = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; CODE_SIGN_IDENTITY = "-"; ENABLE_APP_SANDBOX = NO; GENERATE_INFOPLIST_FILE = YES; MACOSX_DEPLOYMENT_TARGET = 14.0; PRODUCT_BUNDLE_IDENTIFIER = dev.reowens.runlist.acceptance; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = macosx; SWIFT_VERSION = 5.0; }; name = Debug; };
+  A1000000000000000000000C = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; CODE_SIGN_IDENTITY = "-"; ENABLE_APP_SANDBOX = NO; GENERATE_INFOPLIST_FILE = YES; MACOSX_DEPLOYMENT_TARGET = 14.0; PRODUCT_BUNDLE_IDENTIFIER = dev.reowens.runlist.acceptance; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = macosx; SWIFT_VERSION = 5.0; }; name = Release; };
+  A1000000000000000000000D = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = NO; LastUpgradeCheck = 1600; }; buildConfigurationList = A1000000000000000000000E; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en,Base); mainGroup = A10000000000000000000004; productRefGroup = A10000000000000000000005; projectDirPath = ""; projectRoot = ""; targets = (A10000000000000000000009); };
+  A1000000000000000000000E = {isa = XCConfigurationList; buildConfigurations = (A1000000000000000000000F,A10000000000000000000010); defaultConfigurationIsVisible = 0; defaultConfigurationName = Debug; };
+  A1000000000000000000000F = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; SDKROOT = macosx; }; name = Debug; };
+  A10000000000000000000010 = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; SDKROOT = macosx; }; name = Release; };
+ };
+ rootObject = A1000000000000000000000D;
+}
