@@ -15,15 +15,21 @@ final class RunlistAcceptanceTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        guard let raw = ProcessInfo.processInfo.environment["RUNLIST_AIR_JOB_ROOT"],
-              raw.hasPrefix(FileManager.default.homeDirectoryForCurrentUser.path + "/hetchy-worker.noindex/native-projects/runlist/jobs/"),
-              !raw.contains(".."), !raw.contains("$(") else {
-            throw NSError(domain: "RunlistAcceptance", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing canonical Air job directory."])
+        let jobs = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("hetchy-worker.noindex/native-projects/runlist/jobs", isDirectory: true)
+        let bundle = Bundle(for: RunlistAcceptanceTests.self).bundleURL.standardizedFileURL
+        guard bundle.path.hasPrefix(jobs.path + "/") else {
+            throw NSError(domain: "RunlistAcceptance", code: 1, userInfo: [NSLocalizedDescriptionKey: "Test bundle is outside the Air jobs directory."])
         }
-        let root = URL(fileURLWithPath: raw).standardizedFileURL
+        let components = String(bundle.path.dropFirst(jobs.path.count + 1)).split(separator: "/")
+        guard components.count > 2, components[1] == "DerivedData",
+              String(components[0]).range(of: "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$", options: .regularExpression) != nil else {
+            throw NSError(domain: "RunlistAcceptance", code: 1, userInfo: [NSLocalizedDescriptionKey: "Test bundle has no canonical Air job directory."])
+        }
+        let root = jobs.appendingPathComponent(String(components[0]), isDirectory: true)
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory), isDirectory.boolValue,
-              root.resolvingSymlinksInPath().path == root.path else {
+              root.resolvingSymlinksInPath().path == root.path,
+              bundle.resolvingSymlinksInPath().path == bundle.path else {
             throw NSError(domain: "RunlistAcceptance", code: 2, userInfo: [NSLocalizedDescriptionKey: "Air job directory must exist without symlinks."])
         }
         guard NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).isEmpty else {

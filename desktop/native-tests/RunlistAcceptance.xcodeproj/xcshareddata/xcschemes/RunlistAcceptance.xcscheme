@@ -5,6 +5,5 @@
  </BuildAction>
  <TestAction buildConfiguration="Debug" selectedDebuggerIdentifier="" selectedLauncherIdentifier="Xcode.IDEFoundation.Launcher.PosixSpawn" shouldUseLaunchSchemeArgsEnv="NO">
   <Testables><TestableReference skipped="NO" parallelizable="NO"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="A10000000000000000000009" BuildableName="RunlistAcceptance.xctest" BlueprintName="RunlistAcceptance" ReferencedContainer="container:RunlistAcceptance.xcodeproj"/></TestableReference></Testables>
-  <EnvironmentVariables><EnvironmentVariable key="RUNLIST_AIR_JOB_ROOT" value="$(RUNLIST_AIR_JOB_ROOT)" isEnabled="YES"/></EnvironmentVariables>
  </TestAction>
 </Scheme>

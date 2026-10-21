@@ -18,8 +18,8 @@
   A1000000000000000000000C = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; CODE_SIGN_IDENTITY = "-"; ENABLE_APP_SANDBOX = NO; GENERATE_INFOPLIST_FILE = YES; MACOSX_DEPLOYMENT_TARGET = 14.0; PRODUCT_BUNDLE_IDENTIFIER = dev.reowens.runlist.acceptance; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = macosx; SWIFT_VERSION = 5.0; }; name = Release; };
   A1000000000000000000000D = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = NO; LastUpgradeCheck = 1600; }; buildConfigurationList = A1000000000000000000000E; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en,Base); mainGroup = A10000000000000000000004; productRefGroup = A10000000000000000000005; projectDirPath = ""; projectRoot = ""; targets = (A10000000000000000000009); };
   A1000000000000000000000E = {isa = XCConfigurationList; buildConfigurations = (A1000000000000000000000F,A10000000000000000000010); defaultConfigurationIsVisible = 0; defaultConfigurationName = Debug; };
-  A1000000000000000000000F = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; SDKROOT = macosx; }; name = Debug; };
-  A10000000000000000000010 = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; SDKROOT = macosx; }; name = Release; };
+  A1000000000000000000000F = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; ONLY_ACTIVE_ARCH = YES; SDKROOT = macosx; }; name = Debug; };
+  A10000000000000000000010 = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; ONLY_ACTIVE_ARCH = YES; SDKROOT = macosx; }; name = Release; };
  };
  rootObject = A1000000000000000000000D;
 }
