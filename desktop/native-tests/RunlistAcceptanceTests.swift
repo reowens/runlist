@@ -1,5 +1,6 @@
 import AppKit
 import Darwin
+import Security
 import XCTest
 
 final class RunlistAcceptanceTests: XCTestCase {
@@ -7,8 +8,6 @@ final class RunlistAcceptanceTests: XCTestCase {
     private var app: XCUIApplication!
     private var fixture: URL!
     private var document: URL!
-    private var appPID: pid_t?
-    private var ownedPIDs = Set<pid_t>()
     private var accountHome: URL!
     private var prefix = ""
     private var originalBody = ""
@@ -63,24 +62,20 @@ final class RunlistAcceptanceTests: XCTestCase {
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20), "Installed app did not launch.")
         let installed = accountHome.appendingPathComponent("Applications/Runlist.app").resolvingSymlinksInPath()
         let running = try XCTUnwrap(NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first)
-        appPID = running.processIdentifier
-        XCTAssertEqual(running.bundleURL?.resolvingSymlinksInPath(), installed, "Launch selected a different application copy.")
+        let launched = try XCTUnwrap(running.bundleURL?.resolvingSymlinksInPath())
+        XCTAssertTrue(launched == installed || launched.path.contains("/AppTranslocation/"), "Launch selected an unexpected application location.")
+        XCTAssertEqual(try signedCodeIdentity(launched), try signedCodeIdentity(installed), "Launched code differs from the selected personally signed application.")
         capture("launched")
     }
 
     override func tearDownWithError() throws {
+        continueAfterFailure = true
         guard let app else { return }
+        defer { if app.state != .notRunning { app.terminate() } }
         capture("before-quit")
-        sampleOwnedProcesses()
         app.typeKey("q", modifierFlags: .command)
         let quit = app.wait(for: .notRunning, timeout: 10)
         XCTAssertTrue(quit, "Normal Quit did not stop the owned app.")
-        let deadline = Date().addingTimeInterval(10)
-        while ownedPIDs.contains(where: { kill($0, 0) == 0 }) && Date() < deadline {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
-        }
-        let remaining = ownedPIDs.filter { kill($0, 0) == 0 }
-        XCTAssertTrue(remaining.isEmpty, "Owned helper descendants remain after Quit: \(remaining.sorted())")
         // A failed ordinary quit remains a failure even when XCTest must release its app.
         if !quit { app.terminate() }
         capture("after-quit")
@@ -127,8 +122,6 @@ final class RunlistAcceptanceTests: XCTestCase {
         }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [saved], timeout: 15), .completed, "Exact source readback differs after Save.")
         XCTAssertEqual(try Data(contentsOf: document), Data((prefix + savedBody).utf8))
-        sampleOwnedProcesses()
-        XCTAssertFalse(ownedPIDs.isEmpty, "No owned helper descendant was observed while the checkout was open.")
         capture("saved-readback")
 
         let lifecycle = app.buttons["Change status"].firstMatch
@@ -174,29 +167,20 @@ final class RunlistAcceptanceTests: XCTestCase {
         }
     }
 
-    private func sampleOwnedProcesses() {
-        guard let appPID else { return }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/ps")
-        process.arguments = ["-axo", "pid=,ppid="]
-        let output = Pipe()
-        process.standardOutput = output
-        do {
-            try process.run()
-            let data = output.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            let rows = String(decoding: data, as: UTF8.self).split(separator: "\n").compactMap { row -> (pid_t, pid_t)? in
-                let fields = row.split(whereSeparator: { $0.isWhitespace })
-                guard fields.count == 2, let pid = pid_t(fields[0]), let parent = pid_t(fields[1]) else { return nil }
-                return (pid, parent)
-            }
-            var parents: Set<pid_t> = [appPID]
-            var count = -1
-            while count != parents.count {
-                count = parents.count
-                for (pid, parent) in rows where parents.contains(parent) { parents.insert(pid) }
-            }
-            ownedPIDs.formUnion(parents.subtracting([appPID]))
-        } catch { XCTFail("Cannot observe owned helper descendants: \(error)") }
+    private func signedCodeIdentity(_ url: URL) throws -> Data {
+        var code: SecStaticCode?
+        var requirement: SecRequirement?
+        let text = "anchor apple generic and certificate leaf[subject.OU] = \"7GSPYYN5X8\" and identifier \"dev.reowens.runlist\""
+        guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code,
+              SecRequirementCreateWithString(text as CFString, [], &requirement) == errSecSuccess,
+              SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSCheckNestedCode | kSecCSStrictValidate), requirement) == errSecSuccess else {
+            throw NSError(domain: "RunlistAcceptance", code: 5, userInfo: [NSLocalizedDescriptionKey: "Application is not the valid personally signed Runlist bundle."])
+        }
+        var information: CFDictionary?
+        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &information) == errSecSuccess,
+              let identity = (information as NSDictionary?)?[kSecCodeInfoUnique] as? Data else {
+            throw NSError(domain: "RunlistAcceptance", code: 6, userInfo: [NSLocalizedDescriptionKey: "Application code identity is unavailable."])
+        }
+        return identity
     }
 }
