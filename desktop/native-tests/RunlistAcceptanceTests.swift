@@ -103,7 +103,7 @@ final class RunlistAcceptanceTests: XCTestCase {
         XCTAssertTrue(trust.waitForExistence(timeout: 10), "Native configuration trust confirmation is inaccessible.")
         capture("trust-confirmation")
         trust.click()
-        let title = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Air acceptance")).firstMatch
+        let title = app.buttons.matching(NSPredicate(format: "title BEGINSWITH %@ AND title CONTAINS %@", "Air acceptance ", "docs/plans/air-acceptance.md")).firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: 15), "Fixture document is absent from the native library tree.")
         title.click()
         let markdown = app.buttons["Edit Markdown"].firstMatch
