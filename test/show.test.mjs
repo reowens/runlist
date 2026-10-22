@@ -80,7 +80,7 @@ describe('runlist show', () => {
 
     const [card] = JSON.parse(run(['show', 'porch', '--json']).stdout);
     deepStrictEqual(card.brief.boxes, { open: 1, done: 1 });
-    deepStrictEqual(card.brief.open, [{ line: 11, text: 'Set joists' }]);
+    deepStrictEqual(card.brief.open, [{ line: 11, text: 'Set joists', phase: null }]);
     deepStrictEqual(card.otherFields, ['type', 'owner', 'updated']);
 
     const cardOnly = run(['show', 'porch', '--card']);
@@ -115,5 +115,20 @@ describe('runlist show', () => {
     const res = run(['show', 'NOTES.md']);
     strictEqual(res.status, 0, res.stderr);
     match(res.stdout, /Open boxes: 1 of 1 \(line, text\)\n {2}3 {2}Call the roofer\n/);
+  });
+  it('points at the active phase, groups open boxes by phase, and flags a contradicted marker', () => {
+    setup();
+    write('docs/plans/deck.md', [
+      '---', 'type: plan', 'status: active', '---', '# Deck', '## Phases',
+      '### Phase 1 — Frame ✅', '- [x] Joists', '- [ ] Blocking',
+      '### Phase 2 — Boards ⬜', '- [ ] Lay boards', '',
+    ].join('\n'));
+    const res = run(['show', 'deck']);
+    strictEqual(res.status, 0, res.stderr);
+    match(res.stdout, /\n {3}7 {2}### Phase 1 — Frame ✅ {2}\[1\/2\] {2}\(marked shipped; 1 open\)\n→ 10 {2}### Phase 2 — Boards ⬜ {2}\[0\/1\]\n/);
+    match(res.stdout, /Open boxes: 2 of 3 \(line, text\)\n {2}Phase 1 — Frame ✅\n {5}9 {2}Blocking\n {2}Phase 2 — Boards ⬜\n {4}11 {2}Lay boards\n/);
+    match(res.stdout, /\nNext: runlist show docs\/plans\/deck\.md --section "Phase 2 — Boards"\n$/);
+    const [card] = JSON.parse(run(['show', 'deck', '--json']).stdout);
+    deepStrictEqual(card.brief.activePhase, { line: 10, heading: 'Phase 2 — Boards ⬜' });
   });
 });

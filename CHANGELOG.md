@@ -2,6 +2,16 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- `runlist show` marks each phase heading with its own box tally, points `→`
+  at the active phase, names a marker its boxes contradict, groups open boxes
+  by phase, and ends with the `--section` call for the active phase.
+- `runlist use <doc>` prints the brief for a doc over 500 lines or 60 KB;
+  `--full` prints the whole body.
+
 ## 0.97.0 — 2026-10-22
 
 ### Added

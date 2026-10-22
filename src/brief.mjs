@@ -1,5 +1,5 @@
 import { extractFrontmatter, normalizeEol } from './frontmatter.mjs';
-import { walkSections, matchSections, walkChecklist } from './section.mjs';
+import { detectMarker, findActivePhase, isPhaseHeading, matchSections, phaseMarkerConflict, phaseTally, walkChecklist, walkSections } from './section.mjs';
 
 // A document in a few KB, for an agent to read in place of the whole file: a
 // heading outline and the open checklist boxes, both with file line numbers,
@@ -30,13 +30,39 @@ function fileLines(text) {
 
 // Headings with file coordinates: `line` is the heading, `end` the last line of
 // its section (the line before the next heading at the same or a higher level).
+// A phase heading also carries `phase`: its marker, its own checklist tally,
+// whether it is the active phase (the rule the `use` pickup card applies), and
+// a contradiction between marker and boxes when there is one.
 function headingsOf(body, bodyLineOffset, lastLine) {
-  return walkSections(body).map(s => ({
-    line: s.lineStart + bodyLineOffset,
-    end: Math.min(s.lineEnd + bodyLineOffset, lastLine),
-    level: s.level,
-    heading: s.heading,
-  }));
+  const sections = walkSections(body);
+  const active = findActivePhase(sections);
+  return sections.map(s => {
+    const h = {
+      line: s.lineStart + bodyLineOffset,
+      end: Math.min(s.lineEnd + bodyLineOffset, lastLine),
+      level: s.level,
+      heading: s.heading,
+    };
+    if (isPhaseHeading(s)) {
+      const tally = phaseTally(s);
+      const conflict = phaseMarkerConflict(s);
+      h.phase = {
+        marker: detectMarker(s.heading),
+        done: tally.checked,
+        total: tally.total,
+        active: s === active,
+        conflict: conflict ? { declared: conflict.declared, implied: conflict.implied } : null,
+      };
+    }
+    return h;
+  });
+}
+
+// The phase heading a body line sits under, if any.
+function phaseAt(headings, line) {
+  let found = null;
+  for (const h of headings) if (h.phase && h.line <= line && line <= h.end) found = h;
+  return found;
 }
 
 // Drop the deepest heading levels until the outline fits, then cut the tail.
@@ -91,7 +117,9 @@ export function buildBrief(raw, { all = false, limits = LIMITS } = {}) {
   const headings = headingsOf(body, bodyLineOffset, lines.length);
   const { shown, omitted } = boundOutline(headings, limits.outline);
   const boxes = walkChecklist(body).map(b => ({ ...b, line: b.line + bodyLineOffset }));
-  const open = boxes.filter(b => b.open).map(({ line, text: t }) => ({ line, text: t }));
+  const open = boxes.filter(b => b.open)
+    .map(({ line, text: t }) => ({ line, text: t, phase: phaseAt(headings, line)?.heading ?? null }));
+  const active = headings.find(h => h.phase?.active) ?? null;
   const listed = all ? open : open.slice(0, limits.boxes);
   return {
     lines: lines.length,
@@ -99,6 +127,7 @@ export function buildBrief(raw, { all = false, limits = LIMITS } = {}) {
     frontmatterLines: frontmatter ? bodyLineOffset : 0,
     outline: shown,
     outlineOmitted: omitted,
+    activePhase: active ? { line: active.line, heading: active.heading } : null,
     boxes: { open: open.length, done: boxes.length - open.length },
     open: listed,
     openOmitted: open.length - listed.length,

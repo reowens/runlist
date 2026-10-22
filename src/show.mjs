@@ -150,18 +150,45 @@ function runSection(target, opts, config) {
   process.stdout.write(out.join('\n') + '\n');
 }
 
+// `[3/7]` for a phase with boxes, and the contradiction between its marker and
+// its boxes when there is one.
+function phaseNote(phase) {
+  if (!phase) return '';
+  let note = phase.total ? `  [${phase.done}/${phase.total}]` : '';
+  if (phase.conflict) {
+    note += phase.conflict.declared === 'shipped'
+      ? `  (marked shipped; ${phase.total - phase.done} open)`
+      : '  (marked todo; every box checked)';
+  }
+  return note;
+}
+
+// A heading as a --section query: trailing markers dropped, which the matcher
+// ignores anyway, so the suggested command reads cleanly.
+const sectionQuery = heading => heading.replace(/[^\w\s]+$/u, '').trim() || heading;
+
 function renderBrief(card, brief) {
   const out = [];
   const width = String(brief.lines).length;
   const kb = Math.max(1, Math.round(brief.bytes / 1024));
   out.push('', `Outline: ${brief.lines.toLocaleString('en-US')} lines, ${kb} KB (line, heading)`);
   if (!brief.outline.length) out.push('  (no headings)');
-  for (const h of brief.outline) out.push(`  ${pad(h.line, width)}  ${cut(`${'#'.repeat(h.level)} ${h.heading}`)}`);
+  for (const h of brief.outline) {
+    const gutter = h.phase?.active ? '→ ' : '  ';
+    out.push(`${gutter}${pad(h.line, width)}  ${cut(`${'#'.repeat(h.level)} ${h.heading}`)}${phaseNote(h.phase)}`);
+  }
   if (brief.outlineOmitted) out.push(`  (+${brief.outlineOmitted} deeper headings not shown; a --section read shows them)`);
   const total = brief.boxes.open + brief.boxes.done;
   if (total) {
     out.push(`Open boxes: ${brief.boxes.open} of ${total} (line, text)`);
-    for (const b of brief.open) out.push(`  ${pad(b.line, width)}  ${cut(b.text)}`);
+    // Grouped under the phase each box sits in, so the list reads as what is
+    // left, phase by phase.
+    let group;
+    for (const b of brief.open) {
+      if (b.phase !== group && (b.phase || group)) out.push(`  ${b.phase ? cut(b.phase) : '(not in a phase)'}`);
+      group = b.phase;
+      out.push(`${group ? '    ' : '  '}${pad(b.line, width)}  ${cut(b.text)}`);
+    }
     if (brief.openOmitted) out.push(`  (+${brief.openOmitted} more: add --all)`);
   }
   if (brief.frontmatter) {
@@ -211,7 +238,10 @@ export function runShow(args, config) {
     process.stdout.write(out.join('\n') + '\n');
   });
   if (!opts.card) {
+    const active = cards.length === 1 ? cards[0].brief?.activePhase : null;
     const file = cards.length === 1 ? shellQuote(cards[0].path) : '<file>';
-    process.stdout.write(`\nOne section: runlist show ${file} --section "<heading>"\n`);
+    process.stdout.write(active
+      ? `\nNext: runlist show ${file} --section ${shellQuote(sectionQuery(active.heading))}\n`
+      : `\nOne section: runlist show ${file} --section "<heading>"\n`);
   }
 }

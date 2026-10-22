@@ -263,6 +263,7 @@ View & Query:
   plans                             Live plans (excludes archived; --include-archived for all)
   app [document] [--port 5173]      Local Markdown document library with reviewed saves and draft recovery
   use [<file-or-slug>]              Open a doc by type: prompt → consume, plan → start, doc → read
+                                    (a doc over 500 lines prints its brief; --full prints it whole)
   baton [<plan>|<slug>] @<draft>     Save a resume prompt; releases the plan + prints the commit when one is in-session
   prompts [list|show|archive|new] Prompt admin (list / peek / archive / save). Use \`runlist use\` to consume.
   stale                             Stale docs (preset)
@@ -1592,6 +1593,15 @@ heading matches case-insensitively: exact first, then as a prefix, then as a
 substring; other matches are named. A section read stops at 500 lines or
 60 KB and prints the command that continues it. Headings and boxes inside code
 fences are ignored. Several files at once get a shorter outline each.
+
+A phase heading shows its own boxes as [done/total], → marks the active phase
+(the one \`use\` would point at), and a marker its boxes contradict is named
+(marked shipped with boxes open, or todo with every box checked). Open boxes
+are grouped by phase, and the last line is the --section call for the active
+phase.
+
+\`runlist use <doc>\` prints this brief for a doc over 500 lines or 60 KB;
+\`use <doc> --full\` prints the whole body.
 
 A file is a path, filename or slug, as for \`use\`, and any Markdown file in
 the repo works. Nothing is claimed or written. With --json a file that is not

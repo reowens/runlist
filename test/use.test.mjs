@@ -190,4 +190,17 @@ describe('dotmd use — doc', () => {
     ok(res.stdout.includes('design rationale ZZZTOP'), `body printed; got: ${res.stdout}`);
     strictEqual(readFileSync(file, 'utf8'), before, 'doc is byte-identical (read-only)');
   });
+
+  it('prints the brief for a doc over 500 lines, and the whole body with --full', () => {
+    const lines = Array.from({ length: 520 }, (_, i) => `line ${i}`).join('\n');
+    writeDoc('long-spec', { body: `# Long spec\n## Scope\n${lines}\n## Appendix\nend\n` });
+    const brief = run(['use', 'docs/long-spec.md']);
+    strictEqual(brief.status, 0, brief.stderr);
+    ok(brief.stdout.includes('## Appendix'), `outline printed; got: ${brief.stdout}`);
+    ok(!brief.stdout.includes('line 300'), 'body not printed');
+    ok(/is 5\d\d lines, so this is its brief\. `runlist use docs\/long-spec\.md --full` prints it whole\./.test(brief.stderr), brief.stderr);
+    const full = run(['use', 'docs/long-spec.md', '--full']);
+    strictEqual(full.status, 0, full.stderr);
+    ok(full.stdout.includes('line 300'), 'body printed with --full');
+  });
 });
