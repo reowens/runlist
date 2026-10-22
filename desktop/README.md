@@ -21,14 +21,15 @@ plans display comparison and explain unavailable assessment actions.
 
 ## Current release and next steps
 
-**0.96.1 is released and installed locally.** The Apple Silicon/macOS 13.5+
+**0.97.0 is released and installed locally.** The Apple Silicon/macOS 13.5+
 installer is signed, Apple accepted, stapled and accepted by Gatekeeper. The
-release includes quieter navigation, a prominent destination-labelled Back
-button, larger text, document pins, recoverable record drafts and the reviewed
-status-change confirmation fix. npm and desktop publication are complete;
+app's own code is unchanged from 0.96.1 (quieter navigation, destination-labelled
+Back, larger text, document pins, recoverable record drafts, reviewed
+status-change confirmation); it bundles the 0.97.0 engine, which counts
+checklists outside code fences only. npm and desktop publication are complete;
 installation retained the previous app for rollback.
 
-See [current validation](VALIDATION.md#current-mac-release--2026-10-21)
+See [current validation](VALIDATION.md#current-mac-release--2026-10-22)
 for the published artifact and checks. Remaining work includes full-app dialog
 accessibility, fresh/minimum-host installation and recovery, native offline
 journeys, controlled whole-app performance and broader desktop platforms.
@@ -37,7 +38,7 @@ Optional live semantic search and local chat remain separate follow-up work.
 ### Historical 0.94.1 qualification
 
 The following evidence records the earlier 0.94.1 release. Its installed-version
-statements and release holds do not describe the current 0.96.1 installation.
+statements and release holds do not describe the current 0.97.0 installation.
 
 **[Runlist Desktop 0.94.1](https://github.com/reowens/runlist/releases/tag/desktop-v0.94.1)**
 is available for Apple Silicon Macs running macOS 13.5 or newer. It replaces

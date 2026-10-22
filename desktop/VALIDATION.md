@@ -1,8 +1,47 @@
 # Desktop validation
 
-## Current Mac release — 2026-10-21
+## Current Mac release — 2026-10-22
 
-**Runlist 0.96.1 is published and installed locally.** npm `latest`, the CLI
+**Runlist 0.97.0 is published and installed locally.** npm `latest`, the CLI
+[release](https://github.com/reowens/runlist/releases/tag/v0.97.0) and the
+[desktop release](https://github.com/reowens/runlist/releases/tag/desktop-v0.97.0)
+are complete. The [publication workflow](https://github.com/reowens/runlist/actions/runs/39765868144)
+passed. Source commit: `af697d37eee044a2d06d7feb888b536264d03c91`.
+
+The desktop app's own sources are unchanged from 0.96.1 apart from version
+labels; the release bundles the 0.97.0 engine (`runlist show` brief, checklist
+counts outside code fences, trimmed start-up context). Artifact: Apple Silicon,
+macOS 13.5+, protocol 1. The app and installer are Developer ID signed, Apple
+accepted, stapled and Gatekeeper accepted, and were installed through the normal
+installer with the previous app retained for rollback.
+
+- [Installer](https://github.com/reowens/runlist/releases/download/desktop-v0.97.0/Runlist-0.97.0-macOS-arm64.dmg)
+  SHA-256: `df1b0a1ca547cbe563429af9a2a52157a898d552f342d81d3127290f13495c48`.
+- [Release manifest](https://github.com/reowens/runlist/releases/download/desktop-v0.97.0/release-manifest.json)
+  records accepted app submission `ad484f21-a070-40b0-ad62-cd4b81b9a061`
+  and installer submission `74b03d56-a6b7-4b5e-b54d-45296456659f`.
+- Source: **2,564 passed, one skip, zero failures**, with the guarded Git
+  integration suite run against qualified Git 2.54.0. Desktop: **134 passed,
+  one skip, zero failures**. Native controller: **11 passed**.
+- Packaged helper/frontend: **65 passed**. Signed-bundle checks and
+  installed-app checks: **37 passed each**.
+- Public-content checks passed for **501 source files and 175 package files**.
+
+The first install attempt read GitHub's public release list a second after
+publication, saw the cached 0.96.1 listing and stopped; `npm run release:resume`
+installed 0.97.0 without re-versioning. No native MacBook Air review was run
+for this release, since the app's UI code did not change.
+
+**Remaining qualification** is unchanged from 0.96.1 below: full-app dialog
+accessibility, native offline journeys, fresh/minimum-host install/upgrade/rollback
+and no-global-Node acceptance, controlled whole-app performance, and broader
+desktop platforms.
+
+Local release receipts are retained under `.runlist/desktop-release/0.97.0/`.
+
+## Mac release 0.96.1 — 2026-10-21
+
+**Runlist 0.96.1 was published and installed locally.** npm `latest`, the CLI
 [release](https://github.com/reowens/runlist/releases/tag/v0.96.1) and the
 [desktop release](https://github.com/reowens/runlist/releases/tag/desktop-v0.96.1)
 are complete. The [publication workflow](https://github.com/reowens/runlist/actions/runs/39590781735)

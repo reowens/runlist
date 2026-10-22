@@ -105,11 +105,13 @@ Host source, cache and registry copies are labelled separately; a cache entry
 alone does not prove which copy a running host has loaded. No package manager or
 host command runs to produce the `doctor --project` installation report.
 
-**0.96.1 is published and installed locally**, including the desktop usability,
-draft recovery, handoff and failed-status-preview confirmation fixes. The Mac
-installer is signed, notarized and verified; installation retained the previous
-app for rollback. Open it with `rl desktop`. See the
-[release validation](desktop/VALIDATION.md#current-mac-release--2026-10-21)
+**0.97.0 is published and installed locally.** It adds the `runlist show`
+brief (outline, open boxes and `--section` reads with line numbers), counts
+checklists outside code fences only, and trims session and subagent start-up
+context. The desktop app's own code is unchanged from 0.96.1; it bundles the
+0.97.0 engine. The Mac installer is signed, notarized and verified; installation
+retained the previous app for rollback. Open it with `rl desktop`. See the
+[release validation](desktop/VALIDATION.md#current-mac-release--2026-10-22)
 for checks and evidence. Full-app dialog accessibility remains an open finding;
 fresh/minimum-host and controlled whole-app performance qualification remain
 follow-up work.
