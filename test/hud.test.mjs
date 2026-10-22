@@ -59,10 +59,11 @@ afterEach(() => {
 });
 
 // HUD contract:
-//   - stdout emits the command primer line (the verb cheat-sheet) plus ONLY
-//     signals that carry a direct instruction for this session: pending
-//     prompts (consume with `dotmd use`) and a journal-attributed in-session
-//     durably owned plan (continue / hand off with baton). Passive state — error counts,
+//   - stdout emits ONLY signals that carry a direct instruction for this
+//     session, and nothing in a clean repo: a count of pending prompts
+//     (resume one when the user asks), a count of open flags, and a durably
+//     owned in-session plan (continue / hand off with baton). No command sheet
+//     or status list — the skill carries those. Passive state — error counts,
 //     journal chatter, refresh notices — stays suppressed; those nudged
 //     agents into phantom follow-up work.
 //   - `--json` still returns the structured shape (owned/prompts/errors/
@@ -70,48 +71,27 @@ afterEach(() => {
 //   - SessionStart is passive: no index healing, hook calls, journaling, or
 //     retired slash-command cleanup
 describe('runlist hud', () => {
-  it('always emits the command primer (one line)', () => {
+  it('prints nothing in a clean repo: no command sheet, no status list', () => {
     setupProject();
     const r = runCli(['hud']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
-    ok(/runlist:/.test(r.stdout), `expected primer line; got: ${r.stdout}`);
-    ok(/set <status>/.test(r.stdout), `primer should name the set verb; got: ${r.stdout}`);
-    ok(/new <type>/.test(r.stdout), `primer should name the new verb; got: ${r.stdout}`);
-    ok(/\buse\b/.test(r.stdout), `primer should name the use verb; got: ${r.stdout}`);
-    ok(r.stdout.includes('Plan statuses: in-session, active, planned'), `primer should include configured plan vocabulary; got: ${r.stdout}`);
+    ok(!r.stdout.includes('[runlist]'), `clean repo prints no runlist line; got: ${r.stdout}`);
+    ok(!/set <status>|Plan statuses/.test(r.stdout), `no command sheet or statuses; got: ${r.stdout}`);
   });
 
-  it('teaches explicit child handoffs in a bounded subagent primer', () => {
+  it('primes a subagent with the read verbs, the guardrails and a child-handoff pointer, bounded', () => {
     setupProject();
     const child = runCli(['hud', '--subagent']);
     strictEqual(child.status, 0, child.stderr);
+    ok(child.stdout.includes('runlist show <file> --section "<heading>"'), child.stdout);
+    ok(child.stdout.includes('Do NOT: cat/read a docs/prompts/*.md'), child.stdout);
     ok(child.stdout.includes('runlist baton --subagent <task-slug> @<draft-file>'), child.stdout);
-    ok(child.stdout.includes('subagent-<task-slug>'), child.stdout);
-    ok(child.stdout.includes('parent-owned plan'), child.stdout);
-    ok(child.stdout.includes('release only your own plan'), child.stdout);
-    ok(child.stdout.length < 1600, `child primer too large: ${child.stdout.length}`);
+    ok(child.stdout.includes('runlist help baton'), child.stdout);
+    ok(!child.stdout.includes('Plan statuses'), child.stdout);
+    ok(child.stdout.length < 700, `child primer too large: ${child.stdout.length}`);
     const parent = runCli(['hud']);
     strictEqual(parent.status, 0, parent.stderr);
     ok(!parent.stdout.includes('baton --subagent'), parent.stdout);
-  });
-
-  it('prints bounded custom status vocabulary for sessions and subagents', () => {
-    setupProject();
-    const statuses = Array.from({ length: 20 }, (_, i) => `status-${String(i).padStart(2, '0')}`);
-    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `
-      export const root = 'docs';
-      export const types = { plan: { statuses: ${JSON.stringify(statuses)}, context: { expanded: ['status-00'], listed: [], counted: ${JSON.stringify(statuses.slice(1))} } } };
-    `);
-    const session = runCli(['hud']);
-    strictEqual(session.status, 0, session.stderr);
-    ok(session.stdout.includes('status-00'), session.stdout);
-    ok(session.stdout.includes('runlist statuses list --type plan'), session.stdout);
-    ok(/\(\+\d+;/.test(session.stdout), session.stdout);
-
-    const subagent = runCli(['hud', '--subagent']);
-    strictEqual(subagent.status, 0, subagent.stderr);
-    ok(subagent.stdout.includes('status-00'), subagent.stdout);
-    ok(subagent.stdout.includes('runlist statuses list --type plan'), subagent.stdout);
   });
 
   it('surfaces custom expanded prompt statuses', () => {
@@ -124,7 +104,8 @@ describe('runlist hud', () => {
     writeDoc(docsDir, 'prompts/urgent.md', 'type: prompt\nstatus: urgent\ncreated: 2025-01-01', 'act now\n');
     const result = runCli(['hud']);
     strictEqual(result.status, 0, result.stderr);
-    ok(result.stdout.includes('pending prompt: urgent.'), result.stdout);
+    ok(result.stdout.includes('1 pending prompt:'), result.stdout);
+    ok(!result.stdout.includes('urgent'), `prompts are counted, not named; got: ${result.stdout}`);
   });
 
   it('surfaces pending prompts as an actionable instruction; passive state stays suppressed', () => {
@@ -140,7 +121,7 @@ describe('runlist hud', () => {
     // queued, or batons rot unconsumed (the 0.50.0 scrub broke this).
     ok(/1 pending prompt\b/.test(r.stdout), `stdout must announce the pending prompt; got: ${r.stdout}`);
     ok(r.stdout.includes('runlist use'), `the announcement must name the consume verb; got: ${r.stdout}`);
-    ok(/pending prompt: x\./.test(r.stdout), `the prompt is listed by name; got: ${r.stdout}`);
+    ok(r.stdout.includes('`runlist prompts` lists them'), `the line points at the list; got: ${r.stdout}`);
     ok(r.stdout.includes('only when the user asks'), `resuming waits for the user; got: ${r.stdout}`);
     ok(!/consume the oldest \(/.test(r.stdout), `no steering to the oldest; got: ${r.stdout}`);
     // Passive state stays out — these nudged phantom work.
@@ -210,7 +191,6 @@ describe('runlist hud', () => {
     const r = runCli(['hud']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
     ok(!/slash commands|removed|cleaned/i.test(r.stdout), `cleanup must be silent; got: ${r.stdout}`);
-    ok(/runlist:/.test(r.stdout), `primer line should still emit; got: ${r.stdout}`);
 
     // HUD is passive. Explicit doctor/init maintenance owns retired cleanup.
     ok(existsSync(generatedPath), 'retired generated file should remain untouched');
@@ -271,7 +251,6 @@ describe('runlist hud', () => {
     ok(!existsSync(path.join(tmpDir, '.claude')), 'precondition: no .claude/');
     const r = runCli(['hud']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
-    ok(/runlist:/.test(r.stdout), `primer should still emit; got: ${r.stdout}`);
   });
 
   it('--json error count remains parity with `runlist check --json`', () => {
@@ -302,14 +281,14 @@ describe('runlist hud', () => {
       runCli(['pickup', `held-${i}.md`]);
     }
     mkdirSync(path.join(docsDir, 'prompts'), { recursive: true });
-    // The pending-prompt line must name only the oldest + a count — never the
-    // whole queue — so output size is independent of how many are pending.
+    // The pending-prompt line is a count — never the queue — so output size is
+    // independent of how many are pending.
     for (let i = 0; i < 25; i++) {
       writeDoc(docsDir, `prompts/p-${i}.md`, 'type: prompt\nstatus: pending\ncreated: 2025-01-01', 'body\n');
     }
     const r = runCli(['hud']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
-    ok(r.stdout.length < 700, `hud output too large: ${r.stdout.length} bytes\n${r.stdout}`);
+    ok(r.stdout.length < 500, `hud output too large: ${r.stdout.length} bytes\n${r.stdout}`);
     ok(/25 pending prompts/.test(r.stdout), `count announced; got: ${r.stdout}`);
   });
 
@@ -503,7 +482,6 @@ describe('hud pending prompts without the index', () => {
     const r = runCli(['hud']);
     strictEqual(r.status, 0, r.stderr);
     ok(r.stdout.includes('2 pending prompts'), r.stdout);
-    ok(r.stdout.includes('2 pending prompts: older, newer.'), r.stdout);
     const j = JSON.parse(runCli(['hud', '--json']).stdout);
     strictEqual(JSON.stringify(j.prompts), JSON.stringify(['docs/prompts/older.md', 'docs/prompts/newer.md']));
   });

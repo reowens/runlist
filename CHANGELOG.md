@@ -15,6 +15,17 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ### Changed
 
+- Session start prints only what the session should act on, and nothing in a
+  clean repo: one line with the count of pending prompts (resume one only when
+  the user asks) and of open flags, plus the conditional lines for a plan this
+  session holds, an unfinished handoff, a repeated misuse and plans held by
+  sessions that are gone. The command sheet, the plan status list, prompt
+  names and flag texts are gone; the skill carries the verbs and `runlist set`
+  names valid statuses. In a repo with 57 prompts and 202 flags this cut the
+  output from 1.5 KB to 0.4 KB.
+- The subagent primer (also sent on a working-directory change) is three
+  lines: read plans with `runlist show` and `--section`, the three things not
+  to do, and a pointer for child handoffs. 1.4 KB to 0.6 KB.
 - Checklist counts ignore boxes inside code fences, everywhere they are
   reported, so a template's example checklist is no longer counted as work.
 

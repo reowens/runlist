@@ -1,5 +1,5 @@
 import { describe, it, afterEach } from 'node:test';
-import { ok, strictEqual, doesNotMatch, match } from 'node:assert';
+import { ok, strictEqual, doesNotMatch } from 'node:assert';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -48,12 +48,11 @@ function runHud(args = [], env = {}) {
 afterEach(() => { if (tmpDir) rmSync(tmpDir, { recursive: true, force: true }); });
 
 describe('F17b: hud reads journal', () => {
-  it('no journal file → hud output is byte-identical to pre-F17b (command primer only)', () => {
+  it('no journal file → hud prints no journal sections', () => {
     setupProject();
     // No journal file written.
     const r = runHud();
     strictEqual(r.status, 0, r.stderr);
-    match(r.stdout, /runlist: plans\|briefing/, 'primer present');
     doesNotMatch(r.stdout, /previous self/, 'no previous-self header when journal absent');
     doesNotMatch(r.stdout, /fleet/, 'no fleet header when journal absent');
     doesNotMatch(r.stdout, /recent rejections/, 'no rejections header when journal absent');

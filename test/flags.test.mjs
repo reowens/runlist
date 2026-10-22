@@ -192,7 +192,7 @@ describe('flags', () => {
     const config = await setup();
     strictEqual(flagsHudLine(config), null);
     addFlag(config, { place: 'docs/a.md:7', text: 'first claim is stale', severity: 'problem', by });
-    match(flagsHudLine(config), /1 open flag, 1 problem, for awareness: F1 docs\/a\.md:7 first claim is stale/);
+    strictEqual(flagsHudLine(config), '1 open flag, 1 problem, for awareness: `runlist flags` lists them.');
     const hud = run(['hud']);
     match(hud.stdout, /1 open flag/);
   });

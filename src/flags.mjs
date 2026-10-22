@@ -221,13 +221,15 @@ function placeLabel(flag, config) {
 const severityLabel = s => (s === 'problem' ? red(s) : s === 'warn' ? yellow(s) : dim(s));
 
 // One line for the session-start banner, or null when nothing is open.
-export function flagsHudLine(config, { top = 3 } = {}) {
+// A count for the session-start line; `runlist flags` lists them. Printing the
+// first few flags' text put problems unrelated to the session's task in front
+// of every session, cut mid-sentence.
+export function flagsHudLine(config) {
   let open;
   try { open = openFlags(config); } catch { return null; }
   if (open.length === 0) return null;
   const problems = open.filter(f => f.severity === 'problem').length;
-  const items = open.slice(0, top).map(f => `${f.id} ${f.line != null ? `${f.file}:${f.line}` : f.file} ${f.text.slice(0, 80)}`).join('; ');
-  return `[runlist] ${open.length} open flag${open.length === 1 ? '' : 's'}${problems ? `, ${problems} problem${problems === 1 ? '' : 's'}` : ''}, for awareness: ${items}. List: \`runlist flags\`.`;
+  return `${open.length} open flag${open.length === 1 ? '' : 's'}${problems ? `, ${problems} problem${problems === 1 ? '' : 's'}` : ''}, for awareness: \`runlist flags\` lists them.`;
 }
 
 export function runFlags(argv, config) {

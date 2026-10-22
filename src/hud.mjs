@@ -12,7 +12,7 @@ import { compareVersions } from './update.mjs';
 import { findOwnedPlan } from './baton.mjs';
 import { listOwnedPlans, surveyOwnershipClaims } from './pickup.mjs';
 import { handoffNotDoneLine, pendingHandoffsForSession } from './handoff-record.mjs';
-import { actionablePromptStatuses, comparePromptDocs, resolveStatusMetadata } from './status-metadata.mjs';
+import { actionablePromptStatuses, comparePromptDocs } from './status-metadata.mjs';
 
 export { actionablePromptStatuses } from './status-metadata.mjs';
 
@@ -286,39 +286,17 @@ export function buildHud(config) {
 }
 
 // Subagent primer: a spawned subagent (Explore, Plan, general-purpose) starts
-// with ZERO project context and no SessionStart history — it has never seen the
-// command sheet the top-level session got. Without this, subagents reflexively
-// grep/cat/commit managed docs instead of using runlist. Keep it to a few dense
-// lines: the verbs + the three wrong-moves the guard exists to stop, so the
-// subagent self-corrects before the guard ever has to fire.
+// with ZERO project context and no SessionStart history. Without this,
+// subagents reflexively grep/cat/commit managed docs instead of using runlist.
+// It fires on every SubagentStart and CwdChanged, so every byte here is paid
+// again and again: the read verbs, the three wrong-moves the guard exists to
+// stop, and a pointer for the rare child handoff. Statuses are not listed —
+// `runlist set` names the valid ones when given a wrong one.
 const SUBAGENT_PRIMER = [
-  'runlist manages this repo\'s plans/docs/prompts (markdown + YAML frontmatter).',
-  'Verbs: plans|briefing | query <filters> | use [<file>] | set <status> <file> | new <type> <slug> | archive <file>.',
-  'Child handoff: `runlist baton --subagent <task-slug> @<draft-file>` saves subagent-<task-slug>. Add --parent resume-<name> when known to group it under its parent prompt. Use a task slug under a parent-owned plan; release only your own plan. Parent batons default to resume-<name>.',
-  'Child draft: `runlist baton --subagent --template --parent resume-<name>` prints the checkout’s child outline (built-in: Task, State, Next, Evidence and Boundaries). Carry parent_prompt in the draft or pass RUNLIST_PARENT_PROMPT into the child environment. Save full records at durable repo-relative paths. Repair old links with `runlist prompts link <child...> --parent resume-<name>`.',
-  'Claims: `runlist doctor --claims` lists which session holds each plan; `--apply` releases the ones whose session is gone.',
-  'Do NOT: cat/read a docs/prompts/*.md (use `runlist use <file>` — archive/claim commits before at-most-once output);',
-  'git add/commit a prompt (they are session-local, often gitignored); hand-edit a `status:` field (use `runlist set`).',
+  'runlist manages this repo\'s plans/docs/prompts (markdown + YAML frontmatter). Read a plan or long doc with `runlist show <file>` (outline and open boxes with line numbers), then `runlist show <file> --section "<heading>"`, never whole. Orient: `runlist plans`.',
+  'Do NOT: cat/read a docs/prompts/*.md (use `runlist use <file>`); git add/commit a prompt (session-local); hand-edit a `status:` field (use `runlist set <status> <file>`).',
+  'Handing work back as a saved prompt: `runlist baton --subagent <task-slug> @<draft-file>` (`runlist help baton` for --parent and --template).',
 ].join('\n');
-
-export function buildPlanStatusPrimer(config, { maxChars = 220 } = {}) {
-  const statuses = (resolveStatusMetadata(config).byType.plan ?? []).map(item => item.name);
-  const fallback = 'run `runlist statuses list --type plan`';
-  if (statuses.length === 0) return `Plan statuses unavailable; ${fallback}.`;
-  const prefix = 'Plan statuses: ';
-  const full = `${prefix}${statuses.join(', ')}`;
-  if (full.length <= maxChars) return full;
-
-  const shown = [];
-  for (const status of statuses) {
-    const omitted = statuses.length - shown.length - 1;
-    const candidate = `${prefix}${[...shown, status].join(', ')}, ... (+${omitted}; ${fallback})`;
-    if (candidate.length > maxChars) break;
-    shown.push(status);
-  }
-  const omitted = statuses.length - shown.length;
-  return `${prefix}${shown.join(', ')}${shown.length ? ', ' : ''}... (+${omitted}; ${fallback})`;
-}
 
 // The plugin's SessionStart/SubagentStart hooks fire in EVERY repo (it's enabled
 // globally), but the primer only helps where runlist is actually used. Gate on a
@@ -415,14 +393,11 @@ export async function runPromptSubmitHud(config, { readStdin } = {}) {
   process.stdout.write(buildHandoffContext(config) + '\n');
 }
 
-// Names, not paths, and at most PROMPT_NAMES_SHOWN of them, so the line stays
-// one line however long the queue grows.
-const PROMPT_NAMES_SHOWN = 12;
+// A count, not names: a queue of dozens printed a dozen names nobody asked
+// about, and `runlist prompts` lists them when the user names one.
 export function pendingPromptsLine(prompts) {
   const n = prompts.length;
-  const names = prompts.slice(0, PROMPT_NAMES_SHOWN).map(p => path.basename(p, '.md'));
-  const more = n > names.length ? ` (+${n - names.length} more: \`runlist prompts\`)` : '';
-  return `[runlist] ${n} pending prompt${n === 1 ? '' : 's'}: ${names.join(', ')}${more}. Resume one only when the user asks for it (\`runlist use <name>\`); never consume the oldest by default. Peek without consuming: \`runlist prompts show <name>\`.`;
+  return `${n} pending prompt${n === 1 ? '' : 's'}: resume one only when the user asks for it (\`runlist prompts\` lists them, \`runlist use <name>\` resumes one, \`runlist prompts show <name>\` peeks); never consume the oldest by default.`;
 }
 
 function isRunlistRepo(config) {
@@ -441,7 +416,6 @@ export function runHud(argv, config) {
   if (argv.includes('--subagent')) {
     if (!runlistRepo) return; // silent in repos that don't use runlist
     process.stdout.write(dim(SUBAGENT_PRIMER) + '\n');
-    process.stdout.write(dim(buildPlanStatusPrimer(config)) + '\n');
     if (drift) process.stdout.write(yellow(drift) + '\n');
     return;
   }
@@ -458,26 +432,29 @@ export function runHud(argv, config) {
 
   const hud = buildHudFast(config);
 
-  // SessionStart contract: the command primer, plus ONLY signals that carry a
-  // direct instruction for this session. Passive state (error counts,
-  // slash-command refresh notices, previous-self / fleet / recent-rejections)
-  // stays suppressed — those nudged agents into phantom follow-up work (e.g.
-  // "errors: 1" prompting a check run) and live in their proper commands and
-  // `runlist hud --json`. Two signals ARE instructions and must print, because
-  // the handoff loop dies without them (sessions were saving batons that no
-  // next session ever picked up):
-  //   - pending prompts: earlier sessions queued work. The line lists them
-  //     and says to resume one only when the user asks. It used to say
-  //     "consume the oldest" unless told otherwise, but a new session nearly
+  // SessionStart contract: ONLY signals that carry a direct instruction for
+  // this session, and nothing at all in a clean repo. No command sheet and no
+  // status list: the runlist skill carries the verbs, and `runlist set` names
+  // the valid statuses when given a wrong one. Passive state (error counts,
+  // previous-self / fleet / recent-rejections) stays suppressed — it nudged
+  // agents into phantom follow-up work and lives in its own commands and
+  // `runlist hud --json`. What prints:
+  //   - pending prompts, as a count: earlier sessions queued work, and the
+  //     line says to resume one only when the user asks. A new session nearly
   //     always has a task from the user, the hook cannot see it, and the
   //     oldest prompt is rarely the useful one.
+  //   - open flags, as a count: the person asked that every session start
+  //     knowing where things stand. Worded as awareness, not an instruction.
   //   - an in-session plan attributed to this sid via durable ownership: this
   //     session (pre-compaction) owns it and should continue or hand it off.
   //     Global in-session counts never provide a fallback.
-  // The misuse recap stays for the same reason: a repeat-offense rule means
-  // the primer alone isn't landing, so name the habit to break.
-  process.stdout.write(dim('runlist: plans|briefing  set <status> [<file>]  new <type> <slug>  use [<file>]  archive <file>  baton [<plan-or-slug>] @<draft-file> (save a resume prompt; releases the in-session plan if any)') + '\n');
-  process.stdout.write(dim(buildPlanStatusPrimer(config)) + '\n');
+  //   - an unfinished handoff, a repeat-offense misuse rule, and plans held by
+  //     sessions that are gone: each names the command that clears it.
+  const queue = [];
+  if (hud.prompts.length > 0) queue.push(pendingPromptsLine(hud.prompts));
+  const flagsLine = flagsHudLine(config);
+  if (flagsLine) queue.push(flagsLine);
+  if (queue.length) process.stdout.write(yellow(`[runlist] ${queue.join(' ')}`) + '\n');
   if (hud.owned && hud.owned.via === 'ownership') {
     process.stdout.write(yellow(`[runlist] in-session (yours): ${hud.owned.path} — continue it; hand off with \`runlist baton @/tmp/draft.md\` before stopping.`) + '\n');
   }
@@ -486,16 +463,7 @@ export function runHud(argv, config) {
   try {
     for (const record of pendingHandoffsForSession(config)) process.stdout.write(yellow(`[runlist] ${handoffNotDoneLine(record, `runlist baton --done ${record.plan}`)}`) + '\n');
   } catch { /* advisory */ }
-  if (hud.prompts.length > 0) {
-    const n = hud.prompts.length;
-    process.stdout.write(yellow(pendingPromptsLine(hud.prompts)) + '\n');
-  }
   if (hud.misuseRecap) process.stdout.write(yellow(`[runlist] ${hud.misuseRecap}`) + '\n');
   if (hud.deadClaimsLine) process.stdout.write(yellow(hud.deadClaimsLine) + '\n');
-  // Open flags are the one piece of passive state printed here: the person
-  // asked that every session start knowing where things stand. It is worded
-  // as awareness, not an instruction, so no session treats it as its task.
-  const flagsLine = flagsHudLine(config);
-  if (flagsLine) process.stdout.write(yellow(flagsLine) + '\n');
   if (drift) process.stdout.write(yellow(drift) + '\n');
 }
