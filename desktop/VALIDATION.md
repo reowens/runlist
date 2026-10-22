@@ -1,5 +1,61 @@
 # Desktop validation
 
+## Current Mac release — 2026-10-21
+
+**Runlist 0.96.1 is published and installed locally.** npm `latest`, the CLI
+[release](https://github.com/reowens/runlist/releases/tag/v0.96.1) and the
+[desktop release](https://github.com/reowens/runlist/releases/tag/desktop-v0.96.1)
+are complete. The [publication workflow](https://github.com/reowens/runlist/actions/runs/39590781735)
+passed. Source commit: `825651938ac612b23d5319901eba4c31c2f6adfe`.
+
+The supported desktop artifact is Apple Silicon, macOS 13.5+, protocol 1,
+with bundled Node 24.22.0. The app and installer are Developer ID signed,
+Apple accepted, stapled and Gatekeeper accepted. The official downloaded app
+is installed through the normal installer, with the previous app retained for
+rollback. Visible CLI and managed host integration files were updated to 0.96.1;
+running hosts pick up those files on their normal reload.
+
+- [Installer](https://github.com/reowens/runlist/releases/download/desktop-v0.96.1/Runlist-0.96.1-macOS-arm64.dmg)
+  SHA-256: `41de0a7bd8f0b6be51e990f2eb83482b08de7a3461ff8d779dd5d492890e05d5`.
+- [Release manifest](https://github.com/reowens/runlist/releases/download/desktop-v0.96.1/release-manifest.json)
+  records accepted app submission `ccfed07c-dd03-47a2-ad2a-e8aeef2f8978`
+  and installer submission `d889b556-ac62-4f73-83d2-a86847b5544d`.
+- Source: **2,548 passed, one skip, zero failures**. Desktop: **134 passed,
+  one skip, zero failures**. Native controller: **11 passed**.
+- Packaged helper/frontend: **65 passed**, with networking denied. Signed-bundle
+  checks and official downloaded/installed-app checks: **37 passed each**,
+  with networking denied.
+- Public-content checks passed for **499 source files and 174 package files**.
+- Four Chromium workflow suites passed, including a 5,002-document library
+  and 75-record fixture. Two UI audit suites passed for navigation, focus,
+  drafts, failed searches, disclosures, large text and responsive layouts.
+
+The release ships the simpler workspace and New form, default Preview,
+Edit/Review/Save flow, clear destination-labelled Back navigation, readable text,
+document pins, recoverable record drafts, stale-search clearing with Retry,
+quieter notices and collapsed advanced controls. Heading Bookmarks and the
+routine ready-to-edit banner are removed. Handoff families, editable draft
+outlines, stable lifecycle folders and source-identity diagnostics also ship.
+
+A bounded native macOS review of the preceding local `.3` candidate, using the
+same UI code, verified Preview/Edit focus, reviewed save, pins across full
+Quit/relaunch, collapsed Advanced settings, the simplified New form and Back to
+plans. Earlier native lifecycle and draft-template checks remain recorded below.
+Browser checks do not establish native screen-reader acceptance.
+
+**Remaining qualification:** full-app dialog accessibility remains unresolved;
+native offline journeys, fresh/minimum-host install/upgrade/rollback and
+no-global-Node acceptance, controlled whole-app performance, and broader desktop
+platforms remain open. Optional provider deployment/live retrieval and local chat
+are separate unfinished scope. These are follow-up work, not unfinished
+publication steps for 0.96.1.
+
+Local release receipts are retained under `.runlist/desktop-release/0.96.1/`;
+UI/release logs and screenshots under `.runlist/ui-fixes-20261021/`.
+All older dated entries below are historical snapshots. Their local-candidate
+versions, installed-app statements and release holds are superseded by this
+checkpoint; the unresolved accessibility finding remains current.
+
 ## Installed-check source selection (2026-10-20)
 
 `node desktop/scripts/check-installed.mjs` now selects test sources using both

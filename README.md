@@ -105,15 +105,14 @@ Host source, cache and registry copies are labelled separately; a cache entry
 alone does not prove which copy a running host has loaded. No package manager or
 host command runs to produce the `doctor --project` installation report.
 
-The local desktop snapshot passed packaged and installed checks, with
-its previous app retained for rollback. Open the installed app with `rl desktop`;
-native save/reset and status/archive journeys also passed a bounded review, with
-accessibility/confirmation findings recorded in
-[desktop validation](desktop/VALIDATION.md#native-workflow-review-2026-10-20).
-The installed review app includes the failed-status-preview confirmation fix.
-Native review verified disabled confirmation for a failed or missing review, then
-a successful pause at the original path. Dialog accessibility remains unresolved;
-see the [current investigation](desktop/VALIDATION.md#confirmation-fix-and-native-investigation-2026-10-20).
+**0.96.1 is published and installed locally**, including the desktop usability,
+draft recovery, handoff and failed-status-preview confirmation fixes. The Mac
+installer is signed, notarized and verified; installation retained the previous
+app for rollback. Open it with `rl desktop`. See the
+[release validation](desktop/VALIDATION.md#current-mac-release--2026-10-21)
+for checks and evidence. Full-app dialog accessibility remains an open finding;
+fresh/minimum-host and controlled whole-app performance qualification remain
+follow-up work.
 
 Verify an installed Mac app without opening it:
 
@@ -134,33 +133,22 @@ record completed results in durable plans before explicitly archiving the
 selected prompts. Historical nested-archive origin recovery stays deferred until
 a concrete case needs it.
 
-Deferred work awaiting selection:
+Remaining product work:
 
-1. Expand local-commit qualification to process filters, broader clean-filter
-   command profiles, Windows, Linux x64/other Git versions and additional signing profiles.
-   Configured commit hooks and noninteractive SSH/OpenPGP signing are supported
-   in current source on the qualified macOS/Linux combinations. Push is deferred.
-2. Optional grepmax live retrieval/coverage qualification is parked: the owner
-   reports a watcher issue requiring a reboot. The last check saw gmax 0.26.65
-   ready, but its installed bridge/daemon lacked Runlist's required document-search
-   contract. Watcher recovery and compatibility must be verified before live
-   qualification resumes; preserve the existing safety hold. See the
-   current status and resume gates.
-   The compatibility plan
-   now has steps 1–4 passing against gmax 0.26.66 source and an extracted local
-   npm candidate, including the actual private helper. Deployment and live
-   checks remain separate gates.
-   Large-checkout inventory,
-   unavailable-state memory/latency and bridge cleanup have terminal evidence.
-   The Runlist GUI/backend adapter and guarded protocol fixtures are included
-   in GUI 0.94.0-rc.1. External provider deployment and successful live retrieval
-   remain unverified. Optional local model chat is deferred.
-3. Complete native plan lifecycle, legacy migration,
-   settings/diagnostics. GUI yardstick and Filing reports are delivered in
-   0.94.0-rc.1. Stage filters/groups and guarded Stage editing are also delivered.
-4. Finish platform qualification: a terminal-ready Windows host, Linux x64 and
-   older distributions, real-version upgrades, fresh/minimum-version and Intel
-   Macs, plus native rendering, focus, accessibility and whole-window memory.
+1. Resolve full-app dialog accessibility and extend native offline, fresh/minimum-Mac
+   installation/upgrade/recovery and whole-app performance qualification.
+2. Finish the broader native-plan, identity/migration, history/verification,
+   scoped-relationship and advanced settings/diagnostics contracts. Reviewed
+   legacy plan status/archive operations already ship.
+3. Qualify additional local-commit filter, hook, signing and platform profiles.
+   Push remains deferred.
+4. Deploy and qualify an exact optional grepmax provider against an existing
+   index, after the separately recorded watcher/resource hold is resolved.
+   Compatibility fixtures pass; successful live retrieval remains unverified.
+   Local model chat remains deferred.
+5. Complete post-release agent-workflow measurement and assess the installed
+   OpenCode prompt-hook API. A Rust engine migration remains planned pending
+   performance evidence.
 
 The current Mac installer is linked in the release-version section above.
 CLI and desktop include the optional product yardstick.
