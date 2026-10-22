@@ -2,7 +2,39 @@
 
 ## Current Mac release — 2026-10-22
 
-**Runlist 0.98.0 is published and installed locally.** npm `latest`, the CLI
+**Runlist 0.98.1 is published and installed locally.** npm `latest`, the CLI
+[release](https://github.com/reowens/runlist/releases/tag/v0.98.1) and the
+[desktop release](https://github.com/reowens/runlist/releases/tag/desktop-v0.98.1)
+are complete. The [publication workflow](https://github.com/reowens/runlist/actions/runs/39777090458)
+passed. Source commit: `f54f79492ed9a0a00ec406b97a66773f90210b2a`.
+
+The desktop app's own sources are unchanged apart from version labels; the
+release bundles the 0.98.1 engine, which caps related-plan and body-link lists
+in the `runlist show` brief. Artifact: Apple Silicon, macOS 13.5+, protocol 1,
+Developer ID signed, Apple accepted, stapled and Gatekeeper accepted; installed
+through the normal installer with the previous app retained for rollback.
+
+- [Installer](https://github.com/reowens/runlist/releases/download/desktop-v0.98.1/Runlist-0.98.1-macOS-arm64.dmg)
+  SHA-256: `14359574af68d3fa0064d7af0827e056bf9816188dbfd4052e482de6ec7c564a`.
+- [Release manifest](https://github.com/reowens/runlist/releases/download/desktop-v0.98.1/release-manifest.json)
+  records accepted app submission `446ff83a-358a-4b08-a329-c5e26ccd5215`
+  and installer submission `f88ea5bd-25ff-42cc-9afe-cd00daf675ef`.
+- Source: **2,570 passed, one skip, zero failures**, guarded Git integration
+  run against qualified Git 2.54.0. Desktop: **134 passed, one skip, zero
+  failures**. Native controller: **11 passed**.
+- Packaged helper/frontend: **65 passed**. Signed-bundle checks and
+  installed-app checks: **37 passed each**.
+- Public-content checks passed for **501 source files and 175 package files**.
+
+The desktop install completed on the first attempt. No native MacBook Air
+review was run, since the app's UI code did not change. Remaining
+qualification is unchanged from 0.96.1 below.
+
+Local release receipts are retained under `.runlist/desktop-release/0.98.1/`.
+
+## Mac release 0.98.0 — 2026-10-22
+
+**Runlist 0.98.0 was published and installed locally.** npm `latest`, the CLI
 [release](https://github.com/reowens/runlist/releases/tag/v0.98.0) and the
 [desktop release](https://github.com/reowens/runlist/releases/tag/desktop-v0.98.0)
 are complete. The [publication workflow](https://github.com/reowens/runlist/actions/runs/39771900962)
