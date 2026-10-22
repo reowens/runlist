@@ -2,6 +2,15 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- `runlist show` caps each related field and the body links at 8 entries
+  (4 when showing several files) with a `+N more` line, and cuts a long next
+  step at 300 characters. A hub with dozens of related plans printed a card
+  larger than its whole brief. `--card` and `--json` still list everything.
+
 ## 0.98.0 — 2026-10-22
 
 ### Added

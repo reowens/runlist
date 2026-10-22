@@ -16,7 +16,7 @@ export const LIMITS = {
 };
 
 // Several files at once is a survey; each one gets less.
-export const SURVEY_LIMITS = { ...LIMITS, outline: 20, boxes: 10 };
+export const SURVEY_LIMITS = { ...LIMITS, outline: 20, boxes: 10, listItems: 4 };
 
 export const cut = (text, width = LIMITS.width) =>
   text.length > width ? `${text.slice(0, width - 3)}...` : text;

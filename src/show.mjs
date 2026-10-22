@@ -79,6 +79,9 @@ export function showDoc(abs, config) {
   };
 }
 
+// A long next step is cut in the brief, as the pickup card cuts it.
+const NEXT_STEP_WIDTH = 300;
+
 // Fields the text card prints. Everything else non-empty is named on one line
 // so a reader knows it is there without printing the frontmatter.
 const CARD_FIELDS = new Set(['title', 'status', 'next_step', 'blockers']);
@@ -228,12 +231,25 @@ export function runShow(args, config) {
   cards.forEach((c, n) => {
     if (n) process.stdout.write('\n');
     const out = [`${c.title}  (${c.status ?? 'no status'})`, c.path];
-    if (c.nextStep) out.push(`Next: ${c.nextStep}`);
+    if (c.nextStep) out.push(`Next: ${c.brief ? cut(c.nextStep, NEXT_STEP_WIDTH) : c.nextStep}`);
     for (const b of c.blockers) out.push(`Blocker: ${b}`);
     // The brief's open-box line carries the same count, read outside code fences.
     if (c.checklist?.total && !c.brief) out.push(`Checklist: ${c.checklist.completed} of ${c.checklist.total} done`);
-    for (const r of c.related) out.push(`${r.field}: ${r.path ?? `${r.ref} (missing)`}${r.status ? `  (${r.status})` : ''}`);
-    if (c.links.length) out.push(`Linked from the body: ${c.links.map(l => l.path).join(', ')}`);
+    // With the brief, each related field and the body links show their first
+    // few entries and a count: a hub's dozens of related plans outweighed the
+    // brief itself. --card and --json list every one.
+    const cap = c.brief ? limits.listItems : Infinity;
+    const perField = new Map();
+    for (const r of c.related) {
+      const n = (perField.get(r.field) ?? 0) + 1;
+      perField.set(r.field, n);
+      if (n <= cap) out.push(`${r.field}: ${r.path ?? `${r.ref} (missing)`}${r.status ? `  (${r.status})` : ''}`);
+    }
+    for (const [field, n] of perField) if (n > cap) out.push(`${field}: +${n - cap} more (--card lists all)`);
+    if (c.links.length) {
+      const shown = c.links.slice(0, cap).map(l => l.path).join(', ');
+      out.push(`Linked from the body: ${shown}${c.links.length > cap ? ` (+${c.links.length - cap} more)` : ''}`);
+    }
     if (c.brief) out.push(...renderBrief(c, c.brief));
     process.stdout.write(out.join('\n') + '\n');
   });

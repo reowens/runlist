@@ -131,4 +131,17 @@ describe('runlist show', () => {
     const [card] = JSON.parse(run(['show', 'deck', '--json']).stdout);
     deepStrictEqual(card.brief.activePhase, { line: 10, heading: 'Phase 2 — Boards ⬜' });
   });
+  it('caps each related field and the body links in the brief; --card lists them all', () => {
+    setup();
+    const refs = Array.from({ length: 11 }, (_, i) => `room-${i}.md`);
+    for (const r of refs) write(`docs/plans/${r}`, '---\ntype: plan\nstatus: active\n---\n# Room\n');
+    write('docs/plans/house.md', ['---', 'type: plan', 'status: active', `next_step: ${'Paint every wall. '.repeat(30)}`, 'related_plans:', ...refs.map(r => `  - ${r}`), '---', '# House', '', ...refs.map(r => `See [room](${r}).`), ''].join('\n'));
+    const brief = run(['show', 'house']).stdout;
+    strictEqual((brief.match(/^related_plans: docs/gm) ?? []).length, 8);
+    match(brief, /^related_plans: \+3 more \(--card lists all\)$/m);
+    match(brief, /^Next: (Paint every wall\. )+.*\.\.\.$/m);
+    strictEqual(brief.split('\n').find(l => l.startsWith('Next: ')).length, 'Next: '.length + 300);
+    const card = run(['show', 'house', '--card']).stdout;
+    strictEqual((card.match(/^related_plans: docs/gm) ?? []).length, 11);
+  });
 });
