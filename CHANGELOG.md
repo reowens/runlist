@@ -12,6 +12,12 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 - `runlist use <doc>` prints the brief for a doc over 500 lines or 60 KB;
   `--full` prints the whole body.
 
+### Changed
+
+- The agent workflow (plugin skill, Codex skill and the repository's
+  canonical block) says to read a plan or long doc with `runlist show`, then
+  one `--section` at a time, never whole.
+
 ## 0.97.0 — 2026-10-22
 
 ### Added

@@ -12,6 +12,7 @@ This repo's plans, reference docs, and saved prompts are managed by the **runlis
 
 <!-- runlist:canonical-workflow:start -->
 - **Orient:** `runlist plans` — compact plan dashboard; use `runlist agent-context` when an agent needs structured state across the repo.
+- **Read a plan or long doc:** `runlist show <file>` prints its card, outline and open boxes with line numbers, and names the active phase; then `runlist show <file> --section "<heading>"`, one section at a time. Never read a plan whole.
 - **Start a plan:** `runlist use <plan-file>` — marks it `in-session` and prints the plan card.
 - **Single status verb:** `runlist set <status> [<file>]` writes the status, validates it against the doc's type, runs lifecycle hooks, fixes refs, and syncs the index. **Never hand-edit a `status:` line.** Add `--note "why"` to record the reason in `## Version History` in the same call.
 - **Close to match reality:** `archived` (shipped) · `partial` (tail deferred — link the successor) · `active` (more work later) · `awaiting` (needs a human decision) · `blocked` (external arrival you can't speed up). Parking a plan with a known next step? Leave a baton in the same breath — never narrate the next pickup into chat.
