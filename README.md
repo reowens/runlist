@@ -105,11 +105,12 @@ Host source, cache and registry copies are labelled separately; a cache entry
 alone does not prove which copy a running host has loaded. No package manager or
 host command runs to produce the `doctor --project` installation report.
 
-**0.97.0 is published and installed locally.** It adds the `runlist show`
-brief (outline, open boxes and `--section` reads with line numbers), counts
-checklists outside code fences only, and trims session and subagent start-up
-context. The desktop app's own code is unchanged from 0.96.1; it bundles the
-0.97.0 engine. The Mac installer is signed, notarized and verified; installation
+**0.98.0 is published and installed locally.** `runlist show` briefs a plan
+(outline, open boxes and `--section` reads with line numbers), marks each
+phase's tally and the active phase, and groups open boxes by phase;
+`runlist use <doc>` briefs a doc over 500 lines. The agent workflow says to
+read plans that way. The desktop app's own code is unchanged from 0.96.1; it
+bundles the 0.98.0 engine. The Mac installer is signed, notarized and verified; installation
 retained the previous app for rollback. Open it with `rl desktop`. See the
 [release validation](desktop/VALIDATION.md#current-mac-release--2026-10-22)
 for checks and evidence. Full-app dialog accessibility remains an open finding;
