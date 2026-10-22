@@ -2,6 +2,22 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- `runlist show <file>` prints a document in a few KB: the card, then a heading
+  outline and the open checklist boxes with file line numbers, then the other
+  frontmatter fields by name. `--section "<heading>"` reads one section with
+  every line numbered, cut at 500 lines / 60 KB with the command that continues
+  it (`--from <line>`). `--all`, `--card`, `--frontmatter` and `--json` cover
+  the rest. Any Markdown file in the repo works.
+
+### Changed
+
+- Checklist counts ignore boxes inside code fences, everywhere they are
+  reported, so a template's example checklist is no longer counted as work.
+
 ## 0.96.1 — 2026-10-21
 
 ### Added

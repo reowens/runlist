@@ -285,7 +285,7 @@ Analyze:
   record <file> <action> --note <reason> Act on a native flag or decision
   decision <file> <id> --disposition <state> --note <reason> Record an outcome
   decisions [doc|id] [--all|--check] Open and held decisions, read from the corpus
-  show <file...> [--json]           One document's card: status, next step, related plans and docs, links
+  show <file...> [--section <h>]    One document's card, outline and open boxes with line numbers; one section
   xref <file...> | --check [--flag] Cross-references: what names it, its decisions, its cited code
 
 Validate & Fix:
@@ -1571,18 +1571,32 @@ remain owned by their CLI sessions; coordinate/release them before a human save.
 Metadata and lifecycle changes continue through the CLI. Ctrl+C stops the app.
 --dry-run previews startup without opening a server or writing editor state.
 `,
-  show: `runlist show <file...> — one document's card, read-only
+  show: `runlist show <file...> — a document in a few KB, read-only
 
-  runlist show <file>           title, status, next step, blockers, checklist,
-                                related plans and docs, documents linked from the body
-  runlist show <a> <b> --json   [{ path, type, title, status, summary, currentState,
-                                   nextStep, blockers, checklist, updated,
-                                   related: [{ field, ref, path, exists, title, status, type }],
-                                   links: [{ path, title, status, type }] }]
+  runlist show <file>           card (title, status, next step, blockers, related
+                                plans and docs, body links), then the outline and
+                                open boxes with line numbers, then the other
+                                frontmatter fields by name
+  runlist show <file> --section "<heading>"
+                                that section, every line numbered, to the next
+                                heading at the same or a higher level
+      --from <line>             continue a section read that was cut
+      --all                     every open box, not the first 30
+      --card                    the card only
+      --frontmatter             the frontmatter as written, long values collapsed
+      --json                    the same as data; a section read is
+                                { path, query, heading, from, to, next, rows, others }
 
-A file is a path, filename or slug, as for \`use\`. Nothing is claimed or
-written. With --json a file that is not found is { path, error } rather than
-an exit.`,
+Read a plan or long doc this way, then one section at a time, never whole. A
+heading matches case-insensitively: exact first, then as a prefix, then as a
+substring; other matches are named. A section read stops at 500 lines or
+60 KB and prints the command that continues it. Headings and boxes inside code
+fences are ignored. Several files at once get a shorter outline each.
+
+A file is a path, filename or slug, as for \`use\`, and any Markdown file in
+the repo works. Nothing is claimed or written. With --json a file that is not
+found is { path, error } rather than an exit; a heading that matches nothing
+exits 1 and lists the headings.`,
 
   model: `runlist model — the local model behind summaries and lint
 

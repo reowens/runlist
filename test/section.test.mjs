@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import { deepStrictEqual, ok, strictEqual } from 'node:assert';
-import { detectMarker, findActivePhase, isPhaseHeading, phaseTally, phaseMarkerConflict, summarizePhases, walkSections } from '../src/section.mjs';
+import { detectMarker, findActivePhase, isPhaseHeading, matchSections, phaseTally, phaseMarkerConflict, summarizePhases, walkChecklist, walkSections } from '../src/section.mjs';
 
 // Every heading below is synthetic. Each one preserves the SHAPE of a heading
 // form measured against a real plan corpus — marker-before-the-word, a
@@ -382,4 +382,33 @@ it('keeps a partial glyph unfinished even when its prose says local work is comp
   ].join('\n'));
   deepStrictEqual(summarizePhases(sections).counts, { shipped: 1, todo: 1, 'in-progress': 1 });
   strictEqual(findActivePhase(sections).heading, '🟨 Phase 2: Local code complete');
+});
+
+describe('matchSections', () => {
+  const sections = walkSections(['## Phase 10 — Paint', '## Phase 1', '## Phase 1 — Prime ⬜', '## Notes on phase 1'].join('\n'));
+
+  it('ranks exact, then prefix, then substring, in document order within each', () => {
+    deepStrictEqual(matchSections(sections, 'phase 1').map(s => s.heading),
+      ['Phase 1', 'Phase 10 — Paint', 'Phase 1 — Prime ⬜', 'Notes on phase 1']);
+  });
+
+  it('ignores leading hashes in the query and trailing markers on the heading', () => {
+    strictEqual(matchSections(sections, '## Phase 1 — Prime')[0].heading, 'Phase 1 — Prime ⬜');
+  });
+
+  it('matches nothing for an empty query', () => {
+    deepStrictEqual(matchSections(sections, '  '), []);
+  });
+});
+
+describe('walkChecklist', () => {
+  it('reads boxes outside fences; [ ] and [~] are open, [x] is done', () => {
+    const boxes = walkChecklist(['- [x] Sand', '* [ ] Prime', '  - [~] Paint', '~~~', '- [ ] fenced', '~~~', '- [X]', '- [] not a box'].join('\n'));
+    deepStrictEqual(boxes, [
+      { line: 1, open: false, text: 'Sand' },
+      { line: 2, open: true, text: 'Prime' },
+      { line: 3, open: true, text: 'Paint' },
+      { line: 7, open: false, text: '' },
+    ]);
+  });
 });

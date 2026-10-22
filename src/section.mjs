@@ -3,26 +3,32 @@
 // and body-relative line numbers (1-indexed). Callers with stripped frontmatter
 // add extractFrontmatter().bodyLineOffset before exposing file coordinates.
 
-export function walkSections(body) {
-  const lines = body.split('\n');
+// Calls visit(line, index) for every line outside a fenced code block. A fence
+// closes only on the character that opened it, so ``` inside ~~~ stays code.
+function eachUnfencedLine(lines, visit) {
   const fenceRe = /^(`{3,}|~{3,})/;
-  const headingRe = /^(#{1,6})\s+(.+?)\s*$/;
-  const sections = [];
   let fenceChar = null;
-  let h2Ancestor = null;
-
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const fence = line.match(fenceRe);
+    const fence = lines[i].match(fenceRe);
     if (fence) {
       const tok = fence[1][0]; // ` or ~
       if (fenceChar === null) fenceChar = tok;
       else if (fenceChar === tok) fenceChar = null;
       continue;
     }
-    if (fenceChar !== null) continue;
+    if (fenceChar === null) visit(lines[i], i);
+  }
+}
+
+export function walkSections(body) {
+  const lines = body.split('\n');
+  const headingRe = /^(#{1,6})\s+(.+?)\s*$/;
+  const sections = [];
+  let h2Ancestor = null;
+
+  eachUnfencedLine(lines, (line, i) => {
     const h = line.match(headingRe);
-    if (!h) continue;
+    if (!h) return;
     const level = h[1].length;
     const heading = h[2];
     if (level === 1) h2Ancestor = null;
@@ -35,7 +41,7 @@ export function walkSections(body) {
       bodyLineStart: i + 2,
     });
     if (level === 2) h2Ancestor = heading;
-  }
+  });
 
   for (let i = 0; i < sections.length; i++) {
     const next = sections.find((s, j) => j > i && s.level <= sections[i].level);
@@ -55,6 +61,35 @@ export function findSection(sections, name) {
   const norm = (s) => s.toLowerCase().replace(/[^\w\s]+$/, '').trim();
   const target = norm(name);
   return sections.find(s => norm(s.heading) === target) ?? null;
+}
+
+// Every section whose heading matches `query`, best first: exact, then prefix,
+// then substring, document order within each. Case-insensitive; leading `#`s
+// and trailing markers are ignored on both sides, as in findSection.
+export function matchSections(sections, query) {
+  const norm = (s) => s.toLowerCase().replace(/^#+\s*/, '').replace(/[^\w\s]+$/, '').replace(/\s+/g, ' ').trim();
+  const q = norm(query);
+  if (!q) return [];
+  const tiers = [[], [], []];
+  for (const s of sections) {
+    const h = norm(s.heading);
+    if (h === q) tiers[0].push(s);
+    else if (h.startsWith(q)) tiers[1].push(s);
+    else if (h.includes(q)) tiers[2].push(s);
+  }
+  return tiers.flat();
+}
+
+// Checklist boxes outside code fences, with body-relative 1-indexed lines.
+// `[ ]` and `[~]` are open, as in phaseTally and the index's checklist counts.
+const BOX_RE = /^\s*[-*]\s+\[([ xX~])\](?:\s+(.*?))?\s*$/;
+export function walkChecklist(body) {
+  const boxes = [];
+  eachUnfencedLine(body.split('\n'), (line, i) => {
+    const m = line.match(BOX_RE);
+    if (m) boxes.push({ line: i + 1, open: m[1].toLowerCase() !== 'x', text: m[2] ?? '' });
+  });
+  return boxes;
 }
 
 // Status marker detection for phase headings. Returns one of:

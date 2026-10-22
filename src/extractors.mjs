@@ -1,4 +1,5 @@
 import { maskInlineCodeSpans } from './markdown-code-spans.mjs';
+import { walkChecklist } from './section.mjs';
 
 export function extractFirstHeading(body) {
   return body.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? null;
@@ -80,22 +81,14 @@ export function extractBodyLinks(body) {
   return links;
 }
 
+// Boxes inside a code fence are examples, not work, so they are not counted;
+// `runlist show` lists the open ones by the same rule (walkChecklist).
 export function extractChecklistCounts(body) {
-  const matches = [...body.matchAll(/^\s*[-*]\s+\[([ xX~])\]\s+/gm)];
-  let completed = 0;
-  let open = 0;
-
-  for (const match of matches) {
-    if (match[1].toLowerCase() === 'x') {
-      completed += 1;
-    } else {
-      open += 1;
-    }
-  }
-
+  const boxes = walkChecklist(body);
+  const open = boxes.filter(b => b.open).length;
   return {
-    completed,
+    completed: boxes.length - open,
     open,
-    total: completed + open,
+    total: boxes.length,
   };
 }

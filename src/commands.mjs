@@ -109,7 +109,7 @@ const definitions = [
     form('use <name>', { subcommands: ['use'], args: positionals(1, 1) }),
     form('cap <gb>', { subcommands: ['cap'], args: positionals(1, 1) }),
   ]),
-  command('show', none, 'read', [form('<file...>', { args: positionals(1, Infinity), options: [flag('--json')] })]),
+  command('show', none, 'read', [form('<file...>', { args: positionals(1, Infinity), options: [flag('--json'), flag('--card'), flag('--all'), flag('--frontmatter'), value('--section', '-s'), value('--from')] })]),
   command('xref', mutates('the flags log under the state directory with --check --flag; otherwise read-only'), 'read', [
     form('<file...> | --check [--flag]', { args: positionals(0, Infinity), options: [flag('--json'), flag('--check'), flag('--flag')] }),
   ]),

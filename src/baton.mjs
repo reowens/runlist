@@ -1,7 +1,7 @@
 import { readFileSync, existsSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
-import { asString, toRepoPath, die, warn, isArchivedPath, resolveRefPath, nowIso } from './util.mjs';
+import { asString, toRepoPath, die, warn, isArchivedPath, resolveRefPath, nowIso, shellQuote } from './util.mjs';
 import { buildIndex, resolveDocArg } from './index.mjs';
 import { preparePromptDocument, runNew, readBodyInput, readPipedBodyInput, slugify } from './new.mjs';
 import { ensurePlanCompletionBeforeRelease, planHasPendingCompletion, renderLifecycleMutation, runSet } from './lifecycle.mjs';
@@ -80,11 +80,6 @@ function archivedCopyPath(promptPath, config) {
   let candidate = path.join(dir, `${stem}${ext}`);
   for (let n = 2; existsSync(candidate); n++) candidate = path.join(dir, `${stem}-${n}${ext}`);
   return authorizeManagedDestination(candidate, config, { kind: 'Baton replacement archive' }).path;
-}
-
-function shellQuote(value) {
-  const raw = String(value);
-  return /^[A-Za-z0-9_./:@+-]+$/.test(raw) ? raw : `"${raw.replace(/["\\$`]/g, '\\$&')}"`;
 }
 
 function commitCommand(config, message, paths) {

@@ -306,6 +306,13 @@ export function suggestCandidates(query, candidates, max = 3) {
     .map(([cand]) => cand);
 }
 
+// One argument as it must be typed into a POSIX shell: bare when it is plainly
+// safe, otherwise double-quoted with `"`, `\`, `$` and backtick escaped.
+export function shellQuote(value) {
+  const raw = String(value);
+  return /^[A-Za-z0-9_./:@+-]+$/.test(raw) ? raw : `"${raw.replace(/["\\$`]/g, '\\$&')}"`;
+}
+
 export function resolveDocPath(input, config) {
   if (!input) return null;
   if (path.isAbsolute(input)) return existsSync(input) ? input : null;
