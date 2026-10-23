@@ -92,9 +92,9 @@ describe('runlist prompts list', () => {
     writePrompt('resume-session', { created: '2025-03-01' });
     const r = run(['prompts']);
     strictEqual(r.status, 0, r.stderr);
-    match(r.stdout, /resume-session[^\n]*\[PENDING\] \[NEXT\] \[\+ 1 subagent prompt\]/);
+    match(r.stdout, /resume-session[^\n]*\[PENDING\] \[NEXT\] \[\+1 subagent\]/);
     ok(!r.stdout.includes('subagent-review'), r.stdout);
-    ok(r.stdout.indexOf('[+ 1 subagent prompt]') < r.stdout.indexOf('unrelated'), r.stdout);
+    ok(r.stdout.indexOf('[+1 subagent]') < r.stdout.indexOf('unrelated'), r.stdout);
     const json = run(['prompts', '--json']);
     strictEqual(json.status, 0, json.stderr);
     const data = JSON.parse(json.stdout);
@@ -111,7 +111,7 @@ describe('runlist prompts list', () => {
     for (const prefix of ['subagent', 'agent', 'session']) writePrompt(`${prefix}-session-api-review`);
     const r = run(['prompts']);
     strictEqual(r.status, 0, r.stderr);
-    match(r.stdout, /resume-session-api[^\n]*\[PENDING\](?: \[NEXT\])? \[\+ 3 subagent prompts\]/);
+    match(r.stdout, /resume-session-api[^\n]*\[PENDING\](?: \[NEXT\])? \[\+3 subagent\]/);
     for (const prefix of ['subagent', 'agent', 'session']) ok(!r.stdout.includes(`${prefix}-session-api-review`), r.stdout);
   });
 
@@ -122,7 +122,7 @@ describe('runlist prompts list', () => {
     writePrompt('agent-sessionish-review');
     const r = run(['prompts']);
     strictEqual(r.status, 0, r.stderr);
-    match(r.stdout, /\[\+ 2 subagent prompts\]/);
+    match(r.stdout, /\[\+2 subagent\]/);
     ok(!r.stdout.includes('subagent-session-review'), r.stdout);
     ok(!r.stdout.includes('agent-sessionish-review'), r.stdout);
     const expanded = run(['prompts', '--verbose']);
@@ -136,7 +136,7 @@ describe('runlist prompts list', () => {
     for (let i = 0; i < 5; i++) writePrompt(`subagent-review-${i}`);
     const r = run(['prompts']);
     strictEqual(r.status, 0, r.stderr);
-    match(r.stdout, /\[NEXT\]\s+\[\+ 5 subagent prompts\]/);
+    match(r.stdout, /\[NEXT\]\s+\[\+5 subagent\]/);
     ok(!r.stdout.includes('subagent-review-'), r.stdout);
     match(r.stdout, /rl prompts --verbose/);
   });
@@ -303,7 +303,7 @@ describe('prompt parent links and resume discovery', () => {
     const retry = run(args);
     strictEqual(retry.status, 0, retry.stderr);
     strictEqual(JSON.parse(retry.stdout).linked.length, 0, 'identical linking is a no-op');
-    match(run(['prompts']).stdout, /resume-session[^\n]*\[\+ 2 subagent prompts\]/);
+    match(run(['prompts']).stdout, /resume-session[^\n]*\[\+2 subagent\]/);
   });
 
   it('refuses an invalid batch before changing any child', () => {

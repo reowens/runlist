@@ -2,6 +2,13 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Changed
+
+- `rl prompts` shortens the collapsed child count to `[+N subagent]` (was
+  `[+ N subagent prompts]`), so the list fits a narrow terminal.
+
 ## 0.98.1 — 2026-10-22
 
 ### Fixed

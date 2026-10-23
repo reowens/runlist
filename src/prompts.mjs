@@ -186,7 +186,7 @@ function renderPromptQueueList(index, config) {
   const visible = groups.filter(group => !isAgentHandoff(group.doc));
   const maxSlug = Math.min(36, Math.max(0, ...visible.map(({ doc }) => path.basename(doc.path, '.md').length)));
   const nextPath = queue[0]?.doc.path;
-  const childCount = children => `[+ ${children.length} subagent prompt${children.length === 1 ? '' : 's'}]`;
+  const childCount = children => `[+${children.length} subagent]`;
   for (const { doc: p, children } of visible) {
     const slug = path.basename(p.path, '.md').padEnd(maxSlug);
     const marker = p.path === nextPath ? green('[NEXT]') : '      ';

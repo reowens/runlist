@@ -637,7 +637,7 @@ describe('runlist baton', () => {
     strictEqual(run(['baton', 'session', '--message', 'parent work']).status, 0);
     const listed = run(['prompts']);
     strictEqual(listed.status, 0, listed.stderr);
-    match(listed.stdout, /resume-session[^\n]*\[\+ 1 subagent prompt\]/);
+    match(listed.stdout, /resume-session[^\n]*\[\+1 subagent\]/);
     ok(!listed.stdout.includes('subagent-review'));
     const replaced = run(['baton', '--subagent', 'review', '--replace', '--message', 'updated review']);
     strictEqual(replaced.status, 0, replaced.stderr);

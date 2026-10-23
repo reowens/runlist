@@ -1313,7 +1313,7 @@ Pass \`--no-claim\` to read and archive the prompt without starting the plan.
 
 Default prompt statuses: pending, archived.
 
-The default list shows [+ N subagent prompts] on their resume-* parent's line.
+The default list shows [+N subagent] on their resume-* parent's line.
 Use --verbose to expand their names and targets.
 Record the parent with \`baton --subagent <task> --parent resume-<name>\`;
 legacy child names sharing the parent's name stem also group. Missing-parent

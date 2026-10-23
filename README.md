@@ -743,7 +743,7 @@ replacement checks.
 To associate a child handoff with its parent, use
 `runlist baton --subagent review --parent resume-session-name @/tmp/review.md`.
 This saves `parent_prompt: resume-session-name`; the parent can be saved later.
-`rl prompts` collapses children into a `[+ N subagent prompts]` count on
+`rl prompts` collapses children into a `[+N subagent]` count on
 the matching `resume-*` prompt's line. Use `rl prompts --verbose` to expand their names
 and target plans. Existing `subagent-*`, `agent-*`
 and `session-*` names also group when they share the parent's name stem (the
