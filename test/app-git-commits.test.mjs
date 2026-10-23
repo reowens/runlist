@@ -138,7 +138,7 @@ test('unqualified platforms refuse writes before creating receipts, while Change
 });
 
 test('shared qualification matrix separates Linux ARM64 Git 2.47.3 from macOS and other versions',()=>{
- for(const version of ['git version 2.54.0','git version 2.55.0','git version 2.54.0 (Apple Git-157)'])assert.equal(commitVersionQualified(version,'darwin','arm64'),true);
+ for(const version of ['git version 2.54.0','git version 2.55.0','git version 2.56.0','git version 2.54.0 (Apple Git-157)'])assert.equal(commitVersionQualified(version,'darwin','arm64'),true);
  assert.equal(commitVersionQualified('git version 2.47.3','linux','arm64'),true);
  for(const [version,platform,arch] of [['git version 2.54.0','darwin','x64'],['git version 2.55.0','darwin','x64'],['git version 2.47.3','darwin','arm64'],['git version 2.47.3','linux','x64'],['git version 2.47.4','linux','arm64'],['git version 2.55.0','linux','arm64'],['git version 2.47.3.vendor','linux','arm64'],['git version 2.55.0','win32','x64']])assert.equal(commitVersionQualified(version,platform,arch),false,`${platform}/${arch}/${version}`);
 });

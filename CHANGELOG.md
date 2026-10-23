@@ -2,6 +2,14 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Changed
+
+- Guarded local commits accept Git 2.56.0 on macOS, alongside 2.54.0 and
+  2.55.0. Homebrew's current Git passes the full guarded-commit suite, so the
+  test run and releases no longer need an older Git ahead of it on PATH.
+
 ## 0.98.2 — 2026-10-22
 
 ### Changed

@@ -1,11 +1,12 @@
 // Keep the service and worker on the same terminal-qualified matrix.
+// macOS evidence: Homebrew Git 2.56.0 passed the guarded-commit suite on ARM64.
 // Linux evidence: Debian 13 ARM64 / Git 2.47.3, pinned Node 24.21.0.
 export function commitPlatformQualified(platform=process.platform,arch=process.arch){
  return arch==='arm64'&&(platform==='darwin'||platform==='linux');
 }
 export function commitVersionQualified(version,platform=process.platform,arch=process.arch){
  if(!commitPlatformQualified(platform,arch))return false;
- return platform==='darwin'?/^git version 2\.(54|55)\.0(?: |$)/.test(version):version==='git version 2.47.3';
+ return platform==='darwin'?/^git version 2\.(54|55|56)\.0(?: |$)/.test(version):version==='git version 2.47.3';
 }
 export function localCommitSupport(version,platform=process.platform,arch=process.arch){
  const available=commitVersionQualified(version,platform,arch);
