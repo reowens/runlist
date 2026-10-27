@@ -2,6 +2,19 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Changed
+
+- Updated desktop Tauri to 2.12.5, tauri-build to 2.7.4, the Tauri CLI to
+  2.12.4, and the linkedom test dependency to 0.18.14.
+- Updated the bundled desktop Node runtime to security release 24.22.1.
+- Updated desktop Rust dependencies: Tokio to 1.54.1 and UUID to 1.29.0.
+- Agent guidance and prompt help now recommend listing prompt names before
+  reading selected bodies, with `--limit` for `show --all` batches.
+- Documented `show` outlines, section reads, phase progress and brief controls;
+  refreshed desktop release documentation against the published 0.99.1 manifest.
+
 ## 0.99.1 — 2026-10-26
 
 ### Changed

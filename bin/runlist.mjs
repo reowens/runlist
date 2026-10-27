@@ -1346,8 +1346,8 @@ Examples:
   runlist prompt list                    # singular alias for \`runlist prompts list\`
 
   runlist prompts show resume-foo        # peek without consuming (triage)
-  runlist prompts show --all             # peek the WHOLE pending queue in one call
-  runlist prompts show --all --limit 10  # ...capped
+  runlist prompts                       # survey names before selecting bodies
+  runlist prompts show --all --limit 10  # peek a capped batch
   runlist prompts show a b c             # peek several by name
   runlist prompts next --dry-run         # preview without consuming
   runlist prompts archive old-thing

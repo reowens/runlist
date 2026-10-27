@@ -1137,18 +1137,32 @@ are per machine in `~/.runlist/model.json`.
 `memoryMb` (what it holds, null when nothing is loaded), followed by the full
 detail.
 
-## One document's card
+## Read a plan or long document
 
 ```bash
-runlist show docs/plans/shelf.md          # title, status, next step, blockers, checklist, related, links
-runlist show shelf bins --json            # [{ path, title, status, nextStep, blockers, checklist,
-                                          #    related: [{ field, path, title, status }], links: [...] }]
+runlist show docs/plans/shelf.md          # card, outline and open boxes with line numbers
+runlist show shelf --section "Phase 2"    # one section (-s is the short form)
+runlist show shelf -s "Phase 2" --from 80 # continue at a source line
+runlist show shelf --all                 # every open box (default: first 30)
+runlist show shelf --card                # card only
+runlist show shelf --frontmatter         # frontmatter, with long values collapsed
+runlist show shelf bins --json           # cards with structured brief data in card.brief
 ```
 
 Read-only: nothing is claimed. `related` is what the frontmatter names
 (`related_plans`, `related_docs`, `supports_plans`, `parent_plan`, `runlist` and
 the configured reference fields), each with its title and status; `links` is
-every other document the body links to.
+every other document the body links to. The text brief caps each related/link
+list at eight entries; JSON retains the full lists.
+
+Phase headings show checklist progress as `[done/total]`; `→` marks the active
+phase. Contradictory phase markers are identified, and open boxes are grouped by
+phase. Headings and boxes inside code fences are ignored. Read the outline first,
+then one section at a time. Section reads stop at 500 lines or 60 KB and print
+the continuation command with `--from` when needed.
+
+`runlist use <doc>` also prints this brief for documents over 500 lines or 60 KB.
+Use `runlist use <doc> --full` when the whole body is needed.
 
 ## Failed commands
 

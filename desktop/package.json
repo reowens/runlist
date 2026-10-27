@@ -16,8 +16,8 @@
     "test:linux-packages": "node scripts/check-linux-packages.mjs"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "2.12.3",
-    "linkedom": "0.18.13"
+    "@tauri-apps/cli": "2.12.4",
+    "linkedom": "0.18.14"
   },
   "dependencies": {
     "acorn": "8.19.0"

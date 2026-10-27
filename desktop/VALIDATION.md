@@ -1,6 +1,64 @@
 # Desktop validation
 
-## Current Mac release — 2026-10-22
+## Dependency refresh candidate — 2026-10-27
+
+Prepared for the next patch release after 0.99.1; these checks do not publish,
+sign, install or qualify a new supported platform. The build still reports
+0.99.1 because the release workflow owns the version bump.
+
+- Inputs: Node 24.22.1, Tauri 2.12.5, tauri-build 2.7.4, Tauri CLI 2.12.4,
+  Tokio 1.54.1, UUID 1.29.0 and linkedom 0.18.14.
+- Base commit: `4926462`. The tracked working-tree snapshot used for native
+  builds has archive SHA-256
+  `02c5ace5606a297bf226aec4f76a9f12f85ac6b74b0cdfb5320760d986dac472`.
+  This validation record and its README reference were added afterward.
+- Linux source tests: 2,544 passed, 38 skipped. Desktop tests: 132 passed,
+  3 skipped. Prepared Linux/x64 bundle tests: 64 passed, 1 skipped.
+- Rust 1.95.0 compile checks passed for the production native files/locks,
+  helper launching, navigation and their tests on Windows GNU and Linux GNU.
+  These checks do not compile the complete Windows Tauri application.
+- Ubuntu 22.04/x64 container: all 11 native Rust tests passed; release build,
+  Debian and AppImage packaging passed. Each extracted installer passed its
+  engine integrity/dependency checks and 64 helper/frontend tests (1 skipped).
+  AppImage finalization preserved the checksum-pinned Node runtime.
+- The signing Mac's private vocabulary source check passed for all 501 files.
+- Apple Silicon Mac, Rust 1.95.0: all 11 native Rust tests passed; the unsigned
+  release application built successfully. Its prepared bundled Node 24.22.1
+  engine passed all 65 helper/frontend tests with no skips.
+- The Mac application passed the private vocabulary bundle check (188 files);
+  the bundled Node payload and Acorn metadata match their pinned vendor inputs.
+- Windows native build remains unverified: the reachable host lacks Rust and
+  Visual Studio Build Tools. No native window, fresh installation, minimum-host,
+  signing or notarization acceptance is claimed by this candidate.
+
+## Current Mac release — 2026-10-27
+
+**Runlist desktop 0.99.1 is published.** This record was reconciled from
+GitHub release metadata and the published manifest on October 27; it does not
+claim a fresh local installation or repeat native qualification.
+
+- [Desktop release](https://github.com/reowens/runlist/releases/tag/desktop-v0.99.1),
+  published `2026-10-27T06:56:26Z` (October 26 in Los Angeles).
+- Source: `b1dc6a9c52124a2f45afcd43ce3634f9c706a6cd`;
+  [Publish](https://github.com/reowens/runlist/actions/runs/40463073394) and
+  [CI](https://github.com/reowens/runlist/actions/runs/40463073380) completed successfully.
+- [Installer](https://github.com/reowens/runlist/releases/download/desktop-v0.99.1/Runlist-0.99.1-macOS-arm64.dmg)
+  SHA-256: `b36bfe17f2bfc0950c93c5cc4a8538c9e5a428642f30936b28192b97537eb38f`.
+  GitHub's asset digest matches the published manifest.
+- [Manifest](https://github.com/reowens/runlist/releases/download/desktop-v0.99.1/release-manifest.json):
+  ARM64, protocol 1, signing team `7GSPYYN5X8`, notarized;
+  app submission `9038b07c-3446-4b62-96eb-bcfe5271fbbd` and installer submission
+  `629528ba-f098-4a59-8b6f-8ce0ea8f4b84` both record **Accepted**.
+
+The release notes report macOS 13.5+, signed app and installer with stapled
+tickets, and passed offline packaged checks. No new numerical test totals,
+Gatekeeper result or installed-version claim are inferred from that metadata.
+Native-window, fresh/minimum-host and other desktop-platform acceptance remain
+separate. The 0.99.1 engine consumes saved prompts only inside agent sessions;
+notarization now requires the signing team's pinned App Store Connect issuer.
+0.99.0 has no Mac app, as recorded in the changelog.
+
+## Mac release 0.98.1 — 2026-10-22
 
 **Runlist 0.98.1 is published and installed locally.** npm `latest`, the CLI
 [release](https://github.com/reowens/runlist/releases/tag/v0.98.1) and the

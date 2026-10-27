@@ -21,15 +21,14 @@ plans display comparison and explain unavailable assessment actions.
 
 ## Current release and next steps
 
-**0.98.1 is released and installed locally.** The Apple Silicon/macOS 13.5+
-installer is signed, Apple accepted, stapled and accepted by Gatekeeper. The
-app's own code is unchanged from 0.96.1 (quieter navigation, destination-labelled
-Back, larger text, document pins, recoverable record drafts, reviewed
-status-change confirmation); it bundles the 0.98.1 engine, which counts
-checklists outside code fences only. npm and desktop publication are complete;
-installation retained the previous app for rollback.
+The matching desktop release is linked above. The 0.99.1 published manifest
+records accepted app and installer notarization under the signing team, and the
+release notes report stapled tickets and passed offline packaged checks. Its
+engine includes session-only prompt consumption. Installation on a particular
+Mac must be checked there; this documentation refresh did not inspect or change
+an installed app.
 
-See [current validation](VALIDATION.md#current-mac-release--2026-10-22)
+See [current validation](VALIDATION.md#current-mac-release--2026-10-27)
 for the published artifact and checks. Remaining work includes full-app dialog
 accessibility, fresh/minimum-host installation and recovery, native offline
 journeys, controlled whole-app performance and broader desktop platforms.
@@ -38,7 +37,7 @@ Optional live semantic search and local chat remain separate follow-up work.
 ### Historical 0.94.1 qualification
 
 The following evidence records the earlier 0.94.1 release. Its installed-version
-statements and release holds do not describe the current 0.98.1 installation.
+statements and release holds describe that earlier snapshot.
 
 **[Runlist Desktop 0.94.1](https://github.com/reowens/runlist/releases/tag/desktop-v0.94.1)**
 is available for Apple Silicon Macs running macOS 13.5 or newer. It replaces
@@ -142,7 +141,7 @@ additions are included in the delivered 0.94.0-rc.1 app.
 
 ## Install and open
 
-Download [Runlist 0.94.1 for Apple Silicon](https://github.com/reowens/runlist/releases/download/desktop-v0.94.1/Runlist-0.94.1-macOS-arm64.dmg).
+Download the Apple Silicon installer from the release linked at the top of this page.
 Open the image, drag **Runlist** to **Applications**, and open **Runlist** normally.
 An existing installation may still be an earlier version. The optional CLI
 installer below preserves an existing app unless `--from` supplies a replacement.
@@ -258,8 +257,8 @@ writes the local document without committing or pushing.
 
 The earlier unsigned selected-source candidate and its qualification are
 historical; see [the validation record](VALIDATION.md#first-release-steps-14--2026-10-08).
-The current public app is the signed, accepted and stapled 0.94.1
-release described above.
+The current release is linked at the top of this page; the older package
+qualification above describes its own source snapshot.
 
 JavaScript configuration and hooks are executable code. Trust grants that code
 the permissions of your user, including possible file and network access.
@@ -390,7 +389,7 @@ Signing requires explicit `RUNLIST_SIGN_IDENTITY` and `RUNLIST_SIGN_TEAM`
 environment variables. Official downloads are verified against the pinned
 release team by the CLI installer. The helper receives Node's required JIT entitlements; the
 app does not disable library validation. Credentials stay in the existing
-notarytool profile and are never copied into the repository or release bundle.
+App Store Connect key file and are never copied into the repository or release bundle.
 The signing script requires Apple's explicit **Accepted** result, staples and
 validates both app and DMG, verifies Gatekeeper, and writes submission IDs and
 the final DMG checksum to `release-manifest.json`.
@@ -426,8 +425,10 @@ Program Files Runlist locations. CLI launch previews do not execute configuratio
 `.github/workflows/desktop.yml` defines Mac, Windows and Ubuntu builds, native
 headless tests and packaged helper/frontend checks. It does not sign, publish,
 launch an app or control a desktop. This workflow has not been run remotely for
-these local changes. Linux ARM64 terminal evidence is recorded below; Linux x64,
-Windows, Intel Mac and other Linux baselines still need separate host qualification.
+these local changes. The [dependency refresh candidate](VALIDATION.md#dependency-refresh-candidate--2026-10-27)
+records Apple Silicon and Ubuntu 22.04/x64 headless builds and package checks.
+Linux ARM64 terminal evidence is recorded below; Windows, Intel Mac and other
+Linux baselines still need separate host qualification.
 
 On Linux, `npm --prefix desktop run test:linux-packages` extracts both installers,
 checks ELF architecture and dependency resolution, compares every engine file with
