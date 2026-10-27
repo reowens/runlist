@@ -303,6 +303,14 @@ Write changelog entries under `## Unreleased` as you go — the version commit p
 
 Release preflight requires a clean `main` that descends from `origin/main`; `--force` cannot bypass it. On failure, run `npm run release:resume`: before publication it either recovers a missing tag for a completed version commit or restores an incomplete bump and prints the exact `npm version <version>` retry. Once the tag exists, never bump again; resume atomically retries only the intended branch+tag push, reuses/reruns the GitHub workflow, and finishes registry/global CLI/plugin verification.
 
+**Releasing from a session on another machine.** The release runs on the Apple Silicon Mac that holds the signing identity and the notary key (`.runlist/release-config.json`, see `desktop/README.md`). A plain SSH command there cannot read the login Keychain, so `codesign` fails; a new session of a tmux server started from the Mac's own login can. Put the release's Node and `claude` (for the plugin refresh) on `PATH`, write a log, and follow it:
+
+```bash
+ssh <mac> 'tmux new-session -d -s runlist-release "cd <checkout> && export PATH=<node 22 bin>:\$HOME/.local/bin:\$PATH && npm version patch > \$HOME/runlist-release.log 2>&1; echo release-exit=\$? >> \$HOME/runlist-release.log"'
+```
+
+Notarization uses the API key, so a locked screen does not stop it. Two steps can still wait on the Mac: GitHub's releases API may answer with the previous desktop release for a minute after publication (resume to retry the local install), and the first run of the newly installed app waits for macOS's downloaded-from-the-Internet approval, which only someone at the unlocked Mac can give; `check-installed` waits on it.
+
 ## Architecture
 
 **Entry point:** `bin/runlist.mjs` — CLI arg parser and command dispatcher. Each command delegates to a module in `src/`. `bin/dotmd.mjs` delegates to this canonical entry point for compatibility.
