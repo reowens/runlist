@@ -27,8 +27,11 @@ sign, install or qualify a new supported platform. The build still reports
   engine passed all 65 helper/frontend tests with no skips.
 - The Mac application passed the private vocabulary bundle check (188 files);
   the bundled Node payload and Acorn metadata match their pinned vendor inputs.
-- Windows native build remains unverified: the reachable host lacks Rust and
-  Visual Studio Build Tools. No native window, fresh installation, minimum-host,
+- Windows native build remains unverified: the SSH owner session did not resolve
+  Cargo, and standard per-user Cargo and Visual Studio installer paths were
+  absent. This was not an exhaustive inventory or a managed job qualification.
+  The worker's managed Node exists outside that shell's PATH. No native window,
+  fresh installation, minimum-host,
   signing or notarization acceptance is claimed by this candidate.
 
 ## Current Mac release — 2026-10-27
