@@ -803,6 +803,12 @@ excludes session prompts from `paths`.
 Saved prompts are local session state. Consume them with `runlist use`; inspect
 without consuming via `runlist prompts show`. Consuming a baton prompt also claims
 its plan; `runlist use --no-claim` reads and archives it without starting the plan.
+Only an agent session consumes: Claude Code, Codex, OpenCode, or a shell with
+`RUNLIST_SESSION_ID` set. In a plain terminal, `runlist use` prints the body and a
+closing line naming the `runlist prompts use <path>` the session runs, and leaves
+the prompt pending and its plan unclaimed. So `claude "$(runlist use)"` starts a
+session that consumes the prompt itself, and a session that never starts takes
+nothing.
 
 New plans are created `planned`; `runlist use` starts one, and
 `runlist new plan <name> --status <status>` sets a different starting status.

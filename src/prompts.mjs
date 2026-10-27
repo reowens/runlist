@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
-import { asString, toRepoPath, die, resolveDocPath, resolveRefPath, isArchivedPath } from './util.mjs';
+import { agentSessionSource, asString, toRepoPath, die, resolveDocPath, resolveRefPath, isArchivedPath } from './util.mjs';
 import { buildIndex, resolveDocArg } from './index.mjs';
 import { runQuery } from './query.mjs';
 import { completePlanClaim, regenIndex, renderLifecycleMutation, runArchive } from './lifecycle.mjs';
@@ -372,6 +372,13 @@ export async function consumePrompt(filePath, config, opts) {
   }
   const family = childHandoffs(repoPath, config);
 
+  // Only an agent session consumes. A plain terminal (`claude "$(runlist use)"`,
+  // or someone looking) gets the body and the command the session runs, so a
+  // session that never starts takes nothing and claims no plan.
+  if (!dryRun && !agentSessionSource(opts.env ?? process.env)) {
+    return printUnconsumedPrompt(body + family.notice, repoPath, status);
+  }
+
   const planRef = asString(parsed.plan);
   let linkedClaim = null;
   let claimSkipReason = null;
@@ -401,8 +408,8 @@ export async function consumePrompt(filePath, config, opts) {
 
   // Archive BEFORE emitting the body. If runArchive throws (git mv failure,
   // hook crash, anything), the body must not have already gone to stdout —
-  // otherwise `claude "$(runlist prompts next)"` consumes the prompt without it
-  // ever being archived, and the next session sees the same prompt as pending.
+  // otherwise the session reads a prompt that was never archived, and the next
+  // session sees the same prompt as pending.
   const archiveResult = runArchive([filePath], config, {
     noIndex,
     showFiles,
@@ -473,6 +480,24 @@ export async function consumePrompt(filePath, config, opts) {
     generatedFiles: config.indexPath && !noIndex && (completion.indexRegenerated || archiveResult?.indexRegenerated) ? [toRepoPath(config.indexPath, config.repoRoot)] : [],
     deferredGeneratedFiles: config.indexPath && noIndex ? [toRepoPath(config.indexPath, config.repoRoot)] : [],
     claim: linkedClaim ? { plan: linkedClaim.repoPath, changed: linkedClaim.planChanged, pendingCompletion: completion.pending, hook: completion.hook } : null,
+  };
+}
+
+export function consumeInstruction(repoPath) {
+  return `This prompt is still pending: runlist consumes a prompt only inside an agent session. The session that works on it runs \`runlist prompts use ${repoPath}\` first.`;
+}
+
+async function printUnconsumedPrompt(body, repoPath, status) {
+  const content = `${body}${body.endsWith('\n') ? '' : '\n'}\n${consumeInstruction(repoPath)}\n`;
+  await new Promise((resolve, reject) => process.stdout.write(content, err => err ? reject(err) : resolve()));
+  return {
+    operation: 'print',
+    status: { from: status ?? null, to: status ?? null, changed: false },
+    repositoryFiles: [],
+    sessionFiles: [],
+    generatedFiles: [],
+    deferredGeneratedFiles: [],
+    claim: null,
   };
 }
 

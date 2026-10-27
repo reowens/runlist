@@ -2,6 +2,18 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Changed
+
+- runlist consumes a prompt only inside an agent session (Claude Code, Codex,
+  OpenCode, or a shell with `RUNLIST_SESSION_ID` set). In a plain terminal,
+  `runlist use`, `runlist next` and `prompts use|resume|next` print the body
+  and a closing line naming `runlist prompts use <path>`, and archive and claim
+  nothing. `claude "$(runlist use)"` now starts a session that consumes the
+  prompt itself, so a session that never starts no longer takes the prompt or
+  its plan. `prompts show` and `--dry-run` are unchanged.
+
 ## 0.98.3 — 2026-10-23
 
 ### Changed

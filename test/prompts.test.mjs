@@ -6,6 +6,7 @@ import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { resolveConfig } from '../src/config.mjs';
 import { runPrompts } from '../src/prompts.mjs';
+import { SESSION_ID_VARIABLES } from '../src/util.mjs';
 
 const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
 
@@ -261,9 +262,9 @@ describe('runlist prompts next', () => {
   });
 
   // Regression: if the archive step fails (read-only archive dir here), the
-  // body must NOT have already been emitted to stdout. Otherwise
-  // `claude "$(dotmd prompts next)"` consumes the body and the prompt stays
-  // pending in docs/prompts/ — the failure mode that motivated the reorder.
+  // body must NOT have already been emitted to stdout. Otherwise the session
+  // reads the body and the prompt stays pending in docs/prompts/ — the
+  // failure mode that motivated the reorder.
   it('does not emit body when archive fails', { skip: process.platform === 'win32' }, () => {
     const file = writePrompt('foo', { body: 'unique-must-not-leak' });
     // Prompts archive into docs/prompts/archived/; making the prompts dir
@@ -592,6 +593,83 @@ describe('runlist prompts use', () => {
       strictEqual(r.status, 0, r.stderr);
       ok(r.stdout.includes('abs-path body'));
     });
+  });
+});
+
+describe('a prompt is consumed only inside an agent session', () => {
+  beforeEach(setupProject);
+
+  // A plain terminal: every variable that can name a session cleared.
+  function runOutside(args, extra = {}) {
+    const env = { ...process.env };
+    for (const variable of SESSION_ID_VARIABLES) delete env[variable];
+    Object.assign(env, extra, { NO_COLOR: '1' });
+    return spawnSync('node', [bin, ...args, '--config', configPath], { cwd: tmpDir, encoding: 'utf8', env });
+  }
+
+  function linkedPrompt(name, body) {
+    const planDir = path.join(docsDir, 'plans');
+    mkdirSync(planDir, { recursive: true });
+    const plan = path.join(planDir, 'linked-work.md');
+    writeFileSync(plan, '---\ntype: plan\nstatus: active\n---\n# Linked work\n');
+    const file = writePrompt(name, { body });
+    writeFileSync(file, readFileSync(file, 'utf8').replace('related_plans: []', 'plan: ../plans/linked-work.md'));
+    return { file, plan };
+  }
+
+  for (const args of [['use', 'resume-linked'], ['use'], ['next'], ['prompts', 'use', 'resume-linked'], ['prompts', 'resume', 'resume-linked'], ['prompts', 'next']]) {
+    it(`\`runlist ${args.join(' ')}\` outside a session prints the body and leaves the prompt and its plan alone`, () => {
+      const { file, plan } = linkedPrompt('resume-linked', 'OUTSIDE-BODY');
+      const r = runOutside(args, { TERM_SESSION_ID: 'a-terminal-window' });
+      strictEqual(r.status, 0, r.stderr);
+      match(r.stdout, /OUTSIDE-BODY/);
+      const lines = r.stdout.trimEnd().split('\n');
+      match(lines.at(-1), /only inside an agent session.*`runlist prompts use docs\/prompts\/resume-linked\.md`/);
+      ok(existsSync(file), 'the prompt stays pending');
+      ok(!existsSync(path.join(promptsDir, 'archived', 'resume-linked.md')), 'nothing archived');
+      match(readFileSync(file, 'utf8'), /^status: pending$/m);
+      match(readFileSync(plan, 'utf8'), /^status: active$/m);
+      ok(!r.stderr.includes('Claimed'), r.stderr);
+      ok(!existsSync(path.join(tmpDir, '.runlist', 'ownership')), 'no ownership record written');
+    });
+  }
+
+  it('inside a Claude Code session the same command archives the prompt and claims its plan', () => {
+    const { file, plan } = linkedPrompt('resume-linked', 'INSIDE-BODY');
+    const r = runOutside(['use', 'resume-linked'], { CLAUDE_CODE_SESSION_ID: 'claude-session' });
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stdout, /INSIDE-BODY/);
+    ok(!r.stdout.includes('only inside an agent session'), r.stdout);
+    ok(!existsSync(file), 'source archived');
+    ok(existsSync(path.join(promptsDir, 'archived', 'resume-linked.md')));
+    match(readFileSync(plan, 'utf8'), /^status: in-session$/m);
+    match(r.stderr, /Claimed.*linked-work\.md/);
+  });
+
+  it('RUNLIST_SESSION_ID counts as a session', () => {
+    const { file, plan } = linkedPrompt('resume-linked', 'EXPLICIT-BODY');
+    const r = runOutside(['prompts', 'use', 'resume-linked'], { RUNLIST_SESSION_ID: 'explicit-session' });
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stdout, /EXPLICIT-BODY/);
+    ok(!existsSync(file), 'source archived');
+    match(readFileSync(plan, 'utf8'), /^status: in-session$/m);
+  });
+
+  it('`--dry-run` outside a session still previews the consume', () => {
+    const file = writePrompt('resume-dry', { body: 'DRY-BODY' });
+    const r = runOutside(['prompts', 'next', '--dry-run']);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stderr, /Would emit body and archive/);
+    ok(existsSync(file));
+  });
+
+  it('`prompts show` outside a session is unchanged', () => {
+    const { file } = linkedPrompt('resume-linked', 'SHOW-BODY');
+    const r = runOutside(['prompts', 'show', 'resume-linked']);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stdout, /SHOW-BODY/);
+    ok(!r.stdout.includes('only inside an agent session'));
+    ok(existsSync(file));
   });
 });
 

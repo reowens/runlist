@@ -52,6 +52,17 @@ export function hostSessionSource(env = process.env) {
   return null;
 }
 
+// The agent session runlist runs inside, or null in a plain terminal. A
+// terminal id names a window, not an agent, so it does not count: consuming a
+// prompt there would archive it with no session to read it.
+export function agentSessionSource(env = process.env) {
+  const source = hostSessionSource(env);
+  return source && source.scope !== 'terminal' ? source : null;
+}
+
+// Every variable that can name a session, for a caller that must clear them all.
+export const SESSION_ID_VARIABLES = SESSION_ID_SOURCES.map(source => source.variable);
+
 // The session id the environment names, or null when it names none.
 export function hostSessionId(env = process.env) {
   return hostSessionSource(env)?.id ?? null;

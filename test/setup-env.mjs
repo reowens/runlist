@@ -7,6 +7,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { agentSessionSource } from '../src/util.mjs';
 
 const OWNER_FLAG = 'RUNLIST_TEST_LOG_DIR_OWNER';
 
@@ -23,6 +24,10 @@ if (!process.env[OWNER_FLAG]) {
   process.env.RUNLIST_MODEL_CAP_GB = '12';
   process.env.RUNLIST_MODEL_AVAILABLE_GB = '64';
   process.env.RUNLIST_MODEL_PRESSURE = 'normal';
+  // Run as an agent session wherever `npm test` starts, the way it runs inside
+  // Claude Code: runlist consumes prompts only in one. A test of the plain
+  // terminal case clears every session variable itself.
+  if (!agentSessionSource(process.env)) process.env.CLAUDE_CODE_SESSION_ID = 'runlist-test-session';
   process.on('exit', () => {
     try { rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
   });

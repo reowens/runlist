@@ -119,7 +119,8 @@ Common commands:
   set <status> [file]   Transition status (start work, finish, archive — all via target status)
   new <type> <name>     Create plan/doc/prompt (pipe stdin or @path for body)
   use [<file-or-slug>]  Open a doc by type: prompt → consume, plan → start, doc → read
-                        (no file: consume oldest pending prompt)
+                        (no file: consume oldest pending prompt; outside an
+                        agent session a prompt is printed, not consumed)
   baton [<plan>|<slug>] @<draft-file>
                         Save a resume prompt (+ release the plan, if one is in-session)
   archive <file>        Close out a plan (status → archived, move, update refs)
@@ -422,6 +423,8 @@ prompt statuses
   pending        Ready for the next session to consume.
                  \`runlist prompts use <file>\` prints body + archives atomically.
                  \`runlist prompts next\` does the same for the oldest pending.
+                 Outside an agent session both only print, and the
+                 prompt stays pending.
 
   archived       Consumed prompt; body preserved in the archive directory,
                  which is the only directory a prompt ever moves into.
@@ -1284,6 +1287,11 @@ Prompts are documents with \`type: prompt\`, typically saved under
 docs/prompts/. They seed future Claude sessions; consuming a prompt
 prints its body to stdout and atomically archives it (one-shot).
 
+Only an agent session consumes (Claude Code, Codex, OpenCode, or a shell
+with RUNLIST_SESSION_ID set). In a plain terminal \`use\`, \`resume\` and
+\`next\` print the body and a closing line naming the command the session
+runs to consume it; the prompt stays pending and its plan unclaimed.
+
 \`runlist prompt\` (singular) is an alias for \`runlist prompts\` — every
 subcommand below works under either spelling.
 
@@ -1330,10 +1338,11 @@ Examples:
   runlist prompts list --status claimed   # already-consumed prompts
   runlist prompts --json                 # JSON output
 
-  claude "$(runlist prompts next)"       # consume oldest pending + run claude
-  claude "$(runlist prompts use resume-foo)"           # by slug
-  claude "$(runlist prompts use docs/prompts/foo.md)"  # by path
-  claude "$(runlist prompts resume resume-foo)"        # \`resume\` is an alias for \`use\`
+  runlist prompts use resume-foo        # in a session: consume by slug
+  runlist prompts use docs/prompts/foo.md  # by path
+  runlist prompts resume resume-foo     # \`resume\` is an alias for \`use\`
+  claude "$(runlist prompts next)"       # from a terminal: start claude on the oldest
+                                       # pending; the session consumes it itself
   runlist prompt list                    # singular alias for \`runlist prompts list\`
 
   runlist prompts show resume-foo        # peek without consuming (triage)
