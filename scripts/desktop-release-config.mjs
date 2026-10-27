@@ -6,7 +6,7 @@ import { cleanNpmEnv } from './sync-global-cli.mjs';
 const SIGN_TEAM = '7GSPYYN5X8';
 // The App Store Connect issuer of the same personal team, pinned by its SHA-256 so
 // the public repository carries no account identifier. An issuer belongs to one
-// team, so a key from any other team (Hetchy, Inc.'s included) is refused here.
+// team, so a key from any other team is refused here.
 export const NOTARY_ISSUER_SHA256 = 'e7be6dfa3fbf7f28b2cc9d1d0a7dd95d243611711c8b7acd442381bd3af93db2';
 
 export function desktopReleaseEnvironment(root, env = process.env) {
