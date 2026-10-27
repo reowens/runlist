@@ -4,6 +4,11 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ## Unreleased
 
+### Development
+
+- Added separate native status/Templates accessibility cases that reach the
+  dialogs before editing; Mac compilation passed, native execution remains pending.
+
 ### Changed
 
 - Updated desktop Tauri to 2.12.5, tauri-build to 2.7.4, the Tauri CLI to

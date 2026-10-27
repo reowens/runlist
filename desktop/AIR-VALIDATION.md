@@ -1,11 +1,34 @@
 ---
 type: doc
 status: active
-updated: 2026-10-21
+updated: 2026-10-27
 summary: Source checks for Runlist's portable payload and macOS native acceptance harness.
 ---
 
 # Air harness source verification
+
+## Focused dialog cases prepared (2026-10-27)
+
+Two new XCTest cases check status and Templates control exposure without first
+editing or saving a document. They share native fixture opening with the existing
+workflow, capture native trees/screenshots and check that closing a dialog restores
+the surrounding controls without changing document bytes. Fixture cleanup after
+Quit restores only the exact edit authored by the workflow case.
+
+The payload-preparation and DOM accessibility checks passed **8/8** on Linux.
+Guarded `just typecheck runlist-native-tests` passed on the Mac after correcting
+the invoking SSH shell's PATH to include `~/.local/bin`. Earlier attempts reported
+the admission helper as missing because it was outside PATH; the installed app's
+gate was present and passed the scheduler's version-3 API check. No helper install
+or admission bypass was needed.
+
+The compiled Swift source SHA-256 is
+`42ff9aea50dc649a7c57bfe115c97d7243a3243d7e866b09400ee28213f7c434`,
+matching this checkout and the isolated staged harness. No app or test window was
+opened, and no new Air payload was staged. Native execution remains pending;
+the machine-control dependency and existing accessibility finding are unchanged.
+
+## Earlier harness verification
 
 The portable payload preparer and standalone macOS UI-test project are source
 verified. The preparer freezes a signed app with its provenance-matched helper

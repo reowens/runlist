@@ -1,7 +1,7 @@
 ---
 type: doc
 status: active
-updated: 2026-10-20
+updated: 2026-10-27
 summary: Prepare a signed Runlist test payload for the explicit Air verification lane.
 ---
 
@@ -36,7 +36,11 @@ support and macOS 14 or newer; this does not change the product's minimum OS.
 Source checks use `just typecheck runlist-desktop`,
 `just test runlist-desktop desktop/test/prepare-air-tests.test.mjs` and
 `just typecheck runlist-native-tests` from that checkout. The last command
-compiles the harness without running the app.
+compiles the harness without running the app. When invoking it through SSH,
+include the installed command directory in the shell's PATH:
+`PATH="$HOME/.local/bin:$PATH" just typecheck runlist-native-tests`.
+The scheduler discovers its shared admission gate through `hdev` or `pmgr` on
+PATH; a reduced SSH PATH can report an installed helper as missing.
 
 The native test opens a disposable checkout through the native folder chooser,
 reviews and saves an edit, compares exact source bytes, inspects the status
@@ -45,6 +49,12 @@ Edit Markdown focuses the native Markdown text view. The harness sends select-al
 and replacement text to that element through XCTest's keyboard APIs; typing
 requires keyboard focus. This workflow does not qualify pointer hit testing of
 the Markdown editor.
+Separate status and Templates cases open their dialogs before any editing or
+saving. They check native control exposure, closure and unchanged document bytes,
+and retain before-dialog and failure snapshots. The edit/save workflow remains a
+separate case. After ordinary Quit, cleanup restores only the exact document edit
+authored by the harness in its disposable fixture, keeping case order independent.
+These cases passed native compilation; execution remains pending. See the validation record.
 Screenshots and accessibility trees remain in the job's `native.xcresult`.
 An inaccessible control fails the native test. See
 [source validation](AIR-VALIDATION.md).

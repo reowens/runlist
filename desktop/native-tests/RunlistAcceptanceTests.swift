@@ -89,9 +89,15 @@ final class RunlistAcceptanceTests: XCTestCase {
         // A failed ordinary quit remains a failure even when XCTest must release its app.
         if !quit { app.terminate() }
         capture("after-quit")
+        // Each case shares the worker's disposable fixture. Restore only the
+        // exact edit authored by this harness, so case order cannot hide a failure.
+        if let document, !prefix.isEmpty,
+           try Data(contentsOf: document) == Data((prefix + savedBody).utf8) {
+            try Data((prefix + originalBody).utf8).write(to: document, options: .atomic)
+        }
     }
 
-    func testInstalledWorkflowAndDialogAccessibility() throws {
+    private func openFixtureDocument() throws {
         app.typeKey("o", modifierFlags: .command)
         let chooser = XCTNSPredicateExpectation(predicate: NSPredicate { [self] _, _ in
             app.sheets.firstMatch.exists || app.dialogs.firstMatch.exists
@@ -112,6 +118,50 @@ final class RunlistAcceptanceTests: XCTestCase {
         let title = app.buttons.matching(NSPredicate(format: "title BEGINSWITH %@ AND title CONTAINS %@", "Air acceptance ", "docs/plans/air-acceptance.md")).firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: 15), "Fixture document is absent from the native library tree.")
         title.click()
+        XCTAssertTrue(app.buttons["Change status"].firstMatch.waitForExistence(timeout: 10))
+    }
+
+    func testStatusDialogAccessibilityWithoutEditing() throws {
+        try openFixtureDocument()
+        capture("before-status-dialog")
+        app.buttons["Change status"].firstMatch.click()
+        defer { capture("focused-status-dialog") }
+        let status = app.popUpButtons["New status"].firstMatch
+        XCTAssertTrue(status.waitForExistence(timeout: 5), "Status dialog has no accessible New status control before any edit or save.")
+        XCTAssertTrue(app.textViews["Reason"].firstMatch.exists, "Status dialog has no accessible Reason editor.")
+        XCTAssertTrue(app.buttons["Review status change"].firstMatch.exists, "Status dialog has no accessible review button.")
+        let apply = app.buttons["Apply status change"].firstMatch
+        XCTAssertTrue(!apply.exists || !apply.isEnabled, "Apply must be unavailable before a reviewed result.")
+        let close = app.buttons["Close status change"].firstMatch
+        XCTAssertTrue(close.exists && close.isEnabled)
+        capture("focused-status-controls")
+        close.click()
+        XCTAssertTrue(app.buttons["Change status"].firstMatch.waitForExistence(timeout: 5), "Closing the dialog did not restore the document controls.")
+        XCTAssertFalse(status.exists, "Closing the dialog left its status control exposed.")
+        XCTAssertEqual(try Data(contentsOf: document), Data((prefix + originalBody).utf8), "Opening and closing the dialog changed source.")
+    }
+
+    func testTemplatesDialogAccessibilityWithoutEditing() throws {
+        try openFixtureDocument()
+        let templates = app.buttons["Templates"].firstMatch
+        XCTAssertTrue(templates.waitForExistence(timeout: 5) && templates.isHittable)
+        capture("before-templates-dialog")
+        templates.click()
+        defer { capture("focused-templates-dialog") }
+        let editor = app.textViews["Template Markdown"].firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 5), "Templates dialog has no accessible Markdown editor before any edit or save.")
+        XCTAssertTrue(app.buttons["Review template changes"].firstMatch.exists, "Templates dialog has no accessible review button.")
+        let close = app.buttons["Close templates"].firstMatch
+        XCTAssertTrue(close.exists && close.isEnabled)
+        capture("focused-template-controls")
+        close.click()
+        XCTAssertTrue(templates.waitForExistence(timeout: 5), "Closing Templates did not restore the surrounding controls.")
+        XCTAssertFalse(editor.exists, "Closing Templates left its editor exposed.")
+        XCTAssertEqual(try Data(contentsOf: document), Data((prefix + originalBody).utf8), "Opening and closing Templates changed document source.")
+    }
+
+    func testInstalledWorkflowAndDialogAccessibility() throws {
+        try openFixtureDocument()
         let details = app.buttons["Details"].firstMatch
         XCTAssertTrue(details.waitForExistence(timeout: 10))
         details.click()
