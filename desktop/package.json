@@ -1,6 +1,6 @@
 {
   "name": "runlist-desktop",
-  "version": "0.98.3",
+  "version": "0.99.0",
   "private": true,
   "type": "module",
   "scripts": {
