@@ -7,9 +7,17 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { agentSessionSource } from '../src/util.mjs';
 
 const OWNER_FLAG = 'RUNLIST_TEST_LOG_DIR_OWNER';
+
+// Node's test runner hands its children FORCE_COLOR=1 when it runs in a colour
+// terminal, and color.mjs honours that first, so every output comparison saw
+// escape codes under a TTY and passed only where stdout was piped. Each test
+// process loads this file before any source, so output is plain everywhere; a
+// colour test sets FORCE_COLOR itself.
+if (process.env.NODE_TEST_CONTEXT) delete process.env.FORCE_COLOR;
+// After that delete: util.mjs loads color.mjs, which reads FORCE_COLOR once on load.
+const { agentSessionSource } = await import('../src/util.mjs');
 
 if (!process.env[OWNER_FLAG]) {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'runlist-test-logs-'));
