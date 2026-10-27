@@ -2,6 +2,20 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Changed
+
+- The Mac app is notarized only under the team that signs it (`7GSPYYN5X8`),
+  with that team's App Store Connect API key: `notaryKey`, `notaryKeyId` and
+  `notaryIssuer` in private `.runlist/release-config.json`, or
+  `RUNLIST_NOTARY_KEY`, `RUNLIST_NOTARY_KEY_ID` and `RUNLIST_NOTARY_ISSUER`.
+  The release refuses a key whose issuer is not the pinned one and refuses a
+  notarytool Keychain profile, whose team cannot be checked; 0.95 to 0.98.3
+  were notarized under another team through such a profile. The key needs no
+  Keychain, so a release finishes with the Mac's screen locked. 0.99.0 has no
+  Mac app; 0.99.1 is the next one.
+
 ## 0.99.0 — 2026-10-26
 
 ### Changed

@@ -325,10 +325,16 @@ resolved. Removing the desktop app does not uninstall the npm CLI.
 
 `npm version patch` now stamps CLI, plugin and desktop manifests plus both
 current-version documentation blocks. Preflight requires the qualified Apple
-Silicon Mac host, the existing signing identity/team and notarytool profile.
-Set `RUNLIST_SIGN_IDENTITY`, `RUNLIST_SIGN_TEAM` and `RUNLIST_NOTARY_PROFILE`, or
-save `signIdentity`, `signTeam` and `notaryProfile` in private
-`.runlist/release-config.json`. `RUNLIST_RELEASE_CONFIG` can select that private
+Silicon Mac host, the existing signing identity/team and the signing team's
+App Store Connect API key. Set `RUNLIST_SIGN_IDENTITY`, `RUNLIST_SIGN_TEAM`,
+`RUNLIST_NOTARY_KEY` (the `AuthKey_<id>.p8` path), `RUNLIST_NOTARY_KEY_ID` and
+`RUNLIST_NOTARY_ISSUER`, or save `signIdentity`, `signTeam`, `notaryKey`,
+`notaryKeyId` and `notaryIssuer` in private `.runlist/release-config.json`.
+Notarization runs only under the team that signs (`7GSPYYN5X8`): the key's
+issuer must match the SHA-256 pinned in `scripts/desktop-release-config.mjs`,
+and a notarytool Keychain profile is refused because its team cannot be
+checked. The key needs no Keychain, so a release runs with the Mac's screen
+locked. `RUNLIST_RELEASE_CONFIG` can select that private
 file from a clean release checkout. The privacy scanner also needs its local
 key or `RUNLIST_PUBLIC_CHECK_KEY`.
 
@@ -349,7 +355,7 @@ Build on an Apple Silicon Mac with Xcode command-line tools, Rust **1.95+**, Car
 npm --prefix desktop ci
 npm --prefix desktop run build
 npm --prefix desktop test
-RUNLIST_NOTARY_PROFILE=your-existing-personal-profile node desktop/scripts/sign.mjs
+RUNLIST_NOTARY_KEY=~/.appstoreconnect/private_keys/AuthKey_<id>.p8 RUNLIST_NOTARY_KEY_ID=<id> RUNLIST_NOTARY_ISSUER=<issuer> node desktop/scripts/sign.mjs
 ```
 
 The build downloads the official runtime once into a build cache and verifies

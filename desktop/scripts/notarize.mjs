@@ -9,11 +9,13 @@ export function saveReceipt(file, value) {
 
 // Persist Apple's request ID before waiting. A resume waits for that same
 // request and refuses to attach an old request to different bytes.
-export function notarizeArtifact(artifact, profile, file, exec = execFileSync) {
+// `credentials` is the App Store Connect key from notaryCredentials()
+// (scripts/desktop-release-config.mjs), which has already checked its team.
+export function notarizeArtifact(artifact, credentials, file, exec = execFileSync) {
   const sha256 = createHash('sha256').update(readFileSync(artifact)).digest('hex');
   let receipt = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : null;
   if (receipt && receipt.sha256 !== sha256) throw new Error('Notarization artifact changed; preserve the request and use a new release directory.');
-  const run = args => JSON.parse(exec('/usr/bin/xcrun', ['notarytool', ...args, '--keychain-profile', profile, '--output-format', 'json'], {
+  const run = args => JSON.parse(exec('/usr/bin/xcrun', ['notarytool', ...args, '--key', credentials.key, '--key-id', credentials.keyId, '--issuer', credentials.issuer, '--output-format', 'json'], {
     encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'],
   }));
   if (!receipt) {
