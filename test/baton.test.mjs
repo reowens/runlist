@@ -1,11 +1,12 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import { ok, strictEqual, match, rejects } from 'node:assert';
-import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync, rmSync, appendFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync, rmSync, appendFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
 import { resolveConfig } from '../src/config.mjs';
 import { runBaton } from '../src/baton.mjs';
+import { withPathLocks } from '../src/atomic-mutation.mjs';
 
 const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
 
@@ -928,7 +929,8 @@ syncBuiltinESMExports();
     const result = JSON.parse(r.stdout);
     strictEqual(result.savedPrompt, 'subagent-child-owned');
     strictEqual(result.claimRelease.released, true);
-    const pending = JSON.parse(readFileSync(path.join(tmpDir, '.runlist', 'handoffs', 'child-owned.json'), 'utf8'));
+    const handoffs = path.join(tmpDir, '.runlist', 'handoffs');
+    const pending = readdirSync(handoffs).map(f => JSON.parse(readFileSync(path.join(handoffs, f), 'utf8'))).find(r => r.plan === 'docs/plans/child-owned.md');
     strictEqual(pending.name, result.savedPrompt);
     strictEqual(pending.prompt, result.prompt);
     match(readFileSync(plan, 'utf8'), /^status: active$/m);
@@ -1389,7 +1391,19 @@ describe('runlist baton: the plan update after the prompt, and the name last', (
     match(r.stderr, /Handoff done: docs\/plans\/gadget\.md/);
   });
 
-  const recordFile = name => path.join(tmpDir, '.runlist', 'handoffs', `${name}.json`);
+  // Records are found by the plan they name, not by their file name.
+  const handoffsDir = () => path.join(tmpDir, '.runlist', 'handoffs');
+  const records = () => existsSync(handoffsDir())
+    ? readdirSync(handoffsDir()).filter(f => f.endsWith('.json')).map(f => ({ file: path.join(handoffsDir(), f), ...JSON.parse(readFileSync(path.join(handoffsDir(), f), 'utf8')) }))
+    : [];
+  const recordOf = repoPath => records().find(r => r.plan === repoPath)?.file ?? path.join(handoffsDir(), 'absent');
+  const recordFile = name => recordOf(`docs/plans/${name}.md`);
+  const writePlanAt = (repoPath, { title, nextStep }) => {
+    const file = path.join(tmpDir, repoPath);
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, `---\ntype: plan\nstatus: in-session\ntitle: ${title}\nnext_step: ${nextStep}\n---\n# ${title}\n\nbody\n`);
+    return file;
+  };
   const frontmatterOf = file => readFileSync(file, 'utf8').split('\n---\n')[0];
 
   it('--next-step writes next_step, removes the record and reports the handoff done', () => {
@@ -1549,6 +1563,126 @@ describe('runlist baton: the plan update after the prompt, and the name last', (
     match(r.stderr, /Handoff done: docs\/plans\/moved\/crank\.md/);
     match(frontmatterOf(moved), /key the shaft/);
     ok(!existsSync(recordFile('crank')));
+  });
+
+  it('a plan sharing only a file name with the handed-off one finishes nothing and writes nothing', () => {
+    const original = writePlanAt('docs/plans/widget.md', { title: 'widget', nextStep: 'first' });
+    const other = writePlanAt('docs/plans/other/widget.md', { title: 'widget', nextStep: 'unrelated' });
+    strictEqual(run(['baton', 'docs/plans/widget.md', '--message', 'resume']).status, 0);
+    const before = [readFileSync(original, 'utf8'), readFileSync(other, 'utf8')];
+    for (const extra of [[], ['--next-step', 'second']]) {
+      const r = run(['baton', '--done', 'docs/plans/other/widget.md', ...extra]);
+      ok(r.status !== 0, `refused with ${JSON.stringify(extra)}`);
+      match(r.stderr, /No handoff waits on docs\/plans\/other\/widget\.md\. The handoff for a plan of the same file name is docs\/plans\/widget\.md, which is still in place/);
+    }
+    strictEqual(readFileSync(original, 'utf8'), before[0]);
+    strictEqual(readFileSync(other, 'utf8'), before[1], 'the unrelated plan is untouched');
+    ok(existsSync(recordOf('docs/plans/widget.md')), 'record kept');
+  });
+
+  it('two plans sharing a file name keep separate records', () => {
+    const a = writePlanAt('docs/plans/a/widget.md', { title: 'widget a', nextStep: 'first' });
+    writePlanAt('docs/plans/b/widget.md', { title: 'widget b', nextStep: 'other' });
+    strictEqual(run(['baton', 'docs/plans/a/widget.md', '--message', 'resume a']).status, 0);
+    strictEqual(run(['use', 'docs/prompts/resume-widget.md', '--no-claim']).status, 0);
+    strictEqual(run(['baton', 'docs/plans/b/widget.md', '--message', 'resume b']).status, 0);
+    strictEqual(JSON.stringify(records().map(r => r.plan).sort()), JSON.stringify(['docs/plans/a/widget.md', 'docs/plans/b/widget.md']));
+    for (const r of records()) ok(!/[*?:"<>|]/.test(path.basename(r.file)), `${path.basename(r.file)} is a legal NTFS name`);
+    const r = run(['baton', '--done', 'docs/plans/a/widget.md', '--next-step', 'second']);
+    strictEqual(r.status, 0, r.stderr);
+    match(frontmatterOf(a), /second/);
+    strictEqual(JSON.stringify(records().map(x => x.plan)), JSON.stringify(['docs/plans/b/widget.md']), 'only a\'s record removed');
+  });
+
+  it('reads a record written under the old name-only key, for its own plan only', () => {
+    writePlanAt('docs/plans/a/widget.md', { title: 'widget a', nextStep: 'first' });
+    const b = writePlanAt('docs/plans/b/widget.md', { title: 'widget b', nextStep: 'first' });
+    mkdirSync(handoffsDir(), { recursive: true });
+    const legacy = path.join(handoffsDir(), 'widget.json');
+    writeFileSync(legacy, JSON.stringify({ plan: 'docs/plans/a/widget.md', prompt: 'docs/prompts/resume-widget.md', name: 'resume-widget', savedAt: '2026-01-01T00:00:00Z', nextStep: JSON.stringify('first'), sessionId: 'test-sid' }) + '\n');
+    const before = readFileSync(b, 'utf8');
+    const wrong = run(['baton', '--done', 'docs/plans/b/widget.md', '--next-step', 'second']);
+    ok(wrong.status !== 0, wrong.stderr);
+    strictEqual(readFileSync(b, 'utf8'), before);
+    ok(existsSync(legacy));
+    const r = run(['baton', '--done', '--next-step', 'second']);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stderr, /Handoff done: docs\/plans\/a\/widget\.md/);
+    ok(!existsSync(legacy), 'legacy record removed once done');
+  });
+
+  it('a new baton replaces the old name-keyed record for the same plan', () => {
+    writePlanWithNextStep('hinge', 'fit the pin');
+    mkdirSync(handoffsDir(), { recursive: true });
+    const legacy = path.join(handoffsDir(), 'hinge.json');
+    writeFileSync(legacy, JSON.stringify({ plan: 'docs/plans/hinge.md', name: 'resume-old', savedAt: '2026-01-01T00:00:00Z', nextStep: JSON.stringify('fit the pin'), sessionId: 'test-sid' }) + '\n');
+    strictEqual(run(['baton', 'docs/plans/hinge.md', '--message', 'resume']).status, 0);
+    ok(!existsSync(legacy));
+    strictEqual(records().filter(r => r.plan === 'docs/plans/hinge.md').length, 1);
+  });
+
+  it('a moved plan is found by file name only when one moved record could be meant, and its title matches', () => {
+    writePlanAt('docs/plans/x/axle.md', { title: 'axle x', nextStep: 'first' });
+    writePlanAt('docs/plans/y/axle.md', { title: 'axle y', nextStep: 'first' });
+    strictEqual(run(['baton', 'docs/plans/x/axle.md', '--message', 'resume x']).status, 0);
+    strictEqual(run(['use', 'docs/prompts/resume-axle.md', '--no-claim']).status, 0);
+    strictEqual(run(['baton', 'docs/plans/y/axle.md', '--message', 'resume y']).status, 0);
+    rmSync(path.join(plansDir, 'x'), { recursive: true });
+    rmSync(path.join(plansDir, 'y'), { recursive: true });
+    const moved = writePlanAt('docs/plans/z/axle.md', { title: 'axle x', nextStep: 'first' });
+    const before = readFileSync(moved, 'utf8');
+    const ambiguous = run(['baton', '--done', 'docs/plans/z/axle.md', '--next-step', 'second']);
+    ok(ambiguous.status !== 0);
+    match(ambiguous.stderr, /2 handoffs for moved plans of that file name could be meant/);
+    strictEqual(readFileSync(moved, 'utf8'), before);
+    strictEqual(records().length, 2);
+
+    rmSync(recordOf('docs/plans/y/axle.md'));
+    writeFileSync(moved, before.replace('title: axle x', 'title: some other axle'));
+    const stranger = run(['baton', '--done', 'docs/plans/z/axle.md', '--next-step', 'second']);
+    ok(stranger.status !== 0);
+    match(stranger.stderr, /is not the plan the handoff was saved for/);
+    ok(existsSync(recordOf('docs/plans/x/axle.md')));
+
+    writeFileSync(moved, before);
+    const r = run(['baton', '--done', 'docs/plans/z/axle.md', '--next-step', 'second']);
+    strictEqual(r.status, 0, r.stderr);
+    strictEqual(records().length, 0);
+  });
+
+  it('plain --done treats a whitespace-only next_step change as unchanged', () => {
+    const plan = writePlanWithNextStep('shim', 'first step');
+    strictEqual(run(['baton', 'docs/plans/shim.md', '--message', 'resume']).status, 0);
+    writeFileSync(plan, readFileSync(plan, 'utf8').replace('next_step: first step', 'next_step: "first   step "'));
+    const r = run(['baton', '--done']);
+    ok(r.status !== 0, r.stderr);
+    match(r.stderr, /Not done: docs\/plans\/shim\.md next_step is the same/);
+    ok(existsSync(recordFile('shim')));
+  });
+
+  it('decides on the plan as it stands under the lock, so a refused --current-state publishes nothing', async () => {
+    const plan = writePlanWithNextStep('cog', 'first');
+    strictEqual(run(['baton', 'docs/plans/cog.md', '--message', 'resume']).status, 0);
+    const baseline = readFileSync(plan, 'utf8');
+    writeFileSync(plan, baseline.replace('next_step: first', 'next_step: second'));
+    const locksDir = path.join(tmpDir, '.runlist', 'locks');
+    const lockCount = () => existsSync(locksDir) ? readdirSync(locksDir).filter(f => f.endsWith('.lock')).length : 0;
+    let child;
+    // Hold the plan's lock; once the command holds the record's lock too it is
+    // past its unlocked reads and waiting on the plan. A writer restores the
+    // saved next_step in that gap.
+    withPathLocks([plan], { repoRoot: tmpDir }, () => {
+      child = runAsync(['baton', '--done', '--current-state', 'must not be written']);
+      const deadline = Date.now() + 10_000;
+      while (lockCount() < 2 && Date.now() < deadline) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+      ok(lockCount() >= 2, 'the command reached the plan lock');
+      writeFileSync(plan, baseline);
+    });
+    const r = await child;
+    ok(r.status !== 0, r.stderr);
+    match(r.stderr, /Not done: docs\/plans\/cog\.md next_step is the same/);
+    strictEqual(readFileSync(plan, 'utf8'), baseline, 'current_state never published');
+    ok(existsSync(recordFile('cog')), 'record kept');
   });
 
   it('a failed write leaves the record in place', () => {

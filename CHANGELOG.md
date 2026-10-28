@@ -18,6 +18,12 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 - Baton keeps ignored source plans out of commit hints, including custom hooks
   and moves into public directories. Git path classification is batched and
   falls back to the plain commit hint if classification fails.
+- Baton's pending-handoff records are keyed by the plan's full path, so a
+  handoff for one plan no longer overwrites the unfinished handoff of another
+  plan with the same file name. Records written under the old name-only key
+  are still read, and only for the plan they name.
+- `runlist baton --done` no longer counts a `next_step` that changed only in
+  whitespace as updated.
 
 ### Development
 
@@ -33,7 +39,10 @@ All notable changes to `runlist` are documented here. Older releases predate thi
   finishing a handoff no longer needs a hand edit. A next step equal to the one
   recorded when the prompt was saved is refused, `--current-state` alone never
   counts as done, values are one line, and `--dry-run` previews the write.
-  Naming a moved plan's new path now confirms its handoff.
+  Naming a moved plan's new path confirms its handoff when the old path is
+  gone, exactly one moved handoff has that file name, and the plan's title
+  still matches; a plan that only shares a file name is refused. The verdict
+  is reached on the plan under its lock, so a refused call writes nothing.
 - CLI settings inspection now includes effective document roots, index, archive
   directory and prompt location, with value sources and explicit edit limits.
 - Added a beginner setup guide covering assistant requests, host activation,

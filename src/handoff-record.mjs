@@ -1,11 +1,13 @@
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter, replaceFrontmatter } from './frontmatter.mjs';
 import { replaceFrontmatterField } from './frontmatter-fix.mjs';
 import { renderLifecycleMutation } from './lifecycle.mjs';
-import { mutateFile } from './atomic-mutation.mjs';
+import { mutateFile, withPathLocks } from './atomic-mutation.mjs';
+import { commitRename } from './durable-rename.mjs';
 import { authorizeManagedSource } from './managed-path.mjs';
-import { die, nowIso, toRepoPath } from './util.mjs';
+import { DotmdError, die, nowIso, toRepoPath } from './util.mjs';
 import { stateDir } from './naming.mjs';
 import { resolveDocArg } from './index.mjs';
 import { authoritativeSessionId } from './pickup.mjs';
@@ -25,24 +27,39 @@ function recordsDir(config) {
   return path.join(stateDir(config.repoRoot), 'handoffs');
 }
 
+// Keyed by the plan's whole repo path: two plans sharing a file name in
+// different directories each keep their own record. The hash keeps the name
+// legal on every filesystem; the file name in front is only for a human
+// listing the directory. Records written before this were keyed by the file
+// name alone (`widget.json`); they are still read, and matched by the `plan`
+// they carry, never by their name.
 function recordPath(config, planRepoPath) {
-  return path.join(recordsDir(config), `${path.basename(planRepoPath, '.md')}.json`);
+  const key = createHash('sha256').update(planRepoPath).digest('hex').slice(0, 16);
+  return path.join(recordsDir(config), `${path.basename(planRepoPath, '.md')}-${key}.json`);
 }
 
-function planNextStep(absPath) {
-  const { frontmatter } = extractFrontmatter(readFileSync(absPath, 'utf8'));
-  if (!frontmatter) return { present: false, value: null };
-  const fm = parseSimpleFrontmatter(frontmatter);
-  if (!Object.prototype.hasOwnProperty.call(fm, 'next_step')) return { present: false, value: null };
+function frontmatterOf(content) {
+  const { frontmatter } = extractFrontmatter(content);
+  return frontmatter ? parseSimpleFrontmatter(frontmatter) : null;
+}
+
+function nextStepOf(content) {
+  const fm = frontmatterOf(content);
+  if (!fm || !Object.prototype.hasOwnProperty.call(fm, 'next_step')) return { present: false, value: null };
   return { present: true, value: JSON.stringify(fm.next_step ?? null) };
+}
+
+function titleOf(content) {
+  const title = frontmatterOf(content)?.title;
+  return typeof title === 'string' ? title : null;
 }
 
 // Called by baton after the prompt and the plan release are published. Returns
 // the record when the plan carries a next_step to wait on, else null (a repo
 // whose plans have no next_step field has nothing for --done to check).
 export function recordPendingHandoff(config, { planRepoPath, promptRepoPath, promptName }) {
-  const abs = path.resolve(config.repoRoot, planRepoPath);
-  const { present, value } = planNextStep(abs);
+  const content = readFileSync(path.resolve(config.repoRoot, planRepoPath), 'utf8');
+  const { present, value } = nextStepOf(content);
   if (!present) return null;
   const record = {
     plan: planRepoPath,
@@ -50,10 +67,23 @@ export function recordPendingHandoff(config, { planRepoPath, promptRepoPath, pro
     name: promptName,
     savedAt: nowIso(),
     nextStep: value,
+    title: titleOf(content),
     sessionId: authoritativeSessionId() ?? null,
   };
+  const file = recordPath(config, planRepoPath);
+  // An older record for this same plan (the name-keyed form) is replaced, not
+  // left beside the new one to be finished separately.
+  const superseded = listPendingHandoffs(config).filter(r => r.plan === planRepoPath && r.recordFile !== file).map(r => r.recordFile);
   mkdirSync(recordsDir(config), { recursive: true });
-  writeFileSync(recordPath(config, planRepoPath), JSON.stringify(record, null, 2) + '\n');
+  // Under the record's lock, like `--done`, so a confirmation that checked
+  // the previous record can never remove this one.
+  withPathLocks([file, ...superseded], { repoRoot: config.repoRoot }, () => {
+    const temp = `${file}.${process.pid}.tmp`;
+    writeFileSync(temp, JSON.stringify(record, null, 2) + '\n');
+    try { commitRename(temp, file); }
+    catch (err) { rmSync(temp, { force: true }); throw err; }
+    for (const stale of superseded) rmSync(stale, { force: true });
+  });
   return record;
 }
 
@@ -88,11 +118,17 @@ function normalizeFieldValue(value) {
   return value.replace(/\s+/g, ' ').trim();
 }
 
-function recordedNextStep(record) {
-  try {
-    const value = JSON.parse(record.nextStep);
-    return typeof value === 'string' ? normalizeFieldValue(value) : value;
-  } catch { return undefined; }
+// Every completion path compares the same way: a string next_step after
+// whitespace normalisation, anything else (a list, a boolean) as parsed.
+function comparableNextStep(json) {
+  let value;
+  try { value = JSON.parse(json); } catch { return undefined; }
+  return JSON.stringify(typeof value === 'string' ? normalizeFieldValue(value) : value);
+}
+
+function stillAsRecorded(record, content) {
+  const { present, value } = nextStepOf(content);
+  return present && comparableNextStep(value) === comparableNextStep(record.nextStep);
 }
 
 // One line of prose per field. A newline is refused rather than folded away:
@@ -112,6 +148,29 @@ function renderFieldUpdates(raw, fields) {
   return renderLifecycleMutation(replaceFrontmatter(raw, next), { updated: nowIso() }, null);
 }
 
+function readRecord(file) {
+  try { return JSON.parse(readFileSync(file, 'utf8')); }
+  catch { return null; }
+}
+
+// A named plan finishes the record saved for that exact path. The one
+// exception is a plan that moved after the prompt was saved (archived, filed
+// into a subdirectory): its record still names the old path, so a record with
+// the same file name is taken, but only when its plan is gone from that path
+// and no other record could be meant. A plan that merely shares a file name
+// with one still in place is a different plan.
+function namedHandoff(config, repoPath) {
+  const records = listPendingHandoffs(config);
+  const exact = records.find(r => r.plan === repoPath);
+  if (exact) return { record: exact, movedFrom: null };
+  const sameName = records.filter(r => typeof r.plan === 'string' && path.basename(r.plan) === path.basename(repoPath));
+  const moved = sameName.filter(r => !existsSync(path.resolve(config.repoRoot, r.plan)));
+  if (moved.length > 1) die(`No handoff was saved for ${repoPath}, and ${moved.length} handoffs for moved plans of that file name could be meant:\n${moved.map(r => `  ${r.plan} (saved ${r.savedAt}, prompt ${r.name})`).join('\n')}\nFinish each where it was saved, or archive its prompt.`);
+  if (moved.length === 1) return { record: moved[0], movedFrom: path.resolve(config.repoRoot, moved[0].plan) };
+  if (sameName.length) die(`No handoff waits on ${repoPath}. The handoff for a plan of the same file name is ${sameName.map(r => r.plan).join(', ')}, which is still in place; finish it there: runlist baton --done ${sameName[0].plan}`);
+  die(`No handoff waits on ${repoPath}: baton has not saved a prompt for it that needs the plan brought up to date.`);
+}
+
 // `runlist baton --done [<plan>] [--next-step "…"] [--current-state "…"]`
 export function runBatonDone(planArg, config, { json = false, dryRun = false, nextStep = null, currentState = null } = {}) {
   const fields = {};
@@ -121,13 +180,11 @@ export function runBatonDone(planArg, config, { json = false, dryRun = false, ne
   if (dryRun && !writing) die('`runlist baton --done` changes nothing but its own record; run it without --dry-run, or preview a write with --next-step.');
 
   let record;
+  let movedFrom = null;
   let abs = null;
   if (planArg) {
     abs = resolveDocArg(planArg, config);
-    const repoPath = toRepoPath(abs, config.repoRoot);
-    record = listPendingHandoffs(config).find(r => r.plan === repoPath)
-      ?? listPendingHandoffs(config).find(r => path.basename(r.plan) === path.basename(repoPath));
-    if (!record) die(`No handoff waits on ${repoPath}: baton has not saved a prompt for it that needs the plan brought up to date.`);
+    ({ record, movedFrom } = namedHandoff(config, toRepoPath(abs, config.repoRoot)));
   } else {
     const mine = pendingHandoffsForSession(config);
     if (mine.length === 0) die('No handoff of this session waits on a plan update. Name the plan: runlist baton --done <plan-file>');
@@ -135,42 +192,63 @@ export function runBatonDone(planArg, config, { json = false, dryRun = false, ne
     record = mine[0];
   }
 
-  // A named plan is checked where it is now: the record may still carry the
-  // path the plan had before it moved, matched above by its file name.
   abs ??= path.resolve(config.repoRoot, record.plan);
   if (!existsSync(abs)) die(`${record.plan} is gone (moved or archived?). Run \`runlist baton --done <its new path>\` once it is up to date.\nSaved prompt: ${record.name}`);
   const planRepoPath = toRepoPath(abs, config.repoRoot);
   const again = `runlist baton --done${planArg ? ` ${planRepoPath}` : ''}`;
-  const notDone = () => die(`Not done: ${planRepoPath} next_step is the same as when the prompt was saved (${record.savedAt}). Update the plan body first, then run \`${again} --next-step "<next move>"\`.\nSaved prompt: ${record.name}`);
-  const unchanged = file => {
-    const { present, value } = planNextStep(file);
-    return present && value === record.nextStep;
+
+  if (fields.next_step !== undefined && JSON.stringify(fields.next_step) === comparableNextStep(record.nextStep)) {
+    die(`Not done: --next-step repeats the next_step ${planRepoPath} had when the prompt was saved (${record.savedAt}). Write where the work goes from here.\nSaved prompt: ${record.name}`);
+  }
+
+  let source = abs;
+  if (writing) {
+    try { source = authorizeManagedSource(abs, config, { kind: 'Baton --done plan' }).path; }
+    catch (err) { die(err.message); }
+  }
+
+  // The verdict is reached on the content the plan will hold once this call
+  // is through, read under the plan's lock: a refused call publishes nothing,
+  // and a next_step restored by a concurrent writer is seen, not missed.
+  const finish = raw => {
+    const title = movedFrom && typeof record.title === 'string' ? titleOf(raw) : null;
+    if (title !== null && title !== record.title) {
+      die(`${planRepoPath} is not the plan the handoff was saved for: its title is "${title}", the plan saved at ${record.plan} was "${record.title}".\nSaved prompt: ${record.name}`);
+    }
+    const next = writing ? renderFieldUpdates(raw, fields) : raw;
+    if (stillAsRecorded(record, next)) {
+      die(`Not done: ${planRepoPath} next_step is the same as when the prompt was saved (${record.savedAt}). Update the plan body first, then run \`${again} --next-step "<next move>"\`.\nSaved prompt: ${record.name}`);
+    }
+    return next;
+  };
+  const failed = err => {
+    if (err instanceof DotmdError) throw err;
+    die(`Could not ${writing ? 'write' : 'check'} ${planRepoPath} (${err.message}); the handoff is still pending.\nSaved prompt: ${record.name}`);
   };
 
   let preview = null;
-  if (fields.next_step !== undefined) {
-    if (fields.next_step === recordedNextStep(record)) {
-      die(`Not done: --next-step repeats the next_step ${planRepoPath} had when the prompt was saved (${record.savedAt}). Write where the work goes from here.\nSaved prompt: ${record.name}`);
-    }
-  } else if (unchanged(abs)) {
-    notDone(); // --current-state alone never counts as done
+  if (dryRun) {
+    try { preview = finish(readFileSync(source, 'utf8')); } catch (err) { failed(err); }
+  } else {
+    // The record is held for the whole call, so it is removed only after the
+    // plan passed the gate (and any write was published), and only if it is
+    // still the record that was read: another baton for this plan replaces
+    // it under the same lock. A moved plan's old path is held too, and must
+    // still be empty.
+    try {
+      withPathLocks([record.recordFile, ...(movedFrom ? [movedFrom] : [])], { repoRoot: config.repoRoot }, () => {
+        const current = readRecord(record.recordFile);
+        if (current?.plan !== record.plan || current?.savedAt !== record.savedAt) {
+          die(`The handoff record for ${record.plan} changed while this ran (a new baton, or another --done); run \`${again}\` again.\nSaved prompt: ${record.name}`);
+        }
+        if (movedFrom && existsSync(movedFrom)) die(`${record.plan} is back in place; finish the handoff there: runlist baton --done ${record.plan}`);
+        // Like baton itself, this leaves the shared generated index deferred.
+        mutateFile(source, { repoRoot: config.repoRoot }, finish);
+        rmSync(record.recordFile, { force: true });
+      });
+    } catch (err) { failed(err); }
   }
 
-  if (writing) {
-    let source;
-    try { source = authorizeManagedSource(abs, config, { kind: 'Baton --done plan' }).path; }
-    catch (err) { die(err.message); }
-    if (dryRun) {
-      preview = renderFieldUpdates(readFileSync(source, 'utf8'), fields);
-    } else {
-      // Like baton itself, this leaves the shared generated index deferred.
-      try { mutateFile(source, { repoRoot: config.repoRoot }, raw => renderFieldUpdates(raw, fields)); }
-      catch (err) { die(`Could not write ${planRepoPath} (${err.message}); the handoff is still pending.\nSaved prompt: ${record.name}`); }
-      if (unchanged(source)) notDone();
-    }
-  }
-
-  if (!dryRun) rmSync(record.recordFile, { force: true });
   const result = {
     operation: 'baton-done',
     dryRun: Boolean(dryRun),
