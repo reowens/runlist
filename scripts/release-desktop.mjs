@@ -3,8 +3,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { desktopLaunch } from '../src/desktop.mjs';
-import { installedDesktopVersion, runDesktopInstall, selectDesktopRelease } from '../src/desktop-install.mjs';
+import { selectDesktopRelease } from '../src/desktop-install.mjs';
 import { privateBuildEnvironment } from '../desktop/scripts/build-environment.mjs';
 import { checkPublicBundle } from '../desktop/scripts/check-public-bundle.mjs';
 import { saveReceipt } from '../desktop/scripts/notarize.mjs';
@@ -20,11 +19,13 @@ export function validateDesktopManifest(manifest, version, source) {
   }
 }
 
-export async function releaseDesktop(root = process.cwd(), version, source, { environment = process.env } = {}) {
-  const env = preflightDesktopRelease(root, { env: environment });
+export async function releaseDesktop(root = process.cwd(), version, source, {
+  environment = process.env, exec = execFileSync, preflight = preflightDesktopRelease, checkBundle = checkPublicBundle,
+} = {}) {
+  const env = preflight(root, { env: environment });
   if (!env) throw new Error('The selected desktop release checkout is missing its desktop sources.');
-  const capture = (command, args) => execFileSync(command, args, { cwd: root, env, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
-  const run = (command, args, extraEnv = env) => execFileSync(command, args, { cwd: root, env: extraEnv, stdio: 'inherit' });
+  const capture = (command, args) => exec(command, args, { cwd: root, env, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+  const run = (command, args, extraEnv = env) => exec(command, args, { cwd: root, env: extraEnv, stdio: 'inherit' });
   const head = capture('git', ['rev-parse', 'HEAD']).trim();
   source ??= head;
   version ??= JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version;
@@ -45,7 +46,7 @@ export async function releaseDesktop(root = process.cwd(), version, source, { en
     if (!existsSync(path.join(selected, '.git')) || capture('git', ['-C', selected, 'rev-parse', 'HEAD']).trim() !== source) {
       throw new Error('The recovery checkout is incomplete or belongs to different source; preserve it for inspection.');
     }
-    return releaseDesktop(selected, version, source, { environment: env });
+    return releaseDesktop(selected, version, source, { environment: env, exec, preflight, checkBundle });
   }
   let verified = false;
   for (const workflow of ['publish.yml', 'ci.yml']) {
@@ -81,7 +82,7 @@ export async function releaseDesktop(root = process.cwd(), version, source, { en
       run('npm', ['--prefix', 'desktop', 'run', 'build', '--', '--ci']);
       run('cargo', ['test', '--locked', '--manifest-path', 'desktop/src-tauri/Cargo.toml', '--lib'], privateBuildEnvironment(root, env));
       run('npm', ['--prefix', 'desktop', 'run', 'test:bundle']);
-      saveReceipt(path.join(directory, 'unsigned-public-check.json'), checkPublicBundle(app, root));
+      saveReceipt(path.join(directory, 'unsigned-public-check.json'), checkBundle(app, root));
       state.built = true; save();
     }
     if (!state.signed) {
@@ -93,8 +94,7 @@ export async function releaseDesktop(root = process.cwd(), version, source, { en
     const artifact = path.join(directory, manifest.artifact);
     if (createHash('sha256').update(readFileSync(artifact)).digest('hex') !== manifest.sha256) throw new Error('Desktop installer changed after qualification.');
     run(process.execPath, ['desktop/scripts/inspect-bundle.mjs', app]);
-    run(process.execPath, ['desktop/scripts/check-installed.mjs', app]);
-    saveReceipt(path.join(directory, 'signed-public-check.json'), checkPublicBundle(app, root));
+    saveReceipt(path.join(directory, 'signed-public-check.json'), checkBundle(app, root));
     const checksum = path.join(directory, 'SHA256SUMS');
     writeFileSync(checksum, `${manifest.sha256}  ${manifest.artifact}\n`);
     if (!published) {
@@ -112,13 +112,7 @@ export async function releaseDesktop(root = process.cwd(), version, source, { en
   if (installer?.version !== version) throw new Error('The matching desktop release is not publicly downloadable.');
   if (existsSync(manifestFile) && JSON.parse(readFileSync(manifestFile, 'utf8')).sha256 !== installer.sha256) throw new Error('Published desktop bytes differ from the qualified installer.');
   state.published = true; save();
-  if (desktopLaunch([]).app) {
-    const result = await runDesktopInstall(['install']);
-    if (await installedDesktopVersion(result.installed) !== version) throw new Error('Installed desktop does not match this release.');
-    run(process.execPath, ['desktop/scripts/check-installed.mjs', result.installed]);
-    state.installed = result; save();
-  }
-  console.log(`Desktop ${version} published${state.installed ? ' and installed' : ''}.`);
+  console.log(`Desktop ${version} published.`);
   } finally { rmSync(lock, { recursive: true, force: true }); }
 }
 

@@ -11,7 +11,7 @@ runtime download, online account, telemetry, automatic updater or login daemon.
 <!-- runlist:release:start -->
 CLI and desktop release version: **0.99.2**.
 [Mac installer and release notes](https://github.com/reowens/runlist/releases/tag/desktop-v0.99.2).
-Normal product releases publish both components; an installed Mac app is updated with rollback after it has quit.
+Normal product releases publish both components. Local app installation is separate from release acceptance.
 <!-- runlist:release:end -->
 
 The app bundles the matching Runlist engine with desktop protocol 1.
@@ -338,8 +338,9 @@ file from a clean release checkout. The privacy scanner also needs its local
 key or `RUNLIST_PUBLIC_CHECK_KEY`.
 
 After npm publication, the release command builds and checks the matching Mac
-app, signs/notarizes it, publishes the exact installer and updates an existing
-local app with rollback. It never opens or quits an app. A failure retains the
+app, signs/notarizes it and publishes the exact verified installer. Release
+acceptance ends at verified publication; local installation, app launch and
+macOS first-launch approval are not release requirements. A failure retains the
 release intent: use `npm run release:resume` for the same version. Apple request
 IDs are saved before waiting, so retrying waits for the same identified bytes.
 Build/sign/publication receipts remain private under `.runlist/desktop-release/`.
@@ -482,7 +483,7 @@ document regions and dialogs have accessible names. Three DOM regressions check
 these behaviors. Native screen-reader results and the previously observed native
 accessibility-tree omission remain unverified.
 
-Run the terminal-only suite with `node desktop/scripts/check-installed.mjs`;
+Optional installed-app diagnostics use `node desktop/scripts/check-installed.mjs`;
 it uses the installed bundle's runtime and resources and creates no browser,
 WebView or app window. The checker selects this checkout when both its version
 and shared engine fingerprint match the app; otherwise it searches frozen source

@@ -73,7 +73,7 @@ provider. Local chat and push are deferred.
 <!-- runlist:release:start -->
 CLI and desktop release version: **0.99.2**.
 [Mac installer and release notes](https://github.com/reowens/runlist/releases/tag/desktop-v0.99.2).
-Normal product releases publish both components; an installed Mac app is updated with rollback after it has quit.
+Normal product releases publish both components. Local app installation is separate from release acceptance.
 <!-- runlist:release:end -->
 
 The desktop app bundles the matching engine and runtime. Publishing a product
@@ -117,7 +117,7 @@ for checks and evidence. Full-app dialog accessibility remains an open finding;
 fresh/minimum-host and controlled whole-app performance qualification remain
 follow-up work.
 
-Verify an installed Mac app without opening it:
+Optional installed-app diagnostics, separate from release acceptance:
 
 ```bash
 node desktop/scripts/check-installed.mjs

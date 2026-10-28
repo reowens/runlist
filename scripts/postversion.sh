@@ -161,4 +161,4 @@ if [ -z "${HOSTS_VERIFIED}" ]; then
 fi
 node scripts/release-intent.mjs clear
 trap - ERR
-echo "✓ released ${PACKAGE}@${VERSION}; desktop, visible Node prefixes and installed host integrations are in sync"
+echo "✓ released ${PACKAGE}@${VERSION}; CLI and desktop published, CLI installations and host integrations updated"

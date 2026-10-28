@@ -16,6 +16,45 @@ test('an incomplete recovery checkout cannot report desktop release success',asy
  await assert.rejects(releaseDesktop(fixture(t),'0.95.2','a'.repeat(40)),/missing its desktop sources/);
 });
 
+test('desktop publication completes without installing or launching a local app',async t=>{
+ const root=fixture(t),version='0.99.2',source='a'.repeat(40),bytes=Buffer.from('signed installer fixture');
+ const directory=path.join(root,'.runlist/desktop-release',version),artifact=`Runlist-${version}-macOS-arm64.dmg`;
+ const sha256=createHash('sha256').update(bytes).digest('hex');
+ mkdirSync(directory,{recursive:true});writeFileSync(path.join(root,'package.json'),JSON.stringify({version}));
+ writeFileSync(path.join(directory,artifact),bytes);
+ writeFileSync(path.join(directory,'release-manifest.json'),JSON.stringify({version,sourceCommit:source,architecture:'arm64',protocol:1,team:'7GSPYYN5X8',notarized:true,sha256,artifact,submissions:[{status:'Accepted'},{status:'Accepted'}]}));
+ const commands=[],messages=[];let published=false,bundleChecks=0;
+ t.mock.method(console,'log',message=>messages.push(message));
+ const exec=(program,args)=>{
+  commands.push([program,...args]);
+  if(program==='git'){
+   if(args.join(' ')==='rev-parse HEAD')return source;
+   if(args[0]==='status')return '';
+   throw new Error('Unexpected Git operation');
+  }
+  if(program==='gh'){
+   if(args[0]==='api')return JSON.stringify(args[1].includes('/workflows/')?{workflow_runs:[{head_sha:source,event:'push',conclusion:'success'}]}:[]);
+   if(args[1]==='view'){
+    if(!published)throw new Error('Release is absent');
+    return JSON.stringify({isDraft:false,targetCommitish:source,assets:[{name:artifact,state:'uploaded',size:bytes.length,digest:`sha256:${sha256}`,url:`https://github.com/reowens/runlist/releases/download/desktop-v${version}/${artifact}`}]});
+   }
+   if(args[1]==='edit')published=true;
+  }
+  if(args.some(arg=>arg.includes('check-installed.mjs')))throw new Error('Release must not execute installed-app diagnostics');
+  return '';
+ };
+ const options={environment:{},exec,preflight:()=>({}),checkBundle:()=>{bundleChecks++;return {files:1};}};
+ await releaseDesktop(root,version,source,options);
+ const state=JSON.parse(readFileSync(path.join(directory,'state.json')));
+ assert.equal(state.published,true);assert.ok(!Object.hasOwn(state,'installed'));
+ assert.equal(bundleChecks,2);assert.ok(commands.some(command=>command.includes('desktop/scripts/sign.mjs')));
+ assert.ok(commands.some(command=>command.includes('desktop/scripts/inspect-bundle.mjs')));
+ assert.equal(messages.at(-1),`Desktop ${version} published.`);
+ commands.length=0;
+ await releaseDesktop(root,version,source,options);
+ assert.ok(commands.every(command=>['git','gh'].includes(command[0])));
+});
+
 test('notarization saves the request before timeout and resumes without submitting again',t=>{
  const root=fixture(t),artifact=path.join(root,'app.zip'),receipt=path.join(root,'request.json');writeFileSync(artifact,'exact artifact');
  const id='11111111-1111-4111-8111-111111111111';let submits=0,waits=0;

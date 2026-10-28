@@ -309,7 +309,7 @@ Release preflight requires a clean `main` that descends from `origin/main`; `--f
 ssh <mac> 'tmux new-session -d -s runlist-release "cd <checkout> && export PATH=<node 22 bin>:\$HOME/.local/bin:\$PATH && npm version patch > \$HOME/runlist-release.log 2>&1; echo release-exit=\$? >> \$HOME/runlist-release.log"'
 ```
 
-Notarization uses the API key, so a locked screen does not stop it. Two steps can still wait on the Mac: GitHub's releases API may answer with the previous desktop release for a minute after publication (resume to retry the local install), and the first run of the newly installed app waits for macOS's downloaded-from-the-Internet approval, which only someone at the unlocked Mac can give; `check-installed` waits on it.
+Notarization uses the API key, so a locked screen does not stop it. Release acceptance ends after automated build, test, signing, notarization and verified publication. Never add local app installation, manual opening, first-launch approval or installed-app diagnostics as release acceptance steps. Local installation and diagnostics run only when separately requested.
 
 ## Architecture
 
