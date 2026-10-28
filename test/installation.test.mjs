@@ -1,5 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {randomBytes} from 'node:crypto';
 import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,existsSync,rmSync,symlinkSync,realpathSync} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -86,12 +87,14 @@ function cliFixture(t) {
 }
 
 const dlxHash = '0123456789abcdef0123456789abcdef';
+const dlxBase32Hash = 'abcdefghijklmnopqrstuv2345';
 const oneShotBins = [
   'custom-cache/_npx/abc123/node_modules/.bin',
   `custom-cache/pnpm/dlx/${dlxHash}/fixture-id/node_modules/.bin`,
+  `custom-cache/pnpm/dlx/${dlxBase32Hash}/fixture-id/node_modules/.bin`,
   `custom-cache/pnpm-cache/dlx/${dlxHash}/fixture-id/node_modules/.bin`,
   `arbitrary-parent/dlx/${dlxHash.repeat(2)}/fixture-id/node_modules/.bin`,
-  'temp/dlx-1234/node_modules/.bin',
+  'pnpm/store/v3/tmp/dlx-1234/node_modules/.bin',
   'temp/bunx-1000-fixture/node_modules/.bin',
   'custom-cache/.bunx-1000/fixture/node_modules/.bin',
 ];
@@ -115,8 +118,9 @@ for (const relative of [
   `custom-cache/pnpm/not-dlx/${dlxHash}/fixture-id/node_modules/.bin`,
   `custom-cache/pnpm/dlx/${dlxHash}/node_modules/.bin`,
   `custom-cache/pnpm/dlx/${dlxHash}/fixture-id/not-node_modules/.bin`,
-  'custom-cache/pnpm/dlx/abc123/fixture-id/node_modules/.bin',
-  'custom-cache/pnpm/dlx/gggggggggggggggggggggggggggggggg/fixture-id/node_modules/.bin',
+  'custom-cache/pnpm/dlx/not-a-cache-key/fixture-id/node_modules/.bin',
+  'src/dlx-2024/node_modules/.bin',
+  'pnpm/store/v3/not-tmp/dlx-1234/node_modules/.bin',
   'temp/not-dlx-1234/node_modules/.bin',
   'temp/dlx-fixture/node_modules/.bin',
   'temp/not-bunx-1000-fixture/node_modules/.bin',
@@ -138,6 +142,9 @@ test('one-shot path shapes recognize Windows pnpm-cache paths without Windows fi
   assert.equal(isOneShotCliPath(`${prefix}\\fixture-id\\node_modules\\runlist\\bin\\runlist.mjs`), true);
   assert.equal(isOneShotCliPath(`${prefix}\\node_modules\\.bin`), false);
   assert.equal(isOneShotCliPath(prefix.replace('\\dlx\\', '\\not-dlx\\') + '\\fixture-id\\node_modules\\.bin'), false);
+  assert.equal(isOneShotCliPath(prefix.replace(dlxHash, dlxBase32Hash) + '\\fixture-id\\node_modules\\.bin'), true);
+  assert.equal(isOneShotCliPath('C:\\pnpm\\store\\v3\\tmp\\dlx-1234\\node_modules\\.bin'), true);
+  assert.equal(isOneShotCliPath('C:\\src\\dlx-2024\\node_modules\\.bin'), false);
 });
 
 function yarnWrapper(f, binDir) {
@@ -190,6 +197,38 @@ test('persistent CLI detection excludes Yarn folder and launcher symlinks in eit
       f.env.PATH = candidate;
       assert.deepEqual(f.check(), { available: false, path: null });
     }
+  }
+});
+
+test('persistent CLI detection excludes nested Yarn temp wrappers only when marked, including realpath aliases', t => {
+  const f = cliFixture(t);
+  const bins = Array.from({ length: 2 }, () => path.join(os.tmpdir(), `xfs-${randomBytes(4).toString('hex')}`));
+  for (const bin of bins) {
+    mkdirSync(bin);
+    t.after(() => rmSync(bin, { recursive: true, force: true }));
+    yarnWrapper(f, bin);
+  }
+  delete f.env.npm_command;
+  f.env.BERRY_BIN_FOLDER = bins[0];
+  for (const order of [bins, [...bins].reverse()]) {
+    f.env.PATH = order.join(path.delimiter);
+    assert.deepEqual(f.check(), { available: false, path: null });
+  }
+  if (process.platform !== 'win32') {
+    const linkedDir = path.join(f.home, 'outer-wrapper-alias');
+    symlinkSync(bins[1], linkedDir, 'dir');
+    f.env.PATH = [bins[0], linkedDir].join(path.delimiter);
+    assert.deepEqual(f.check(), { available: false, path: null });
+  }
+  f.env.PATH = bins.join(path.delimiter);
+  delete f.env.BERRY_BIN_FOLDER;
+  assert.deepEqual(f.check(), { available: true, path: path.join(bins[0], process.platform === 'win32' ? 'runlist.cmd' : 'runlist') });
+  f.env.BERRY_BIN_FOLDER = bins[0];
+  const lasting = path.join(f.home, 'lasting-bin');
+  const expected = f.bin(lasting);
+  for (const order of [[...bins, lasting], [lasting, ...bins]]) {
+    f.env.PATH = order.join(path.delimiter);
+    assert.deepEqual(f.check(), { available: true, path: expected });
   }
 });
 

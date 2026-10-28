@@ -35,8 +35,8 @@ export const PERSISTENT_CLI_WARNING = 'Host hooks need a globally installed `run
 export function isOneShotCliPath(file) {
   const value = file.replace(/\\/g, '/');
   return /(?:^|\/)_npx\/[^/]+\/node_modules(?:\/|$)/.test(value)
-    || /(?:^|\/)dlx\/[a-f0-9]{32,64}\/[^/]+\/node_modules(?:\/|$)/i.test(value)
-    || /(?:^|\/)dlx-[0-9]+\/node_modules(?:\/|$)/.test(value)
+    || /(?:^|\/)dlx\/(?:[a-z2-7]{26}|[a-f0-9]{32,64})\/[^/]+\/node_modules(?:\/|$)/i.test(value)
+    || /(?:^|\/)tmp\/dlx-[0-9]+\/node_modules(?:\/|$)/.test(value)
     || /(?:^|\/)bunx-[0-9]+-[^/]+\/node_modules(?:\/|$)/.test(value)
     || /(?:^|\/)\.bunx-[0-9]+\/[^/]+\/node_modules(?:\/|$)/.test(value);
 }
@@ -60,9 +60,12 @@ export function persistentCliOnPath({ env = process.env, cwd = process.cwd() } =
   // pnpm v11.17.0 pnpm11/exec/commands/src/dlx.ts builds that shape under
   // any configured cacheDir, using a 32-hex key (v10.11.0 uses 64).
   // Its config/reader/src/dirs.ts defaults to pnpm-cache on Windows.
+  // v9.15.9 uses the same layout with a 26-character base32 cache key,
+  // also observed with a local runlist tarball in an isolated HOME/cache.
   // pnpm v8.15.9 exec/plugin-commands-script-runners/src/dlx.ts instead
-  // prepends <dlxDir>/dlx-<pid>/node_modules/.bin. Both are source-verified:
+  // prepends <storeDir>/tmp/dlx-<pid>/node_modules/.bin. Source-verified:
   // https://github.com/pnpm/pnpm/blob/v11.17.0/pnpm11/exec/commands/src/dlx.ts
+  // https://github.com/pnpm/pnpm/blob/v9.15.9/exec/plugin-commands-script-runners/src/dlx.ts
   // https://github.com/pnpm/pnpm/blob/v8.15.9/exec/plugin-commands-script-runners/src/dlx.ts
   // Source-inferred (not runtime-tested here): Bun bun-v1.3.3's
   // src/cli/bunx_command.zig uses <tmp>/bunx-<uid>-<package>/node_modules/.bin;
@@ -92,7 +95,20 @@ export function persistentCliOnPath({ env = process.env, cwd = process.cwd() } =
   // Observed with a local probe tarball and source-verified at
   // a9edb7777f04ba16f51503ef6775325b353b67cc:
   // https://github.com/yarnpkg/berry/blob/a9edb7777f04ba16f51503ef6775325b353b67cc/packages/yarnpkg-core/sources/scriptUtils.ts
-  if (env.BERRY_BIN_FOLDER) excludeBin(env.BERRY_BIN_FOLDER);
+  // Nested Yarn calls retain outer wrapper folders on PATH while replacing
+  // BERRY_BIN_FOLDER (observed with a devDependency via `yarn run ybin`, whose
+  // script calls `yarn runlist`). xfs.ts creates xfs-<8 hex> under os.tmpdir():
+  // https://github.com/yarnpkg/berry/blob/a9edb7777f04ba16f51503ef6775325b353b67cc/packages/yarnpkg-fslib/sources/xfs.ts
+  // Exclude all xfs wrapper folders under the real temp root
+  // only while Yarn's marker is set; an ordinary shell may use such a folder.
+  if (env.BERRY_BIN_FOLDER) {
+    excludeBin(env.BERRY_BIN_FOLDER);
+    const tmp = normalize(resolved(os.tmpdir()) || os.tmpdir());
+    for (const bin of (env.PATH ?? '').split(path.delimiter).filter(Boolean)) {
+      const realBin = resolved(path.resolve(cwd, bin)) || path.resolve(cwd, bin);
+      if (normalize(path.dirname(realBin)) === tmp && /^xfs-[0-9a-f]{8}$/.test(path.basename(realBin))) excludeBin(bin);
+    }
+  }
   const inCache = file => isOneShotCliPath(normalize(file));
   const accept = file => {
     const dir = path.dirname(file), realDir = resolved(dir) || dir;

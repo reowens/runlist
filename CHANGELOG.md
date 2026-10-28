@@ -7,8 +7,8 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 ### Fixed
 
 - Host installs warn when hooks lack a persistent CLI on PATH, checking the
-  names hooks call and excluding npx, pnpm dlx (including custom cache paths),
-  bunx, Yarn temporary wrapper bins and npm-injected project bins. Setup keeps
+  names hooks call and excluding npx, pnpm 8–11 dlx (including custom cache paths),
+  bunx, nested Yarn temporary wrapper bins and npm-injected project bins. Setup keeps
   this prerequisite under Outstanding; install and setup JSON expose
   `persistentCliMissing` only when true.
 
