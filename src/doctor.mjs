@@ -447,6 +447,11 @@ function runDoctorProject(config, { json = false } = {}) {
   const skillDriftWarnings = checkSkillDrift(config);
   const result = {
     cliVersion: cliPackage?.version ?? null,
+    promptTracking: {
+      value: config.promptTracking ?? 'local',
+      source: config.promptTrackingSource ?? 'legacy-default',
+      configPath: config.configPath ?? null,
+    },
     installations: installationReport(config),
     packageDependency: depVersion,
     claudeCommandWarnings,
@@ -465,6 +470,7 @@ function runDoctorProject(config, { json = false } = {}) {
   process.stdout.write(formatInstallationReport(result.installations)+'\n');
   process.stdout.write(`- running CLI version: ${result.cliVersion ?? 'unknown'}\n`);
   process.stdout.write(`- package dependency: ${result.packageDependency ?? '(none found)'}\n`);
+  process.stdout.write(`- prompt tracking: ${result.promptTracking.value} (source: ${result.promptTracking.source}) — inspect/change with runlist config; ignore files and Git state are unchanged\n`);
   process.stdout.write(`- stale Claude commands: ${claudeCommandWarnings.length}\n`);
   if (deprecatedCommandMentions.length) {
     process.stdout.write(`- docs mentioning deprecated commands: ${deprecatedCommandMentions.length}\n`);

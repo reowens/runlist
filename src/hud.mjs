@@ -213,7 +213,7 @@ const MISUSE_CORRECTIONS = {
   'edit-status': 'never hand-edit `status:`; use `runlist set <status> <file>`',
   'cat-prompt': 'consume prompts with `runlist use <file>`; peek without consuming via `runlist prompts show <file>`',
   'read-prompt': 'consume prompts with `runlist use <file>`; peek without consuming via `runlist prompts show <file>`',
-  'commit-prompt': 'saved prompts are session-local; never git add/commit them',
+  'commit-prompt': 'follow the project prompt Git policy: `runlist config get promptTracking`',
 };
 
 export function buildMisuseRecap(config, now = Date.now()) {
@@ -294,7 +294,7 @@ export function buildHud(config) {
 // `runlist set` names the valid ones when given a wrong one.
 const SUBAGENT_PRIMER = [
   'runlist manages plans/docs/prompts. Orient: `runlist plans`. Read: `runlist show <file>`, then `runlist show <file> --section "<heading>"`, never whole.',
-  'Do NOT: cat/read a docs/prompts/*.md (`runlist prompts show <name>` peeks, `runlist use <name>` consumes); commit a prompt; hand-edit status (`runlist set <status> <file>`).',
+  'Do NOT: cat/read a docs/prompts/*.md (`runlist prompts show <name>` peeks, `runlist use <name>` consumes); ignore promptTracking (`runlist config get promptTracking`); hand-edit status (`runlist set <status> <file>`).',
   "Return completed results to the parent. Unfinished handoff: `runlist baton --subagent <task-slug> @<draft-file> --parent resume-<parent>`. Use a distinct non-plan slug under a parent-owned plan; preserve its claim. `runlist baton --template` prints an outline; inspect a pending prompt before --replace.",
 ].join('\n');
 

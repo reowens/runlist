@@ -15,7 +15,7 @@ safe to mutate.
 ## Install
 
 ```bash
-npm install -g runlist      # global CLI and agent-host hooks
+npm install -g runlist      # global CLI; choose agent integration separately
 npm install -D runlist      # project scripts via node_modules/.bin
 npx runlist init            # try it without installing
 ```
@@ -304,6 +304,37 @@ runlist briefing               # comprehensive active-work view
 runlist check                  # validate schema, references, and lifecycle shape
 runlist doctor                 # preview repairs; add --apply to write
 ```
+
+The CLI works without the optional Runlist desktop app. Install an agent
+integration separately with `runlist install claude`, `runlist install codex`,
+or `runlist install opencode`.
+
+New projects recommend leaving pending prompts untracked to reduce commit churn.
+`runlist init` leaves `.gitignore` and other ignore files untouched by default.
+Untracked does not mean ignored: `git add -A` can include these files. Inspect or
+explicitly choose the policy in the CLI:
+
+```bash
+runlist config show
+runlist config get promptTracking --json
+runlist config set promptTracking tracked --dry-run
+runlist config set promptTracking tracked
+```
+
+`untracked` warns when agents include pending prompts in Git operations;
+`tracked` allows them; `local` denies them. Existing configs without a choice
+keep `local` behavior until an explicit selection. Policy changes preserve the
+prompt location and existing files and never stage, untrack, move or delete them.
+They never change ignore files. To explicitly add ignore rules during setup,
+preview `runlist init --gitignore --dry-run`, then run `runlist init --gitignore`.
+This adds missing runtime-state rules and, unless `tracked` is selected, prompt
+rules; it preserves unrelated rules. Selecting `tracked` does not remove rules
+that already ignore prompts.
+
+Runtime state in `.runlist/`, such as the parse cache, also remains unignored by
+default and can be staged by `git add -A`. Review the selected files before
+committing. The explicit ignore option covers `.runlist/` and `.dotmd/` (the
+legacy state directory, still readable for compatibility).
 
 `runlist plans` is the compact orientation view. `runlist briefing` lists live
 plans with next steps and grows with the corpus. `runlist context` is the fuller
@@ -800,7 +831,7 @@ from `runlist.config.mjs` and return an argv array such as
 `['just', 'commit', message, ...paths]`. Baton quotes the printed command and
 excludes session prompts from `paths`.
 
-Saved prompts are local session state. Consume them with `runlist use`; inspect
+Saved prompts are handoff artifacts with a project-selected Git policy (see `runlist config get promptTracking`). Consume them with `runlist use`; inspect
 without consuming via `runlist prompts show`. Consuming a baton prompt also claims
 its plan; `runlist use --no-claim` reads and archives it without starting the plan.
 Only an agent session consumes: Claude Code, Codex, OpenCode, or a shell with
@@ -1238,9 +1269,16 @@ duplicating the complete command catalog.
 
 Run `runlist init` to create `runlist.config.mjs` (a legacy `dotmd.config.mjs` is still read). A minimal typed configuration:
 
+`runlist config show|get|set` currently supports only `promptTracking`. It reports
+the effective value, source and config path. Writes accept validated values,
+preserve unrelated JavaScript and hooks, and refuse symlinks, computed or ambiguous exports
+with instructions for a manual edit. Other settings are edited in the JavaScript
+config; the GUI is optional.
+
 ```js
 export const root = 'docs';
 export const archiveDir = 'archived';
+export const promptTracking = 'untracked';
 
 export const types = {
   plan: {

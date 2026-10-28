@@ -1,6 +1,6 @@
 import { describe, it, afterEach } from 'node:test';
-import { strictEqual, ok } from 'node:assert';
-import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
+import { deepStrictEqual, strictEqual, ok } from 'node:assert';
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, existsSync, readdirSync, readlinkSync, symlinkSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -24,6 +24,34 @@ function run(args, cwd, opts = {}) {
     cwd: runCwd, encoding: 'utf8',
     env: { ...process.env, NO_COLOR: '1', HOME: homeDir, USERPROFILE: homeDir },
   });
+}
+
+// Exercise runInit's argv contract independently of the CLI registry, which is
+// maintained separately. The existing CLI tests above/below still cover init's
+// default dispatch and global dry-run flag.
+function init(argv = [], cwd = tmpDir) {
+  const script = `
+    import { resolveConfig } from ${JSON.stringify(new URL('../src/config.mjs', import.meta.url).href)};
+    import { runInit } from ${JSON.stringify(new URL('../src/init.mjs', import.meta.url).href)};
+    const argv = process.argv.slice(1);
+    try {
+      await runInit(process.cwd(), await resolveConfig(process.cwd()), {
+        argv, dryRun: argv.includes('--dry-run'),
+      });
+    } catch (error) { console.error(error.message); process.exitCode = 1; }
+  `;
+  return spawnSync(process.execPath, ['--input-type=module', '-e', script, '--', ...argv], {
+    cwd, encoding: 'utf8',
+    env: { ...process.env, NO_COLOR: '1', HOME: cwd, USERPROFILE: cwd },
+  });
+}
+
+function snapshot(dir = tmpDir, prefix = '') {
+  return readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
+    const rel = path.join(prefix, entry.name);
+    if (entry.isSymbolicLink()) return [[rel, `symlink:${readlinkSync(path.join(dir, entry.name))}`]];
+    return entry.isDirectory() ? snapshot(path.join(dir, entry.name), rel) : [[rel, readFileSync(path.join(dir, entry.name)).toString('base64')]];
+  }).sort(([a], [b]) => a.localeCompare(b));
 }
 
 afterEach(() => {
@@ -77,9 +105,8 @@ describe('init basic', () => {
     ok(!existsSync(path.join(tmpDir, '.claude', 'commands')), '.claude/commands/ not created in dry-run');
   });
 
-  it('removes a retired generated slash-command file on init', () => {
-    // Per-repo scaffolding is retired (the runlist plugin owns the workflow now);
-    // init sweeps any leftover banner-stamped command files and reports it.
+  it('preserves existing retired generated slash-command files on init', () => {
+    // Setup does not delete existing project files, even legacy generated ones.
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
     mkdirSync(path.join(tmpDir, '.git'));
     mkdirSync(path.join(tmpDir, '.claude', 'commands'), { recursive: true });
@@ -91,10 +118,9 @@ describe('init basic', () => {
     );
     const r = run(['init']);
     strictEqual(r.status, 0, `stderr: ${r.stderr}`);
-    ok(/\.claude\/commands\/plans\.md.*retired/.test(r.stdout),
-      `output should report the retired file being cleaned; got: ${r.stdout}`);
-    ok(!existsSync(path.join(tmpDir, '.claude', 'commands', 'plans.md')),
-      'retired generated file should be removed');
+    strictEqual(readFileSync(path.join(tmpDir, '.claude', 'commands', 'plans.md'), 'utf8'),
+      '---\ndescription: x\n---\n<!-- dotmd-generated: 0.0.1 -->\n\nold content\n');
+    ok(!r.stdout.includes('removed'), 'init must not delete existing files');
   });
 
   it('leaves user-managed slash-command files (no banner) untouched on init', () => {
@@ -356,7 +382,7 @@ describe('init gitignore detection', () => {
     // Pre-fix: init silently scaffolded docs/ into a repo where docs/ was
     // already in .gitignore, so every doc dotmd managed was untracked. The
     // user only found out via `git ls-files docs/`. Now: a yellow notice
-    // with the `!docs/` exception hint.
+    // with a notice to review the existing rules.
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
     mkdirSync(path.join(tmpDir, '.git'));
     // Need a real git repo for `git check-ignore` to work.
@@ -366,10 +392,8 @@ describe('init gitignore detection', () => {
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(result.stdout.includes('docs/ is gitignored'),
       `expected gitignore notice; got: ${result.stdout}`);
-    ok(result.stdout.includes('!docs/'),
-      `expected !docs/ exception hint; got: ${result.stdout}`);
-    ok(result.stdout.includes(`echo '!docs/' >> .gitignore`),
-      `expected copy-pasteable command hint; got: ${result.stdout}`);
+    strictEqual(readFileSync(path.join(tmpDir, '.gitignore'), 'utf8'), 'docs/\n');
+    ok(result.stdout.includes('Review the existing ignore rules'));
   });
 
   it('stays quiet when docs/ is NOT gitignored', () => {
@@ -392,8 +416,9 @@ describe('init root-level siblings', () => {
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(result.stdout.includes('notice'), `expected notice in stdout: ${result.stdout}`);
     ok(result.stdout.includes('plans/'), 'expected plans/ in notice');
-    ok(result.stdout.includes('mv ./plans/'), 'expected mv hint');
-    ok(result.stdout.includes("export const root = ['plans'"), 'expected flat-root hint');
+    ok(!result.stdout.includes('mv '), 'no destructive move suggestion');
+    ok(result.stdout.includes('export const root = ["docs","plans"]'), 'config hint keeps both roots');
+    strictEqual(readFileSync(path.join(tmpDir, 'plans', 'my-plan.md'), 'utf8'), '# My plan');
     ok(!existsSync(path.join(tmpDir, 'docs', 'plans')), 'should NOT scaffold docs/plans when root sibling has content');
     // docs/prompts/ has no sibling, so it should still be scaffolded
     ok(existsSync(path.join(tmpDir, 'docs', 'prompts')));
@@ -666,11 +691,11 @@ describe('init scaffold survives a clone', () => {
   });
 });
 
-describe('init gitignores product state and the live prompt queue', () => {
+describe('init explicit gitignore opt-in', () => {
   it('writes current state, legacy state, and prompt rules on a fresh init', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
     mkdirSync(path.join(tmpDir, '.git'));
-    run(['init']);
+    init(['--gitignore']);
     const gi = readFileSync(path.join(tmpDir, '.gitignore'), 'utf8').split('\n').map(l => l.trim());
     ok(gi.includes('.runlist/'), gi.join('|'));
     ok(gi.includes('.dotmd/'), gi.join('|'));
@@ -681,7 +706,7 @@ describe('init gitignores product state and the live prompt queue', () => {
   it('ignores the live queue but not archived prompts', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
     mkdirSync(path.join(tmpDir, '.git'));
-    run(['init']);
+    init(['--gitignore']);
     spawnSync('git', ['init', '-q'], { cwd: tmpDir });
     mkdirSync(path.join(tmpDir, 'docs', 'prompts', 'archived'), { recursive: true });
     writeFileSync(path.join(tmpDir, 'docs', 'prompts', 'live.md'), 'x');
@@ -695,7 +720,7 @@ describe('init gitignores product state and the live prompt queue', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
     mkdirSync(path.join(tmpDir, '.git'));
     writeFileSync(path.join(tmpDir, '.gitignore'), 'node_modules/\n.dotmd/\n');
-    run(['init']);
+    init(['--gitignore']);
     const gi = readFileSync(path.join(tmpDir, '.gitignore'), 'utf8');
     strictEqual(gi.split('\n').filter(l => l.trim() === '.dotmd/').length, 1, `no duplicate: ${gi}`);
     strictEqual(gi.split('\n').filter(l => l.trim() === '.runlist/').length, 1, `current state rule: ${gi}`);
@@ -705,9 +730,374 @@ describe('init gitignores product state and the live prompt queue', () => {
   it('is idempotent across repeated inits', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
     mkdirSync(path.join(tmpDir, '.git'));
-    run(['init']);
-    run(['init']);
+    init(['--gitignore']);
+    init(['--gitignore']);
     const gi = readFileSync(path.join(tmpDir, '.gitignore'), 'utf8');
     strictEqual(gi.split('\n').filter(l => l.trim() === '/docs/prompts/*.md').length, 1, gi);
   });
+});
+
+describe('init preserves Git policy by default', () => {
+  it('creates no ignore file and leaves local and configured global exclusions untouched', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+    strictEqual(spawnSync('git', ['init', '-q'], { cwd: tmpDir }).status, 0);
+    const globalExcludes = path.join(tmpDir, 'global-excludes');
+    writeFileSync(globalExcludes, '# user global excludes\n*.secret\n');
+    strictEqual(spawnSync('git', ['config', 'core.excludesFile', globalExcludes], { cwd: tmpDir }).status, 0);
+    const before = snapshot(path.join(tmpDir, '.git'));
+    const result = run(['init']);
+    strictEqual(result.status, 0, result.stderr);
+    ok(!existsSync(path.join(tmpDir, '.gitignore')));
+    deepStrictEqual(snapshot(path.join(tmpDir, '.git')), before, 'init must not write hidden Git state');
+    strictEqual(readFileSync(globalExcludes, 'utf8'), '# user global excludes\n*.secret\n');
+    const config = readFileSync(path.join(tmpDir, 'runlist.config.mjs'), 'utf8');
+    ok(config.includes("export const promptTracking = 'untracked';"));
+    ok(result.stdout.includes('reduce commit churn'));
+    ok(result.stdout.includes('git add -A'));
+    ok(result.stdout.includes('Project initialized. Host integration is separate.'));
+  });
+
+  it('preserves an existing .gitignore byte-for-byte through repeated default init', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+    const original = '# authored rules\r\nnode_modules/\r\n!keep\r\n# no final newline';
+    writeFileSync(path.join(tmpDir, '.gitignore'), original);
+    strictEqual(run(['init']).status, 0);
+    strictEqual(run(['init']).status, 0);
+    strictEqual(readFileSync(path.join(tmpDir, '.gitignore'), 'utf8'), original);
+  });
+
+  it('leaves pending prompts eligible for git add -A unless the user opts into ignores', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+    strictEqual(spawnSync('git', ['init', '-q'], { cwd: tmpDir }).status, 0);
+    strictEqual(run(['init']).status, 0);
+    writeFileSync(path.join(tmpDir, 'docs', 'prompts', 'pending.md'), '---\ntype: prompt\nstatus: pending\n---\nWork.\n');
+    const stagedBefore = spawnSync('git', ['diff', '--cached', '--name-only'], { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(stagedBefore.stdout, '', 'init stages nothing');
+    strictEqual(spawnSync('git', ['add', '-A'], { cwd: tmpDir }).status, 0);
+    const staged = spawnSync('git', ['diff', '--cached', '--name-only'], { cwd: tmpDir, encoding: 'utf8' });
+    ok(staged.stdout.includes('docs/prompts/pending.md'), staged.stdout);
+  });
+
+  it('uses untracked in detected configs as well as starter configs', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+    mkdirSync(path.join(tmpDir, 'docs'));
+    writeFileSync(path.join(tmpDir, 'docs', 'existing.md'), '---\ntype: doc\nstatus: active\n---\n# Existing\n');
+    strictEqual(run(['init']).status, 0);
+    ok(readFileSync(path.join(tmpDir, 'runlist.config.mjs'), 'utf8').includes("export const promptTracking = 'untracked';"));
+    ok(!existsSync(path.join(tmpDir, '.gitignore')));
+  });
+});
+
+describe('init ignore previews and prompt policy', () => {
+  it('previews exact missing rules on dry-run without writing any files', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+    writeFileSync(path.join(tmpDir, '.gitignore'), '# authored\r\n.dotmd/');
+    const before = snapshot();
+    const result = init(['--gitignore', '--dry-run']);
+    strictEqual(result.status, 0, result.stderr);
+    ok(result.stdout.includes('[dry-run]'));
+    ok(result.stdout.includes('.gitignore (+.runlist/, /docs/prompts/*.md)'), result.stdout);
+    deepStrictEqual(snapshot(), before);
+  });
+
+  it('appends without changing unrelated bytes or duplicating equivalent rules', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+    const original = Buffer.from([35, 32, 255, 13, 10, ...Buffer.from('node_modules/\r\n.dotmd\r\ndocs/prompts/*.md')]);
+    writeFileSync(path.join(tmpDir, '.gitignore'), original);
+    strictEqual(init(['--gitignore']).status, 0);
+    deepStrictEqual(readFileSync(path.join(tmpDir, '.gitignore')), Buffer.concat([original, Buffer.from('\r\n.runlist/\r\n')]));
+    const once = snapshot();
+    strictEqual(init(['--gitignore']).status, 0);
+    deepStrictEqual(snapshot(), once);
+  });
+
+  for (const policy of ['untracked', 'tracked', 'local']) {
+    it(`configures a new project with explicit ${policy} policy`, () => {
+      tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+      const result = run(['init', '--prompt-tracking', policy, '--gitignore']);
+      strictEqual(result.status, 0, result.stderr);
+      ok(readFileSync(path.join(tmpDir, 'runlist.config.mjs'), 'utf8').includes(`promptTracking = '${policy}'`));
+      const ignores = readFileSync(path.join(tmpDir, '.gitignore'), 'utf8');
+      strictEqual(ignores.includes('/docs/prompts/*.md'), policy !== 'tracked');
+      ok(ignores.includes('.runlist/') && ignores.includes('.dotmd/'));
+      if (policy === 'tracked') ok(!result.stdout.includes('Leave pending prompts untracked'));
+    });
+  }
+
+  it('preserves prompt ignores in tracked mode and previews only state rules', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+    writeFileSync(path.join(tmpDir, 'runlist.config.mjs'), "export const root = 'notes';\nexport const promptTracking = 'tracked';\n");
+    const original = '# custom prompt ignores\n/notes/prompts/*.md\n';
+    writeFileSync(path.join(tmpDir, '.gitignore'), original);
+    const preview = init(['--gitignore', '--dry-run']);
+    strictEqual(preview.status, 0, preview.stderr);
+    ok(preview.stdout.includes('.gitignore (+.runlist/, .dotmd/)'));
+    ok(!preview.stdout.includes('/notes/prompts/*.md'));
+    strictEqual(init(['--gitignore']).status, 0);
+    strictEqual(readFileSync(path.join(tmpDir, '.gitignore'), 'utf8'), original + '.runlist/\n.dotmd/\n');
+  });
+
+  for (const argv of [['--prompt-tracking', 'invalid'], ['--prompt-tracking'], ['--prompt-tracking=invalid']]) {
+    it(`rejects ${argv.join(' ')} before mutation`, () => {
+      tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+      writeFileSync(path.join(tmpDir, '.gitignore'), '# keep\n');
+      const before = snapshot();
+      const result = init(['--gitignore', ...argv]);
+      strictEqual(result.status, 1);
+      ok(result.stderr.includes('must be one of: untracked, tracked, local'), result.stderr);
+      deepStrictEqual(snapshot(), before);
+    });
+  }
+
+  for (const configuredPolicy of [null, 'tracked', 'untracked']) {
+    it(`refuses a policy change for existing ${configuredPolicy ?? 'legacy'} config before mutation`, () => {
+      tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+      writeFileSync(path.join(tmpDir, 'runlist.config.mjs'), "export const root = 'notes';\n" + (configuredPolicy ? `export const promptTracking = '${configuredPolicy}';\n` : ''));
+      writeFileSync(path.join(tmpDir, '.gitignore'), '# keep\n');
+      const before = snapshot();
+      const requested = configuredPolicy === 'untracked' ? 'tracked' : 'untracked';
+      const result = init(['--prompt-tracking', requested, '--gitignore']);
+      strictEqual(result.status, 1);
+      ok(result.stderr.includes(`runlist config set promptTracking ${requested}`), result.stderr);
+      deepStrictEqual(snapshot(), before);
+    });
+  }
+
+  it('accepts an equal policy without rewriting authored config or hooks', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+    const authored = "// authored JS\nexport const root = 'notes';\nexport const promptTracking = 'tracked';\nexport function onStatusChange() { return 'keep me'; }\n";
+    writeFileSync(path.join(tmpDir, 'runlist.config.mjs'), authored);
+    const result = init(['--prompt-tracking', 'tracked']);
+    strictEqual(result.status, 0, result.stderr);
+    strictEqual(readFileSync(path.join(tmpDir, 'runlist.config.mjs'), 'utf8'), authored);
+    const once = snapshot();
+    strictEqual(init(['--prompt-tracking', 'tracked']).status, 0);
+    deepStrictEqual(snapshot(), once);
+  });
+
+  it('CLI refuses a conflicting policy on symlinked config with manual-edit guidance', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+    writeFileSync(path.join(tmpDir, 'actual.mjs'), "export const root = 'notes';\n");
+    try {
+      symlinkSync('actual.mjs', path.join(tmpDir, 'runlist.config.mjs'));
+    } catch (error) {
+      if (['EPERM', 'EACCES', 'ENOSYS'].includes(error.code)) return;
+      throw error;
+    }
+    const before = snapshot();
+    const result = run(['init', '--prompt-tracking', 'tracked']);
+    strictEqual(result.status, 1, result.stdout + result.stderr);
+    ok(result.stderr.includes('requested policy was not applied'), result.stderr);
+    ok(result.stderr.includes('edit the promptTracking export manually'), result.stderr);
+    deepStrictEqual(snapshot(), before);
+  });
+
+  it('CLI rejects an invalid policy before migrating legacy runtime state', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+    writeFileSync(path.join(tmpDir, 'runlist.config.mjs'), "export const root = 'notes';\n");
+    mkdirSync(path.join(tmpDir, '.dotmd'));
+    writeFileSync(path.join(tmpDir, '.dotmd', 'keep.txt'), 'legacy state\n');
+    const before = snapshot();
+    const result = run(['init', '--prompt-tracking', 'invalid']);
+    strictEqual(result.status, 1, result.stdout + result.stderr);
+    deepStrictEqual(snapshot(), before);
+  });
+});
+
+describe('init configured layouts', () => {
+  it('uses a custom root and configured index path with custom markers, preserving authored prose', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+    const configText = "export const root = 'notes';\nexport const index = { path: 'catalog/overview.md', startMarker: '<!-- start -->', endMarker: '<!-- end -->' };\n";
+    writeFileSync(path.join(tmpDir, 'runlist.config.mjs'), configText);
+    mkdirSync(path.join(tmpDir, 'catalog'));
+    writeFileSync(path.join(tmpDir, 'catalog', 'overview.md'), '# Authored title\n\n<!-- start -->\nold generated content\n<!-- end -->\n\nAuthored footer.\n');
+    const result = init(['--gitignore']);
+    strictEqual(result.status, 0, result.stderr);
+    ok(!existsSync(path.join(tmpDir, 'docs')));
+    ok(!existsSync(path.join(tmpDir, 'notes', 'docs.md')));
+    ok(existsSync(path.join(tmpDir, 'notes', 'plans', 'example-plan.md')));
+    const index = readFileSync(path.join(tmpDir, 'catalog', 'overview.md'), 'utf8');
+    ok(index.startsWith('# Authored title\n\n<!-- start -->\n'));
+    ok(index.endsWith('<!-- end -->\n\nAuthored footer.\n'));
+    ok(index.includes('example-plan'));
+    ok(readFileSync(path.join(tmpDir, '.gitignore'), 'utf8').includes('/notes/prompts/*.md'));
+    strictEqual(readFileSync(path.join(tmpDir, 'runlist.config.mjs'), 'utf8'), configText);
+  });
+
+  it('creates a missing custom index in its configured parent, without creating a default index', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+    writeFileSync(path.join(tmpDir, 'runlist.config.mjs'), "export const root = 'notes';\nexport const index = { path: 'catalog/overview.md', startMarker: '<!-- begin -->', endMarker: '<!-- finish -->' };\n");
+    const before = snapshot();
+    const preview = init(['--dry-run']);
+    strictEqual(preview.status, 0, preview.stderr);
+    ok(preview.stdout.includes('catalog/overview.md'));
+    ok(!preview.stdout.includes('docs/'));
+    deepStrictEqual(snapshot(), before);
+    strictEqual(init().status, 0);
+    const index = readFileSync(path.join(tmpDir, 'catalog', 'overview.md'), 'utf8');
+    ok(index.includes('<!-- begin -->') && index.includes('<!-- finish -->'));
+    ok(index.includes('example-plan'));
+    ok(!existsSync(path.join(tmpDir, 'docs')));
+  });
+
+  it('respects an existing custom config without an index', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+    writeFileSync(path.join(tmpDir, 'runlist.config.mjs'), "export const root = 'notes';\n");
+    strictEqual(init().status, 0);
+    ok(!existsSync(path.join(tmpDir, 'docs')));
+    ok(!existsSync(path.join(tmpDir, 'notes', 'docs.md')));
+  });
+
+  it('uses flat type roots without nested or unused default directories', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+    writeFileSync(path.join(tmpDir, 'runlist.config.mjs'), "export const root = ['plans', 'prompts'];\nexport const index = { path: 'INDEX.md' };\n");
+    mkdirSync(path.join(tmpDir, 'plans'));
+    writeFileSync(path.join(tmpDir, 'plans', 'real.md'), '---\ntype: plan\nstatus: planned\n---\n# Real\n');
+    const result = init(['--gitignore']);
+    strictEqual(result.status, 0, result.stderr);
+    ok(!existsSync(path.join(tmpDir, 'docs')));
+    ok(!existsSync(path.join(tmpDir, 'plans', 'plans')));
+    ok(!existsSync(path.join(tmpDir, 'plans', 'prompts')));
+    ok(!existsSync(path.join(tmpDir, 'prompts', 'prompts')));
+    ok(!existsSync(path.join(tmpDir, 'plans', 'example-plan.md')));
+    ok(existsSync(path.join(tmpDir, 'prompts', '.gitkeep')));
+    ok(readFileSync(path.join(tmpDir, '.gitignore'), 'utf8').includes('/prompts/*.md'));
+    ok(!result.stdout.includes('found at repo root'));
+    const once = snapshot();
+    strictEqual(init(['--gitignore']).status, 0);
+    deepStrictEqual(snapshot(), once);
+  });
+
+  it('routes prompts to a matching later root instead of under the primary root', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+    writeFileSync(path.join(tmpDir, 'runlist.config.mjs'), "export const root = ['notes', 'queue/prompts'];\n");
+    const result = init(['--gitignore']);
+    strictEqual(result.status, 0, result.stderr);
+    ok(existsSync(path.join(tmpDir, 'queue', 'prompts', '.gitkeep')));
+    ok(!existsSync(path.join(tmpDir, 'notes', 'prompts')));
+    ok(readFileSync(path.join(tmpDir, '.gitignore'), 'utf8').includes('/queue/prompts/*.md'));
+  });
+
+  it('uses an authored prompt template directory for both scaffold and opt-in ignores', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+    writeFileSync(path.join(tmpDir, 'runlist.config.mjs'), "export const root = 'notes';\nexport const templates = { prompt: { dir: 'queue', targetRoot: null } };\n");
+    strictEqual(init(['--gitignore']).status, 0);
+    ok(existsSync(path.join(tmpDir, 'notes', 'queue', '.gitkeep')));
+    ok(!existsSync(path.join(tmpDir, 'notes', 'prompts')));
+    ok(readFileSync(path.join(tmpDir, '.gitignore'), 'utf8').includes('/notes/queue/*.md'));
+  });
+
+  it('respects a config found above the current directory without creating a shadow config', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+    writeFileSync(path.join(tmpDir, 'runlist.config.mjs'), "export const root = 'notes';\n");
+    const nested = path.join(tmpDir, 'src');
+    mkdirSync(nested);
+    const result = init([], nested);
+    strictEqual(result.status, 0, result.stderr);
+    ok(existsSync(path.join(tmpDir, 'notes', 'plans', 'example-plan.md')));
+    deepStrictEqual(readdirSync(nested), []);
+  });
+
+  it('does not preview samples in populated layouts', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+    mkdirSync(path.join(tmpDir, 'docs', 'plans'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'docs', 'plans', 'real.md'), '# Authored\n');
+    const before = snapshot();
+    const result = init(['--dry-run']);
+    strictEqual(result.status, 0, result.stderr);
+    ok(!result.stdout.includes('example-plan.md'), result.stdout);
+    deepStrictEqual(snapshot(), before);
+  });
+
+  it('excludes generated indexes from repeated init bulk-tag hints, retaining real untagged docs', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+    strictEqual(run(['init']).status, 0);
+    const before = snapshot();
+    const result = run(['init']);
+    strictEqual(result.status, 0, result.stderr);
+    ok(!result.stdout.includes('untagged'), result.stdout);
+    deepStrictEqual(snapshot(), before);
+    writeFileSync(path.join(tmpDir, 'docs', 'plain.md'), '# Authored plain markdown\n');
+    const after = run(['init']);
+    strictEqual(after.status, 0, after.stderr);
+    ok(after.stdout.includes('1 untagged .md file found'), after.stdout);
+  });
+});
+
+describe('init ignore preflight before scaffolding', () => {
+  for (const target of ['external', 'internal', 'dangling']) {
+    it(`refuses a ${target} .gitignore symlink without any project mutation`, () => {
+      tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+      const outside = mkdtempSync(path.join(os.tmpdir(), 'runlist-ignore-'));
+      try {
+        writeFileSync(path.join(outside, 'ignore'), '# external authored bytes\n');
+        writeFileSync(path.join(tmpDir, 'authored-ignore'), '# internal authored bytes\n');
+        const linkTarget = target === 'external' ? path.join(outside, 'ignore')
+          : path.join(tmpDir, target === 'internal' ? 'authored-ignore' : 'missing-ignore');
+        symlinkSync(linkTarget, path.join(tmpDir, '.gitignore'));
+        const before = snapshot();
+        for (const argv of [['--gitignore'], ['--gitignore', '--dry-run']]) {
+          const result = run(['init', ...argv]);
+          strictEqual(result.status, 1, result.stdout + result.stderr);
+          ok(/symlink/.test(result.stderr), result.stderr);
+          deepStrictEqual(snapshot(), before);
+          strictEqual(readFileSync(path.join(outside, 'ignore'), 'utf8'), '# external authored bytes\n');
+        }
+      } finally { rmSync(outside, { recursive: true, force: true }); }
+    });
+  }
+
+  it('refuses a directory at .gitignore before creating config or docs', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+    mkdirSync(path.join(tmpDir, '.gitignore'));
+    const before = snapshot();
+    const result = run(['init', '--gitignore']);
+    strictEqual(result.status, 1);
+    ok(result.stderr.includes('regular file'), result.stderr);
+    deepStrictEqual(snapshot(), before);
+    deepStrictEqual(readdirSync(tmpDir), ['.gitignore']);
+  });
+
+  it('refuses an outside prompt rule before creating any scaffold paths', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+    const outside = mkdtempSync(path.join(os.tmpdir(), 'runlist-prompts-'));
+    try {
+      writeFileSync(path.join(tmpDir, 'runlist.config.mjs'), `export const root = ['notes', ${JSON.stringify(path.join(outside, 'prompts'))}];\n`);
+      const before = snapshot();
+      for (const argv of [['--gitignore'], ['--gitignore', '--dry-run']]) {
+        const result = run(['init', ...argv]);
+        strictEqual(result.status, 1, result.stdout + result.stderr);
+        ok(result.stderr.includes('outside the repository'), result.stderr);
+        deepStrictEqual(snapshot(), before);
+        deepStrictEqual(readdirSync(outside), []);
+      }
+    } finally { rmSync(outside, { recursive: true, force: true }); }
+  });
+
+  it('refuses a prompt directory that escapes through a symlink before scaffolding', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+    const outside = mkdtempSync(path.join(os.tmpdir(), 'runlist-prompts-'));
+    try {
+      writeFileSync(path.join(tmpDir, 'runlist.config.mjs'), "export const root = 'notes';\nexport const templates = { prompt: { dir: '../queue/prompts', targetRoot: null } };\n");
+      symlinkSync(outside, path.join(tmpDir, 'queue'));
+      const before = snapshot();
+      const result = run(['init', '--gitignore']);
+      strictEqual(result.status, 1, result.stdout + result.stderr);
+      ok(result.stderr.includes('symlink'), result.stderr);
+      deepStrictEqual(snapshot(), before);
+      deepStrictEqual(readdirSync(outside), []);
+    } finally { rmSync(outside, { recursive: true, force: true }); }
+  });
+
+  for (const dir of ['queue\ninjected-rule', 'queue[local]', 'queue*']) {
+    it(`refuses an ambiguous prompt rule for ${JSON.stringify(dir)} before mutation`, () => {
+      tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+      writeFileSync(path.join(tmpDir, 'runlist.config.mjs'), `export const root = 'notes';\nexport const templates = { prompt: { dir: ${JSON.stringify(dir)}, targetRoot: null } };\n`);
+      const before = snapshot();
+      const result = run(['init', '--gitignore']);
+      strictEqual(result.status, 1);
+      ok(result.stderr.includes('newline or Git pattern characters'), result.stderr);
+      deepStrictEqual(snapshot(), before);
+    });
+  }
 });

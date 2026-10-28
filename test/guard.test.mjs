@@ -15,13 +15,63 @@ test('git add of an ignored prompt is allowed because Git will not include it', 
   assert.equal(r, null);
 });
 
-test('git commit of a tracked prompt is still denied (session-local)', () => {
+test('git commit of a tracked prompt is denied under the legacy local policy', () => {
   const r = evaluateGuard(
     { tool_name: 'Bash', tool_input: { command: 'git commit -m wip docs/prompts/foo.md' } },
     config, explicitPaths,
   );
   assert.equal(r.decision, 'deny');
   assert.equal(r.rule, 'commit-prompt');
+});
+
+test('untracked policy warns on broad staging and explains that untracked is not ignored', () => {
+  const r = evaluateGuard(
+    { tool_name: 'Bash', tool_input: { command: 'git add -A' } },
+    { ...config, promptTracking: 'untracked' },
+    { inspectGitPaths: () => ['docs/prompts/resume-live.md'] },
+  );
+  assert.equal(r.decision, 'warn');
+  assert.equal(r.rule, 'commit-prompt');
+  assert.match(r.reason, /reduce commit churn/);
+  assert.match(r.reason, /Untracked does not mean ignored/);
+});
+
+test('tracked policy permits prompt Git operations and still checks later status edits', () => {
+  const selected = { ...config, promptTracking: 'tracked' };
+  assert.equal(evaluateGuard(
+    { tool_name: 'Bash', tool_input: { command: 'git add docs/prompts/resume-live.md' } },
+    selected, explicitPaths,
+  ), null);
+  assert.equal(evaluateGuard(
+    { tool_name: 'Bash', tool_input: { command: "git add docs/prompts/resume-live.md; sed -i 's/status: active/status: paused/' docs/plans/work.md" } },
+    selected, explicitPaths,
+  )?.rule, 'edit-status');
+});
+
+test('explicit local policy denies pending prompt commits with a settings escape hatch', () => {
+  const r = evaluateGuard(
+    { tool_name: 'Bash', tool_input: { command: 'git commit docs/prompts/resume-live.md' } },
+    { ...config, promptTracking: 'local' }, explicitPaths,
+  );
+  assert.equal(r.decision, 'deny');
+  assert.match(r.reason, /runlist config get promptTracking/);
+});
+
+test('prompt policy follows a custom directory without blocking neighboring plans', () => {
+  const custom = {
+    ...config, docsRoot: '/repo/notes', docsRoots: ['/repo/notes'], promptTracking: 'untracked',
+    raw: { templates: { prompt: { dir: 'handoffs', targetRoot: 'handoffs' } } },
+  };
+  const evaluate = command => evaluateGuard(
+    { tool_name: 'Bash', tool_input: { command } }, custom, explicitPaths,
+  );
+  assert.equal(evaluate('git add notes/handoffs/resume-live.md')?.decision, 'warn');
+  assert.equal(evaluate('git add notes/handoffs/archived/resume-old.md'), null);
+  assert.equal(evaluate('git add notes/plans/work.md'), null);
+  assert.equal(evaluateGuard(
+    { tool_name: 'Bash', tool_input: { command: 'git add notes/handoffs/resume-live.md' } },
+    { ...custom, promptTracking: 'tracked' }, explicitPaths,
+  ), null);
 });
 
 for (const command of ['git add .', 'git add -A', 'git add docs', 'git commit', 'git commit -a -m save']) {

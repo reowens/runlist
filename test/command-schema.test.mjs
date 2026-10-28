@@ -72,6 +72,18 @@ describe('command schema', () => {
     deepStrictEqual(validateCommandArgs('query', ['one', 'two', '--status', 'active']), ['one', 'two', '--status', 'active']);
   });
 
+  it('declares explicit init choices and narrow config inspection and writes', () => {
+    // Global dry-run is stripped by the dispatcher before schema validation.
+    for (const args of [['--gitignore'], ['--prompt-tracking', 'untracked']]) {
+      deepStrictEqual(validateCommandArgs('init', args), args);
+    }
+    for (const args of [['show', '--json'], ['get', 'promptTracking'], ['set', 'promptTracking', 'tracked']]) {
+      deepStrictEqual(validateCommandArgs('config', args), args);
+    }
+    throws(() => validateCommandArgs('config', ['set', 'promptTracking']), /Usage:/);
+    throws(() => validateCommandArgs('init', ['--prompt-tracking']), /Missing value/);
+  });
+
   it('covers every literal dispatcher command branch', () => {
     const bin = readFileSync(path.resolve(import.meta.dirname, '..', 'bin', 'runlist.mjs'), 'utf8');
     const dispatched = [...bin.matchAll(/command === '([^']+)'/g)]

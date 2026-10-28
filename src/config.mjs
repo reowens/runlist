@@ -20,6 +20,7 @@ const REPLACE_KEYS = new Set([
 
 const DEFAULTS = {
   root: '.',
+  promptTracking: 'untracked',
   archiveDir: 'archived',
   excludeDirs: [],
   externalBodyLinkRoots: [],
@@ -479,6 +480,7 @@ export async function resolveConfig(cwd, explicitConfigPath) {
 
   let userConfig = {};
   let hooks = {};
+  let promptTrackingSource = configPath && existsSync(configPath) ? 'legacy-default' : 'default';
 
   if (configPath && existsSync(configPath)) {
     const configUrl = pathToFileURL(configPath).href;
@@ -491,7 +493,13 @@ export async function resolveConfig(cwd, explicitConfigPath) {
 
     for (const [key, value] of Object.entries(mod)) {
       if (key === 'default') continue;
-      if (typeof value === 'function') {
+      if (key === 'promptTracking') {
+        if (!['untracked', 'tracked', 'local'].includes(value)) {
+          throw new Error(`Config: promptTracking must be 'untracked', 'tracked', or 'local' (${configPath}).`);
+        }
+        userConfig[key] = value;
+        promptTrackingSource = 'config';
+      } else if (typeof value === 'function') {
         hooks[key] = value;
       } else {
         userConfig[key] = value;
@@ -506,6 +514,7 @@ export async function resolveConfig(cwd, explicitConfigPath) {
   }
 
   const config = deepMerge(DEFAULTS, userConfig);
+  if (promptTrackingSource === 'legacy-default') config.promptTracking = 'local';
   // Replacement links remain repairable even with custom reference-field lists
   // or after the repository turns off goal display.
   config.referenceFields.unidirectional = [...new Set([
@@ -644,6 +653,8 @@ export async function resolveConfig(cwd, explicitConfigPath) {
     configDir,
     configPath: configPath ?? null,
     configFound: Boolean(configPath),
+    promptTracking: config.promptTracking,
+    promptTrackingSource,
     archiveDir: config.archiveDir,
     excludeDirs: new Set(config.excludeDirs),
     externalBodyLinkRoots: Array.isArray(config.externalBodyLinkRoots) ? config.externalBodyLinkRoots : [],

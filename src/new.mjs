@@ -1123,14 +1123,14 @@ export async function runNew(argv, config, opts = {}) {
     process.stdout.write(`${green('Created')}: ${toRepoPath(childPath, config.repoRoot)} ${dim(`(plan · runlist child, ${childStatus})`)}\n`);
   }
 
-  // Post-create guidance. Prompts are the classic confusion point: agents
-  // reflexively `git add && commit` a freshly-created file, but saved prompts
-  // are session-local handoff artifacts — the next session consumes them via
-  // `runlist use`, and the prompts dir is often gitignored (the commit then fails
-  // confusingly). Tell the agent the next step explicitly, and flag a gitignored
-  // target for any type so "why won't this commit" never happens silently.
+  // Prompt consumption and Git tracking are separate choices. Describe the
+  // resolved policy, then flag an actually ignored target for any type.
   if (typeName === 'prompt') {
-    process.stdout.write(dim('Session-local — no need to commit. The next session runs `runlist use` (or `runlist use ' + repoPath + '`) to consume it.\n'));
+    const tracking = config.promptTracking ?? 'local';
+    const policy = tracking === 'tracked' ? 'Prompt commits are allowed.'
+      : tracking === 'untracked' ? 'Leave untracked to reduce commit churn; git add -A can still stage it.'
+        : 'Local policy: keep pending prompts out of Git operations.';
+    process.stdout.write(dim(`${policy} Inspect with \`runlist config get promptTracking\`. The next session runs \`runlist use ${repoPath}\` to consume it.\n`));
   }
   // Teach the field-length contract at the moment the fields get written —
   // learning it from a cap warning later sends sessions into hand-trim /

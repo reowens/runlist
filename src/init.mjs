@@ -1,11 +1,12 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { green, dim, yellow } from './color.mjs';
-import { warn } from './util.mjs';
-import { removeGeneratedSlashCommands } from './claude-commands.mjs';
+import { die, warn } from './util.mjs';
+import { catchAllRoot, promptDirectory } from './new.mjs';
+import { authorizeRepoGeneratedPath } from './managed-path.mjs';
 
 // Subdirectories scaffolded under docsRoot and tracked separately during scans.
 // Each maps to a builtin type (plan, prompt). New types added here should also
@@ -50,6 +51,7 @@ const STARTER_CONFIG = `// runlist.config.mjs — document management configurat
 // All exports are optional. See runlist.config.example.mjs for full reference.
 
 export const root = 'docs';
+export const promptTracking = 'untracked';
 
 export const index = {
   path: 'docs/docs.md',
@@ -77,11 +79,10 @@ export const referenceFields = {
 // written `status: planned` so it sits quietly in the pipeline instead of posing
 // as live work, and it says how to delete itself.
 //
-// prompts/ gets a keepfile instead, and cannot get a sample: the live queue is
-// gitignored by the rule this same command writes, and a committed prompt at
-// `status: pending` would be silently consumed by the next no-arg `runlist use`.
+// prompts/ gets a keepfile instead of a live sample, which could otherwise be
+// consumed by the next no-arg `runlist use`. Ignore rules are opt-in.
 const SAMPLE_PLAN_NAME = 'example-plan.md';
-const samplePlan = (today) => `---
+const samplePlan = (today, planPath) => `---
 type: plan
 status: planned
 created: ${today}
@@ -98,7 +99,7 @@ next_step: "Delete this file, or edit it into your first real plan."
 
 ## Problem
 
-\`runlist init\` leaves this file behind so \`docs/plans/\` survives a clone (git cannot
+\`runlist init\` leaves this file behind so \`${path.posix.dirname(planPath)}/\` survives a clone (git cannot
 track an empty directory) and so the frontmatter above has something to point at.
 
 The fields that matter: \`status\` drives every listing, \`current_state\` and
@@ -108,7 +109,7 @@ against the type, and runs the lifecycle hooks.
 
 ## Phases
 
-- [ ] Delete this file: \`runlist archive docs/plans/${SAMPLE_PLAN_NAME}\`
+- [ ] Delete this file: \`runlist archive ${planPath}\`
 - [ ] Write a real one: \`runlist new plan <name>\`
 
 ## Version History
@@ -125,7 +126,8 @@ _No docs yet. Run \`runlist list\` after creating your first document._
 <!-- GENERATED:runlist:end -->
 `;
 
-function scanExistingDocs(dir) {
+function scanExistingDocs(roots, indexPath, excludeDirs = new Set()) {
+  const seen = new Set();
   const statuses = new Set();
   const surfaces = new Set();
   const modules = new Set();
@@ -147,15 +149,18 @@ function scanExistingDocs(dir) {
   }
 
   function walk(d, topSubdir) {
+    if (seen.has(d)) return;
+    seen.add(d);
     let entries;
     try { entries = readdirSync(d, { withFileTypes: true }); } catch (err) { warn(`Could not read ${d}: ${err.message}`); return; }
     for (const entry of entries) {
       if (entry.isDirectory()) {
+        if (['.git', 'node_modules'].includes(entry.name) || excludeDirs.has(entry.name)) continue;
         const nextTop = topSubdir === null ? entry.name : topSubdir;
         walk(path.join(d, entry.name), nextTop);
         continue;
       }
-      if (!entry.name.endsWith('.md')) continue;
+      if (!entry.isFile() || !entry.name.endsWith('.md') || path.join(d, entry.name) === indexPath) continue;
       let raw;
       try { raw = readFileSync(path.join(d, entry.name), 'utf8'); } catch (err) { warn(`Could not read ${entry.name}: ${err.message}`); continue; }
       const { frontmatter } = extractFrontmatter(raw);
@@ -180,7 +185,7 @@ function scanExistingDocs(dir) {
     }
   }
 
-  walk(dir, null);
+  for (const dir of roots) if (existsSync(dir)) walk(dir, null);
   return { docCount, statuses, surfaces, modules, refFieldNames, subdirCounts, untaggedCount };
 }
 
@@ -211,9 +216,10 @@ const KNOWN_STALE_DAYS = {
   scoping: 30, paused: 3, awaiting: 14, draft: 30, review: 14, pending: 30,
 };
 
-function generateDetectedConfig(scan, rootPath) {
+function generateDetectedConfig(scan, rootPath, promptTracking) {
   const lines = [`// runlist.config.mjs — auto-detected from ${scan.docCount} existing docs`, ''];
   lines.push(`export const root = '${rootPath}';`);
+  lines.push(`export const promptTracking = '${promptTracking}';`);
   lines.push('');
 
   const defaultOrder = ['active', 'ready', 'planned', 'scoping', 'blocked', 'reference', 'archived'];
@@ -273,162 +279,172 @@ function generateDetectedConfig(scan, rootPath) {
 }
 
 export async function runInit(cwd, config, opts = {}) {
-  const { dryRun = false } = opts;
-  const configPath = path.join(cwd, 'runlist.config.mjs');
-  const docsDir = path.join(cwd, 'docs');
-  const indexPath = path.join(docsDir, 'docs.md');
-
-  // Prefix every reported line during dry-run so the user can't mistake the
-  // preview for a real run. Without this, every write below would silently
-  // execute — runInit previously ignored the `--dry-run` flag entirely.
-  const dryTag = dryRun ? `${dim('[dry-run]')} ` : '';
-
-  process.stdout.write('\n');
-
-  const scan = existsSync(docsDir) ? scanExistingDocs(docsDir) : null;
-
-  if (existsSync(configPath)) {
-    process.stdout.write(`  ${dryTag}${dim('exists')}  ${path.basename(config.configPath)}\n`);
-  } else {
-    if (scan && scan.docCount > 0) {
-      if (!dryRun) writeFileSync(configPath, generateDetectedConfig(scan, 'docs'), 'utf8');
-      process.stdout.write(`  ${dryTag}${green('create')}  runlist.config.mjs (detected ${scan.docCount} docs)\n`);
-    } else {
-      if (!dryRun) writeFileSync(configPath, STARTER_CONFIG, 'utf8');
-      process.stdout.write(`  ${dryTag}${green('create')}  runlist.config.mjs\n`);
+  const { dryRun = false, argv = [] } = opts;
+  let requestedPolicy;
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--prompt-tracking' || argv[i].startsWith('--prompt-tracking=')) {
+      requestedPolicy = argv[i] === '--prompt-tracking' ? argv[++i] : argv[i].slice('--prompt-tracking='.length);
+      if (!['untracked', 'tracked', 'local'].includes(requestedPolicy)) {
+        die('--prompt-tracking must be one of: untracked, tracked, local.');
+      }
     }
   }
-
-  if (existsSync(docsDir)) {
-    process.stdout.write(`  ${dryTag}${dim('exists')}  docs/\n`);
-  } else {
-    if (!dryRun) mkdirSync(docsDir, { recursive: true });
-    process.stdout.write(`  ${dryTag}${green('create')}  docs/\n`);
+  const existingConfig = Boolean(config.configPath && existsSync(config.configPath));
+  const promptTracking = existingConfig ? (config.promptTracking ?? config.raw?.promptTracking ?? 'local') : (requestedPolicy ?? 'untracked');
+  if (!['untracked', 'tracked', 'local'].includes(promptTracking)) {
+    die('promptTracking must be one of: untracked, tracked, local.');
+  }
+  if (existingConfig && requestedPolicy !== undefined && requestedPolicy !== promptTracking) {
+    die(`Existing config preserved; requested policy was not applied. Use: runlist config set promptTracking ${requestedPolicy}. For a symlinked or computed config, edit the promptTracking export manually.`);
   }
 
-  // Inspect root-level siblings (e.g. ./plans/, ./prompts/) before scaffolding.
-  // If a sibling already holds content, skip creating the matching docs/<sub>/
-  // so we don't quietly create a parallel dir the user has to reconcile.
+  // Existing configs own their layout, including flat root arrays and an absent
+  // index. A fresh project gets the starter docs/ layout rather than the
+  // resolver's config-less root (which is the whole working directory).
+  const projectRoot = existingConfig ? config.repoRoot : cwd;
+  const configPath = existingConfig ? config.configPath : path.join(cwd, 'runlist.config.mjs');
+  const docsRoots = existingConfig ? (config.docsRoots ?? [config.docsRoot]) : [path.join(cwd, 'docs')];
+  const indexPath = existingConfig ? config.indexPath : path.join(cwd, 'docs', 'docs.md');
+  const layout = existingConfig ? config : { ...config, repoRoot: cwd, docsRoot: docsRoots[0], docsRoots };
+  const label = file => path.relative(projectRoot, file).split(path.sep).join('/') || '.';
+  const dryTag = dryRun ? `${dim('[dry-run]')} ` : '';
+  const planTemplate = { dir: 'plans', targetRoot: 'plans', ...config.raw?.templates?.plan };
+  const planRoot = planTemplate.targetRoot && docsRoots.find(root => root.endsWith(planTemplate.targetRoot) || path.basename(root) === planTemplate.targetRoot);
+  const plansDir = planRoot || (planTemplate.dir ? path.join(catchAllRoot(layout), planTemplate.dir) : catchAllRoot(layout));
+  const promptsDir = promptDirectory(layout);
+  const typeDirs = new Map([['plans', plansDir], ['prompts', promptsDir]]);
+
+  // Preflight opt-in ignore writes before ANY scaffolding. Refuse unsafe
+  // destinations and ambiguous patterns rather than appending a misleading or
+  // broader rule. Never follow a .gitignore symlink, including a dangling one.
+  let ignorePlan = null;
+  if (argv.includes('--gitignore')) {
+    const gitignorePath = path.join(projectRoot, '.gitignore');
+    authorizeRepoGeneratedPath(gitignorePath, layout, { kind: 'Init .gitignore destination' });
+    const exists = existsSync(gitignorePath);
+    if (exists && !lstatSync(gitignorePath).isFile()) die('Init .gitignore destination must be a regular file.');
+    const ignoreRules = [
+      { line: '.runlist/', accepts: l => l === '.runlist/' || l === '.runlist' },
+      { line: '.dotmd/', accepts: l => l === '.dotmd/' || l === '.dotmd' },
+    ];
+    if (promptTracking !== 'tracked') {
+      authorizeRepoGeneratedPath(promptsDir, layout, { kind: 'Prompt ignore directory' });
+      const promptsRel = path.relative(projectRoot, promptsDir).split(path.sep).join('/');
+      if (/[\r\n\0\\*?\[\]]/.test(promptsRel)) {
+        die('Cannot add a prompt ignore rule: the configured prompt path contains a newline or Git pattern characters.');
+      }
+      const promptsIgnore = `/${promptsRel ? promptsRel + '/' : ''}*.md`;
+      ignoreRules.push({ line: promptsIgnore, accepts: l => l === promptsIgnore || l === promptsIgnore.slice(1) });
+    }
+    const current = exists ? readFileSync(gitignorePath, 'utf8') : '';
+    const present = current.split(/\r?\n/).map(l => l.trim());
+    const missing = ignoreRules.filter(rule => !present.some(rule.accepts));
+    ignorePlan = { gitignorePath, exists, current, missing };
+  }
+  const scan = scanExistingDocs(docsRoots, indexPath, config.excludeDirs);
+
+  // Detect content outside the selected roots before creating parallel type
+  // directories. Offer a config choice; never move or delete anyone's files.
   const siblingsWithContent = [];
   for (const sub of TYPE_SUBDIRS) {
-    const siblingPath = path.join(cwd, sub);
-    if (!existsSync(siblingPath)) continue;
-    const c = countMarkdownFiles(siblingPath);
-    const total = c.withFrontmatter + c.withoutFrontmatter;
+    const siblingPath = path.join(projectRoot, sub);
+    if (docsRoots.some(root => siblingPath === root || siblingPath.startsWith(root + path.sep))) continue;
+    const counts = countMarkdownFiles(siblingPath);
+    const total = counts.withFrontmatter + counts.withoutFrontmatter;
     if (total > 0) siblingsWithContent.push({ sub, total });
   }
   const siblingSet = new Set(siblingsWithContent.map(s => s.sub));
 
-  // Scaffold the canonical type subdirs (docs/plans/, docs/prompts/) so the
-  // builtin `runlist new plan` / `runlist new prompt` templates land somewhere
-  // sensible without extra config.
-  for (const sub of TYPE_SUBDIRS) {
-    const subPath = path.join(docsDir, sub);
-    const counts = scan?.subdirCounts?.[sub];
-    const total = counts ? counts.withFrontmatter + counts.withoutFrontmatter : 0;
+  process.stdout.write('\n');
+  if (existingConfig) {
+    process.stdout.write(`  ${dryTag}${dim('exists')}  ${label(configPath)}\n`);
+  } else {
+    const body = scan.docCount > 0
+      ? generateDetectedConfig(scan, 'docs', promptTracking)
+      : STARTER_CONFIG.replace("promptTracking = 'untracked'", `promptTracking = '${promptTracking}'`);
+    if (!dryRun) writeFileSync(configPath, body, 'utf8');
+    const detail = scan.docCount > 0 ? ` (detected ${scan.docCount} docs)` : '';
+    process.stdout.write(`  ${dryTag}${green('create')}  runlist.config.mjs${detail}\n`);
+  }
+
+  for (const dir of docsRoots) {
+    const exists = existsSync(dir);
+    if (!exists && !dryRun) mkdirSync(dir, { recursive: true });
+    process.stdout.write(`  ${dryTag}${exists ? dim('exists') : green('create')}  ${label(dir)}/\n`);
+  }
+
+  for (const [sub, subPath] of typeDirs) {
     if (siblingSet.has(sub) && !existsSync(subPath)) {
-      process.stdout.write(`  ${dryTag}${yellow('skip')}    docs/${sub}/ (root-level ./${sub}/ already holds content)\n`);
+      process.stdout.write(`  ${dryTag}${yellow('skip')}    ${label(subPath)}/ (root-level ./${sub}/ already holds content)\n`);
       continue;
     }
-    if (existsSync(subPath)) {
-      const detail = total > 0
-        ? ` (${counts.withFrontmatter} runlist-tracked, ${counts.withoutFrontmatter} plain .md)`
-        : '';
-      process.stdout.write(`  ${dryTag}${dim('exists')}  docs/${sub}/${detail}\n`);
-    } else {
-      if (!dryRun) mkdirSync(subPath, { recursive: true });
-      process.stdout.write(`  ${dryTag}${green('create')}  docs/${sub}/\n`);
-    }
+    const exists = existsSync(subPath);
+    const counts = countMarkdownFiles(subPath);
+    const total = counts.withFrontmatter + counts.withoutFrontmatter;
+    const detail = total > 0 ? ` (${counts.withFrontmatter} runlist-tracked, ${counts.withoutFrontmatter} plain .md)` : '';
+    if (!exists && !dryRun) mkdirSync(subPath, { recursive: true });
+    process.stdout.write(`  ${dryTag}${exists ? dim('exists') : green('create')}  ${label(subPath)}/${detail}\n`);
 
-    // Give the directory something git can carry — but only when it is genuinely
-    // empty. Re-running init over a populated tree must never drop a sample plan
-    // into someone's real estate.
     const keeper = sub === 'plans'
-      ? { file: SAMPLE_PLAN_NAME, body: samplePlan(new Date().toISOString().slice(0, 10)) }
+      ? { file: SAMPLE_PLAN_NAME, body: samplePlan(new Date().toISOString().slice(0, 10), label(path.join(subPath, SAMPLE_PLAN_NAME))) }
       : { file: '.gitkeep', body: '' };
     const keeperPath = path.join(subPath, keeper.file);
     const dirIsEmpty = !existsSync(subPath) || readdirSync(subPath).length === 0;
     if (existsSync(keeperPath)) {
-      process.stdout.write(`  ${dryTag}${dim('exists')}  docs/${sub}/${keeper.file}\n`);
-    } else if (dirIsEmpty || dryRun) {
+      process.stdout.write(`  ${dryTag}${dim('exists')}  ${label(keeperPath)}\n`);
+    } else if (dirIsEmpty) {
       if (!dryRun) writeFileSync(keeperPath, keeper.body, 'utf8');
-      process.stdout.write(`  ${dryTag}${green('create')}  docs/${sub}/${keeper.file}\n`);
+      process.stdout.write(`  ${dryTag}${green('create')}  ${label(keeperPath)}\n`);
     }
   }
 
-  if (existsSync(indexPath)) {
-    process.stdout.write(`  ${dryTag}${dim('exists')}  docs/docs.md\n`);
-  } else {
-    if (!dryRun) writeFileSync(indexPath, STARTER_INDEX, 'utf8');
-    process.stdout.write(`  ${dryTag}${green('create')}  docs/docs.md\n`);
+  if (indexPath) {
+    if (existsSync(indexPath)) {
+      process.stdout.write(`  ${dryTag}${dim('exists')}  ${label(indexPath)}\n`);
+    } else {
+      const body = STARTER_INDEX
+        .replace('<!-- GENERATED:runlist:start -->', config.indexStartMarker ?? '<!-- GENERATED:runlist:start -->')
+        .replace('<!-- GENERATED:runlist:end -->', config.indexEndMarker ?? '<!-- GENERATED:runlist:end -->');
+      if (!dryRun) {
+        mkdirSync(path.dirname(indexPath), { recursive: true });
+        writeFileSync(indexPath, body, 'utf8');
+      }
+      process.stdout.write(`  ${dryTag}${green('create')}  ${label(indexPath)}\n`);
+    }
   }
 
   if (siblingsWithContent.length > 0) {
-    const list = siblingsWithContent
-      .map(({ sub, total }) => `${sub}/ (${total} .md file${total === 1 ? '' : 's'})`)
-      .join(', ');
-    const subs = siblingsWithContent.map(s => s.sub);
+    const list = siblingsWithContent.map(({ sub, total }) => `${sub}/ (${total} .md file${total === 1 ? '' : 's'})`).join(', ');
+    const roots = [...new Set([...docsRoots.map(label), ...siblingsWithContent.map(s => s.sub)])];
     process.stdout.write(`\n  ${yellow('notice')}  found at repo root: ${list}\n`);
-    process.stdout.write(`           these are NOT under docs/ and won't be tracked by the default config. Either:\n`);
-    for (const sub of subs) {
-      process.stdout.write(`             • move into docs/: mv ./${sub}/* docs/${sub}/ && rmdir ./${sub}\n`);
-    }
-    process.stdout.write(`             • or use a flat layout — set in runlist.config.mjs:\n`);
-    process.stdout.write(`                 export const root = [${subs.map(s => `'${s}'`).join(', ')}];\n`);
+    process.stdout.write(`           These are outside the configured roots. To include them without moving files,\n`);
+    process.stdout.write(`           choose the roots in ${label(configPath)}, for example:\n`);
+    process.stdout.write(`             export const root = ${JSON.stringify(roots)};\n`);
   }
 
-  // .gitignore: three rules.
-  //
-  //   .runlist/               — session ownership records
-  //   .dotmd/                 — legacy state during the compatibility window
-  //   <docs>/prompts/*.md     — the LIVE saved-prompt queue
-  //
-  // The second one is load-bearing. Saved prompts are session-local by design and
-  // the workflow docs say never to commit them, but nothing enforced that: a plain
-  // `git add -A` from any session swept the queue into the repo. Scoped with a
-  // single `*` so it stops at the directory — `prompts/archived/` is the committed
-  // historical record and must stay tracked. Anchored with a leading `/` so a
-  // `prompts/` directory elsewhere in the tree is unaffected.
-  const gitignorePath = path.join(cwd, '.gitignore');
-  const docsRel = path.relative(cwd, docsDir).split(path.sep).join('/');
-  const promptsIgnore = `/${docsRel ? `${docsRel}/` : ''}prompts/*.md`;
-  const ignoreRules = [
-    { line: '.runlist/', accepts: (l) => l === '.runlist/' || l === '.runlist' },
-    { line: '.dotmd/', accepts: (l) => l === '.dotmd/' || l === '.dotmd' },
-    { line: promptsIgnore, accepts: (l) => l === promptsIgnore || l === promptsIgnore.slice(1) },
-  ];
-  if (existsSync(gitignorePath)) {
-    const current = readFileSync(gitignorePath, 'utf8');
-    const present = new Set(current.split('\n').map(l => l.trim()));
-    const missing = ignoreRules.filter(r => ![...present].some(l => r.accepts(l)));
+  if (ignorePlan) {
+    const { gitignorePath, exists, current, missing } = ignorePlan;
     if (missing.length) {
-      const sep = current.endsWith('\n') ? '' : '\n';
-      const added = missing.map(r => `${r.line}\n`).join('');
-      if (!dryRun) writeFileSync(gitignorePath, `${current}${sep}${added}`, 'utf8');
-      process.stdout.write(`  ${dryTag}${green('update')}  .gitignore (+${missing.map(r => r.line).join(', ')})\n`);
+      const newline = current.includes('\r\n') ? '\r\n' : '\n';
+      const sep = current.length === 0 || current.endsWith('\n') ? '' : newline;
+      if (!dryRun) {
+        authorizeRepoGeneratedPath(gitignorePath, layout, { kind: 'Init .gitignore destination' });
+        appendFileSync(gitignorePath, sep + missing.map(rule => rule.line + newline).join(''), 'utf8');
+      }
+      process.stdout.write(`  ${dryTag}${green(exists ? 'update' : 'create')}  .gitignore (+${missing.map(rule => rule.line).join(', ')})\n`);
     } else {
       process.stdout.write(`  ${dryTag}${dim('exists')}  .gitignore\n`);
     }
-  } else {
-    if (!dryRun) writeFileSync(gitignorePath, ignoreRules.map(r => `${r.line}\n`).join(''), 'utf8');
-    process.stdout.write(`  ${dryTag}${green('create')}  .gitignore\n`);
   }
 
-  // Warn when docs/ is gitignored — silently scaffolding into an ignored dir
-  // means every doc we manage falls outside git, which a doc-management tool
-  // should not leave the user guessing about. Three of gmax's six docs were
-  // force-added; the other three were untracked and the user had no way to
-  // know without `git ls-files docs/`.
-  if (existsSync(path.join(cwd, '.git'))) {
-    const probe = spawnSync('git', ['check-ignore', '-q', 'docs/'], {
-      cwd, encoding: 'utf8',
-    });
-    // Exit 0 → ignored. Exit 1 → not ignored. Exit 128 → not in repo / git error.
-    if (probe.status === 0) {
-      process.stdout.write(`\n  ${yellow('notice')}  docs/ is gitignored — files runlist manages will NOT be tracked.\n`);
-      process.stdout.write(`           Add an exception to .gitignore so docs/ is tracked:\n`);
-      process.stdout.write(`             !docs/\n`);
-      process.stdout.write(`           Or run: echo '!docs/' >> .gitignore\n`);
+  if (existsSync(path.join(projectRoot, '.git'))) {
+    for (const dir of docsRoots) {
+      const rel = `${label(dir)}/`;
+      const probe = spawnSync('git', ['check-ignore', '-q', '--', rel], { cwd: projectRoot, encoding: 'utf8' });
+      if (probe.status === 0) {
+        process.stdout.write(`\n  ${yellow('notice')}  ${rel} is gitignored — files runlist manages will NOT be tracked.\n`);
+        process.stdout.write(`           Review the existing ignore rules if you want Git to track this root.\n`);
+      }
     }
   }
 
@@ -450,16 +466,6 @@ export async function runInit(cwd, config, opts = {}) {
   // Claude Code elsewhere, so the plugin nudge is still relevant before this
   // repo has any `.claude/` of its own (the common greenfield case).
   const likelyClaudeUser = hasProjectClaude || existsSync(path.join(os.homedir(), '.claude'));
-
-  // If a `.claude/` exists, sweep any retired generated command files
-  // (banner-gated, so hand-authored ones survive).
-  if (hasProjectClaude) {
-    const removed = removeGeneratedSlashCommands(cwd, { dryRun });
-    for (const r of removed) {
-      const verb = dryRun ? 'would remove' : 'removed';
-      process.stdout.write(`  ${dryTag}${yellow('clean')}   .claude/commands/${r.name} (retired — ${verb}; guidance ships via the runlist plugin)\n`);
-    }
-  }
 
   if (likelyClaudeUser) {
     const sessionStart = detectSessionStartHook(cwd);
@@ -493,7 +499,7 @@ export async function runInit(cwd, config, opts = {}) {
   if (!dryRun) {
     try {
       const { resolveConfig } = await import('./config.mjs');
-      const freshConfig = await resolveConfig(cwd);
+      const freshConfig = await resolveConfig(cwd, configPath);
       if (freshConfig.indexPath) {
         const { buildIndex } = await import('./index.mjs');
         const { writeRenderedIndex } = await import('./index-file.mjs');
@@ -504,7 +510,20 @@ export async function runInit(cwd, config, opts = {}) {
     }
   }
 
-  process.stdout.write(`\nReady. A few starting points:\n`);
+  if (promptTracking === 'tracked') {
+    process.stdout.write('\n  Prompt tracking: tracked — prompt Git operations are allowed.\n');
+  } else {
+    process.stdout.write(`\n  Prompt tracking: ${promptTracking}. Leave pending prompts untracked to reduce commit churn.\n`);
+    process.stdout.write('  `git add -A` can still stage any pending prompts that are not ignored.\n');
+  }
+  if (!argv.includes('--gitignore')) {
+    process.stdout.write('  Ignore files unchanged: runtime state in .runlist/ (and legacy .dotmd/) may also be staged by git add -A.\n');
+    process.stdout.write('  Review selected files, or preview explicit ignore rules with `runlist init --gitignore --dry-run`.\n');
+  }
+  process.stdout.write(dryRun
+    ? '\nReady to initialize the project. Host integration is separate.\n'
+    : '\nReady. Project initialized. Host integration is separate.\n');
+  process.stdout.write('A few starting points:\n');
   process.stdout.write(`  runlist new doc my-doc            # scaffold a reference doc\n`);
   process.stdout.write(`  runlist new plan my-plan          # scaffold an execution plan\n`);
   process.stdout.write(`  runlist list                      # see what you've got\n`);

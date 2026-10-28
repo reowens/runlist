@@ -8,7 +8,7 @@ function creationHelp(type) {
 
 Write the draft first. Its headings become the body; opening frontmatter
 supplies scaffold fields while the command fixes type to ${type}.
-${type === 'prompt' ? 'A saved prompt requires a body and stays session-local; do not commit it.' : type === 'plan' ? 'Creation does not claim the plan. Start authorized work with \`runlist use <plan>\`.' : 'Use a doc for reference material; creating it does not claim a plan.'}
+${type === 'prompt' ? 'A saved prompt requires a body. Git policy: `runlist config get promptTracking`.' : type === 'plan' ? 'Creation does not claim the plan. Start authorized work with \`runlist use <plan>\`.' : 'Use a doc for reference material; creating it does not claim a plan.'}
 Change lifecycle status later with \`runlist set <status> <file>\`.
 Repository types, starting statuses and folders: \`runlist new --list-types\`.
 Complete options and examples: \`runlist new --help\`.`;

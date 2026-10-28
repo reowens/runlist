@@ -88,6 +88,8 @@ describe('runlist hud', () => {
     ok(child.stdout.includes('runlist baton --subagent <task-slug> @<draft-file>'), child.stdout);
     ok(child.stdout.includes('--parent resume-<parent>'), child.stdout);
     ok(child.stdout.includes('preserve its claim'), child.stdout);
+    ok(child.stdout.includes('runlist config get promptTracking'), child.stdout);
+    ok(!child.stdout.includes('commit a prompt'), child.stdout);
     ok(!child.stdout.includes('Plan statuses'), child.stdout);
     ok(child.stdout.length < 700, `child primer too large: ${child.stdout.length}`);
     const parent = runCli(['hud']);

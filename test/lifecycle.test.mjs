@@ -917,12 +917,12 @@ describe('set/archive --note appends to Version History', () => {
   });
 });
 
-describe('init writes current and legacy state to .gitignore', () => {
+describe('init explicitly opts into current and legacy state ignore rules', () => {
   it('creates .gitignore with both state directories when missing', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
     spawnSync('git', ['init'], { cwd: tmpDir });
     const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
-    spawnSync('node', [bin, 'init'], { cwd: tmpDir, encoding: 'utf8' });
+    spawnSync('node', [bin, 'init', '--gitignore'], { cwd: tmpDir, encoding: 'utf8' });
     const gi = readFileSync(path.join(tmpDir, '.gitignore'), 'utf8');
     ok(gi.includes('.runlist/'), 'gitignore has .runlist/');
     ok(gi.includes('.dotmd/'), 'gitignore retains .dotmd/');
@@ -933,7 +933,7 @@ describe('init writes current and legacy state to .gitignore', () => {
     spawnSync('git', ['init'], { cwd: tmpDir });
     writeFileSync(path.join(tmpDir, '.gitignore'), 'node_modules/\n.env\n');
     const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
-    spawnSync('node', [bin, 'init'], { cwd: tmpDir, encoding: 'utf8' });
+    spawnSync('node', [bin, 'init', '--gitignore'], { cwd: tmpDir, encoding: 'utf8' });
     const gi = readFileSync(path.join(tmpDir, '.gitignore'), 'utf8');
     ok(gi.includes('node_modules/'), 'preserved existing entries');
     ok(gi.includes('.runlist/'), 'appended .runlist/');
@@ -945,7 +945,7 @@ describe('init writes current and legacy state to .gitignore', () => {
     spawnSync('git', ['init'], { cwd: tmpDir });
     writeFileSync(path.join(tmpDir, '.gitignore'), '.dotmd/\n');
     const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
-    spawnSync('node', [bin, 'init'], { cwd: tmpDir, encoding: 'utf8' });
+    spawnSync('node', [bin, 'init', '--gitignore'], { cwd: tmpDir, encoding: 'utf8' });
     const gi = readFileSync(path.join(tmpDir, '.gitignore'), 'utf8');
     const matches = (gi.match(/\.dotmd\/$/gm) || []).length;
     strictEqual(matches, 1, 'only one .dotmd/ entry');

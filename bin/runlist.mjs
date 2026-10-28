@@ -142,7 +142,8 @@ sessions keep making, and to log every one for audit:
   {"matcher":"Bash|Read|Edit|Write","hooks":[{"type":"command","command":"runlist guard"}]}
 
 Rules:
-  commit-prompt  deny  git add/commit of a (often gitignored) saved prompt
+  commit-prompt  policy  git add/commit including a pending prompt:
+                        untracked warns, tracked allows, local denies
   cat-prompt     warn  cat/less/head of a docs/prompts/*.md (use \`runlist use\`)
   read-prompt    warn  Read tool on a saved prompt (use \`runlist use\`)
   edit-status    deny  CHANGING a \`status:\` line — via Edit/Write or in-place
@@ -330,6 +331,7 @@ Create & Export:
 
 Setup:
   init                              Create starter config + docs directory
+  config show|get|set                Inspect prompt tracking policy or explicitly change it
   install [claude|codex|opencode]  Install the agent-host integration (no arg = status)
   update [--check|--cli-only|--plugin-only]  Update the CLI + Claude Code plugin (--check reports skew, no network)
   statuses [list|add|set|remove|migrate]  Manage per-project status taxonomy
@@ -1244,13 +1246,34 @@ Examples:
 
 Use --dry-run (-n) to preview changes without writing anything.`,
 
-  init: `runlist init — create starter config and docs directory
+  init: `runlist init [--prompt-tracking <untracked|tracked|local>] [--gitignore]
 
-Creates runlist.config.mjs, docs/, and docs/docs.md in the current
-directory. Skips any files that already exist.
+Creates starter config and missing scaffold files; respects configured roots
+and index paths. Existing files are preserved. Existing Markdown can be
+inspected to pre-populate a new config; adoption hints identify untagged docs.
 
-If docs/ already contains .md files, auto-detects statuses, surfaces,
-modules, and reference fields to pre-populate the config.`,
+New projects default to untracked prompts (recommended to reduce commit churn).
+Untracked does not mean ignored: git add -A can still include them. Existing
+configs keep their policy; use runlist config set promptTracking <value> to change it.
+No ignore files are edited by default; runtime state in .runlist/ and legacy
+.dotmd/ may also be staged by git add -A. --gitignore explicitly appends missing
+state rules and prompt rules (unless tracked). Preview with --dry-run.
+Host integration is separate: runlist install <claude|codex|opencode>.`,
+
+  config: `runlist config — inspect or change supported onboarding settings
+
+  runlist config show [--json]
+  runlist config get promptTracking [--json]
+  runlist config set promptTracking <untracked|tracked|local> [--dry-run] [--json]
+
+Shows the effective promptTracking value, source and config path. This is the
+only CLI-editable setting currently; other JavaScript configuration stays manual.
+untracked recommends leaving pending prompts out of commits and warns in guards;
+tracked allows prompt Git operations; local denies them (legacy default for
+existing configs without an explicit choice). A new project defaults to untracked.
+Untracked does not mean ignored; git add -A can include pending prompts.
+Writes preserve hooks and refuse symlinks, computed or ambiguous exports. Run init first
+if no config exists. Changing policy never edits ignore files or Git state.`,
 
   plans: `runlist plans — list live plans (excludes archived by default)
 
@@ -1402,13 +1425,14 @@ Examples:
 Plan mode (a plan is in-session, or you pass one) publishes in one atomic
 cooperating transaction:
   1. A resume prompt named resume-<plan-slug>, stamped with a plan: link so
-     consuming it re-claims the plan (see \`runlist use\`). The prompt is
-     session-local — the next session's hud surfaces it; never paste resume text
+     consuming it re-claims the plan (see \`runlist use\`). The next session's
+     hud surfaces it; never paste resume text
      into chat.
   2. Releases the plan: one status flip, in-session → active by default.
   3. Defers the shared generated index and prints exact repository-only commit
-     guidance. Prompt and ownership records stay session-local and OUT of the
-     pathspec.
+     guidance for the plan. Prompts stay out of this generated pathspec; use
+     \`runlist config get promptTracking\` for the project's prompt Git policy.
+     Ownership records are local runtime state.
   4. When the plan was in-session and has a next_step field, the handoff is not
      done yet: bring the plan up to date (the body, then next_step), then run
      \`runlist baton --done\`, which refuses while next_step still reads as it
@@ -1974,7 +1998,7 @@ async function main() {
   );
   const doctorExplicitApply = args.includes('--apply') || args.includes('--yes');
   const effectiveDryRun = dryRun || (command === 'doctor' && !doctorSubMode && !doctorExplicitApply);
-  const passiveMachineContext = command === 'agent-context'
+  const passiveMachineContext = command === 'agent-context' || command === 'config'
     || (command === 'context' && args.includes('--json') && args.includes('--compact'));
   // Git/frontmatter drift is validation work, not index construction. Keep the
   // bounded history scan on commands that report or repair that drift; ordinary
@@ -2064,7 +2088,9 @@ async function main() {
     value: { dryRun, passive: command === 'hud' || passiveMachineContext, suppressSideEffects, gitStaleness },
     enumerable: false,
   });
-  if (!suppressSideEffects) {
+  // Init owns scaffolding and validates policy before writing. Do not migrate
+  // legacy state ahead of that validation (including a refused init request).
+  if (!suppressSideEffects && command !== 'init') {
     const { migrateStateDirectory } = await import('../src/state-migration.mjs');
     const { LEGACY_STATE_DIR, STATE_DIR } = await import('../src/naming.mjs');
     const migration = migrateStateDirectory(config.repoRoot);
@@ -2089,7 +2115,13 @@ async function main() {
   // starter-config write), so we don't need to pre-pass it.
   if (command === 'init') {
     const { runInit } = await import('../src/init.mjs');
-    await runInit(process.cwd(), config, { dryRun });
+    await runInit(process.cwd(), config, { dryRun, argv: restArgs });
+    return;
+  }
+
+  if (command === 'config') {
+    const { runConfig } = await import('../src/config-command.mjs');
+    await runConfig(restArgs, config, { dryRun });
     return;
   }
 

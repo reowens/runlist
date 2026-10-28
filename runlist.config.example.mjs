@@ -7,6 +7,12 @@
 // Directory containing your markdown docs (relative to this config file)
 export const root = 'docs';
 
+// Pending prompt Git policy: untracked (recommended, guard warns), tracked
+// (guard allows), or local (guard denies). Untracked is not ignored: git add -A
+// can include prompts. Existing configs that omit this export preserve local.
+// No ignore files or Git state are changed by selecting a policy.
+export const promptTracking = 'untracked';
+
 // Optional owner-written product goal. Read its Markdown body beside a plan's
 // delivers: field with `runlist yardstick show <plan>` or on pickup cards.
 // Explicit mark/close/fold commands record owner choices; no fit is inferred.

@@ -5,6 +5,7 @@ import { inspectGitCommandPaths } from './git.mjs';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { recordGuardEvent } from './journal.mjs';
 import { readEnv } from './naming.mjs';
+import { promptDirectory } from './new.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
@@ -18,8 +19,8 @@ const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 
 //
 // Two decision levels:
 //   'deny' — block the call and feed the reason back to the model. Reserved for
-//            moves that are guaranteed-wrong: committing a gitignored prompt (it
-//            would fail anyway) and hand-editing a `status:` field (`runlist set`
+//            pending-prompt Git operations under the local policy, and
+//            hand-editing a `status:` field (`runlist set`
 //            is a complete substitute; config `guard: { deny: false }` drops the
 //            status rules back to warn).
 //   'warn' — let the call proceed but inject teaching context so the agent learns
@@ -38,18 +39,34 @@ function toSlash(p) {
 }
 
 // A path that ends in .md and sits under a `prompts/` directory is a
-// session-local saved prompt regardless of which doc root it belongs to —
+// saved prompt regardless of which doc root it belongs to —
 // robust across repos without needing the resolved config. Archived prompts
 // (`…/prompts/archived/…`, the default nested archive for the prompt type) are
-// committable history, NOT session-local, so they're explicitly excluded — the
+// committable history, so they are explicitly excluded — the
 // guard must not block committing or reading them.
 function isPromptPath(p, config) {
   const s = toSlash(p);
   if (typeof s !== 'string' || !s.endsWith('.md')) return false;
-  if (!/(^|\/)prompts\//.test(s)) return false;
   const archiveDir = toSlash(config?.archiveDir || 'archived').replace(/^\/+|\/+$/g, '');
   if (archiveDir && s.split('/').includes(archiveDir)) return false;
-  return true;
+  if (/(^|\/)prompts\//.test(s)) return true;
+  // Respect a configured prompt location too. When prompts share a whole doc
+  // root, inspect the file's type rather than treating every Markdown doc as a
+  // prompt. Directory routing uses the same resolver as prompt creation.
+  if (!config?.repoRoot || !config.docsRoot) return false;
+  try {
+    // Markdown template-store overrides change content only; routing is owned
+    // by the JS template config. Avoid reading that store on each hook token.
+    const template = { dir: 'prompts', targetRoot: 'prompts', ...config.raw?.templates?.prompt };
+    const directory = path.resolve(promptDirectory(config, template));
+    const file = path.resolve(config.repoRoot, s);
+    const relative = path.relative(directory, file);
+    if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return false;
+    const roots = config.docsRoots ?? [config.docsRoot];
+    if (!roots.some(root => path.resolve(root) === directory)) return true;
+    const { frontmatter } = extractFrontmatter(readFileSync(file, 'utf8'));
+    return Boolean(frontmatter && parseSimpleFrontmatter(frontmatter).type === 'prompt');
+  } catch { return false; }
 }
 
 // Loose "is this a runlist-managed doc" test: a .md file under one of the
@@ -276,22 +293,26 @@ function evalBash(command, config, inspectGitPaths, baseCwd, deps = {}) {
       continue;
     }
 
-    // Rule A — deny only when Git's current state says the command would
+    // Rule A — apply the project's prompt tracking policy only when Git says it would
     // actually include a live prompt. This covers broad forms (`add .`, `-A`,
     // pathless commit, commit -a) without blocking ignored or clean prompts.
     const git = parseGitInvocation(segTokens, cwd);
     if (git) {
       const includedPaths = inspectGitPaths(git.subcommand, git.args, git.cwd);
       const targets = [...new Set(includedPaths.filter(candidate => isPromptPath(candidate, config)))];
-      if (targets.length > 0) {
+      const tracking = config.promptTracking ?? 'local';
+      if (targets.length > 0 && tracking !== 'tracked') {
         return {
-          decision: 'deny',
+          decision: tracking === 'untracked' ? 'warn' : 'deny',
           rule: 'commit-prompt',
           detail: `git ${git.subcommand} ${targets.join(' ')}`,
-          reason:
-            `Saved prompts (${targets.join(', ')}) are session-local runlist artifacts, not source to commit. ` +
-            `Don't git add/commit them — commit your other changes without the prompt in the pathspec. ` +
-            `The next session consumes a prompt with \`runlist use <file>\` (or \`runlist use\` for the oldest pending), which prints the body and archives it atomically.`,
+          reason: tracking === 'untracked'
+            ? `This project's promptTracking is untracked: leaving pending prompts (${targets.join(', ')}) out of commits is recommended to reduce commit churn. ` +
+              `Untracked does not mean ignored; broad commands such as \`git add -A\` can include them. ` +
+              `Choose files explicitly, or use \`runlist config set promptTracking tracked\` if the project wants to commit prompts.`
+            : `This project's promptTracking is local (the legacy default for existing configs). ` +
+              `Exclude pending prompts (${targets.join(', ')}) from this Git operation. ` +
+              `Inspect the policy with \`runlist config get promptTracking\`; explicitly choose tracked to allow prompt commits, or untracked for advisory warnings.`,
         };
       }
     }

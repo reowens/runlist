@@ -377,6 +377,10 @@ describe('doctor command', () => {
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     ok(result.stdout.includes('running CLI version'), result.stdout);
     ok(result.stdout.includes('^0.42.1'), result.stdout);
+    ok(result.stdout.includes('prompt tracking: local (source: legacy-default)'), result.stdout);
+    const report = JSON.parse(run(['doctor', '--project', '--json']).stdout);
+    strictEqual(report.promptTracking.value, 'local');
+    strictEqual(report.promptTracking.source, 'legacy-default');
   });
 });
 

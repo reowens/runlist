@@ -52,7 +52,12 @@ const command = (name, policy, group, forms, extra = {}) => Object.freeze({
 const definitions = [
   command('help', none, 'setup', [form('[topic]', { args: positionals(0, 1) })]),
   command('completions', none, 'setup', [form('<bash|zsh>', { args: positionals(1, 1) })]),
-  command('init', mutates('repository setup paths and config files'), 'setup', [form('', { options: [flag('--force')] })]),
+  command('init', mutates('repository setup paths and config files; ignore rules only by explicit opt-in'), 'setup', [form('', { options: [flag('--force'), flag('--gitignore'), value('--prompt-tracking')] })]),
+  command('config', mutates('validated promptTracking export only; show/get are read-only'), 'setup', [
+    form('show', { subcommands: ['show'], options: [flag('--json')] }),
+    form('get <key>', { subcommands: ['get'], args: positionals(1, 1), options: [flag('--json')] }),
+    form('set <key> <value>', { subcommands: ['set'], args: positionals(2, 2), options: [flag('--json')] }),
+  ]),
   command('watch', mutates('proxy: child command policy applies'), 'setup', [form('[command...]', { args: positionals(0, Infinity), passthrough: true })]),
   command('desktop', mutates('explicit desktop installation; otherwise launch only'), 'setup', [
     form('[--app <application>]', {options:[value('--app')]}),

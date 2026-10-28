@@ -47,5 +47,5 @@ Start with `runlist baton --template` if useful. Resume and subagent outlines ca
 
 **Do NOT:**
 - run `runlist use` (that *consumes* prompts / *starts* plans — the wrong direction during a handoff; running it on your own freshly saved prompt destroys the handoff),
-- commit the prompt or the generated index (prompts are session-local),
+- add the generated index to the baton commit; follow `runlist config get promptTracking` for prompt Git operations (the printed hint covers the plan only),
 - paste the resume text into chat for copy-paste; the next session's `runlist hud` surfaces the saved prompt automatically.

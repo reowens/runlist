@@ -18,6 +18,39 @@ afterEach(() => {
 });
 
 describe('resolveConfig', () => {
+  it('defaults prompt tracking to untracked only when there is no config', async () => {
+    const config = await resolveConfig(tmpDir);
+    strictEqual(config.promptTracking, 'untracked');
+    strictEqual(config.raw.promptTracking, 'untracked');
+    strictEqual(config.promptTrackingSource, 'default');
+  });
+
+  it('preserves local prompt guards for a legacy config missing the export', async () => {
+    writeFileSync(path.join(tmpDir, 'runlist.config.mjs'), "export const root = '.';\nexport function onCreate() { return 'preserved'; }\n");
+    const config = await resolveConfig(tmpDir);
+    strictEqual(config.promptTracking, 'local');
+    strictEqual(config.raw.promptTracking, 'local');
+    strictEqual(config.promptTrackingSource, 'legacy-default');
+    strictEqual(config.hooks.onCreate(), 'preserved');
+  });
+
+  for (const value of ['untracked', 'tracked', 'local']) {
+    it(`resolves explicit promptTracking ${value}`, async () => {
+      writeFileSync(path.join(tmpDir, 'runlist.config.mjs'), `export const promptTracking = '${value}';\n`);
+      const config = await resolveConfig(tmpDir);
+      strictEqual(config.promptTracking, value);
+      strictEqual(config.promptTrackingSource, 'config');
+      ok(!config.configWarnings.some(warning => warning.includes('promptTracking')));
+    });
+  }
+
+  for (const value of ["'invalid'", 'undefined', 'null', 'false', '42', '{}', '() => "tracked"']) {
+    it(`rejects explicit invalid promptTracking ${value}`, async () => {
+      writeFileSync(path.join(tmpDir, 'runlist.config.mjs'), `export const promptTracking = ${value};\n`);
+      await rejects(resolveConfig(tmpDir), /promptTracking must be 'untracked', 'tracked', or 'local'/);
+    });
+  }
+
   it('returns defaults when no config file exists', async () => {
     const config = await resolveConfig(tmpDir);
     strictEqual(config.configPath, null);
