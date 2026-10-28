@@ -4,9 +4,10 @@ import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, existsSync
 import path from 'node:path';
 import os from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
+import { saveRequests, pickupRequests, silentRequests, relayReport, longRequest } from './fixtures/handoff-phrases.mjs';
 
 let tmpDir;
-const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
+const bin = path.resolve(import.meta.dirname, '..', 'bin', 'runlist.mjs');
 
 function setupProject() {
   tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-hud-'));
@@ -60,7 +61,7 @@ afterEach(() => {
 
 // HUD contract:
 //   - stdout emits ONLY signals that carry a direct instruction for this
-//     session, and nothing in a clean repo: a count of pending prompts
+//     session, plus an introduction until the first handoff: pending prompts
 //     (resume one when the user asks), a count of open flags, and a durably
 //     owned in-session plan (continue / hand off with baton). No command sheet
 //     or status list — the skill carries those. Passive state — error counts,
@@ -71,12 +72,54 @@ afterEach(() => {
 //   - SessionStart is passive: no index healing, hook calls, journaling, or
 //     retired slash-command cleanup
 describe('runlist hud', () => {
-  it('prints nothing in a clean repo: no command sheet, no status list', () => {
+  it('introduces handoffs in a fresh configured repo, without a command sheet', () => {
     setupProject();
     const r = runCli(['hud']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
-    ok(!r.stdout.includes('[runlist]'), `clean repo prints no runlist line; got: ${r.stdout}`);
+    ok(r.stdout.includes('[runlist] Handoffs: say "baton"'), r.stdout);
+    ok(r.stdout.includes('/pickup resumes it next time'), r.stdout);
+    strictEqual(r.stdout.trim().split('\n').length, 1, r.stdout);
     ok(!/set <status>|Plan statuses/.test(r.stdout), `no command sheet or statuses; got: ${r.stdout}`);
+  });
+
+  it('uses Codex wording without a slash command, including the legacy session variable', () => {
+    setupProject();
+    for (const variable of ['CODEX_THREAD_ID', 'CODEX_SESSION_ID']) {
+      const r = runCli(['hud'], { env: {
+        RUNLIST_SESSION_ID: '', DOTMD_SESSION_ID: '', CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '',
+        CODEX_THREAD_ID: '', CODEX_SESSION_ID: '', [variable]: 'codex-sample',
+      } });
+      strictEqual(r.status, 0, r.stderr);
+      ok(r.stdout.includes('say "pick up where we left off"'), r.stdout);
+      ok(!r.stdout.includes('/pickup'), r.stdout);
+    }
+  });
+
+  it('suppresses the intro for held and archived history in configured prompt directories', () => {
+    const docsDir = setupProject();
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';
+      export const archiveDir = 'retired';
+      export const templates = { prompt: { dir: 'handoffs', targetRoot: null } };`);
+    const dir = path.join(docsDir, 'handoffs');
+    mkdirSync(path.join(dir, 'retired'), { recursive: true });
+    for (const file of ['held.md', 'retired/old.md']) {
+      const filePath = path.join(dir, file);
+      writeFileSync(filePath, '---\ntype: prompt\nstatus: held\n---\nSynthetic history.');
+      const r = runCli(['hud']);
+      strictEqual(r.status, 0, r.stderr);
+      strictEqual(r.stdout, '', r.stdout);
+      rmSync(filePath);
+    }
+    ok(runCli(['hud']).stdout.includes('Handoffs:'), 'empty directories are not history');
+  });
+
+  it('suppresses the intro when this session owns multiple plans', () => {
+    const docsDir = setupProject();
+    for (const name of ['one', 'two']) {
+      writeDoc(docsDir, `${name}.md`, 'type: plan\nstatus: active\nupdated: 2025-01-01', '# Sample');
+      strictEqual(runCli(['use', `docs/${name}.md`]).status, 0);
+    }
+    ok(!runCli(['hud']).stdout.includes('Handoffs:'), 'multiple owned plans are not a fresh session');
   });
 
   it('primes a subagent with the read verbs, the guardrails and a child-handoff pointer, bounded', () => {
@@ -122,6 +165,7 @@ describe('runlist hud', () => {
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
     // The handoff loop's last link: the next session MUST be told a prompt is
     // queued, or batons rot unconsumed (the 0.50.0 scrub broke this).
+    ok(!r.stdout.includes('Handoffs:'), r.stdout);
     ok(/1 pending prompt\b/.test(r.stdout), `stdout must announce the pending prompt; got: ${r.stdout}`);
     ok(r.stdout.includes('runlist use'), `the announcement must name the consume verb; got: ${r.stdout}`);
     ok(r.stdout.includes('`runlist prompts` lists them'), `the line points at the list; got: ${r.stdout}`);
@@ -146,6 +190,7 @@ describe('runlist hud', () => {
 
     const r = runCli(['hud'], { session: 'sess-A' });
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
+    ok(!r.stdout.includes('Handoffs:'), r.stdout);
     ok(r.stdout.includes('in-session (yours): docs/mine.md'), `owned plan announced; got: ${r.stdout}`);
     ok(r.stdout.includes('runlist baton'), `handoff verb named; got: ${r.stdout}`);
 
@@ -218,8 +263,10 @@ describe('runlist hud', () => {
     const staleIndex = '# Docs\n\n<!-- START -->\nold\n<!-- END -->\n';
     writeFileSync(indexPath, staleIndex);
 
-    for (const args of [['hud'], ['hud', '--json']]) {
-      const r = runCli(args, { env: { RUNLIST_JOURNAL: '1' } });
+    mkdirSync(path.join(docsDir, 'prompts'), { recursive: true });
+    writeDoc(docsDir, 'prompts/resume-sample.md', 'type: prompt\nstatus: pending\ncreated: 2025-01-01', 'Continue the sample.');
+    for (const args of [['hud'], ['hud', '--json'], ['hud', '--prompt-submit']]) {
+      const r = runCli(args, { input: JSON.stringify({ prompt: 'pick up where we left off' }), env: { RUNLIST_JOURNAL: '1' } });
       strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
       strictEqual(readFileSync(indexPath, 'utf8'), staleIndex, `${args.join(' ')} left index untouched`);
       if (args.includes('--json')) {
@@ -387,6 +434,80 @@ describe('hud misuse recap', () => {
 // session; every other message gets nothing.
 describe('runlist hud --prompt-submit', () => {
   const ask = (prompt) => JSON.stringify({ session_id: 'x', prompt });
+
+  it('recognizes session-qualified save requests and keeps ordinary coding talk silent', () => {
+    setupProject();
+    for (const prompt of [...saveRequests, longRequest]) {
+      const r = runCli(['hud', '--prompt-submit'], { input: ask(prompt) });
+      strictEqual(r.status, 0, r.stderr);
+      ok(r.stdout.startsWith('[runlist] Baton:'), `${prompt}: ${r.stdout}`);
+    }
+    for (const prompt of silentRequests) {
+      const r = runCli(['hud', '--prompt-submit'], { input: ask(prompt) });
+      strictEqual(r.status, 0, r.stderr);
+      strictEqual(r.stdout, '', prompt);
+    }
+  });
+
+  it('gives every pickup request a distinct hint for zero, one, and several pending prompts', () => {
+    const docsDir = setupProject();
+    const dir = path.join(docsDir, 'prompts');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, 'held.md'), '---\ntype: prompt\nstatus: held\n---\nHeld.');
+    for (const count of [0, 1, 3, 5, 6]) {
+      for (let i = 1; i <= count; i++) {
+        writeFileSync(path.join(dir, `sample-${i}.md`), '---\ntype: prompt\nstatus: pending\ncreated: 2025-01-01\n---\nSample.');
+      }
+      for (const prompt of pickupRequests) {
+        const r = runCli(['hud', '--prompt-submit'], { input: ask(prompt) });
+        strictEqual(r.status, 0, r.stderr);
+        if (!count) { strictEqual(r.stdout, '', prompt); continue; }
+        ok(r.stdout.startsWith(`[runlist] Pickup: ${count} pending prompt`), `${prompt}: ${r.stdout}`);
+        ok(r.stdout.includes('`/pickup` or `runlist use <name>` consumes one'), r.stdout);
+        strictEqual(r.stdout.includes('Ask which one'), count > 1, r.stdout);
+        strictEqual(r.stdout.includes('docs/prompts/sample-1.md'), count <= 5, r.stdout);
+        ok(!r.stdout.includes('held.md'), r.stdout);
+        ok(!r.stdout.includes('Baton:'), r.stdout);
+      }
+    }
+    const codex = runCli(['hud', '--prompt-submit'], { input: ask('load my handoff'), env: {
+      RUNLIST_SESSION_ID: '', DOTMD_SESSION_ID: '', CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '', CODEX_THREAD_ID: 'codex-sample',
+    } });
+    ok(codex.stdout.includes('`runlist use <name>` consumes one'), codex.stdout);
+    ok(!codex.stdout.includes('/pickup'), codex.stdout);
+  });
+
+  it('prioritizes an explicit save request when both intents match', () => {
+    const docsDir = setupProject();
+    mkdirSync(path.join(docsDir, 'prompts'), { recursive: true });
+    writeFileSync(path.join(docsDir, 'prompts', 'sample.md'), '---\ntype: prompt\nstatus: pending\n---\nSample.');
+    const r = runCli(['hud', '--prompt-submit'], { input: ask('load my handoff; then baton') });
+    ok(r.stdout.startsWith('[runlist] Baton:'), r.stdout);
+    ok(!r.stdout.includes('Pickup:'), r.stdout);
+  });
+
+  it('ignores relays, quoted lines and code for both save and pickup requests', () => {
+    const docsDir = setupProject();
+    mkdirSync(path.join(docsDir, 'prompts'), { recursive: true });
+    writeFileSync(path.join(docsDir, 'prompts', 'sample.md'), '---\ntype: prompt\nstatus: pending\n---\nSample.');
+    const ignored = [
+      ...['completed', 'failed', 'cancelled', 'running'].map(relayReport),
+      '```text\nbaton\nload my handoff\n```',
+      '````text\n```\nbaton\nload my handoff\n````',
+      '    baton\n    load my handoff',
+      '\tbaton\n\tload my handoff',
+      '> baton\n  > load my handoff',
+      'what does load my handoff do?',
+      'how do I pick up where we left off?',
+    ];
+    for (const prompt of ignored) {
+      const r = runCli(['hud', '--prompt-submit'], { input: ask(prompt) });
+      strictEqual(r.status, 0, r.stderr);
+      strictEqual(r.stdout, '', prompt);
+    }
+    const r = runCli(['hud', '--prompt-submit'], { input: ask('```\nbaton\n```\n' + longRequest) });
+    ok(r.stdout.startsWith('[runlist] Baton:'), r.stdout);
+  });
 
   it('names the owned plan and the plan-mode form', () => {
     const docsDir = setupProject();

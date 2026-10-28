@@ -4,6 +4,7 @@ import { mkdtempSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
+import { saveRequests, pickupRequests } from './fixtures/handoff-phrases.mjs';
 
 // The plugin's hooks all run through this wrapper. Its contract:
 //   - dotmd off PATH + --hint (SessionStart)      → one install-hint line, exit 0
@@ -16,8 +17,8 @@ const wrapper = path.resolve(import.meta.dirname, '..', 'plugins', 'runlist', 'b
 // first on PATH (so a planted fake `dotmd` wins); the trailing system dirs only
 // provide `sh` itself — the globally-installed `dotmd` lives in npm's bin, not
 // /usr/bin or /bin, so it stays invisible unless `pathDir` supplies it.
-function runHook(args, pathDir, input) {
-  return spawnSync('sh', [wrapper, ...args], {
+function runHook(args, pathDir, input, script = wrapper) {
+  return spawnSync('sh', [script, ...args], {
     encoding: 'utf8',
     input,
     env: { PATH: `${pathDir}:/usr/bin:/bin` },
@@ -111,14 +112,20 @@ describe('plugin hook wrapper (dotmd present)', { skip: process.platform === 'wi
       writeFileSync(fake, '#!/bin/sh\ncat >/dev/null\necho "FAKE-RUNLIST: $@"\nexit 1\n');
       chmodSync(fake, 0o755);
       const hook = ['hud', '--prompt-submit'];
-      for (const prompt of ['Baton this', 'can you HAND OFF', 'save a resume prompt', 'pick it up next time']) {
-        const r = runHook(hook, binDir, JSON.stringify({ prompt }));
-        strictEqual(r.status, 0, r.stderr);
-        match(r.stdout, /FAKE-RUNLIST: hud --prompt-submit/, prompt);
+      const scripts = [wrapper, path.resolve(import.meta.dirname, '..', 'plugins', 'runlist-codex', 'bin', 'runlist-hook')];
+      const requests = ['Baton this', 'can you HAND OFF', 'save a resume prompt', 'pick it up next time', ...saveRequests, ...pickupRequests];
+      for (const script of scripts) {
+        for (const prompt of requests.flatMap(text => [text, text.toUpperCase()])) {
+          const r = runHook(hook, binDir, JSON.stringify({ prompt }), script);
+          strictEqual(r.status, 0, r.stderr);
+          match(r.stdout, /FAKE-RUNLIST: hud --prompt-submit/, `${script}: ${prompt}`);
+        }
+        for (const prompt of ['fix the flaky test', 'save the file', 'continue with the next step']) {
+          const quiet = runHook(hook, binDir, JSON.stringify({ prompt }), script);
+          strictEqual(quiet.status, 0);
+          strictEqual(quiet.stdout, '');
+        }
       }
-      const quiet = runHook(hook, binDir, JSON.stringify({ prompt: 'fix the flaky test' }));
-      strictEqual(quiet.status, 0);
-      strictEqual(quiet.stdout, '');
     } finally {
       rmSync(binDir, { recursive: true, force: true });
     }

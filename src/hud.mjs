@@ -2,7 +2,7 @@ import { flagsHudLine, openFlags } from './flags.mjs';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { asString, currentSessionId, isArchivedPath, relTime, shellQuote, toRepoPath } from './util.mjs';
+import { asString, currentSessionId, hostSessionSource, isArchivedPath, relTime, shellQuote, toRepoPath } from './util.mjs';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { promptDirectory } from './new.mjs';
 import { dim, yellow } from './color.mjs';
@@ -80,12 +80,14 @@ export function findActionablePromptsInPromptDir(config) {
 export function buildHudFast(config) {
   let prompts = [];
   let owned = null;
+  let hasOwnedPlans = true; // Unknown ownership must not advertise a fresh session.
   try { prompts = findActionablePromptsInPromptDir(config); } catch { /* hud must not fail */ }
   try {
     const records = listOwnedPlans(config);
+    hasOwnedPlans = records.length > 0 || Boolean(records.diagnostics?.length);
     if (!records.diagnostics?.length && records.length === 1) owned = { path: records[0].plan, title: null, via: 'ownership' };
   } catch { /* hud must not fail */ }
-  return { owned, prompts, misuseRecap: buildMisuseRecap(config), deadClaimsLine: deadClaimsHudLine(config) };
+  return { owned, hasOwnedPlans, prompts, misuseRecap: buildMisuseRecap(config), deadClaimsLine: deadClaimsHudLine(config) };
 }
 
 // A claim whose session is provably gone wedges `set`, `archive` and `baton` on
@@ -315,7 +317,17 @@ const SUBAGENT_PRIMER = [
 // clause that opens as a question never counts, and "baton" counts only as a
 // verb (opening the clause, after "and"/"then", or "do a baton"), never as the
 // subject of a sentence ("baton prints its name first").
-const HANDOFF_PHRASE = /\bhand[\s-]?off\b|\bresume[\s-]prompt\b|\bsave (?:a |the )?resume\b|\bpick (?:it|this|that) (?:back )?up (?:next time|later|tomorrow)\b/i;
+const HANDOFF_PHRASE = /\bhand[\s-]?off\b|\bresume[\s-]prompt\b|\bsave (?:a |the )?resume\b|\bpick (?:it|this|that) (?:back )?up (?:next time|next session|later|tomorrow)\b/i;
+// Saving ordinary files is not a handoff. New save forms require both a
+// work/session object and a time marker (or explicit context pressure).
+const SESSION_SAVE = [
+  /\bsave (?:where we are|our progress)\b[^.!?;\n]*\b(?:later|tomorrow|next (?:time|session)|new session|for (?:today|now))\b/i,
+  /\bwrap up for today\b/i,
+  /\bstop here for now\b/i,
+  /\b(?:we['’]ll|we will|let['’]?s|lets) continue in (?:a |the )?new session\b/i,
+  /\bcontext is getting tight\b[^.!?;\n]*\bsave where we are\b/i,
+];
+const PICKUP_PHRASE = /\bpick up where we left off\b|\bcontinue from last time\b|\bresume where we left off\b|\bcontinue where we stopped yesterday\b|\bwhat was I working on last session\b|\bload my handoff\b/i;
 const LEAD_WORDS = String.raw`(?:(?:ok(?:ay)?|alright|right|now|then|and|also|but|so|yes|yep|great|good|cool|thanks|please|pls|go ahead and|let'?s|lets|time to)\b[,\s]*)*`;
 const POLITE = String.raw`(?:(?:can|could|would|will) you (?:please )?(?:mind )?)`;
 const BATON_AS_NOUN = String.raw`(?:(?:do|doing|make|write|leave|save|pass|run|drop) (?:a |the |your |another |one more )?)`;
@@ -331,16 +343,41 @@ const QUESTION_START = new RegExp(String.raw`^${LEAD_WORDS}(?:what'?s|whats|what
 
 // The harness hands background-task events to UserPromptSubmit as if typed.
 // A finished agent's report that names its handoff file is not a request.
-const SYSTEM_EVENT = /<task-notification>|\[SYSTEM NOTIFICATION\b/;
+const SYSTEM_EVENT = /<task-notification>|\[SYSTEM NOTIFICATION\b|^\s*Delegated task \S+ \([^\n]*?\) \[[a-z]+\]:/;
+// This question explicitly asks to recover earlier work, rather than asking
+// how the handoff mechanism works. Other question-led clauses stay silent.
+const PICKUP_QUESTION = new RegExp(String.raw`^${LEAD_WORDS}what was I working on last session[?.!]*$`, 'i');
+
+function requestText(prompt) {
+  if (typeof prompt !== 'string' || SYSTEM_EVENT.test(prompt)) return '';
+  let fence = null;
+  return prompt.split('\n').map(line => {
+    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence) {
+      if (marker && marker[0] === fence[0] && marker.length >= fence.length
+          && /^\s*$/.test(line.slice(line.indexOf(marker) + marker.length))) fence = null;
+      return '';
+    }
+    if (marker) { fence = marker; return ''; }
+    if (/^(?: {4}|\t)|^ {0,3}>/.test(line)) return '';
+    return line;
+  }).join('\n');
+}
 
 function clauses(prompt) {
   return prompt.split(/(?<=[.!?;\n])/).map(clause => clause.trim()).filter(Boolean);
 }
 
 export function isHandoffAsk(prompt) {
-  if (typeof prompt !== 'string' || SYSTEM_EVENT.test(prompt)) return false;
-  return clauses(prompt).some(clause => !QUESTION_START.test(clause)
-    && (BATON_REQUEST.some(re => re.test(clause)) || HANDOFF_PHRASE.test(clause)));
+  return clauses(requestText(prompt)).some(clause => !QUESTION_START.test(clause)
+    && (BATON_REQUEST.some(re => re.test(clause)) || SESSION_SAVE.some(re => re.test(clause))
+      // A request to load a handoff is the opposite of saving one.
+      || HANDOFF_PHRASE.test(clause.replace(/\bload my handoff\b/gi, ''))));
+}
+
+export function isPickupAsk(prompt) {
+  return clauses(requestText(prompt)).some(clause => PICKUP_PHRASE.test(clause)
+    && (!QUESTION_START.test(clause) || PICKUP_QUESTION.test(clause)));
 }
 
 // The repo's own definition of baton (`templates.prompt.baton` in its config),
@@ -389,19 +426,45 @@ export async function runPromptSubmitHud(config, { readStdin } = {}) {
     const raw = await readStdin();
     if (raw && raw.trim()) prompt = JSON.parse(raw).prompt ?? '';
   } catch { return; }
-  if (!isHandoffAsk(prompt)) return;
-  process.stdout.write(buildHandoffContext(config) + '\n');
+  // Saving wins when both intents are explicit: save now, resume later.
+  if (isHandoffAsk(prompt)) {
+    process.stdout.write(buildHandoffContext(config) + '\n');
+  } else if (isPickupAsk(prompt)) {
+    let prompts;
+    try { prompts = findActionablePromptsInPromptDir(config); } catch { return; }
+    if (prompts.length) process.stdout.write(`[runlist] Pickup: ${pendingPromptsLine(prompts, { pickup: true })}\n`);
+  }
 }
 
 // A count, not names: a queue of dozens printed a dozen names nobody asked
 // about, and `runlist prompts` lists them when the user names one.
-export function pendingPromptsLine(prompts) {
+export function pendingPromptsLine(prompts, { pickup = false } = {}) {
   const n = prompts.length;
+  if (pickup) {
+    const names = n <= 5 ? ` (${prompts.join(', ')})` : '';
+    const entry = hostSessionSource()?.host === 'Claude Code' ? '`/pickup` or `runlist use <name>`' : '`runlist use <name>`';
+    return `${n} pending prompt${n === 1 ? '' : 's'}${names}: ${entry} consumes one.${n > 1 ? ' Ask which one; never consume the oldest by default.' : ''}`;
+  }
   return `${n} pending prompt${n === 1 ? '' : 's'}: resume one only when the user asks for it (\`runlist prompts\` lists them, \`runlist use <name>\` resumes one, \`runlist prompts show <name>\` peeks); never consume the oldest by default.`;
 }
 
 function isRunlistRepo(config) {
   return Boolean(config?.configFound);
+}
+
+// Directory entries only: any Markdown file is history, including held and
+// archived prompts. Resolve the type directory via the same loader as hud;
+// recursive listing includes config.archiveDir without assuming its spelling.
+function handoffIntroLine(config, hud) {
+  if (hud.prompts.length || hud.hasOwnedPlans) return null;
+  try {
+    const dir = promptDirectory(config);
+    if (existsSync(dir) && readdirSync(dir, { withFileTypes: true, recursive: true })
+      .some(entry => entry.isFile() && entry.name.endsWith('.md'))) return null;
+  } catch { return null; } // Unreadable history cannot establish a fresh repo.
+  const pickup = hostSessionSource()?.host === 'Claude Code'
+    ? '/pickup resumes it next time' : 'say "pick up where we left off" to resume next time';
+  return `[runlist] Handoffs: say "baton" to save where you are before you stop; ${pickup}.`;
 }
 
 export function runHud(argv, config) {
@@ -433,8 +496,8 @@ export function runHud(argv, config) {
   const hud = buildHudFast(config);
 
   // SessionStart contract: ONLY signals that carry a direct instruction for
-  // this session, and nothing at all in a clean repo. No command sheet and no
-  // status list: the runlist skill carries the verbs, and `runlist set` names
+  // this session, plus a one-line introduction until the first handoff. No
+  // command sheet or status list: the runlist skill carries the verbs, and `runlist set` names
   // the valid statuses when given a wrong one. Passive state (error counts,
   // previous-self / fleet / recent-rejections) stays suppressed — it nudged
   // agents into phantom follow-up work and lives in its own commands and
@@ -450,6 +513,8 @@ export function runHud(argv, config) {
   //     Global in-session counts never provide a fallback.
   //   - an unfinished handoff, a repeat-offense misuse rule, and plans held by
   //     sessions that are gone: each names the command that clears it.
+  const intro = handoffIntroLine(config, hud);
+  if (intro) process.stdout.write(dim(intro) + '\n');
   const queue = [];
   if (hud.prompts.length > 0) queue.push(pendingPromptsLine(hud.prompts));
   const flagsLine = flagsHudLine(config);

@@ -63,6 +63,8 @@ Valid statuses are type-aware and project-specific: `runlist statuses list --typ
 
 ## Saved prompts — the #1 confusion point
 
+Use `/pickup [<name>]` to resume a saved handoff; `/prompts` manages the queue.
+
 Saved prompts (`docs/prompts/*.md`) are handoff artifacts; the project chooses their Git policy:
 
 - **Consume, don't read.** If the user references a prompt — "resume via docs/prompts/foo.md", "use this prompt", "load that one" — run `runlist use <file>` (no arg = oldest pending). It commits archive/claim before stdout, so body output is at-most-once and the prompt can't be double-consumed; an output failure is recoverable with `runlist prompts show <archived-path>`. **Do NOT `cat` it, Read it, or copy its body into chat.** If the prompt was made by `runlist baton`, consuming it also **claims its plan** (`→ Claimed …`, flips it `in-session`) — so your later `runlist baton` hands that plan off automatically; no need to `runlist use <plan>` first. Only triaging or cleaning up prompts? `runlist use --no-claim <file>` consumes without starting the plan. If your prompt ends with "runlist consumes a prompt only inside an agent session" and a `runlist prompts use <path>` command, you were started from a terminal and the prompt is still pending: run that command first, which archives it and claims its plan for you.

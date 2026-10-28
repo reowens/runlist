@@ -276,7 +276,7 @@ Populated by the \`runlist guard\` PreToolUse hook — see \`runlist help guard\
   'help:all': `runlist v${pkg.version} — full command list
 
 View & Query:
-  hud [--json]                      Command primer + pending-prompt triage — silent when clean
+  hud [--json]                      Session-start handoff orientation + pending-prompt triage
   list [--verbose] [--json]         List docs grouped by status (default command)
   briefing [--json]                 Full briefing with plan status counts + next steps
   context [--summarize] [--json]    Full briefing (LLM-oriented; use --json --compact for bounded JSON)
@@ -738,23 +738,26 @@ Options:
 
   hud: `runlist hud — actionable triage for session start
 
-Prints the runlist command primer (the verb cheat-sheet) plus, in --json mode,
-pending prompts and the check-error count for programmatic callers.
-
-Silent when there's nothing actionable — designed for SessionStart hooks where
-zero noise is the right default. Distinct from \`runlist briefing\`, which
-dumps the full plan-status pipeline and per-plan next_step bodies (kilobytes
+Prints pending prompts, this session's owned plan, and actionable notices.
+Before the first saved handoff, a configured repo with no pending prompts or
+owned plan gets one orientation line. Otherwise silent when nothing needs
+attention. --json returns structured state and the check-error count.
+Distinct from \`runlist briefing\`, which dumps the full plan-status pipeline and per-plan next_step bodies (kilobytes
 on large repos). Use hud for ergonomic session boot; use briefing for
 explicit "give me the full picture."
 
-The pending-prompts line tells Claude to consume them via
-\`runlist prompts use <file>\` rather than reading/cat'ing — that atomically
-prints the body and archives the prompt so it cannot be double-consumed.
+The pending-prompts line says to resume only when asked, via
+\`runlist use <name>\`. --prompt-submit reads a hook JSON payload from stdin:
+save requests get baton instructions; pickup requests get a distinct hint only
+when prompts are pending. Text hooks read prompt frontmatter and ownership
+records without building the index.
 
 Recommended SessionStart hook (in ~/.claude/settings.json):
   "SessionStart": [{ "hooks": [{ "type": "command", "command": "runlist hud", "timeout": 5 }] }]
 
 Options:
+  --prompt-submit        Request-specific save/pickup hint (hook JSON on stdin)
+  --subagent             Compact workflow primer for child agents
   --json                 Output as JSON ({ owned, prompts, errors, previousSelf,
                          fleet, recentRejections, misuseRecap, drift })`,
 

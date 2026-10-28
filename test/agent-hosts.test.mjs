@@ -167,7 +167,7 @@ test('unregistered, foreign, missing and unknown Claude sources do not become fa
 
 test('plugin fingerprint includes hooks.json, manifests, hook scripts, commands and skills', t => {
   const f = fixture(t), plugin = path.join(f.root, 'plugins/runlist');
-  for (const file of ['hooks.json', 'hooks/start.sh', 'bin/runlist-hook', '.claude-plugin/plugin.json', 'skills/runlist/SKILL.md', 'commands/plans.md']) {
+  for (const file of ['hooks.json', 'hooks/start.sh', 'bin/runlist-hook', '.claude-plugin/plugin.json', 'skills/runlist/SKILL.md', 'commands/plans.md', 'commands/pickup.md']) {
     const before = pluginFingerprint(plugin); f.write(path.join(plugin, file), `changed ${file}`);
     assert.notEqual(pluginFingerprint(plugin).sha256, before.sha256, file);
   }
