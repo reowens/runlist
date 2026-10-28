@@ -129,6 +129,8 @@ export async function runBaton(argv, config, opts = {}) {
   let subagent = false;
   let parentPrompt = null;
   let template = false;
+  let nextStep = null;
+  let currentState = null;
   const positionals = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -138,6 +140,11 @@ export async function runBaton(argv, config, opts = {}) {
     if (a === '--force') { force = true; continue; }
     if (a === '--replace') { replace = true; continue; }
     if (a === '--done') { done = true; continue; }
+    if (a === '--next-step' || a === '--current-state') {
+      if (i + 1 >= argv.length) die(`${a} needs a value: runlist baton --done [<plan-file>] ${a} "<text>"`);
+      if (a === '--next-step') nextStep = argv[++i]; else currentState = argv[++i];
+      continue;
+    }
     if (a === '--subagent') { subagent = true; continue; }
     if (a === '--template') { template = true; continue; }
     if (a === '--parent') {
@@ -151,6 +158,9 @@ export async function runBaton(argv, config, opts = {}) {
     die(`Unknown flag for \`runlist baton\`: ${a}`);
   }
   if (parentPrompt && !subagent) die('--parent requires --subagent.');
+  for (const [flag, value] of [['--next-step', nextStep], ['--current-state', currentState]]) {
+    if (value !== null && !done) die(`${flag} only goes with --done: save the prompt first, then run \`runlist baton --done [<plan-file>] ${flag} "<text>"\`.`);
+  }
   if (template) {
     if (done || replace || force || statusFlag || note !== null || positionals.length || bodyFlag !== null) {
       die('Use `runlist baton --template` or `runlist baton --subagent --template [--parent resume-name]` to print a draft without saving.');
@@ -176,8 +186,8 @@ export async function runBaton(argv, config, opts = {}) {
   // The second half of a plan handoff: the prompt is already saved, and this
   // confirms the plan was brought up to date after it (src/handoff-record.mjs).
   if (done) {
-    if (dryRun) die('`runlist baton --done` changes nothing but its own record; run it without --dry-run.');
-    return runBatonDone(planArg, config, { json });
+    if (bodyArg !== null || bodyFlag !== null) die('`runlist baton --done` takes no prompt body; the prompt was saved by the first baton call.');
+    return runBatonDone(planArg, config, { json, dryRun, nextStep, currentState });
   }
 
   // Body FIRST — it's the common failure (`new prompt` without a body was the

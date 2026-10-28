@@ -1,11 +1,15 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
+import { extractFrontmatter, parseSimpleFrontmatter, replaceFrontmatter } from './frontmatter.mjs';
+import { replaceFrontmatterField } from './frontmatter-fix.mjs';
+import { renderLifecycleMutation } from './lifecycle.mjs';
+import { mutateFile } from './atomic-mutation.mjs';
+import { authorizeManagedSource } from './managed-path.mjs';
 import { die, nowIso, toRepoPath } from './util.mjs';
 import { stateDir } from './naming.mjs';
 import { resolveDocArg } from './index.mjs';
 import { authoritativeSessionId } from './pickup.mjs';
-import { green } from './color.mjs';
+import { dim, green } from './color.mjs';
 
 // A baton that releases an in-session plan saves the prompt first, so a usage
 // stop partway through the handoff loses nothing. The plan update that follows
@@ -13,6 +17,7 @@ import { green } from './color.mjs';
 // done, and left next_step saying what it said before the work. So baton leaves
 // a record of the plan's next_step as it stood when the prompt was saved, and
 // `runlist baton --done` reports the handoff done only once next_step differs.
+// `--next-step` writes the new value in the same call.
 // The record is local state under the runlist state directory, one per plan,
 // so a later session (or this one after a compaction) can still confirm it.
 
@@ -69,15 +74,56 @@ export function pendingHandoffsForSession(config, sessionId = authoritativeSessi
   return listPendingHandoffs(config).filter(record => record.sessionId === sessionId);
 }
 
+// The frontmatter half of the update is a flag on --done, so the guidance never
+// asks for a hand edit of next_step: the body is prose the session writes, the
+// two fields are what this verb writes.
 export function handoffNotDoneLine(record, doneCommand = 'runlist baton --done') {
-  return `Handoff not done yet: the prompt is saved, and ${record.plan} still needs bringing up to date (the body, then next_step). Then run \`${doneCommand}\`.`;
+  return `Handoff not done yet: the prompt is saved, and ${record.plan} still needs bringing up to date. Update the plan body first, then run \`${doneCommand} --next-step "<next move>"\` (add \`--current-state "<where it stands>"\` if that changed): it writes the frontmatter and confirms the handoff.`;
 }
 
-// `runlist baton --done [<plan>]`
-export function runBatonDone(planArg, config, { json = false } = {}) {
+// Whitespace runs collapse to one space: that is what the folded scalar the
+// writer emits reads back as, so a value differing only in spacing is the same
+// next_step and must not pass the gate.
+function normalizeFieldValue(value) {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function recordedNextStep(record) {
+  try {
+    const value = JSON.parse(record.nextStep);
+    return typeof value === 'string' ? normalizeFieldValue(value) : value;
+  } catch { return undefined; }
+}
+
+// One line of prose per field. A newline is refused rather than folded away:
+// the writer emits a folded scalar, which would silently join the lines, and a
+// next_step that needs several lines belongs in the plan body.
+function checkedFieldValue(flag, value) {
+  if (typeof value !== 'string' || !value.trim()) die(`${flag} needs a nonempty value, e.g. ${flag} "<text>".`);
+  if (/[\r\n]/.test(value)) die(`${flag} takes one line; put anything longer in the plan body.`);
+  return normalizeFieldValue(value);
+}
+
+function renderFieldUpdates(raw, fields) {
+  const { frontmatter } = extractFrontmatter(raw);
+  if (!frontmatter) throw new Error('the plan has no frontmatter block');
+  let next = frontmatter;
+  for (const [key, value] of Object.entries(fields)) next = replaceFrontmatterField(next, key, value);
+  return renderLifecycleMutation(replaceFrontmatter(raw, next), { updated: nowIso() }, null);
+}
+
+// `runlist baton --done [<plan>] [--next-step "…"] [--current-state "…"]`
+export function runBatonDone(planArg, config, { json = false, dryRun = false, nextStep = null, currentState = null } = {}) {
+  const fields = {};
+  if (nextStep !== null) fields.next_step = checkedFieldValue('--next-step', nextStep);
+  if (currentState !== null) fields.current_state = checkedFieldValue('--current-state', currentState);
+  const writing = Object.keys(fields).length > 0;
+  if (dryRun && !writing) die('`runlist baton --done` changes nothing but its own record; run it without --dry-run, or preview a write with --next-step.');
+
   let record;
+  let abs = null;
   if (planArg) {
-    const abs = resolveDocArg(planArg, config);
+    abs = resolveDocArg(planArg, config);
     const repoPath = toRepoPath(abs, config.repoRoot);
     record = listPendingHandoffs(config).find(r => r.plan === repoPath)
       ?? listPendingHandoffs(config).find(r => path.basename(r.plan) === path.basename(repoPath));
@@ -89,19 +135,70 @@ export function runBatonDone(planArg, config, { json = false } = {}) {
     record = mine[0];
   }
 
-  const abs = path.resolve(config.repoRoot, record.plan);
+  // A named plan is checked where it is now: the record may still carry the
+  // path the plan had before it moved, matched above by its file name.
+  abs ??= path.resolve(config.repoRoot, record.plan);
   if (!existsSync(abs)) die(`${record.plan} is gone (moved or archived?). Run \`runlist baton --done <its new path>\` once it is up to date.\nSaved prompt: ${record.name}`);
-  const { present, value } = planNextStep(abs);
-  if (present && value === record.nextStep) {
-    die(`Not done: ${record.plan} next_step is the same as when the prompt was saved (${record.savedAt}). Bring the plan up to date (the body, then next_step), then run \`runlist baton --done${planArg ? ` ${record.plan}` : ''}\` again.\nSaved prompt: ${record.name}`);
+  const planRepoPath = toRepoPath(abs, config.repoRoot);
+  const again = `runlist baton --done${planArg ? ` ${planRepoPath}` : ''}`;
+  const notDone = () => die(`Not done: ${planRepoPath} next_step is the same as when the prompt was saved (${record.savedAt}). Update the plan body first, then run \`${again} --next-step "<next move>"\`.\nSaved prompt: ${record.name}`);
+  const unchanged = file => {
+    const { present, value } = planNextStep(file);
+    return present && value === record.nextStep;
+  };
+
+  let preview = null;
+  if (fields.next_step !== undefined) {
+    if (fields.next_step === recordedNextStep(record)) {
+      die(`Not done: --next-step repeats the next_step ${planRepoPath} had when the prompt was saved (${record.savedAt}). Write where the work goes from here.\nSaved prompt: ${record.name}`);
+    }
+  } else if (unchanged(abs)) {
+    notDone(); // --current-state alone never counts as done
   }
-  rmSync(record.recordFile, { force: true });
-  const result = { operation: 'baton-done', plan: record.plan, prompt: record.prompt, name: record.name, nextStepChanged: true };
+
+  if (writing) {
+    let source;
+    try { source = authorizeManagedSource(abs, config, { kind: 'Baton --done plan' }).path; }
+    catch (err) { die(err.message); }
+    if (dryRun) {
+      preview = renderFieldUpdates(readFileSync(source, 'utf8'), fields);
+    } else {
+      // Like baton itself, this leaves the shared generated index deferred.
+      try { mutateFile(source, { repoRoot: config.repoRoot }, raw => renderFieldUpdates(raw, fields)); }
+      catch (err) { die(`Could not write ${planRepoPath} (${err.message}); the handoff is still pending.\nSaved prompt: ${record.name}`); }
+      if (unchanged(source)) notDone();
+    }
+  }
+
+  if (!dryRun) rmSync(record.recordFile, { force: true });
+  const result = {
+    operation: 'baton-done',
+    dryRun: Boolean(dryRun),
+    plan: planRepoPath,
+    prompt: record.prompt,
+    name: record.name,
+    nextStepChanged: true,
+    written: fields,
+  };
   if (json) {
     process.stdout.write(JSON.stringify(result, null, 2) + '\n');
     return result;
   }
-  process.stderr.write(`${green('✓ Handoff done')}: ${record.plan} next_step was updated after the prompt was saved.\n`);
+  if (dryRun) {
+    const prefix = dim('[dry-run] ');
+    process.stderr.write(`${prefix}Would write ${planRepoPath}:\n`);
+    const { frontmatter } = extractFrontmatter(preview);
+    const lines = frontmatter.split('\n');
+    for (const key of Object.keys(fields)) {
+      const at = lines.findIndex(line => line.startsWith(`${key}:`));
+      for (let i = at; i >= 0 && i < lines.length && (i === at || /^[ \t]/.test(lines[i])); i++) process.stderr.write(`${prefix}  ${lines[i]}\n`);
+    }
+    process.stderr.write(`${prefix}Would report the handoff done and remove its record.\n`);
+    process.stderr.write(`Saved prompt: ${record.name}\n`);
+    return result;
+  }
+  const how = writing ? `${Object.keys(fields).join(' and ')} written` : 'next_step was updated after the prompt was saved';
+  process.stderr.write(`${green('✓ Handoff done')}: ${planRepoPath} ${how}.\n`);
   process.stderr.write(`Saved prompt: ${record.name}\n`);
   return result;
 }

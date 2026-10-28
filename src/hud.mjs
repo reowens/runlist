@@ -360,15 +360,15 @@ export function buildHandoffContext(config) {
     const records = listOwnedPlans(config);
     if (!records.diagnostics?.length) ownedPaths = records.map(record => record.plan);
   } catch { /* fall through to the no-plan form */ }
-  const done = 'Baton does not report the handoff done until the plan\'s next_step has been updated after the prompt was saved: update the plan, then run';
+  const done = 'Baton does not report the handoff done until the plan\'s next_step has been updated after the prompt was saved: update the plan body first, then run';
   let who;
   let command;
   if (ownedPaths.length === 1) {
     who = `this session owns ${ownedPaths[0]}.`;
-    command = `Save the prompt with \`runlist baton @<file>\`: it releases the plan to active (\`--status paused|awaiting|partial|blocked\` and \`--note "why"\` if that fits better). ${done} \`runlist baton --done\`.`;
+    command = `Save the prompt with \`runlist baton @<file>\`: it releases the plan to active (\`--status paused|awaiting|partial|blocked\` and \`--note "why"\` if that fits better). ${done} \`runlist baton --done --next-step "<next move>"\`.`;
   } else if (ownedPaths.length > 1) {
     who = `this session owns ${ownedPaths.length} plans (${ownedPaths.join(', ')}), so name the one to hand off.`;
-    command = `Save it with \`runlist baton <plan-file> @<file>\`. ${done} \`runlist baton --done <plan-file>\`.`;
+    command = `Save it with \`runlist baton <plan-file> @<file>\`. ${done} \`runlist baton --done <plan-file> --next-step "<next move>"\`.`;
   } else {
     who = 'this session owns no plan.';
     command = 'Save the prompt with `runlist baton <slug> @<file>` (saves resume-<slug>, changes nothing else), or `runlist baton <plan-file> @<file>` to hand off a plan by path.';

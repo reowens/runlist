@@ -418,7 +418,7 @@ describe('runlist hud --prompt-submit', () => {
     ok(r.stdout.includes('This repo defines baton'), r.stdout);
     ok(r.stdout.includes('2. Bring the owning plan up to date.'), r.stdout);
     ok(r.stdout.includes('`runlist baton @<file>`'), r.stdout);
-    ok(r.stdout.includes('`runlist baton --done`'), r.stdout);
+    ok(r.stdout.includes('`runlist baton --done --next-step "<next move>"`'), r.stdout);
     ok(!r.stdout.includes('Write the resume first'), `the tool's own steps give way to the repo's: ${r.stdout}`);
   });
 

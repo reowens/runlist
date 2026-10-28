@@ -1389,6 +1389,179 @@ describe('runlist baton: the plan update after the prompt, and the name last', (
     match(r.stderr, /Handoff done: docs\/plans\/gadget\.md/);
   });
 
+  const recordFile = name => path.join(tmpDir, '.runlist', 'handoffs', `${name}.json`);
+  const frontmatterOf = file => readFileSync(file, 'utf8').split('\n---\n')[0];
+
+  it('--next-step writes next_step, removes the record and reports the handoff done', () => {
+    const plan = writePlanWithNextStep('sprocket', 'cut the blank');
+    strictEqual(run(['baton', 'docs/plans/sprocket.md', '--message', 'resume']).status, 0);
+    ok(existsSync(recordFile('sprocket')));
+    const r = run(['baton', '--done', '--next-step', 'grind: the teeth #2']);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stderr, /✓ Handoff done: docs\/plans\/sprocket\.md next_step written/);
+    strictEqual(lastLine(r.stderr), 'Saved prompt: resume-sprocket');
+    ok(!existsSync(recordFile('sprocket')), 'record removed');
+    const fm = frontmatterOf(plan);
+    match(fm, /^next_step: >\n {2}grind: the teeth #2$/m);
+    ok(!fm.includes('cut the blank'), fm);
+    match(readFileSync(plan, 'utf8'), /\n# sprocket\n\nbody\n$/, 'body untouched');
+    const shown = run(['query', '--type', 'plan', '--json']);
+    ok(shown.stdout.includes('"nextStep": "grind: the teeth #2"'), shown.stdout);
+  });
+
+  it('refuses a --next-step equal to the saved one and keeps the record', () => {
+    const plan = writePlanWithNextStep('pulley', 'mount the axle');
+    strictEqual(run(['baton', 'docs/plans/pulley.md', '--message', 'resume']).status, 0);
+    const before = readFileSync(plan, 'utf8');
+    const r = run(['baton', '--done', '--next-step', '  mount   the axle ']);
+    ok(r.status !== 0, 'whitespace-only differences are the same next_step');
+    match(r.stderr, /Not done: --next-step repeats the next_step docs\/plans\/pulley\.md had/);
+    strictEqual(lastLine(r.stderr), 'Saved prompt: resume-pulley');
+    strictEqual(readFileSync(plan, 'utf8'), before, 'nothing written');
+    ok(existsSync(recordFile('pulley')), 'record kept');
+  });
+
+  it('rejects empty and multi-line values before touching anything', () => {
+    const plan = writePlanWithNextStep('lever', 'find the pivot');
+    strictEqual(run(['baton', 'docs/plans/lever.md', '--message', 'resume']).status, 0);
+    const before = readFileSync(plan, 'utf8');
+    for (const args of [['--next-step', '   '], ['--next-step', 'one\ntwo'], ['--next-step', 'ok', '--current-state', 'a\r\nb']]) {
+      const r = run(['baton', '--done', ...args]);
+      ok(r.status !== 0, `${args.join(' ')} refused`);
+      match(r.stderr, /needs a nonempty value|takes one line/);
+    }
+    strictEqual(readFileSync(plan, 'utf8'), before);
+    ok(existsSync(recordFile('lever')));
+  });
+
+  it('creates a next_step key the plan lost after the prompt was saved', () => {
+    const plan = writePlanWithNextStep('spindle', 'thread it');
+    strictEqual(run(['baton', 'docs/plans/spindle.md', '--message', 'resume']).status, 0);
+    writeFileSync(plan, readFileSync(plan, 'utf8').replace('next_step: thread it\n', ''));
+    const r = run(['baton', '--done', '--next-step', 'balance it']);
+    strictEqual(r.status, 0, r.stderr);
+    match(frontmatterOf(plan), /^next_step: >\n {2}balance it$/m);
+    ok(!existsSync(recordFile('spindle')));
+  });
+
+  it('writes --current-state alongside --next-step, replacing a block value whole', () => {
+    const plan = writePlanWithNextStep('ratchet', 'set the pawl');
+    writeFileSync(plan, readFileSync(plan, 'utf8').replace('next_step: set the pawl\n', 'next_step: set the pawl\ncurrent_state: |\n  first line\n  second line\nowner: someone\n'));
+    strictEqual(run(['baton', 'docs/plans/ratchet.md', '--message', 'resume']).status, 0);
+    const r = run(['baton', '--done', '--next-step', 'test the click', '--current-state', 'pawl set']);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stderr, /next_step and current_state written/);
+    const fm = frontmatterOf(plan);
+    match(fm, /^current_state: >\n {2}pawl set\nowner: someone$/m);
+    ok(!fm.includes('second line'), fm);
+  });
+
+  it('--current-state alone never counts as done', () => {
+    const plan = writePlanWithNextStep('cam', 'shape the lobe');
+    strictEqual(run(['baton', 'docs/plans/cam.md', '--message', 'resume']).status, 0);
+    const before = readFileSync(plan, 'utf8');
+    const refused = run(['baton', '--done', '--current-state', 'lobe roughed']);
+    ok(refused.status !== 0);
+    match(refused.stderr, /Not done: docs\/plans\/cam\.md next_step is the same/);
+    match(refused.stderr, /--next-step "<next move>"/);
+    strictEqual(readFileSync(plan, 'utf8'), before, 'current_state not written by a refused call');
+    ok(existsSync(recordFile('cam')));
+
+    writeFileSync(plan, before.replace('next_step: shape the lobe', 'next_step: polish the lobe'));
+    const r = run(['baton', '--done', '--current-state', 'lobe roughed']);
+    strictEqual(r.status, 0, r.stderr);
+    match(frontmatterOf(plan), /^current_state: >\n {2}lobe roughed$/m);
+    ok(!existsSync(recordFile('cam')));
+  });
+
+  it('each flag without --done is rejected', () => {
+    writePlanWithNextStep('gear', 'count the teeth');
+    for (const flag of ['--next-step', '--current-state']) {
+      const r = run(['baton', 'docs/plans/gear.md', '--message', 'resume', flag, 'value']);
+      ok(r.status !== 0, `${flag} without --done`);
+      match(r.stderr, new RegExp(`${flag} only goes with --done`));
+    }
+    ok(!existsSync(path.join(docsDir, 'prompts', 'resume-gear.md')), 'no prompt saved');
+  });
+
+  it('--dry-run previews the write and the verdict without changing anything', () => {
+    const plan = writePlanWithNextStep('flywheel', 'balance the rim');
+    strictEqual(run(['baton', 'docs/plans/flywheel.md', '--message', 'resume']).status, 0);
+    const before = readFileSync(plan, 'utf8');
+    const record = readFileSync(recordFile('flywheel'), 'utf8');
+    const r = run(['baton', '--done', '--next-step', 'mount the rim', '--current-state', 'rim balanced', '--dry-run']);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stderr, /\[dry-run\] Would write docs\/plans\/flywheel\.md:/);
+    match(r.stderr, /\[dry-run\] {3}next_step: >\n\[dry-run\] {5}mount the rim/);
+    match(r.stderr, /\[dry-run\] {5}rim balanced/);
+    match(r.stderr, /Would report the handoff done and remove its record/);
+    strictEqual(readFileSync(plan, 'utf8'), before);
+    strictEqual(readFileSync(recordFile('flywheel'), 'utf8'), record);
+
+    const json = run(['baton', '--done', '--next-step', 'mount the rim', '--dry-run', '--json']);
+    strictEqual(json.status, 0, json.stderr);
+    strictEqual(JSON.parse(json.stdout).dryRun, true);
+    strictEqual(readFileSync(plan, 'utf8'), before);
+
+    const plain = run(['baton', '--done', '--dry-run']);
+    ok(plain.status !== 0, 'plain --done --dry-run keeps its refusal');
+    match(plain.stderr, /changes nothing but its own record/);
+  });
+
+  it('--json reports the written fields', () => {
+    writePlanWithNextStep('bearing', 'press the race');
+    strictEqual(run(['baton', 'docs/plans/bearing.md', '--message', 'resume']).status, 0);
+    const r = run(['baton', '--done', '--next-step', 'grease it', '--current-state', 'race pressed', '--json']);
+    strictEqual(r.status, 0, r.stderr);
+    const value = JSON.parse(r.stdout);
+    strictEqual(value.operation, 'baton-done');
+    strictEqual(value.dryRun, false);
+    strictEqual(value.plan, 'docs/plans/bearing.md');
+    strictEqual(value.prompt, 'docs/prompts/resume-bearing.md');
+    strictEqual(value.name, 'resume-bearing');
+    strictEqual(value.nextStepChanged, true);
+    strictEqual(JSON.stringify(value.written), JSON.stringify({ next_step: 'grease it', current_state: 'race pressed' }));
+  });
+
+  it('a named plan can be finished from a different session', () => {
+    const plan = writePlanWithNextStep('linkage', 'pin the joint');
+    strictEqual(run(['baton', 'docs/plans/linkage.md', '--message', 'resume']).status, 0);
+    ok(run(['baton', '--done', '--next-step', 'oil the joint'], { sid: 'other-sid' }).status !== 0, 'bare --done finds no record of the other session');
+    const r = run(['baton', '--done', 'docs/plans/linkage.md', '--next-step', 'oil the joint'], { sid: 'other-sid' });
+    strictEqual(r.status, 0, r.stderr);
+    match(frontmatterOf(plan), /oil the joint/);
+    ok(!existsSync(recordFile('linkage')));
+  });
+
+  it('a moved plan is written at the path it was named by', () => {
+    const plan = writePlanWithNextStep('crank', 'turn the shaft');
+    strictEqual(run(['baton', 'docs/plans/crank.md', '--message', 'resume']).status, 0);
+    mkdirSync(path.join(plansDir, 'moved'));
+    const moved = path.join(plansDir, 'moved', 'crank.md');
+    writeFileSync(moved, readFileSync(plan, 'utf8'));
+    rmSync(plan);
+    const gone = run(['baton', '--done', '--next-step', 'key the shaft']);
+    ok(gone.status !== 0);
+    match(gone.stderr, /docs\/plans\/crank\.md is gone/);
+    ok(existsSync(recordFile('crank')));
+    const r = run(['baton', '--done', 'docs/plans/moved/crank.md', '--next-step', 'key the shaft']);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stderr, /Handoff done: docs\/plans\/moved\/crank\.md/);
+    match(frontmatterOf(moved), /key the shaft/);
+    ok(!existsSync(recordFile('crank')));
+  });
+
+  it('a failed write leaves the record in place', () => {
+    const plan = writePlanWithNextStep('clutch', 'seat the plate');
+    strictEqual(run(['baton', 'docs/plans/clutch.md', '--message', 'resume']).status, 0);
+    writeFileSync(plan, '# clutch\n\nfrontmatter stripped\n');
+    const r = run(['baton', '--done', '--next-step', 'adjust the plate']);
+    ok(r.status !== 0);
+    match(r.stderr, /Could not write docs\/plans\/clutch\.md .*the handoff is still pending/);
+    strictEqual(readFileSync(plan, 'utf8'), '# clutch\n\nfrontmatter stripped\n');
+    ok(existsSync(recordFile('clutch')));
+  });
+
   it('a plan without next_step is handed off in one step, name last', () => {
     writePlan('plain');
     const r = run(['baton', 'docs/plans/plain.md', '--message', 'resume']);
