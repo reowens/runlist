@@ -4,6 +4,26 @@ Use local checks while developing. Run commands sequentially, and choose checks
 for the changed behavior before running the full suite. A passed check applies
 to the recorded source and toolchain; an unrun platform remains unqualified.
 
+## Development check selection
+
+- Start with focused local tests for the changed behavior while coding.
+- After a coherent change to desktop code, shared engine behavior, bundled assets,
+  desktop dependencies, runtime pins or Linux packaging, run `npm run check:linux`
+  once after focused checks pass on a Linux/x64 host with Docker. Documentation,
+  test-only and agent-integration metadata changes use their relevant local checks.
+- The agent runs the command and inspects `run.json`, `validation.log` and
+  `artifacts/linux-packages.json` in the printed output directory. Fix failures
+  within the approved work and report the result, relevant skips and artifact
+  locations without asking the user to inspect them.
+- Reuse the existing image and caches, run sequentially, and do not repeat a passed
+  run on unchanged inputs without a new failure or unresolved concern.
+- Use the existing native workers for Mac/Windows builds, signing and native
+  behavior. Linux Docker results qualify only the checks they actually execute.
+
+See [local Linux desktop checks](#local-linux-desktop-checks-with-docker) for the
+container's inputs, resource limits and output files. This development policy adds
+no release acceptance step.
+
 ## Local source checks
 
 Record the source and tools with `git rev-parse HEAD`, `node --version`,
@@ -100,7 +120,7 @@ On a Linux/x64 host with an accessible native Docker daemon, run as your regular
 user (the runner also uses `flock` from util-linux):
 
 ```sh
-node scripts/check-linux-docker.mjs
+npm run check:linux
 ```
 
 The runner freezes tracked and nonignored source files, rejects nonpublic content

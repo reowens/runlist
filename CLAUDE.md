@@ -274,12 +274,16 @@ Workflow: `runlist modules --sort cleanup` → pick the top row → `runlist mod
 
 ```bash
 npm test                           # run all tests (node:test)
+npm run check:linux                 # Linux desktop build and package checks in Docker
 node --test test/frontmatter.test.mjs  # run a single test file
 node bin/runlist.mjs <command>       # run CLI locally without installing
 npm version patch                  # release: test → bump → tag → push → publish
 ```
 
 Run `runlist --help` or `runlist <command> --help` for the full command list and options.
+
+Agents follow [development check selection](VERIFYING.md#development-check-selection)
+when choosing, running and reporting checks for a change.
 
 ## Releasing
 
