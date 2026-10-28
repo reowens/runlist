@@ -30,7 +30,7 @@ function executable(name, env, { cwd = process.cwd(), runnable = false, accept =
   return null;
 }
 
-export const PERSISTENT_CLI_WARNING = 'Host hooks need a lasting runlist CLI on PATH. Run `npm install -g runlist`, then restart/reload the host. Hooks may not run until then.';
+export const PERSISTENT_CLI_WARNING = 'Host hooks need a lasting runlist CLI on PATH and will not run without one. A temporary npx/one-shot copy does not count; run `npm install -g runlist`, then restart/reload the host.';
 
 export function persistentCliOnPath({ env = process.env, cwd = process.cwd() } = {}) {
   const normalize = file => {
@@ -42,9 +42,19 @@ export function persistentCliOnPath({ env = process.env, cwd = process.cwd() } =
   // exported npm_command=exec, npm_lifecycle_event=npx and prepended
   // <cache>/_npx/<hash>/node_modules/.bin, then project/ancestor bins.
   // libnpmexec/lib/index.js and @npmcli/run-script/lib/set-path.js confirm
-  // those shapes. Cache bins are temporary regardless of npm env markers;
-  // project/ancestor bins are excluded under npm, which injects them even
-  // for local devDependencies. Do not infer persistence from the launcher.
+  // those shapes. Also observed with pnpm 11.17.0 and a local probe tarball:
+  // $XDG_CACHE_HOME/pnpm/dlx/<hash>/<id>/node_modules/.bin on PATH.
+  // Source-inferred (not runtime-tested here): Bun bun-v1.3.3's
+  // src/cli/bunx_command.zig uses <tmp>/bunx-<uid>-<package>/node_modules/.bin;
+  // current src/runtime/cli/bunx_command.rs also uses
+  // <cache-or-tmp>/.bunx-<uid>/<package>/node_modules/.bin on Unix.
+  // Yarn berry's packages/plugin-dlx/sources/commands/dlx.ts creates
+  // <tmp>/xfs-<id>/dlx-<pid> via packages/yarnpkg-fslib/sources/xfs.ts.
+  // Match whole path segments under these roots, including resolved links;
+  // Yarn may use PnP instead of node_modules. These are one-shot launchers
+  // regardless of npm env markers. npm also injects project/ancestor bins,
+  // even for local devDependencies; exclude those while under npm.
+  // Do not infer persistence from the launcher.
   if (env.npm_command || env.npm_execpath || env.npm_lifecycle_event) {
     for (const start of [cwd, env.INIT_CWD, env.npm_config_local_prefix, env.npm_package_json && path.dirname(env.npm_package_json)].filter(Boolean)) {
       let dir = path.resolve(cwd, start);
@@ -58,13 +68,20 @@ export function persistentCliOnPath({ env = process.env, cwd = process.cwd() } =
       }
     }
   }
-  const inCache = file => /(?:^|\/)_npx\/[^/]+\/node_modules(?:\/|$)/.test(normalize(file));
+  const inCache = file => {
+    const value = normalize(file);
+    return /(?:^|\/)_npx\/[^/]+\/node_modules(?:\/|$)/.test(value)
+      || /(?:^|\/)pnpm\/dlx\/[^/]+\/[^/]+\/node_modules(?:\/|$)/.test(value)
+      || /(?:^|\/)bunx-[0-9]+-[^/]+\/node_modules(?:\/|$)/.test(value)
+      || /(?:^|\/)\.bunx-[0-9]+\/[^/]+\/node_modules(?:\/|$)/.test(value)
+      || /(?:^|\/)xfs-[^/]+\/dlx-[^/]+(?:\/|$)/.test(value);
+  };
   const accept = file => {
     const dir = path.dirname(file), realDir = resolved(dir) || dir;
     return !localBins.has(normalize(dir)) && !localBins.has(normalize(realDir))
       && !inCache(dir) && !inCache(realDir) && !inCache(resolved(file) || file);
   };
-  for (const name of [PRODUCT_NAME, LEGACY_PRODUCT_NAME, 'rl']) {
+  for (const name of [PRODUCT_NAME, LEGACY_PRODUCT_NAME]) {
     const file = executable(name, env, { cwd, runnable: true, accept });
     if (file) return { available: true, path: file };
   }

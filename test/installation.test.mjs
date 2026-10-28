@@ -85,12 +85,53 @@ function cliFixture(t) {
   return { ...f, cwd, bin, env, check: () => persistentCliOnPath({ cwd, env }) };
 }
 
-test('persistent CLI detection rejects npx cache bins even without npm markers', t => {
+const oneShotBins = [
+  'custom-cache/_npx/abc123/node_modules/.bin',
+  'custom-cache/pnpm/dlx/abc123/fixture-id/node_modules/.bin',
+  'temp/bunx-1000-fixture/node_modules/.bin',
+  'custom-cache/.bunx-1000/fixture/node_modules/.bin',
+  'temp/xfs-abc123/dlx-1234/node_modules/.bin',
+  // Yarn's default PnP linker creates launchers outside node_modules/.bin.
+  'temp/xfs-abc123/dlx-1234/launchers',
+];
+for (const relative of oneShotBins) test(`persistent CLI detection rejects one-shot bin ${relative} without npm markers`, t => {
   const f = cliFixture(t);
-  const cacheBin = path.join(f.home, 'custom-cache/_npx/abc123/node_modules/.bin');
+  const cacheBin = path.join(f.home, relative);
   f.bin(cacheBin);
   f.env.PATH = cacheBin;
   delete f.env.npm_command;
+  assert.deepEqual(f.check(), { available: false, path: null });
+  const lasting = path.join(f.home, 'lasting-bin');
+  const expected = f.bin(lasting);
+  for (const bins of [[cacheBin, lasting], [lasting, cacheBin]]) {
+    f.env.PATH = bins.join(path.delimiter);
+    assert.deepEqual(f.check(), { available: true, path: expected });
+  }
+});
+
+for (const relative of [
+  'custom-cache/not_npx/abc123/node_modules/.bin',
+  'custom-cache/not-pnpm/dlx/abc123/fixture-id/node_modules/.bin',
+  'custom-cache/pnpm/not-dlx/abc123/fixture-id/node_modules/.bin',
+  'custom-cache/pnpm/dlx/abc123/node_modules/.bin',
+  'temp/not-bunx-1000-fixture/node_modules/.bin',
+  'temp/bunx-fixture/node_modules/.bin',
+  'temp/not-xfs-abc123/dlx-1234/node_modules/.bin',
+  'temp/xfs-abc123/not-dlx-1234/node_modules/.bin',
+]) test(`persistent CLI detection keeps ordinary bin ${relative}`, t => {
+  const f = cliFixture(t);
+  const binDir = path.join(f.home, relative);
+  const expected = f.bin(binDir);
+  f.env.PATH = binDir;
+  delete f.env.npm_command;
+  assert.deepEqual(f.check(), { available: true, path: expected });
+});
+
+test('persistent CLI detection rejects an rl-only PATH because hooks do not call it', t => {
+  const f = cliFixture(t);
+  const binDir = path.join(f.home, 'lasting-bin');
+  f.bin(binDir, 'rl');
+  f.env.PATH = binDir;
   assert.deepEqual(f.check(), { available: false, path: null });
 });
 
@@ -116,7 +157,7 @@ test('persistent CLI detection accounts for npm prefix and initial cwd outside c
   }
 });
 
-for (const name of ['runlist', 'dotmd', 'rl']) test(`persistent CLI detection finds lasting ${name} after temporary entries`, t => {
+for (const name of ['runlist', 'dotmd']) test(`persistent CLI detection finds lasting ${name} after temporary entries`, t => {
   const f = cliFixture(t);
   const ephemeral = path.join(f.home, 'cache/_npx/abc123/node_modules/.bin');
   f.bin(ephemeral);
@@ -131,16 +172,18 @@ test('persistent CLI detection skips directories, non-executable files and broke
   const f = cliFixture(t);
   const binDir = path.join(f.home, 'bad-bin');
   mkdirSync(path.join(binDir, 'runlist'), { recursive: true });
-  writeFileSync(path.join(binDir, 'rl'), 'not executable\n', { mode: 0o644 });
+  const nonExecutableDir = path.join(f.home, 'non-executable-bin');
+  mkdirSync(nonExecutableDir);
+  writeFileSync(path.join(nonExecutableDir, 'runlist'), 'not executable\n', { mode: 0o644 });
   symlinkSync(path.join(binDir, 'missing'), path.join(binDir, 'dotmd'));
-  f.env.PATH = binDir;
+  f.env.PATH = [binDir, nonExecutableDir].join(path.delimiter);
   assert.equal(f.check().available, false);
 });
 
-test('persistent CLI detection follows directory and launcher links into an npx cache', t => {
+for (const relative of oneShotBins) test(`persistent CLI detection follows directory and launcher links into ${relative}`, t => {
   if (process.platform === 'win32') return t.skip('Symlink creation requires Windows privileges.');
   const f = cliFixture(t);
-  const cacheBin = path.join(f.home, 'cache/_npx/abc123/node_modules/.bin');
+  const cacheBin = path.join(f.home, relative);
   const target = f.bin(cacheBin);
   const linkedDir = path.join(f.home, 'linked-bin');
   symlinkSync(cacheBin, linkedDir, 'dir');

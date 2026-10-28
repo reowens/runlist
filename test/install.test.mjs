@@ -51,6 +51,15 @@ for (const host of ['claude', 'codex', 'opencode']) {
     else assert.match(readFileSync(env.HOST_CALLS, 'utf8'), /plugin (install|add)/);
   });
 
+  test(`${host} install warns with only rl on the lasting PATH`, () => {
+    stub(tools, 'rl');
+    env.PATH = env.PATH.split(path.delimiter).filter(dir => dir !== ephemeral).join(path.delimiter);
+    const result = install([host, '--dry-run']);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.equal(result.stderr, `Warning: ${PERSISTENT_CLI_WARNING}\n`);
+    assert.equal(JSON.parse(install([host, '--dry-run', '--json']).stdout).persistentCliMissing, true);
+  });
+
   test(`${host} install JSON exposes the missing CLI without contaminating stdout`, () => {
     const result = install([host, '--dry-run', '--json']);
     assert.equal(result.status, 0, result.stdout + result.stderr);

@@ -111,7 +111,8 @@ function runHost({ host, dryRun, cwd, configPath }) {
 
 function checkHostCli(report, cwd) {
   const missing = !persistentCliOnPath({ cwd }).available;
-  report.checks.host.persistentCliMissing = missing;
+  if (missing) report.checks.host.persistentCliMissing = true;
+  else delete report.checks.host.persistentCliMissing;
   report.outstanding = report.outstanding.filter(item => item.id !== 'persistent-cli');
   if (missing) report.outstanding.push({ id: 'persistent-cli', description: PERSISTENT_CLI_WARNING });
 }

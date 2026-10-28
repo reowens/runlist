@@ -197,7 +197,7 @@ for (const apply of [false, true]) test(`setup ${apply ? 'apply' : 'preview'} ha
   const result = cli(['setup', '--host', 'claude', '--json', ...(apply ? ['--yes'] : ['--dry-run'])]);
   assert.equal(result.status, 0, result.stdout + result.stderr);
   const report = JSON.parse(result.stdout);
-  assert.equal(report.checks.host.persistentCliMissing, false);
+  assert.equal(Object.hasOwn(report.checks.host, 'persistentCliMissing'), false);
   assert.equal(report.outstanding.some(item => item.id === 'persistent-cli'), false);
   assert.doesNotMatch(result.stdout + result.stderr, /lasting runlist CLI|npm install -g runlist/);
 });
