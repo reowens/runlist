@@ -173,9 +173,9 @@ for (const local of [false, true]) for (const apply of [false, true]) {
     assert.equal(report.checks.host.persistentCliMissing, true);
     const outstanding = report.outstanding.filter(item => item.id === 'persistent-cli');
     assert.equal(outstanding.length, 1);
-    assert.match(outstanding[0].description, /lasting runlist CLI on PATH.*npm install -g runlist.*restart\/reload/);
+    assert.match(outstanding[0].description, /globally installed `runlist` on PATH.*npm install -g runlist.*restart\/reload/);
     assert.equal(report.completed.some(item => item.id === 'persistent-cli'), false);
-    assert.doesNotMatch(JSON.stringify(report.completed), /lasting runlist CLI|npm install -g runlist/);
+    assert.doesNotMatch(JSON.stringify(report.completed), /globally installed `runlist`|npm install -g runlist/);
     if (apply) {
       assert.equal(report.completed.find(item => item.id === 'host').description, 'claude install verb completed');
       assert.match(readFileSync(env.HOST_CALLS, 'utf8'), /plugin install/);
@@ -188,8 +188,8 @@ for (const apply of [false, true]) test(`setup ${apply ? 'apply' : 'preview'} pr
   const result = cli(['setup', '--host', 'claude', ...(apply ? ['--yes'] : ['--dry-run'])]);
   assert.equal(result.status, 0, result.stdout + result.stderr);
   const [completed, outstanding] = result.stdout.split(/\nOutstanding: \d+\n/);
-  assert.match(outstanding, /lasting runlist CLI on PATH.*npm install -g runlist.*restart\/reload/);
-  assert.doesNotMatch(completed.split(/\nCompleted: \d+\n/)[1], /lasting runlist CLI/);
+  assert.match(outstanding, /globally installed `runlist` on PATH.*npm install -g runlist.*restart\/reload/);
+  assert.doesNotMatch(completed.split(/\nCompleted: \d+\n/)[1], /globally installed `runlist`/);
 });
 
 for (const apply of [false, true]) test(`setup ${apply ? 'apply' : 'preview'} has no new warning with a lasting CLI`, () => {
@@ -199,5 +199,5 @@ for (const apply of [false, true]) test(`setup ${apply ? 'apply' : 'preview'} ha
   const report = JSON.parse(result.stdout);
   assert.equal(Object.hasOwn(report.checks.host, 'persistentCliMissing'), false);
   assert.equal(report.outstanding.some(item => item.id === 'persistent-cli'), false);
-  assert.doesNotMatch(result.stdout + result.stderr, /lasting runlist CLI|npm install -g runlist/);
+  assert.doesNotMatch(result.stdout + result.stderr, /globally installed `runlist`|npm install -g runlist/);
 });

@@ -88,7 +88,36 @@ test('a project devDependency alone is missing from the lasting host PATH', () =
   env.PATH = [local, tools, process.platform === 'win32' ? path.join(process.env.SystemRoot, 'System32') : null].filter(Boolean).join(path.delimiter);
   const result = install(['claude', '--dry-run']);
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stderr, /lasting runlist CLI on PATH.*npm install -g runlist.*restart\/reload/);
+  assert.match(result.stderr, /globally installed `runlist` on PATH.*npm install -g runlist.*restart\/reload/);
+});
+
+for (const context of ['dlx', 'run', 'exec']) test(`Yarn ${context} temporary wrappers warn only with BERRY_BIN_FOLDER set`, () => {
+  const binDir = path.join(root, 'temp/xfs-1a2b3c4d');
+  const target = context === 'dlx'
+    ? path.join(root, 'temp/xfs-feedface/dlx-1234/node_modules/runlist/bin/runlist.mjs')
+    : path.join(root, 'node_modules/runlist/bin/runlist.mjs');
+  stub(binDir, 'runlist', `exec "node" '${target}' "$@"`);
+  env.PATH = [binDir, tools].join(path.delimiter);
+  env.BERRY_BIN_FOLDER = binDir;
+  env.npm_execpath = path.join(binDir, 'yarn');
+  const result = install(['claude', '--dry-run']);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(result.stderr, `Warning: ${PERSISTENT_CLI_WARNING}\n`);
+  assert.equal(JSON.parse(install(['claude', '--dry-run', '--json']).stdout).persistentCliMissing, true);
+  delete env.BERRY_BIN_FOLDER;
+  const unmarked = install(['claude', '--dry-run']);
+  assert.equal(unmarked.status, 0, unmarked.stdout + unmarked.stderr);
+  assert.equal(unmarked.stderr, '');
+});
+
+test('pnpm dlx with a custom cache directory warns before installing', () => {
+  const binDir = path.join(root, 'pnpm-cache/dlx/0123456789abcdef0123456789abcdef/fixture-id/node_modules/.bin');
+  stub(binDir, 'runlist');
+  env.PATH = [binDir, tools].join(path.delimiter);
+  delete env.npm_command;
+  const result = install(['claude', '--dry-run']);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(result.stderr, `Warning: ${PERSISTENT_CLI_WARNING}\n`);
 });
 
 test('removal does not warn about a CLI needed only for hooks', () => {

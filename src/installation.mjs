@@ -30,29 +30,47 @@ function executable(name, env, { cwd = process.cwd(), runnable = false, accept =
   return null;
 }
 
-export const PERSISTENT_CLI_WARNING = 'Host hooks need a lasting runlist CLI on PATH and will not run without one. A temporary npx/one-shot copy does not count; run `npm install -g runlist`, then restart/reload the host.';
+export const PERSISTENT_CLI_WARNING = 'Host hooks need a globally installed `runlist` on PATH and will not run without one. A temporary npx/one-shot copy does not count; run `npm install -g runlist`, then restart/reload the host.';
+
+export function isOneShotCliPath(file) {
+  const value = file.replace(/\\/g, '/');
+  return /(?:^|\/)_npx\/[^/]+\/node_modules(?:\/|$)/.test(value)
+    || /(?:^|\/)dlx\/[a-f0-9]{32,64}\/[^/]+\/node_modules(?:\/|$)/i.test(value)
+    || /(?:^|\/)dlx-[0-9]+\/node_modules(?:\/|$)/.test(value)
+    || /(?:^|\/)bunx-[0-9]+-[^/]+\/node_modules(?:\/|$)/.test(value)
+    || /(?:^|\/)\.bunx-[0-9]+\/[^/]+\/node_modules(?:\/|$)/.test(value);
+}
 
 export function persistentCliOnPath({ env = process.env, cwd = process.cwd() } = {}) {
   const normalize = file => {
     const value = path.resolve(cwd, file).replace(/\\/g, '/');
     return process.platform === 'win32' ? value.toLowerCase() : value;
   };
-  const localBins = new Set();
+  const injectedBins = new Set();
+  const excludeBin = bin => {
+    injectedBins.add(normalize(bin));
+    injectedBins.add(normalize(resolved(bin) || bin));
+  };
   // Evidence: npm 11.20.0, offline npx --package <local tarball> <probe>,
   // exported npm_command=exec, npm_lifecycle_event=npx and prepended
   // <cache>/_npx/<hash>/node_modules/.bin, then project/ancestor bins.
   // libnpmexec/lib/index.js and @npmcli/run-script/lib/set-path.js confirm
   // those shapes. Also observed with pnpm 11.17.0 and a local probe tarball:
   // $XDG_CACHE_HOME/pnpm/dlx/<hash>/<id>/node_modules/.bin on PATH.
+  // pnpm v11.17.0 pnpm11/exec/commands/src/dlx.ts builds that shape under
+  // any configured cacheDir, using a 32-hex key (v10.11.0 uses 64).
+  // Its config/reader/src/dirs.ts defaults to pnpm-cache on Windows.
+  // pnpm v8.15.9 exec/plugin-commands-script-runners/src/dlx.ts instead
+  // prepends <dlxDir>/dlx-<pid>/node_modules/.bin. Both are source-verified:
+  // https://github.com/pnpm/pnpm/blob/v11.17.0/pnpm11/exec/commands/src/dlx.ts
+  // https://github.com/pnpm/pnpm/blob/v8.15.9/exec/plugin-commands-script-runners/src/dlx.ts
   // Source-inferred (not runtime-tested here): Bun bun-v1.3.3's
   // src/cli/bunx_command.zig uses <tmp>/bunx-<uid>-<package>/node_modules/.bin;
   // current src/runtime/cli/bunx_command.rs also uses
   // <cache-or-tmp>/.bunx-<uid>/<package>/node_modules/.bin on Unix.
-  // Yarn berry's packages/plugin-dlx/sources/commands/dlx.ts creates
-  // <tmp>/xfs-<id>/dlx-<pid> via packages/yarnpkg-fslib/sources/xfs.ts.
-  // Match whole path segments under these roots, including resolved links;
-  // Yarn may use PnP instead of node_modules. These are one-shot launchers
-  // regardless of npm env markers. npm also injects project/ancestor bins,
+  // Match whole path segments under these roots, including resolved links.
+  // These are one-shot launchers regardless of npm env markers.
+  // npm also injects project/ancestor bins,
   // even for local devDependencies; exclude those while under npm.
   // Do not infer persistence from the launcher.
   if (env.npm_command || env.npm_execpath || env.npm_lifecycle_event) {
@@ -60,26 +78,28 @@ export function persistentCliOnPath({ env = process.env, cwd = process.cwd() } =
       let dir = path.resolve(cwd, start);
       for (;;) {
         const bin = path.join(dir, 'node_modules', '.bin');
-        localBins.add(normalize(bin));
-        localBins.add(normalize(resolved(bin) || bin));
+        excludeBin(bin);
         const parent = path.dirname(dir);
         if (parent === dir) break;
         dir = parent;
       }
     }
   }
-  const inCache = file => {
-    const value = normalize(file);
-    return /(?:^|\/)_npx\/[^/]+\/node_modules(?:\/|$)/.test(value)
-      || /(?:^|\/)pnpm\/dlx\/[^/]+\/[^/]+\/node_modules(?:\/|$)/.test(value)
-      || /(?:^|\/)bunx-[0-9]+-[^/]+\/node_modules(?:\/|$)/.test(value)
-      || /(?:^|\/)\.bunx-[0-9]+\/[^/]+\/node_modules(?:\/|$)/.test(value)
-      || /(?:^|\/)xfs-[^/]+\/dlx-[^/]+(?:\/|$)/.test(value);
-  };
+  // Yarn 4.9.2 scriptUtils.ts: executePackageAccessibleBinary and
+  // makeScriptEnv create a separate <tmp>/xfs-<id> wrapper folder, prepend
+  // it to PATH and export BERRY_BIN_FOLDER. run/exec use it too. The wrappers
+  // are regular files; their realpaths do not reveal the dlx package folder.
+  // Observed with a local probe tarball and source-verified at
+  // a9edb7777f04ba16f51503ef6775325b353b67cc:
+  // https://github.com/yarnpkg/berry/blob/a9edb7777f04ba16f51503ef6775325b353b67cc/packages/yarnpkg-core/sources/scriptUtils.ts
+  if (env.BERRY_BIN_FOLDER) excludeBin(env.BERRY_BIN_FOLDER);
+  const inCache = file => isOneShotCliPath(normalize(file));
   const accept = file => {
     const dir = path.dirname(file), realDir = resolved(dir) || dir;
-    return !localBins.has(normalize(dir)) && !localBins.has(normalize(realDir))
-      && !inCache(dir) && !inCache(realDir) && !inCache(resolved(file) || file);
+    const realFile = resolved(file) || file;
+    return !injectedBins.has(normalize(dir)) && !injectedBins.has(normalize(realDir))
+      && !injectedBins.has(normalize(path.dirname(realFile)))
+      && !inCache(dir) && !inCache(realDir) && !inCache(realFile);
   };
   for (const name of [PRODUCT_NAME, LEGACY_PRODUCT_NAME]) {
     const file = executable(name, env, { cwd, runnable: true, accept });

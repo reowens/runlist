@@ -6,10 +6,11 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ### Fixed
 
-- Host installs warn when hooks lack a lasting CLI on PATH, checking the names
-  hooks call and excluding npx, pnpm dlx, bunx and yarn dlx caches plus
-  npm-injected project bins. Setup keeps this prerequisite under Outstanding;
-  install and setup JSON expose `persistentCliMissing` only when true.
+- Host installs warn when hooks lack a persistent CLI on PATH, checking the
+  names hooks call and excluding npx, pnpm dlx (including custom cache paths),
+  bunx, Yarn temporary wrapper bins and npm-injected project bins. Setup keeps
+  this prerequisite under Outstanding; install and setup JSON expose
+  `persistentCliMissing` only when true.
 
 - Baton's printed Git command stages new files before committing, preserves
   both sides of tracked plan moves, and omits ignored or never-tracked missing

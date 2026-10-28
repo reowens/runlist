@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,existsSync,rmSync,symlinkSync,realpathSync} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {installationReport,sourceFingerprint,formatInstallationReport,readInstalledPluginRecords,persistentCliOnPath} from '../src/installation.mjs';
+import {installationReport,sourceFingerprint,formatInstallationReport,readInstalledPluginRecords,persistentCliOnPath,isOneShotCliPath} from '../src/installation.mjs';
 
 function fixture(t) {
   const home=realpathSync(mkdtempSync(path.join(os.tmpdir(),'runlist-installation-')));t.after(()=>rmSync(home,{recursive:true,force:true}));
@@ -85,14 +85,15 @@ function cliFixture(t) {
   return { ...f, cwd, bin, env, check: () => persistentCliOnPath({ cwd, env }) };
 }
 
+const dlxHash = '0123456789abcdef0123456789abcdef';
 const oneShotBins = [
   'custom-cache/_npx/abc123/node_modules/.bin',
-  'custom-cache/pnpm/dlx/abc123/fixture-id/node_modules/.bin',
+  `custom-cache/pnpm/dlx/${dlxHash}/fixture-id/node_modules/.bin`,
+  `custom-cache/pnpm-cache/dlx/${dlxHash}/fixture-id/node_modules/.bin`,
+  `arbitrary-parent/dlx/${dlxHash.repeat(2)}/fixture-id/node_modules/.bin`,
+  'temp/dlx-1234/node_modules/.bin',
   'temp/bunx-1000-fixture/node_modules/.bin',
   'custom-cache/.bunx-1000/fixture/node_modules/.bin',
-  'temp/xfs-abc123/dlx-1234/node_modules/.bin',
-  // Yarn's default PnP linker creates launchers outside node_modules/.bin.
-  'temp/xfs-abc123/dlx-1234/launchers',
 ];
 for (const relative of oneShotBins) test(`persistent CLI detection rejects one-shot bin ${relative} without npm markers`, t => {
   const f = cliFixture(t);
@@ -111,13 +112,17 @@ for (const relative of oneShotBins) test(`persistent CLI detection rejects one-s
 
 for (const relative of [
   'custom-cache/not_npx/abc123/node_modules/.bin',
-  'custom-cache/not-pnpm/dlx/abc123/fixture-id/node_modules/.bin',
-  'custom-cache/pnpm/not-dlx/abc123/fixture-id/node_modules/.bin',
-  'custom-cache/pnpm/dlx/abc123/node_modules/.bin',
+  `custom-cache/pnpm/not-dlx/${dlxHash}/fixture-id/node_modules/.bin`,
+  `custom-cache/pnpm/dlx/${dlxHash}/node_modules/.bin`,
+  `custom-cache/pnpm/dlx/${dlxHash}/fixture-id/not-node_modules/.bin`,
+  'custom-cache/pnpm/dlx/abc123/fixture-id/node_modules/.bin',
+  'custom-cache/pnpm/dlx/gggggggggggggggggggggggggggggggg/fixture-id/node_modules/.bin',
+  'temp/not-dlx-1234/node_modules/.bin',
+  'temp/dlx-fixture/node_modules/.bin',
   'temp/not-bunx-1000-fixture/node_modules/.bin',
   'temp/bunx-fixture/node_modules/.bin',
-  'temp/not-xfs-abc123/dlx-1234/node_modules/.bin',
-  'temp/xfs-abc123/not-dlx-1234/node_modules/.bin',
+  'temp/xfs-1a2b3c4d',
+  'temp/xfs-1a2b3c4d/dlx-1234/launchers',
 ]) test(`persistent CLI detection keeps ordinary bin ${relative}`, t => {
   const f = cliFixture(t);
   const binDir = path.join(f.home, relative);
@@ -125,6 +130,67 @@ for (const relative of [
   f.env.PATH = binDir;
   delete f.env.npm_command;
   assert.deepEqual(f.check(), { available: true, path: expected });
+});
+
+test('one-shot path shapes recognize Windows pnpm-cache paths without Windows filesystem access', () => {
+  const prefix = `C:\\Users\\fixture\\AppData\\Local\\pnpm-cache\\dlx\\${dlxHash}`;
+  assert.equal(isOneShotCliPath(`${prefix}\\fixture-id\\node_modules\\.bin`), true);
+  assert.equal(isOneShotCliPath(`${prefix}\\fixture-id\\node_modules\\runlist\\bin\\runlist.mjs`), true);
+  assert.equal(isOneShotCliPath(`${prefix}\\node_modules\\.bin`), false);
+  assert.equal(isOneShotCliPath(prefix.replace('\\dlx\\', '\\not-dlx\\') + '\\fixture-id\\node_modules\\.bin'), false);
+});
+
+function yarnWrapper(f, binDir) {
+  // Yarn 4.9.2 makePathWrapper writes a regular shell wrapper in a separate
+  // mktemp folder, not a link into the dlx package's mktemp folder.
+  const target = path.join(f.home, 'temp/xfs-feedface/dlx-1234/node_modules/runlist/bin/runlist.mjs');
+  f.write(target, '// synthetic package binary\n');
+  const file = f.bin(binDir);
+  writeFileSync(file, process.platform === 'win32'
+    ? `@echo off\r\n@"node" "${target}" %*\r\n`
+    : `#!/bin/sh\nexec "node" '${target}' "$@"\n`);
+  return file;
+}
+
+test('persistent CLI detection excludes Yarn BERRY_BIN_FOLDER wrappers only when marked', t => {
+  const f = cliFixture(t);
+  const binDir = path.join(f.home, 'temp/xfs-1a2b3c4d');
+  const wrapper = yarnWrapper(f, binDir);
+  f.env.PATH = binDir;
+  delete f.env.npm_command;
+  f.env.BERRY_BIN_FOLDER = binDir;
+  assert.deepEqual(f.check(), { available: false, path: null });
+  delete f.env.BERRY_BIN_FOLDER;
+  assert.deepEqual(f.check(), { available: true, path: wrapper });
+  f.env.BERRY_BIN_FOLDER = binDir + '-other';
+  assert.deepEqual(f.check(), { available: true, path: wrapper }, 'only the exact folder is excluded');
+  f.env.BERRY_BIN_FOLDER = binDir;
+  const persistent = path.join(f.home, 'persistent-bin');
+  const expected = f.bin(persistent);
+  for (const bins of [[binDir, persistent], [persistent, binDir]]) {
+    f.env.PATH = bins.join(path.delimiter);
+    assert.deepEqual(f.check(), { available: true, path: expected });
+  }
+});
+
+test('persistent CLI detection excludes Yarn folder and launcher symlinks in either direction', t => {
+  if (process.platform === 'win32') return t.skip('Symlink creation requires Windows privileges.');
+  const f = cliFixture(t);
+  const binDir = path.join(f.home, 'temp/xfs-1a2b3c4d');
+  const wrapper = yarnWrapper(f, binDir);
+  const linkedDir = path.join(f.home, 'linked-bin');
+  symlinkSync(binDir, linkedDir, 'dir');
+  const launcherDir = path.join(f.home, 'launcher-bin');
+  mkdirSync(launcherDir);
+  symlinkSync(wrapper, path.join(launcherDir, 'runlist'));
+  delete f.env.npm_command;
+  for (const marker of [binDir, linkedDir]) {
+    f.env.BERRY_BIN_FOLDER = marker;
+    for (const candidate of [binDir, linkedDir, launcherDir]) {
+      f.env.PATH = candidate;
+      assert.deepEqual(f.check(), { available: false, path: null });
+    }
+  }
 });
 
 test('persistent CLI detection rejects an rl-only PATH because hooks do not call it', t => {

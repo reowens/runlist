@@ -208,9 +208,10 @@ host gets that a different way:
             \`runlist.js\` without that stamp is treated as hand-authored and is
             never overwritten or removed without --force.
 
-Before installing, warns if no lasting CLI is on PATH (npx, pnpm dlx, bunx,
-yarn dlx caches and npm-injected project bins do not count). Install with \`npm install -g runlist\`,
-then restart/reload the host. --json reports persistentCliMissing when needed.
+Before installing, warns if no persistent CLI is on PATH. Temporary npx,
+pnpm dlx, bunx, Yarn wrapper bins and npm-injected project bins do not
+count. Run \`npm install -g runlist\`, then restart/reload the host.
+--json reports persistentCliMissing only when true.
 
 Writing outside the repo is why this is an explicit verb: \`runlist doctor\`
 reports a missing integration but never installs one.`,
@@ -1303,8 +1304,9 @@ Examples:
 
 Existing JavaScript hooks, configured folders and prompt locations are preserved.
 Untracked does not mean ignored: git add -A may include prompts and runtime state.
-Setup lists a missing lasting CLI on PATH under Outstanding
-(checks.host.persistentCliMissing in JSON only when true); use \`npm install -g runlist\` before reloading.
+Setup lists a missing persistent CLI on PATH under Outstanding.
+JSON includes checks.host.persistentCliMissing only when true.
+Run \`npm install -g runlist\` before reloading.
 Setup reports pre-existing document issues and unfinished host integration;
 installed integration still needs a new/reloaded host session.`,
 
