@@ -4,6 +4,7 @@ import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync, rmSync
 import path from 'node:path';
 import os from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { resolveConfig } from '../src/config.mjs';
 import { runBaton } from '../src/baton.mjs';
 import { withPathLocks } from '../src/atomic-mutation.mjs';
@@ -1547,22 +1548,35 @@ describe('runlist baton: the plan update after the prompt, and the name last', (
     ok(!existsSync(recordFile('linkage')));
   });
 
-  it('a moved plan is written at the path it was named by', () => {
+  it('a moved plan is never written: --next-step is refused with the way out, and following it finishes the handoff', () => {
     const plan = writePlanWithNextStep('crank', 'turn the shaft');
     strictEqual(run(['baton', 'docs/plans/crank.md', '--message', 'resume']).status, 0);
+    const record = recordFile('crank');
     mkdirSync(path.join(plansDir, 'moved'));
     const moved = path.join(plansDir, 'moved', 'crank.md');
     writeFileSync(moved, readFileSync(plan, 'utf8'));
     rmSync(plan);
+    const before = readFileSync(moved, 'utf8');
+
     const gone = run(['baton', '--done', '--next-step', 'key the shaft']);
     ok(gone.status !== 0);
-    match(gone.stderr, /docs\/plans\/crank\.md is gone/);
-    ok(existsSync(recordFile('crank')));
-    const r = run(['baton', '--done', 'docs/plans/moved/crank.md', '--next-step', 'key the shaft']);
+    match(gone.stderr, /docs\/plans\/crank\.md is gone \(moved or archived\?\), so nothing was written/);
+    match(gone.stderr, /clear this handoff by its old path: `runlist baton --done docs\/plans\/crank\.md`/);
+
+    const named = run(['baton', '--done', 'docs/plans/moved/crank.md', '--next-step', 'key the shaft']);
+    ok(named.status !== 0);
+    match(named.stderr, /No handoff was saved for docs\/plans\/moved\/crank\.md, so nothing was written/);
+    match(named.stderr, /docs\/plans\/crank\.md \(gone; record \.runlist\/handoffs\/crank-[0-9a-f]{16}\.json, prompt resume-crank/);
+    match(named.stderr, /run `runlist baton --done docs\/plans\/moved\/crank\.md`, or clear the handoff by its old path: `runlist baton --done docs\/plans\/crank\.md`/);
+    strictEqual(readFileSync(moved, 'utf8'), before, 'nothing written to the moved plan');
+    ok(existsSync(record), 'record kept');
+
+    // Following the guidance: the plan is updated where it is now, then plain --done there.
+    writeFileSync(moved, before.replace('next_step: turn the shaft', 'next_step: key the shaft'));
+    const r = run(['baton', '--done', 'docs/plans/moved/crank.md']);
     strictEqual(r.status, 0, r.stderr);
-    match(r.stderr, /Handoff done: docs\/plans\/moved\/crank\.md/);
-    match(frontmatterOf(moved), /key the shaft/);
-    ok(!existsSync(recordFile('crank')));
+    match(r.stderr, /Handoff done: docs\/plans\/moved\/crank\.md next_step was updated/);
+    ok(!existsSync(record));
   });
 
   it('a plan sharing only a file name with the handed-off one finishes nothing and writes nothing', () => {
@@ -1621,7 +1635,50 @@ describe('runlist baton: the plan update after the prompt, and the name last', (
     strictEqual(records().filter(r => r.plan === 'docs/plans/hinge.md').length, 1);
   });
 
-  it('a moved plan is found by file name only when one moved record could be meant, and its title matches', () => {
+  it('a write never reaches a plan that only shares a moved plan\'s file name, whatever its title', () => {
+    for (const title of [null, 'widget', 'another widget']) {
+      rmSync(tmpDir, { recursive: true, force: true });
+      setupProject();
+      const original = writePlanAt('docs/plans/widget.md', { title: 'widget', nextStep: 'first' });
+      strictEqual(run(['baton', 'docs/plans/widget.md', '--message', 'resume']).status, 0);
+      rmSync(original);
+      const stranger = path.join(plansDir, 'other', 'widget.md');
+      mkdirSync(path.dirname(stranger), { recursive: true });
+      writeFileSync(stranger, `---\ntype: plan\nstatus: active\n${title === null ? '' : `title: ${title}\n`}next_step: unrelated\n---\n# stranger\n\nbody\n`);
+      const before = readFileSync(stranger, 'utf8');
+      const r = run(['baton', '--done', 'docs/plans/other/widget.md', '--next-step', 'written to a stranger']);
+      ok(r.status !== 0, `title ${title}: ${r.stderr}`);
+      match(r.stderr, /No handoff was saved for docs\/plans\/other\/widget\.md, so nothing was written/);
+      strictEqual(readFileSync(stranger, 'utf8'), before, `title ${title}: untouched`);
+      strictEqual(records().length, 1, `title ${title}: record kept`);
+    }
+  });
+
+  it('plain --done finishes a moved plan\'s handoff by file name, locking neither the old path nor the plan', () => {
+    const original = writePlanAt('docs/plans/widget.md', { title: 'widget', nextStep: 'first' });
+    strictEqual(run(['baton', 'docs/plans/widget.md', '--message', 'resume']).status, 0);
+    const moved = path.join(plansDir, 'filed', 'widget.md');
+    mkdirSync(path.dirname(moved));
+    writeFileSync(moved, readFileSync(original, 'utf8'));
+    rmSync(original);
+    const early = run(['baton', '--done', 'docs/plans/filed/widget.md']);
+    ok(early.status !== 0);
+    match(early.stderr, /Not done: docs\/plans\/filed\/widget\.md next_step is the same/);
+    strictEqual(records().length, 1);
+
+    writeFileSync(moved, readFileSync(moved, 'utf8').replace('next_step: first', 'next_step: second'));
+    // A restore holding the old path, or any writer holding the plan, does not
+    // stall it: only the record is locked. Waiting on either would time out.
+    let r;
+    withPathLocks([original, moved], { repoRoot: tmpDir }, () => {
+      r = run(['baton', '--done', 'docs/plans/filed/widget.md']);
+    });
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stderr, /Handoff done: docs\/plans\/filed\/widget\.md next_step was updated/);
+    strictEqual(records().length, 0);
+  });
+
+  it('several moved handoffs of one file name are listed, and clearing one by its old path resolves it', () => {
     writePlanAt('docs/plans/x/axle.md', { title: 'axle x', nextStep: 'first' });
     writePlanAt('docs/plans/y/axle.md', { title: 'axle y', nextStep: 'first' });
     strictEqual(run(['baton', 'docs/plans/x/axle.md', '--message', 'resume x']).status, 0);
@@ -1629,25 +1686,81 @@ describe('runlist baton: the plan update after the prompt, and the name last', (
     strictEqual(run(['baton', 'docs/plans/y/axle.md', '--message', 'resume y']).status, 0);
     rmSync(path.join(plansDir, 'x'), { recursive: true });
     rmSync(path.join(plansDir, 'y'), { recursive: true });
-    const moved = writePlanAt('docs/plans/z/axle.md', { title: 'axle x', nextStep: 'first' });
+    const moved = writePlanAt('docs/plans/z/axle.md', { title: 'axle x', nextStep: 'second' });
     const before = readFileSync(moved, 'utf8');
-    const ambiguous = run(['baton', '--done', 'docs/plans/z/axle.md', '--next-step', 'second']);
-    ok(ambiguous.status !== 0);
-    match(ambiguous.stderr, /2 handoffs for moved plans of that file name could be meant/);
+
+    for (const extra of [[], ['--next-step', 'third']]) {
+      const r = run(['baton', '--done', 'docs/plans/z/axle.md', ...extra]);
+      ok(r.status !== 0, `refused with ${JSON.stringify(extra)}`);
+      for (const side of ['x', 'y']) {
+        match(r.stderr, new RegExp(`^ {2}docs/plans/${side}/axle\\.md \\(gone; record \\.runlist/handoffs/axle-[0-9a-f]{16}\\.json, prompt resume-axle`, 'm'));
+        match(r.stderr, new RegExp(`^ {2}runlist baton --done docs/plans/${side}/axle\\.md$`, 'm'));
+      }
+    }
     strictEqual(readFileSync(moved, 'utf8'), before);
     strictEqual(records().length, 2);
 
-    rmSync(recordOf('docs/plans/y/axle.md'));
-    writeFileSync(moved, before.replace('title: axle x', 'title: some other axle'));
-    const stranger = run(['baton', '--done', 'docs/plans/z/axle.md', '--next-step', 'second']);
-    ok(stranger.status !== 0);
-    match(stranger.stderr, /is not the plan the handoff was saved for/);
-    ok(existsSync(recordOf('docs/plans/x/axle.md')));
+    // Writing to a gone path is refused, and the record stays.
+    const write = run(['baton', '--done', 'docs/plans/x/axle.md', '--next-step', 'third']);
+    ok(write.status !== 0);
+    match(write.stderr, /docs\/plans\/x\/axle\.md is gone \(moved or archived\?\), so nothing was written/);
+    strictEqual(records().length, 2);
 
-    writeFileSync(moved, before);
-    const r = run(['baton', '--done', 'docs/plans/z/axle.md', '--next-step', 'second']);
-    strictEqual(r.status, 0, r.stderr);
+    // Following the guidance: name the old path of the handoff meant.
+    const cleared = run(['baton', '--done', 'docs/plans/x/axle.md']);
+    strictEqual(cleared.status, 0, cleared.stderr);
+    match(cleared.stderr, /✓ Handoff cleared: docs\/plans\/x\/axle\.md is gone/);
+    strictEqual(lastLine(cleared.stderr), 'Saved prompt: resume-axle');
+    strictEqual(JSON.stringify(records().map(r => r.plan)), JSON.stringify(['docs/plans/y/axle.md']), 'only x\'s record cleared');
+    strictEqual(readFileSync(moved, 'utf8'), before, 'clearing writes no plan');
+
+    const json = run(['baton', '--done', 'docs/plans/y/axle.md', '--json']);
+    strictEqual(json.status, 0, json.stderr);
+    const value = JSON.parse(json.stdout);
+    strictEqual(value.planGone, true);
+    strictEqual(value.nextStepChanged, false);
     strictEqual(records().length, 0);
+
+    const unknown = run(['baton', '--done', 'docs/plans/q/axle.md']);
+    ok(unknown.status !== 0);
+    match(unknown.stderr, /not found/i);
+  });
+
+  for (const legacy of [false, true]) it(`a --done that read an older ${legacy ? 'id-less ' : ''}record publishes nothing and leaves its replacement`, () => {
+    const plan = writePlanWithNextStep('valve', 'first step');
+    strictEqual(run(['baton', 'docs/plans/valve.md', '--message', 'resume']).status, 0);
+    const file = recordFile('valve');
+    const saved = JSON.parse(readFileSync(file, 'utf8'));
+    ok(typeof saved.id === 'string' && saved.id.length > 0, 'a new record carries an id');
+    if (legacy) { delete saved.id; writeFileSync(file, JSON.stringify(saved, null, 2) + '\n'); }
+    // A newer baton for the same plan within the same second: same savedAt,
+    // another generation. It lands after the command read the record and
+    // before it takes the record's lock.
+    const replacement = JSON.stringify({ ...saved, ...(legacy ? {} : { id: 'replacement-generation' }), nextStep: JSON.stringify('second step') }, null, 2) + '\n';
+    const preload = path.join(tmpDir, 'replace-record.mjs');
+    writeFileSync(preload, `
+import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
+const mkdir = fs.mkdirSync;
+let replaced = false;
+fs.mkdirSync = function (target, ...args) {
+  if (!replaced && /[\\\\/]locks[\\\\/][^\\\\/]+\\.lock$/.test(String(target))) {
+    replaced = true;
+    fs.writeFileSync(${JSON.stringify(file)}, ${JSON.stringify(replacement)});
+  }
+  return mkdir.call(this, target, ...args);
+};
+syncBuiltinESMExports();
+`);
+    const before = readFileSync(plan, 'utf8');
+    const r = spawnSync(process.execPath, ['--import', pathToFileURL(preload).href, bin, 'baton', '--done', '--next-step', 'second step', '--config', configPath], {
+      cwd: tmpDir, encoding: 'utf8',
+      env: { ...process.env, NO_COLOR: '1', CLAUDE_CODE_SESSION_ID: 'test-sid', RUNLIST_ERROR_LOG_DIR: path.join(tmpDir, '.logs') },
+    });
+    ok(r.status !== 0, r.stderr);
+    match(r.stderr, /The handoff record for docs\/plans\/valve\.md changed while this ran/);
+    strictEqual(readFileSync(plan, 'utf8'), before, 'nothing published');
+    strictEqual(readFileSync(file, 'utf8'), replacement, 'the replacement record is kept');
   });
 
   it('plain --done treats a whitespace-only next_step change as unchanged', () => {

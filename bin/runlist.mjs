@@ -1513,6 +1513,9 @@ cooperating transaction:
      when the prompt was saved. The prompt is saved first, so a stop between the
      two steps loses nothing, and \`--done <plan-file>\` works from any session.
      \`--dry-run\` with --next-step previews the write and removes nothing.
+     The fields go only to the plan at the path the handoff was saved for. If
+     it moved, update it where it is now and run \`--done <new-path>\`, or clear
+     the handoff with \`--done <old-path>\`.
   Which plan? Pass it explicitly, or baton resolves exactly one plan owned by
   this authoritative session. Journal entries and global in-session counts never
   grant ownership. A live pickup-hook delivery lease blocks release and force

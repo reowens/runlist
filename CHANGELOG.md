@@ -24,6 +24,9 @@ All notable changes to `runlist` are documented here. Older releases predate thi
   are still read, and only for the plan they name.
 - `runlist baton --done` no longer counts a `next_step` that changed only in
   whitespace as updated.
+- Each pending-handoff record carries its own id, so a `--done` that read an
+  older record never writes the plan or removes a newer baton's record saved
+  in the same second. Records without an id are compared whole.
 
 ### Development
 
@@ -39,10 +42,15 @@ All notable changes to `runlist` are documented here. Older releases predate thi
   finishing a handoff no longer needs a hand edit. A next step equal to the one
   recorded when the prompt was saved is refused, `--current-state` alone never
   counts as done, values are one line, and `--dry-run` previews the write.
-  Naming a moved plan's new path confirms its handoff when the old path is
-  gone, exactly one moved handoff has that file name, and the plan's title
-  still matches; a plan that only shares a file name is refused. The verdict
-  is reached on the plan under its lock, so a refused call writes nothing.
+  The fields are written only to the plan at the path its handoff was saved
+  for, with the verdict reached under the handoff record's and the plan's
+  locks, so a refused call writes nothing. When that plan has moved, the write
+  is refused with the waiting record listed: plain `runlist baton --done
+  <new path>` (no fields) confirms a plan updated by other means when exactly
+  one handoff with that file name waits on a path that is gone, reading the
+  plan without locking it or the old path. Naming the gone path itself,
+  `runlist baton --done <old path>`, clears that handoff's record, which is how
+  an ambiguous match is resolved.
 - CLI settings inspection now includes effective document roots, index, archive
   directory and prompt location, with value sources and explicit edit limits.
 - Added a beginner setup guide covering assistant requests, host activation,

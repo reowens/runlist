@@ -1209,8 +1209,10 @@ export function replaceSnapshot(snapshot, newContent, options = {}) {
   return locked ? commit() : withPathLocks([snapshot.path], { repoRoot, ...options }, commit);
 }
 
+// `locked` means the caller already holds filePath's lock, taken in one sorted
+// withPathLocks set with the other paths its decision depends on.
 export function mutateFile(filePath, options, render) {
-  return withPathLocks([filePath], options, () => {
+  const mutate = () => {
     options.testHooks?.beforeMutationSnapshot?.(filePath);
     const snapshot = snapshotFile(filePath);
     const rendered = render(snapshot.content, snapshot);
@@ -1222,7 +1224,8 @@ export function mutateFile(filePath, options, render) {
       if (err.committedSnapshot) restoreUpdate(err.committedSnapshot, snapshot, err);
       throw err;
     }
-  });
+  };
+  return options.locked ? mutate() : withPathLocks([filePath], options, mutate);
 }
 
 export function createFileExclusive(filePath, content, options) {
