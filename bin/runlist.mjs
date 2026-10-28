@@ -1453,7 +1453,7 @@ Usage (write the resume to a file first, then pick the form that matches):
   runlist baton @/tmp/draft.md               # a plan is in-session: save resume-<plan-slug>, release the plan
   runlist baton <plan-file> @/tmp/draft.md   # hand off a named plan
   runlist baton <slug> @/tmp/draft.md        # no plan: save resume-<slug>, change nothing else
-  runlist baton --done [<plan-file>]         # after a plan handoff: confirm the plan was brought up to date
+  runlist baton --done [<plan-file>] --next-step "..."   # after a plan handoff: write next_step, confirm it
   The resume can also come from stdin (\`-\`, or a pipe) or --message "..." for one-liners.
   Baton prints the prompt name it saved, as its last line too, and, in plan mode, the git commit to run.
 
@@ -1470,6 +1470,8 @@ Options:
   --template             Print a resume draft (or --subagent draft), using saved Markdown settings
   --replace              Replace exactly one pending handoff; archive its prior text
   --done                 Report a plan handoff done once next_step changed after the prompt was saved
+  --next-step "..."      With --done: write the plan's next_step (one line; must differ from the saved one)
+  --current-state "..."  With --done: also write current_state (never counts as done on its own)
   --json                 Structured repository/session/generated file result
   --dry-run, -n          Preview without writing
 
@@ -1489,6 +1491,7 @@ Examples:
   runlist baton docs/plans/auth.md @/tmp/draft.md
   runlist baton docs/plans/auth.md @/tmp/new-draft.md --replace
   runlist baton --status paused --note "blocked on review" @/tmp/d.md
+  runlist baton --done --next-step "wire the retry path" --current-state "parser merged"
   cat /tmp/draft.md | runlist baton
 
 Plan mode (a plan is in-session, or you pass one) publishes in one atomic
@@ -1503,10 +1506,13 @@ cooperating transaction:
      \`runlist config get promptTracking\` for the project's prompt Git policy.
      Ownership records are local runtime state.
   4. When the plan was in-session and has a next_step field, the handoff is not
-     done yet: bring the plan up to date (the body, then next_step), then run
-     \`runlist baton --done\`, which refuses while next_step still reads as it
-     did when the prompt was saved. The prompt is saved first, so a stop between
-     the two steps loses nothing, and \`--done <plan-file>\` works from any session.
+     done yet: update the plan body first, then run
+     \`runlist baton --done --next-step "<next move>"\` (plus
+     \`--current-state "..."\` if that changed). It writes the frontmatter,
+     creating a missing key, and refuses a next_step that still reads as it did
+     when the prompt was saved. The prompt is saved first, so a stop between the
+     two steps loses nothing, and \`--done <plan-file>\` works from any session.
+     \`--dry-run\` with --next-step previews the write and removes nothing.
   Which plan? Pass it explicitly, or baton resolves exactly one plan owned by
   this authoritative session. Journal entries and global in-session counts never
   grant ownership. A live pickup-hook delivery lease blocks release and force

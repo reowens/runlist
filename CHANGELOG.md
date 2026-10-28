@@ -28,6 +28,12 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ### Changed
 
+- `runlist baton --done` takes `--next-step "…"` and `--current-state "…"` and
+  writes them into the plan's frontmatter before confirming the handoff, so
+  finishing a handoff no longer needs a hand edit. A next step equal to the one
+  recorded when the prompt was saved is refused, `--current-state` alone never
+  counts as done, values are one line, and `--dry-run` previews the write.
+  Naming a moved plan's new path now confirms its handoff.
 - CLI settings inspection now includes effective document roots, index, archive
   directory and prompt location, with value sources and explicit edit limits.
 - Added a beginner setup guide covering assistant requests, host activation,

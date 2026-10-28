@@ -33,7 +33,7 @@ This repo's plans, reference docs, and saved prompts are managed by the **runlis
 1. **Orient** — `runlist plans` for the compact dashboard, or `runlist agent-context` for structured state. Use `runlist briefing` only for the comprehensive view.
 2. **Start work on a plan** — `runlist use <plan-file>` marks it `in-session` and prints the plan card. (`runlist set in-session <file>` sets the status without printing.)
 3. **Do the work.**
-4. **Close it** — pick the status that matches reality (see the decision tree below). Handing off mid-work instead? `runlist baton @/tmp/draft.md` saves the resume prompt first, flips the plan back to `active` (`--status` to override), and prints the exact `git commit` to run. Then bring the owning plan up to date (body, then `next_step`) and every other plan you touched; when baton says the handoff is not done yet, `runlist baton --done` confirms it once `next_step` has changed. A repo's own `templates.prompt.baton` definition wins where it differs.
+4. **Close it** — pick the status that matches reality (see the decision tree below). Handing off mid-work instead? `runlist baton @/tmp/draft.md` saves the resume prompt first, flips the plan back to `active` (`--status` to override), and prints the exact `git commit` to run. Then bring the owning plan up to date and every other plan you touched: update the plan body first, then, when baton says the handoff is not done yet, `runlist baton --done --next-step "<next move>"` (add `--current-state "…"` if that changed) writes the frontmatter and confirms it; it refuses a `next_step` that has not changed. A repo's own `templates.prompt.baton` definition wins where it differs.
 
 ## The single status verb: `runlist set <status> [<file>]`
 
