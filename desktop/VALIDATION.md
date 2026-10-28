@@ -27,12 +27,29 @@ sign, install or qualify a new supported platform. The build still reports
   engine passed all 65 helper/frontend tests with no skips.
 - The Mac application passed the private vocabulary bundle check (188 files);
   the bundled Node payload and Acorn metadata match their pinned vendor inputs.
-- Windows native build remains unverified: the SSH owner session did not resolve
-  Cargo, and standard per-user Cargo and Visual Studio installer paths were
-  absent. This was not an exhaustive inventory or a managed job qualification.
-  The worker's managed Node exists outside that shell's PATH. No native window,
-  fresh installation, minimum-host,
-  signing or notarization acceptance is claimed by this candidate.
+- The complete Windows application subsequently passed a native compile;
+  see [Windows compile candidate](#windows-compile-candidate--2026-10-28).
+  Installer, native-window, fresh-installation, minimum-host, signing and
+  notarization acceptance remain separate.
+
+## Windows compile candidate — 2026-10-28
+
+The complete Tauri application compiled on a native Windows 11/x64 worker as
+an isolated non-administrator job. This is a pre-release candidate, not a new
+supported Windows distribution or an installed-app qualification.
+
+- Source: `022e7fb626a94225b3238e9fe0344cf2928aa7a0`; the build reports 0.99.1.
+- Rust 1.95.0, `x86_64-pc-windows-msvc`, release profile, locked offline Cargo
+  dependencies, and the checksum-pinned Windows/x64 Node 24.22.1 payload.
+- `cargo build --release --locked --offline --target x86_64-pc-windows-msvc`
+  exited 0. The returned executable is a 64-bit Windows PE image.
+- Executable: 5,249,536 bytes, SHA-256
+  `aa71a0abbc94a39f04c4c6524a1e64951b1f2b5019d1ce0d13fcb1d1193e15d6`.
+- Managed job: 350.555 seconds, peak committed memory 2,991 MiB; native task
+  cleanup was confirmed. The build used vendored crates and pre-staged JavaScript
+  dependencies under the worker's required network policy.
+- The unsigned installer remains unverified. Native-window launch, installation
+  on a fresh/minimum Windows host and code signing remain unverified.
 
 ## Current Mac release — 2026-10-27
 
