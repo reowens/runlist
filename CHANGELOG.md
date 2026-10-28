@@ -2,6 +2,20 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Development
+
+- Added compact task help and agent guidance for discovering common workflows.
+- Added a cached Linux/x64 Docker builder and `npm run check:linux` for isolated
+  desktop builds, bundled-engine tests and extracted Debian/AppImage checks.
+- Defined when agents run Linux checks, inspect reports and reuse cached results.
+
+### Changed
+
+- Release completion ends after verified publication. Local desktop installation,
+  first-launch approval and installed-app diagnostics are separate optional work.
+
 ## 0.99.2 — 2026-10-28
 
 ### Development

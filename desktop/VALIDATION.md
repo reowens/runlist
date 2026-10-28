@@ -1,10 +1,65 @@
 # Desktop validation
 
+Records apply to the named version and source snapshot. Earlier dated results
+and remaining host checks describe their own checkpoints; release completion
+follows [the current release workflow](../CLAUDE.md#releasing).
+
+## Mac release 0.99.2 (2026-10-28)
+
+The matching CLI and Apple Silicon desktop release are published. The
+[Publish](https://github.com/reowens/runlist/actions/runs/40650942877) and
+[CI](https://github.com/reowens/runlist/actions/runs/40650943027) runs both passed
+for source `02e6224bb2f213350e0d95b3fada7680a8ae8e05`; npm `latest` is 0.99.2.
+
+- [Desktop release](https://github.com/reowens/runlist/releases/tag/desktop-v0.99.2),
+  published `2026-10-28T07:43:20Z`.
+- [Installer](https://github.com/reowens/runlist/releases/download/desktop-v0.99.2/Runlist-0.99.2-macOS-arm64.dmg):
+  48,407,413 bytes, SHA-256
+  `e80219b10f15c324f8c66d4e1c79007ae02ab8e7856f7cd444d97d13880ccc66`.
+  GitHub's asset digest matches the
+  [published manifest](https://github.com/reowens/runlist/releases/download/desktop-v0.99.2/release-manifest.json).
+- The manifest records ARM64, protocol 1, signing team `7GSPYYN5X8`,
+  and accepted app and installer submissions:
+  `9a041938-4a05-4eaa-aa7e-524b5e8121bc` and
+  `960199f8-5520-456f-8618-2222a1cdb4c4`.
+- Release notes report macOS 13.5+, signed/notarized artifacts, stapled tickets
+  and passed offline packaged checks. This documentation reconciliation verified
+  public metadata and retained receipts; it did not repeat native execution.
+
+Publication is complete. Commit `2d4996a` makes local app installation,
+first-launch approval and installed-app diagnostics separate optional operations.
+Native-window and fresh/minimum-host testing remain support-qualification work.
+
+## Linux/x64 Docker build checks (2026-10-28)
+
+The Docker runner in `b2b88c212e705d9e2f13ced1adb3034d84c94a44` passed against
+its complete 505-file committed source inventory. Both initial and cached runs
+built Debian and AppImage packages and passed the extracted-installer checks.
+The later `83497d9` adds the `npm run check:linux` alias and development guidance;
+see [verification instructions](../VERIFYING.md#local-linux-desktop-checks-with-docker).
+
+- Ubuntu 22.04/x64, Docker 29.9.2, Node 24.22.1, Rust 1.95.0 and Git 2.34.1.
+- Desktop tests: 133 passed, 2 skipped for native Git and optional live-provider
+  qualification. Rust library tests: all 11 passed.
+- Prepared and extracted Debian/AppImage engines: each passed 64 helper/frontend
+  tests with 1 native-Git skip. Package checks verified engine inventory,
+  architecture, resolved native dependencies and the unchanged pinned Node bytes.
+- Cached-run Debian package: 50,108,276 bytes, SHA-256
+  `1a3bae73b915e10a9fe8a884faad9cb4337d1be4ad9722adee0abb3860fce36d`.
+- Cached-run AppImage: 123,476,472 bytes, SHA-256
+  `60c4c8263ccd091f7c144d460dc757513967ff3e4873c25929f3f9635278ef45`.
+- First successful image setup plus validation: 535 seconds; cached repeat:
+  170 seconds, with 4 CPUs, 8 GiB memory and 2 Cargo jobs.
+
+These are local unsigned build artifacts, not published Linux downloads or
+native-window/fresh-host qualification. Later source changes require their own
+verification; passing Linux checks does not widen the Git write support matrix.
+
 ## Dependency refresh candidate — 2026-10-27
 
-Prepared for the next patch release after 0.99.1; these checks do not publish,
-sign, install or qualify a new supported platform. The build still reports
-0.99.1 because the release workflow owns the version bump.
+This historical candidate preceded the dependency updates shipped in 0.99.2.
+The frozen build reports 0.99.1 because the release workflow owns the version
+bump; these checks did not publish, sign, install or qualify a supported platform.
 
 - Inputs: Node 24.22.1, Tauri 2.12.5, tauri-build 2.7.4, Tauri CLI 2.12.4,
   Tokio 1.54.1, UUID 1.29.0 and linkedom 0.18.14.
@@ -64,7 +119,9 @@ supported Windows distribution or an installed-app qualification.
   signing remain unverified. These build results qualify the frozen candidate,
   which still reports 0.99.1; the release workflow owns the version bump.
 
-## Current Mac release — 2026-10-27
+<a id="current-mac-release--2026-10-27"></a>
+
+## Mac release 0.99.1 (2026-10-27)
 
 **Runlist desktop 0.99.1 is published.** This record was reconciled from
 GitHub release metadata and the published manifest on October 27; it does not

@@ -21,17 +21,15 @@ plans display comparison and explain unavailable assessment actions.
 
 ## Current release and next steps
 
-The matching desktop release is linked above. The 0.99.1 published manifest
-records accepted app and installer notarization under the signing team, and the
-release notes report stapled tickets and passed offline packaged checks. Its
-engine includes session-only prompt consumption. Installation on a particular
-Mac must be checked there; this documentation refresh did not inspect or change
-an installed app.
+The matching desktop release and its manifest are linked above. See the
+[versioned validation records](VALIDATION.md#mac-release-0992-2026-10-28)
+for source identity, installer digest, notarization and build evidence.
+Publication is complete; local installation and first-launch approval are
+separate optional operations.
 
-See [current validation](VALIDATION.md#current-mac-release--2026-10-27)
-for the published artifact and checks. Remaining work includes full-app dialog
-accessibility, fresh/minimum-host installation and recovery, native offline
-journeys, controlled whole-app performance and broader desktop platforms.
+Remaining product and support work includes full-app dialog accessibility,
+fresh/minimum-host installation and recovery, native offline journeys,
+controlled whole-app performance and broader desktop platforms.
 Optional live semantic search and local chat remain separate follow-up work.
 
 ### Historical 0.94.1 qualification
@@ -151,13 +149,17 @@ and **Local files · This computer only**.
 
 The latest delivered artifact is for Apple Silicon. Its runtime requires macOS 13.5 or
 newer; verification has been performed on macOS 26.7. Earlier OS versions, Intel,
-Windows and Linux have not been validated for this desktop release. A fresh-Mac
-installation check remains part of release qualification.
+Windows and Linux have not been qualified as supported distributions for this
+desktop release. Fresh/minimum-host checks are separate support qualification.
 
 Windows/Linux port implementation is now present in source: OS/architecture runtime
 pins, guarded file locking, native clipboard/link adapters, platform menus and
-helper environments, installer configuration, and a desktop CI workflow. Windows
-native execution remains pending. Linux ARM64 has now passed native release
+helper environments, installer configuration, and a desktop CI workflow. A frozen
+Windows/x64 candidate passed a complete native compile and unattended unsigned
+offline-installer build; see the [Windows evidence](VALIDATION.md#windows-compile-candidate--2026-10-28).
+Linux/x64 Docker builds and extracted Debian/AppImage checks also pass for the
+[recorded source](VALIDATION.md#linuxx64-docker-build-checks-2026-10-28).
+Linux ARM64 has passed native release
 builds and terminal checks on the development Pi (Debian 13), including extracted
 Debian/AppImage engines with networking disabled, plus actual Debian install,
 QA revision upgrade, rollback, removal, reinstall and purge. Native-window and
@@ -406,6 +408,10 @@ possible path introduced by a linker or another build tool.
 Build on the target host with Rust 1.95+, Cargo, Node, and Tauri's
 [platform prerequisites](https://v2.tauri.app/start/prerequisites/).
 
+On Linux/x64, use `npm run check:linux` for the isolated build and package checks
+with cached toolchains. See [development check selection](../VERIFYING.md#development-check-selection)
+for when to use it and how to read the results. Direct native commands are:
+
 ```sh
 npm ci --prefix desktop
 npm --prefix desktop run build -- --ci
@@ -426,10 +432,10 @@ Program Files Runlist locations. CLI launch previews do not execute configuratio
 `.github/workflows/desktop.yml` defines Mac, Windows and Ubuntu builds, native
 headless tests and packaged helper/frontend checks. It does not sign, publish,
 launch an app or control a desktop. This workflow has not been run remotely for
-these local changes. The [dependency refresh candidate](VALIDATION.md#dependency-refresh-candidate--2026-10-27)
-records Apple Silicon and Ubuntu 22.04/x64 headless builds and package checks.
-Linux ARM64 terminal evidence is recorded below; Windows, Intel Mac and other
-Linux baselines still need separate host qualification.
+these local changes. [Validation records](VALIDATION.md) distinguish the published
+Mac artifact, Windows native candidate, Linux/x64 Docker checks and earlier Linux
+ARM64 terminal evidence. Native-window, fresh-host and additional architecture/OS
+support require their own evidence; these build results do not publish a new port.
 
 On Linux, `npm --prefix desktop run test:linux-packages` extracts both installers,
 checks ELF architecture and dependency resolution, compares every engine file with
