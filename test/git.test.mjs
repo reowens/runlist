@@ -1,10 +1,10 @@
 import { describe, it, afterEach } from 'node:test';
-import { strictEqual, ok } from 'node:assert';
+import { strictEqual, deepStrictEqual, ok } from 'node:assert';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, realpathSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { getGitLastModified, getGitLastModifiedBatch, gitMv, gitDiffSince, inspectGitCommandPaths } from '../src/git.mjs';
+import { getGitLastModified, getGitLastModifiedBatch, gitMv, gitDiffSince, inspectGitCommandPaths, isTracked, gitCommitPaths } from '../src/git.mjs';
 import { checkGitStaleness } from '../src/validate.mjs';
 import { filterDocs } from '../src/query.mjs';
 
@@ -34,6 +34,52 @@ function commitFile(filePath, content, dateStr) {
 
 afterEach(() => {
   if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
+});
+
+describe('gitCommitPaths', () => {
+  it('handles unborn HEAD, missing paths, ignored paths and staged new files', () => {
+    setupRepo();
+    writeFileSync(path.join(tmpDir, '.gitignore'), 'ignored.md\nstaged.md\n');
+    writeFileSync(path.join(tmpDir, 'new.md'), 'New\n');
+    writeFileSync(path.join(tmpDir, 'ignored.md'), 'Ignored\n');
+    writeFileSync(path.join(tmpDir, 'staged.md'), 'Staged\n');
+    const staged = spawnSync('git', ['add', '-f', '--', 'staged.md'], { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(staged.status, 0, staged.stderr);
+    deepStrictEqual(gitCommitPaths(['missing.md', 'new.md', 'ignored.md', 'staged.md'], tmpDir), {
+      paths: ['new.md', 'staged.md'], add: ['new.md'],
+    });
+  });
+
+  it('keeps a staged deletion from HEAD but drops a never-tracked missing path', () => {
+    setupRepo();
+    commitFile(path.join(tmpDir, 'old.md'), 'Old\n');
+    const removed = spawnSync('git', ['rm', '--', 'old.md'], { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(removed.status, 0, removed.stderr);
+    deepStrictEqual(gitCommitPaths(['old.md', 'missing.md'], tmpDir), { paths: ['old.md'], add: [] });
+  });
+
+  it('does not let Git pattern characters match a tracked decoy', () => {
+    setupRepo();
+    commitFile(path.join(tmpDir, 'v1.md'), 'Decoy\n');
+    writeFileSync(path.join(tmpDir, 'v[1-2].md'), 'Literal\n');
+    strictEqual(isTracked('v[1-2].md', tmpDir), false);
+    deepStrictEqual(gitCommitPaths(['v[1-2].md'], tmpDir), { paths: ['v[1-2].md'], add: ['v[1-2].md'] });
+    rmSync(path.join(tmpDir, 'v[1-2].md'));
+    deepStrictEqual(gitCommitPaths(['v[1-2].md'], tmpDir), { paths: [], add: [] });
+    commitFile(path.join(tmpDir, 'v[1-2].md'), 'Literal\n');
+    strictEqual(isTracked(path.join(tmpDir, 'v[1-2].md'), tmpDir), true);
+    const removed = spawnSync('git', ['--literal-pathspecs', 'rm', '--', 'v[1-2].md'], { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(removed.status, 0, removed.stderr);
+    deepStrictEqual(gitCommitPaths(['v[1-2].md'], tmpDir), { paths: ['v[1-2].md'], add: [] });
+  });
+
+  it('returns no paths for an entirely ignored or missing set', () => {
+    setupRepo();
+    writeFileSync(path.join(tmpDir, '.gitignore'), 'ignored.md\n');
+    writeFileSync(path.join(tmpDir, 'ignored.md'), 'Ignored\n');
+    deepStrictEqual(gitCommitPaths(['missing.md', 'ignored.md'], tmpDir), { paths: [], add: [] });
+    deepStrictEqual(gitCommitPaths([], tmpDir), { paths: [], add: [] });
+  });
 });
 
 describe('getGitLastModified', () => {

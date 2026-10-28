@@ -6,8 +6,9 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ### Fixed
 
-- Baton's printed Git command stages new, untracked plans before committing
-  them, so the first handoff in a fresh repository succeeds.
+- Baton's printed Git command stages new files before committing, preserves
+  both sides of tracked plan moves, and omits ignored or never-tracked missing
+  files. Literal pathspecs protect filenames containing Git pattern characters.
 
 ### Development
 

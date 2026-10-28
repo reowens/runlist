@@ -41,7 +41,7 @@ function ensureGit() {
   gitChecked = true;
 }
 
-function literalGitPathspec(filePath) {
+export function literalGitPathspec(filePath) {
   return filePath === '.' ? ':(top,literal)' : `:(top,literal)${filePath}`;
 }
 
@@ -508,11 +508,41 @@ export function gitMv(source, target, repoRoot) {
 
 export function isTracked(source, repoRoot) {
   const relSource = path.isAbsolute(source) ? path.relative(repoRoot, source) : source;
-  const result = spawnSync('git', ['ls-files', '--error-unmatch', '--', relSource], {
+  const result = spawnSync('git', ['ls-files', '--error-unmatch', '--', literalGitPathspec(relSource)], {
     cwd: repoRoot,
     encoding: 'utf8',
   });
   return result.status === 0;
+}
+
+// A path-limited commit needs both sides of a staged move: the old path is
+// absent from the index but still in HEAD. Never offer to add that missing
+// path, or commit a missing path that Git has never known about.
+export function gitCommitPaths(paths, repoRoot) {
+  const unique = [...new Set(paths)];
+  if (!unique.length) return { paths: [], add: [] };
+  const options = { cwd: repoRoot, encoding: 'utf8' };
+  const listed = spawnSync('git', ['ls-files', '-z', '--', ...unique.map(literalGitPathspec)], options);
+  const indexed = new Set(listed.status === 0 ? listed.stdout.split('\0').filter(Boolean) : []);
+  const missing = new Set(unique.filter(file => !indexed.has(file) && !existsSync(path.resolve(repoRoot, file))));
+  const inHead = new Set();
+  if (missing.size) {
+    const head = spawnSync('git', ['ls-tree', '-r', '--name-only', '-z', 'HEAD', '--', ...[...missing].map(literalGitPathspec)], options);
+    // An unborn HEAD is normal in a fresh repository.
+    if (head.status === 0) for (const file of head.stdout.split('\0').filter(Boolean)) inHead.add(file);
+  }
+  const candidates = unique.filter(file => !indexed.has(file) && !missing.has(file));
+  const ignored = new Set();
+  if (candidates.length) {
+    // check-ignore reads literal filenames, not pathspecs, from its NUL input.
+    const result = spawnSync('git', ['check-ignore', '--stdin', '-z'], {
+      ...options, input: candidates.join('\0') + '\0',
+    });
+    if (result.status === 0) for (const file of result.stdout.split('\0').filter(Boolean)) ignored.add(file);
+  }
+  const add = candidates.filter(file => !ignored.has(file));
+  const committable = new Set([...indexed, ...inHead, ...add]);
+  return { paths: unique.filter(file => committable.has(file)), add };
 }
 
 export function gitIndexLocations(repoRoot) {

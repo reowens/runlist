@@ -29,10 +29,10 @@ function setupProject({ journal = true } = {}) {
   writeFileSync(configPath, `export const root = 'docs';\nexport const journal = ${journal};\n`);
 }
 
-function writePlan(name, { status = 'in-session', frontmatter = true, tracked = true } = {}) {
+function writePlan(name, { status = 'in-session', frontmatter = true, tracked = true, body = 'body' } = {}) {
   const file = path.join(plansDir, `${name}.md`);
   const content = frontmatter
-    ? `---\ntype: plan\nstatus: ${status}\ntitle: ${name}\n---\n# ${name}\n\nbody\n`
+    ? `---\ntype: plan\nstatus: ${status}\ntitle: ${name}\n---\n# ${name}\n\n${body}\n`
     : `# ${name}\n\nno frontmatter here\n`;
   writeFileSync(file, content);
   if (!tracked) return file;
@@ -81,6 +81,22 @@ function runAsync(args, sid = 'test-sid') {
     child.stderr.on('data', chunk => { stderr += chunk; });
     child.on('close', status => resolve({ status, stderr }));
   });
+}
+
+function git(args) {
+  const result = spawnSync('git', args, { cwd: tmpDir, encoding: 'utf8' });
+  strictEqual(result.status, 0, result.stderr);
+  return result.stdout;
+}
+
+function executeCommitHint(result) {
+  strictEqual(result.status, 0, result.stderr);
+  const command = result.stderr.split('\n').find(line => line.startsWith('  git '))?.trim();
+  ok(command, result.stderr);
+  const committed = spawnSync(command, { cwd: tmpDir, encoding: 'utf8', shell: true });
+  strictEqual(committed.status, 0, committed.stderr);
+  strictEqual(git(['ls-tree', '-r', '--name-only', 'HEAD', '--', 'docs/prompts']), '');
+  return command;
 }
 
 async function withSessionIdentity(fn, sid = 'test-sid') {
@@ -151,6 +167,63 @@ describe('runlist baton', () => {
     strictEqual(r.stderr.split('\n').find(line => line.startsWith('  git ')),
       '  git commit -m "baton: auth-revamp in-session → active" -- docs/plans/auth-revamp.md');
     ok(!r.stderr.includes('prompts/resume-auth-revamp.md --'), 'prompt not in pathspec');
+    executeCommitHint(r);
+  });
+
+  for (const tracked of [true, false]) it(`commits an archived ${tracked ? 'tracked' : 'untracked'} plan with only the required paths`, () => {
+    writePlan('demo', { tracked, body: 'Synthetic progress detail.\n'.repeat(30) });
+    const r = run(['baton', 'docs/plans/demo.md', '--status', 'archived', '--message', 'resume']);
+    const command = executeCommitHint(r);
+    strictEqual(command, tracked
+      ? 'git commit -m "baton: demo in-session → archived" -- docs/plans/demo.md docs/archived/demo.md'
+      : 'git add -- docs/archived/demo.md && git commit -m "baton: demo in-session → archived" -- docs/archived/demo.md');
+    strictEqual(git(['ls-tree', '-r', '--name-only', 'HEAD', '--', 'docs/plans/demo.md']), '');
+    match(git(['show', 'HEAD:docs/archived/demo.md']), /status: archived/);
+    strictEqual(git(['diff', '--cached', '--name-only']), '');
+    if (tracked) match(git(['show', '--format=', '--name-status', 'HEAD']), /R\d+\tdocs\/plans\/demo.md\tdocs\/archived\/demo.md/);
+  });
+
+  it('stages and commits a literal bracket filename without including its tracked decoy', () => {
+    writePlan('v1');
+    appendFileSync(path.join(plansDir, 'v1.md'), '\nUnrelated unstaged edit.\n');
+    writePlan('v[1-2]', { tracked: false });
+    const r = run(['baton', 'docs/plans/v[1-2].md', '--message', 'resume']);
+    const command = executeCommitHint(r);
+    match(command, /^git add -- ":\(top,literal\)docs\/plans\/v\[1-2\].md" &&/);
+    strictEqual(git(['diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD']).trim(), 'docs/plans/v[1-2].md');
+    match(git(['diff', '--', 'docs/plans/v1.md']), /Unrelated unstaged edit/);
+  });
+
+  it('omits ignored rewritten files while staging other untracked rewritten files', () => {
+    writePlan('demo');
+    mkdirSync(path.join(docsDir, 'scratch'));
+    writeFileSync(path.join(tmpDir, '.gitignore'), 'docs/scratch/\n');
+    const note = '---\ntype: doc\nstatus: active\n---\nSee [demo](../plans/demo.md).\n';
+    writeFileSync(path.join(docsDir, 'scratch', 'notes.md'), note);
+    writeFileSync(path.join(docsDir, 'notes.md'), note.replace('../plans/', 'plans/'));
+    const r = run(['baton', 'docs/plans/demo.md', '--status', 'archived', '--message', 'resume']);
+    match(readFileSync(path.join(docsDir, 'scratch', 'notes.md'), 'utf8'), /archived\/demo.md/);
+    const command = executeCommitHint(r);
+    ok(!command.includes('scratch/'), command);
+    match(command, /^git add -- docs\/notes.md &&/);
+    match(git(['show', 'HEAD:docs/notes.md']), /archived\/demo.md/);
+    strictEqual(git(['ls-tree', '-r', '--name-only', 'HEAD', '--', 'docs/scratch']), '');
+  });
+
+  it('executes a configured commit command with unchanged argv', () => {
+    writePlan('demo');
+    appendFileSync(configPath, '\nexport function batonCommitCommand(message, paths) { return ["git", "-c", "commit.gpgSign=false", "commit", "-m", message, "--", ...paths]; }\n');
+    const r = run(['baton', 'docs/plans/demo.md', '--message', 'resume']);
+    strictEqual(executeCommitHint(r), 'git -c "commit.gpgSign=false" commit -m "baton: demo in-session → active" -- docs/plans/demo.md');
+  });
+
+  it('prints no commit when an ignored untracked move leaves no committable paths', () => {
+    writeFileSync(path.join(tmpDir, '.gitignore'), 'docs/\n');
+    writePlan('demo', { tracked: false });
+    const r = run(['baton', 'docs/plans/demo.md', '--status', 'archived', '--message', 'resume']);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stderr, /no commit needed/);
+    ok(!r.stderr.includes('git add') && !r.stderr.includes('git commit'), r.stderr);
   });
 
   for (const tracked of [true, false]) it(`formats a configured commit argv unchanged for a ${tracked ? 'tracked' : 'untracked'} plan`, () => {

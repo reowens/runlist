@@ -12,7 +12,7 @@ import { mutateFileSet } from './atomic-mutation.mjs';
 import { assertPlanMutationAuthorized, authoritativeSessionId, listOwnedPlans, readPlanOwnership } from './pickup.mjs';
 import { HANDOFF_TEMPLATES, parentPromptName } from './prompt-handoff.mjs';
 import { readTemplateStore, templateFile } from './template-store.mjs';
-import { isGitIgnored, isTracked } from './git.mjs';
+import { isGitIgnored, gitCommitPaths, literalGitPathspec } from './git.mjs';
 
 // `runlist baton` is the one-command handoff: save the resume prompt AND release
 // the plan in a single atomic-ish verb. It exists because the three-step skill
@@ -93,11 +93,14 @@ function commitCommand(config, message, paths) {
       return custom.map(shellQuote).join(' ');
     } catch (err) { warn(`batonCommitCommand failed (${err.message}); printing the default git command.`); }
   }
-  const command = ['git', 'commit', '-m', message, '--', ...paths].map(shellQuote).join(' ');
-  const untracked = paths.filter(file => !isTracked(file, config.repoRoot)
-    && !isGitIgnored(path.resolve(config.repoRoot, file), config.repoRoot));
-  if (!untracked.length) return command;
-  return `${['git', 'add', '--', ...untracked].map(shellQuote).join(' ')} && ${command}`;
+  const files = gitCommitPaths(paths, config.repoRoot);
+  if (!files.paths.length) return null;
+  // Keep ordinary command output stable, while protecting filenames that Git
+  // would otherwise interpret as pathspec magic (shell quoting is not enough).
+  const pathspec = file => /[*?[\\]/.test(file) || file.startsWith(':') ? literalGitPathspec(file) : file;
+  const command = ['git', 'commit', '-m', message, '--', ...files.paths.map(pathspec)].map(shellQuote).join(' ');
+  if (!files.add.length) return command;
+  return `${['git', 'add', '--', ...files.add.map(pathspec)].map(shellQuote).join(' ')} && ${command}`;
 }
 
 // With no plan named, --done finds this session's record; a named plan is
@@ -511,11 +514,13 @@ export async function runBaton(argv, config, opts = {}) {
     process.stderr.write(dim(`Meant to change it? runlist set <status> ${repoPath}\n`));
   }
   if (statusChanged) {
-    if (isGitIgnored(planPath, config.repoRoot)) {
-      process.stderr.write(dim(`${repoPath} is gitignored — no commit needed.\n`));
-    } else {
+    const command = commitCommand(config, `baton: ${path.basename(planPath, '.md')} ${oldStatus} → ${status}`, operationResult.repositoryFiles);
+    if (command) {
       process.stderr.write(`${prefix}Commit the repository files (session files stay OUT of the pathspec):\n`);
-      process.stderr.write(`${prefix}  ${commitCommand(config, `baton: ${path.basename(planPath, '.md')} ${oldStatus} → ${status}`, operationResult.repositoryFiles)}\n`);
+      process.stderr.write(`${prefix}  ${command}\n`);
+    } else {
+      const reason = isGitIgnored(planPath, config.repoRoot) ? `${repoPath} is gitignored` : 'No repository files to commit';
+      process.stderr.write(dim(`${reason} — no commit needed.\n`));
     }
   }
   if (operationResult.deferredGeneratedFiles.length) process.stderr.write(dim(`Generated index deferred: ${operationResult.deferredGeneratedFiles.join(', ')}\n`));
