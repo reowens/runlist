@@ -17,6 +17,7 @@
     "src/",
     "assets/",
     "plugins/runlist-codex/",
+    "GETTING_STARTED.md",
     "scripts/postinstall.mjs",
     "runlist.config.example.mjs"
   ],

@@ -12,6 +12,10 @@ safe to mutate.
 - Runtime support for Linux, macOS, and Windows
 - Type-aware lifecycle rules for plans, docs, and saved prompts
 
+**New to Runlist? Start with the [beginner setup guide](GETTING_STARTED.md).**
+It covers the terminal, asking an assistant to set up a project, agent plugins,
+and the optional Runlist desktop app.
+
 ## Install
 
 ```bash
@@ -511,6 +515,7 @@ explicitly choose the policy in the CLI:
 ```bash
 runlist config show
 runlist config get promptTracking --json
+runlist config get promptDirectory --json
 runlist config set promptTracking tracked --dry-run
 runlist config set promptTracking tracked
 ```
@@ -529,6 +534,14 @@ Runtime state in `.runlist/`, such as the parse cache, also remains unignored by
 default and can be staged by `git add -A`. Review the selected files before
 committing. The explicit ignore option covers `.runlist/` and `.dotmd/` (the
 legacy state directory, still readable for compatibility).
+
+`config show` also reports `root`, resolved `docsRoots`, `index.path`,
+`archiveDir`, and the resolved `promptDirectory`. Sources distinguish configured
+values, defaults, the legacy `readme` index alias, and derived paths. Only
+`promptTracking` supports CLI writes; other keys return specific manual-edit
+guidance. These commands import the trusted project's JavaScript config but do
+not invoke document hooks. The GUI uses the same project configuration; it is
+not required to inspect or choose prompt policy.
 
 `runlist plans` is the compact orientation view. `runlist briefing` lists live
 plans with next steps and grows with the corpus. `runlist context` is the fuller

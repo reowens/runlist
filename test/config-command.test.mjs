@@ -3,6 +3,8 @@ import { strictEqual, deepStrictEqual, ok, rejects } from 'node:assert';
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { SESSION_ID_VARIABLES } from '../src/util.mjs';
 import { resolveConfig } from '../src/config.mjs';
 import { runConfig } from '../src/config-command.mjs';
 
@@ -28,10 +30,13 @@ function assertNoTemps(folder = dir) {
 describe('config command reads', () => {
   it('shows the supported setting, default value, source, and missing path', async () => {
     const { output, result } = await invoke(['show']);
-    deepStrictEqual(result, { supportedSettings: ['promptTracking'], settings: { promptTracking: { value: 'untracked', source: 'default' } }, configPath: null });
-    ok(output.includes('Supported setting: promptTracking'));
-    ok(output.includes('Effective value: untracked'));
-    ok(output.includes('Source: default'));
+    deepStrictEqual(result.settings.promptTracking, { value: 'untracked', source: 'default' });
+    deepStrictEqual(result.editableSettings, ['promptTracking']);
+    strictEqual(result.configPath, null);
+    deepStrictEqual(result.settings.docsRoots, { value: [dir], source: 'derived' });
+    deepStrictEqual(result.settings['index.path'], { value: null, source: 'default' });
+    ok(output.includes('Editable setting: promptTracking'));
+    ok(output.includes('promptTracking: \"untracked\" (source: default; editable)'));
     ok(output.includes('Config path: (none;'));
     ok(output.includes('git add -A can still stage them'));
     deepStrictEqual(readdirSync(dir), ['.git'], 'reads create nothing');
@@ -47,13 +52,83 @@ describe('config command reads', () => {
     deepStrictEqual(result.supportedSettings, ['promptTracking']);
   });
 
-  it('shows only the supported setting as JSON with an explicit source', async () => {
+  it('shows editable policy and effective layout as JSON with explicit sources', async () => {
     writeFileSync(file, "export const promptTracking = 'tracked';\nexport const root = '.';\n");
     const { output } = await invoke(['--json', 'show']);
-    deepStrictEqual(JSON.parse(output), { supportedSettings: ['promptTracking'], settings: { promptTracking: { value: 'tracked', source: 'config' } }, configPath: file });
+    const result = JSON.parse(output);
+    deepStrictEqual(result.settings.promptTracking, { value: 'tracked', source: 'config' });
+    deepStrictEqual(result.settings.root, { value: '.', source: 'config' });
+    deepStrictEqual(result.settings.promptDirectory, { value: path.join(dir, 'prompts'), source: 'derived' });
+    strictEqual(result.configPath, file);
   });
 
-  for (const args of [[], ['other'], ['show', 'promptTracking'], ['get'], ['get', 'root'], ['set', 'root', 'docs'], ['set', 'promptTracking'], ['set', 'promptTracking', 'tracked', 'extra'], ['show', '--all'], ['show', '--json', '--json']]) {
+  it('resolves multiple roots, legacy indexes and custom prompt routing without invoking hooks', async () => {
+    const source = `export const root = ['notes', 'notes/handoffs'];
+export const readme = {path: 'notes/catalog.md'};
+export const archiveDir = 'old';
+export const templates = {prompt: {targetRoot: 'handoffs', dir: 'unused', body() { throw new Error('must not render'); }}};
+export function onCreate() { throw new Error('must not create'); }
+`;
+    writeFileSync(file, source);
+    const before = readdirSync(dir);
+    const { result } = await invoke(['show', '--json']);
+    deepStrictEqual(result.settings.root, { value: ['notes', 'notes/handoffs'], source: 'config' });
+    deepStrictEqual(result.settings.docsRoots.value, [path.join(dir, 'notes'), path.join(dir, 'notes/handoffs')]);
+    deepStrictEqual(result.settings['index.path'], { value: path.join(dir, 'notes/catalog.md'), source: 'legacy-readme' });
+    deepStrictEqual(result.settings.archiveDir, { value: 'old', source: 'config' });
+    strictEqual(result.settings.promptDirectory.value, path.join(dir, 'notes/handoffs'));
+    strictEqual(readFileSync(file, 'utf8'), source);
+    deepStrictEqual(readdirSync(dir), before);
+  });
+
+  it('gets layout defaults independently of other configured index properties', async () => {
+    writeFileSync(file, "export const root = 'notes'; export const index = {snapshot: 'briefing'}; export const templates = {prompt: {dir: ''}};\n");
+    const config = await resolveConfig(dir);
+    const index = await invoke(['get', 'index.path', '--json'], {}, config);
+    strictEqual(index.result.value, null);
+    strictEqual(index.result.source, 'default');
+    const prompt = await invoke(['get', 'promptDirectory', '--json'], {}, config);
+    strictEqual(prompt.result.value, path.join(dir, 'notes'));
+    const archive = await invoke(['get', 'archiveDir', '--json'], {}, config);
+    strictEqual(archive.result.source, 'default');
+  });
+
+  it('CLI inspection leaves legacy state, ignore files and Git bytes untouched in a degraded host', () => {
+    writeFileSync(file, "export const root = ['notes', 'notes/prompts']; export const index = {path: 'notes/catalog.md'}; export const journal = true; export const privateToken = 'not-for-display';\n");
+    mkdirSync(path.join(dir, '.dotmd'));
+    const protectedFiles = ['runlist.config.mjs', '.gitignore', '.git/index', '.dotmd/state.json'];
+    for (const name of protectedFiles.slice(1)) writeFileSync(path.join(dir, name), `user bytes: ${name}\n`);
+    const before = protectedFiles.map(name => readFileSync(path.join(dir, name)));
+    const env = { ...process.env, HOME: dir, USERPROFILE: dir, XDG_CONFIG_HOME: path.join(dir, '.config') };
+    for (const key of SESSION_ID_VARIABLES) delete env[key];
+    env.OPENCODE_PID = String(process.pid);
+    const bin = path.resolve(import.meta.dirname, '../bin/runlist.mjs');
+    for (const args of [['config', 'show', '--json'], ['config', 'get', 'promptDirectory', '--json']]) {
+      const response = spawnSync(process.execPath, [bin, ...args], { cwd: dir, env, encoding: 'utf8', timeout: 20_000 });
+      strictEqual(response.status, 0, response.stderr);
+      ok(!response.stdout.includes('not-for-display'));
+      const data = JSON.parse(response.stdout);
+      if (args[1] === 'get') strictEqual(data.value, path.join(dir, 'notes/prompts'));
+      for (let n = 0; n < protectedFiles.length; n++) deepStrictEqual(readFileSync(path.join(dir, protectedFiles[n])), before[n]);
+      ok(!existsSync(path.join(dir, '.runlist')), 'no cache, migration, journal or host notice writes');
+    }
+    const refused = spawnSync(process.execPath, [bin, 'config', 'get', 'root', '--root', 'notes'], { cwd: dir, env, encoding: 'utf8' });
+    strictEqual(refused.status, 1);
+    ok(refused.stderr.includes('query filters'));
+    ok(!existsSync(path.join(dir, '.runlist')));
+  });
+
+  for (const key of ['root', 'docsRoots', 'index.path', 'archiveDir', 'promptDirectory']) {
+    it(`refuses edits to ${key} with manual configuration guidance`, async () => {
+      const source = "export const root = '.';\n";
+      writeFileSync(file, source);
+      await rejects(invoke(['set', key, 'other']), error => error.message.includes('read-only') && error.message.includes(file) && error.message.includes('Edit'));
+      strictEqual(readFileSync(file, 'utf8'), source);
+      deepStrictEqual(readdirSync(dir), ['.git', 'runlist.config.mjs']);
+    });
+  }
+
+  for (const args of [[], ['other'], ['show', 'promptTracking'], ['get'], ['get', 'unknown'], ['set', 'promptTracking'], ['set', 'promptTracking', 'tracked', 'extra'], ['show', '--all'], ['show', '--json', '--json']]) {
     it(`rejects unsupported arguments ${JSON.stringify(args)}`, async () => {
       await rejects(invoke(args), /Usage:|Unsupported config key/);
       deepStrictEqual(readdirSync(dir), ['.git']);

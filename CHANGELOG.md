@@ -13,6 +13,10 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ### Changed
 
+- CLI settings inspection now includes effective document roots, index, archive
+  directory and prompt location, with value sources and explicit edit limits.
+- Added a beginner setup guide covering assistant requests, host activation,
+  prompt Git choices, troubleshooting and optional desktop downloads.
 - Setup skills preserve requested first-plan facts and prompt policy, and use
   the shell-selected CLI without treating duplicate installations as a blocker.
 - Release completion ends after verified publication. Local desktop installation,

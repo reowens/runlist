@@ -508,7 +508,8 @@ export async function resolveConfig(cwd, explicitConfigPath) {
   }
 
   // Backwards compat: `readme` config key maps to `index`
-  if (userConfig.readme && !userConfig.index) {
+  const legacyIndex = Boolean(userConfig.readme && !userConfig.index);
+  if (legacyIndex) {
     userConfig.index = userConfig.readme;
     delete userConfig.readme;
   }
@@ -655,6 +656,11 @@ export async function resolveConfig(cwd, explicitConfigPath) {
     configFound: Boolean(configPath),
     promptTracking: config.promptTracking,
     promptTrackingSource,
+    settingSources: {
+      root: Object.hasOwn(userConfig, 'root') ? 'config' : 'default',
+      'index.path': Object.hasOwn(userConfig.index ?? {}, 'path') ? (legacyIndex ? 'legacy-readme' : 'config') : 'default',
+      archiveDir: Object.hasOwn(userConfig, 'archiveDir') ? 'config' : 'default',
+    },
     archiveDir: config.archiveDir,
     excludeDirs: new Set(config.excludeDirs),
     externalBodyLinkRoots: Array.isArray(config.externalBodyLinkRoots) ? config.externalBodyLinkRoots : [],

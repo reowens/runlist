@@ -347,7 +347,7 @@ Create & Export:
 Setup:
   setup [--yes] [--json]            Guided setup, meaningful first plan and selected document adoption
   init                              Create starter config + docs directory
-  config show|get|set                Inspect prompt tracking policy or explicitly change it
+  config show|get|set                Inspect project layout/policy; explicitly edit prompt tracking
   install [claude|codex|opencode]  Install the agent-host integration (no arg = status)
   update [--check|--cli-only|--plugin-only]  Update the CLI + Claude Code plugin (--check reports skew, no network)
   statuses [list|add|set|remove|migrate]  Manage per-project status taxonomy
@@ -1320,10 +1320,15 @@ Host integration is separate: runlist install <claude|codex|opencode>.`,
 
   runlist config show [--json]
   runlist config get promptTracking [--json]
+  runlist config get root [--json]
+  runlist config get promptDirectory [--json]
   runlist config set promptTracking <untracked|tracked|local> [--dry-run] [--json]
 
-Shows the effective promptTracking value, source and config path. This is the
-only CLI-editable setting currently; other JavaScript configuration stays manual.
+Shows effective values and their sources: promptTracking, root, docsRoots,
+index.path, archiveDir and promptDirectory. Resolved roots, index and prompt
+directory use absolute paths; root keeps its configured string or array.
+Only promptTracking is CLI-editable; other settings give manual config guidance.
+Inspection imports the trusted project's JavaScript config but invokes no hooks.
 untracked recommends leaving pending prompts out of commits and warns in guards;
 tracked allows prompt Git operations; local denies them (legacy default for
 existing configs without an explicit choice). A new project defaults to untracked.
@@ -2168,7 +2173,7 @@ async function main() {
   // nags. `install`/`doctor`/`update` are skipped: they report this themselves,
   // and telling `runlist install opencode` to run `runlist install opencode` is
   // noise.
-  if (!['install', 'doctor', 'update', 'hud', 'guard', 'setup'].includes(command)) {
+  if (!['install', 'doctor', 'update', 'hud', 'guard', 'setup', 'config'].includes(command)) {
     const { degradedIdentityNotice } = await import('../src/host-integration.mjs');
     const notice = degradedIdentityNotice(config?.repoRoot, { version: pkg.version });
     if (notice) process.stderr.write(`${notice}\n`);
@@ -2211,6 +2216,7 @@ async function main() {
   }
 
   if (command === 'config') {
+    if (rootArg || typeArg) die('Config inspection does not use --root/--type query filters. Inspect root with runlist config get root; edit project layout manually.');
     const { runConfig } = await import('../src/config-command.mjs');
     await runConfig(restArgs, config, { dryRun });
     return;
