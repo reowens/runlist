@@ -106,7 +106,7 @@ function commitCommand(config, message, paths) {
 // With no plan named, --done finds this session's record; a named plan is
 // echoed back so the command works from any session.
 function explicitPlanDone(planArg, record) {
-  return planArg ? `runlist baton --done ${record.plan}` : 'runlist baton --done';
+  return planArg ? `runlist baton --done ${shellQuote(record.plan)}` : 'runlist baton --done';
 }
 
 // Is this positional a filesystem reference (must resolve, typos die) or a

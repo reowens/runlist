@@ -7,7 +7,7 @@ import { renderLifecycleMutation } from './lifecycle.mjs';
 import { mutateFile, withPathLocks } from './atomic-mutation.mjs';
 import { commitRename } from './durable-rename.mjs';
 import { authorizeManagedSource } from './managed-path.mjs';
-import { DotmdError, die, nowIso, toRepoPath } from './util.mjs';
+import { DotmdError, die, isArchivedPath, nowIso, shellQuote, toRepoPath } from './util.mjs';
 import { stateDir } from './naming.mjs';
 import { docArgMissMessage, resolveDocArg } from './index.mjs';
 import { authoritativeSessionId } from './pickup.mjs';
@@ -166,15 +166,28 @@ function recordLine(config, record) {
   return `  ${record.plan} (${isGone(config, record) ? 'gone' : 'still in place'}; record ${toRepoPath(record.recordFile, config.repoRoot)}, prompt ${record.name}, saved ${record.savedAt})`;
 }
 
-const clearCommand = record => `runlist baton --done ${record.plan}`;
+// Every command printed for a path is quoted, so it runs as shown.
+const doneCommand = repoPath => `runlist baton --done ${shellQuote(repoPath)}`;
+const clearCommand = record => doneCommand(record.plan);
+const ARCHIVE_HINT = 'To archive a plan as part of a handoff, use `runlist baton --status archived`.';
+
+// Whether a gone plan has a copy where `runlist archive` would have put it.
+function archivedCopyExists(config, repoPath) {
+  const abs = path.resolve(config.repoRoot, repoPath);
+  return (config.docsRoots || [config.docsRoot]).some(root => {
+    const rel = path.relative(root, abs);
+    return rel && !rel.startsWith('..') && !path.isAbsolute(rel) && existsSync(path.join(root, config.archiveDir, path.basename(abs)));
+  });
+}
 
 // A plan whose handoff names a path it is no longer at. Writes never follow
 // it: the fields go only to the plan at the path the handoff was saved for.
-function goneMessage(record, writing) {
+function goneMessage(config, record, writing) {
   const lead = writing
     ? `${record.plan} is gone (moved or archived?), so nothing was written: --next-step and --current-state write only the plan at the path its handoff was saved for.`
     : `${record.plan} is gone (moved or archived?).`;
-  return `${lead} Bring the plan up to date where it is now, then run \`runlist baton --done <its new path>\`; or clear this handoff by its old path: \`${clearCommand(record)}\`.\nSaved prompt: ${record.name}`;
+  const hint = writing && archivedCopyExists(config, record.plan) ? `\n${ARCHIVE_HINT}` : '';
+  return `${lead} Bring the plan up to date where it is now, then run \`runlist baton --done <its new path>\`; or clear this handoff by its old path: \`${clearCommand(record)}\`.${hint}\nSaved prompt: ${record.name}`;
 }
 
 // A named plan finishes the record saved for that exact path. The one
@@ -191,25 +204,20 @@ function namedHandoff(config, repoPath, writing) {
   const moved = sameName.filter(r => isGone(config, r));
   if (!sameName.length) die(`No handoff waits on ${repoPath}: baton has not saved a prompt for it that needs the plan brought up to date.`);
   if (!moved.length) die(`No handoff waits on ${repoPath}. The handoff for a plan of the same file name is ${sameName.map(r => r.plan).join(', ')}, which is still in place; finish it there: ${clearCommand(sameName[0])}`);
+  // With several candidates, at most one was saved for this plan, and
+  // clearing it says nothing about whose the others are.
+  const clearOne = `At most one of these was saved for this plan; clear that one by its old path (only its record is removed, the others stay pending):\n${moved.map(r => `  ${clearCommand(r)}`).join('\n')}`;
   if (writing) {
     const recover = sameName.length === 1
-      ? `If ${repoPath} is that plan, moved: bring it up to date by any means and run \`runlist baton --done ${repoPath}\`, or clear the handoff by its old path: \`${clearCommand(moved[0])}\`.`
-      : `To clear the handoff saved for this plan, name its old path (the plan is gone there, so only the record is removed):\n${moved.map(r => `  ${clearCommand(r)}`).join('\n')}`;
-    die(`No handoff was saved for ${repoPath}, so nothing was written: --next-step and --current-state write only the plan at the path a handoff was saved for.\n${sameName.map(r => recordLine(config, r)).join('\n')}\n${recover}`);
+      ? `If ${repoPath} is that plan, moved: bring it up to date by any means and run \`${doneCommand(repoPath)}\`, or clear the handoff by its old path: \`${clearCommand(moved[0])}\`.`
+      : clearOne;
+    const hint = isArchivedPath(repoPath, config) ? `\n${ARCHIVE_HINT}` : '';
+    die(`No handoff was saved for ${repoPath}, so nothing was written: --next-step and --current-state write only the plan at the path a handoff was saved for.\n${sameName.map(r => recordLine(config, r)).join('\n')}\n${recover}${hint}`);
   }
   if (sameName.length > 1) {
-    die(`No handoff was saved for ${repoPath}, and ${sameName.length} handoffs for plans of that file name could be meant:\n${sameName.map(r => recordLine(config, r)).join('\n')}\nTo clear the handoff saved for this plan, name its old path (the plan is gone there, so only the record is removed):\n${moved.map(r => `  ${clearCommand(r)}`).join('\n')}`);
+    die(`No handoff was saved for ${repoPath}, and ${sameName.length} handoffs for plans of that file name could be meant:\n${sameName.map(r => recordLine(config, r)).join('\n')}\n${clearOne}`);
   }
   return { record: moved[0], relocated: true };
-}
-
-// A path that is not on disk names a handoff only when a record was saved for
-// exactly that path.
-function goneHandoff(config, planArg) {
-  const repoPath = toRepoPath(path.resolve(config.repoRoot, planArg), config.repoRoot);
-  const record = listPendingHandoffs(config).find(r => r.plan === repoPath);
-  if (!record) die(docArgMissMessage(planArg, config));
-  return record;
 }
 
 // `runlist baton --done [<plan>] [--next-step "…"] [--current-state "…"]`
@@ -224,13 +232,24 @@ export function runBatonDone(planArg, config, { json = false, dryRun = false, ne
   let relocated = false;
   let abs = null;
   if (planArg) {
-    abs = resolveDocArg(planArg, config, { dieOnMiss: false });
-    if (abs) ({ record, relocated } = namedHandoff(config, toRepoPath(abs, config.repoRoot), writing));
-    else record = goneHandoff(config, planArg);
+    // The argument is first taken as a path, exactly as typed: a record saved
+    // for that path is the handoff meant, whether or not the plan is still
+    // there. Resolving it as a doc first could land on another plan (another
+    // root, a slug, a file name) while the named path is gone.
+    // As for any doc argument, a path typed without `.md` names the file with it.
+    const argRepoPath = toRepoPath(path.resolve(config.repoRoot, planArg), config.repoRoot);
+    const candidates = argRepoPath.endsWith('.md') ? [argRepoPath] : [argRepoPath, `${argRepoPath}.md`];
+    const pending = listPendingHandoffs(config);
+    record = candidates.map(candidate => pending.find(r => r.plan === candidate)).find(Boolean);
+    if (!record) {
+      abs = resolveDocArg(planArg, config, { dieOnMiss: false });
+      if (!abs) die(docArgMissMessage(planArg, config));
+      ({ record, relocated } = namedHandoff(config, toRepoPath(abs, config.repoRoot), writing));
+    }
   } else {
     const mine = pendingHandoffsForSession(config);
     if (mine.length === 0) die('No handoff of this session waits on a plan update. Name the plan: runlist baton --done <plan-file>');
-    if (mine.length > 1) die(`This session has ${mine.length} handoffs waiting; name the plan:\n${mine.map(r => `  runlist baton --done ${r.plan}`).join('\n')}`);
+    if (mine.length > 1) die(`This session has ${mine.length} handoffs waiting; name the plan:\n${mine.map(r => `  ${doneCommand(r.plan)}`).join('\n')}`);
     record = mine[0];
   }
 
@@ -238,9 +257,9 @@ export function runBatonDone(planArg, config, { json = false, dryRun = false, ne
   const planGone = !existsSync(abs);
   // Naming the gone path itself is how a handoff whose plan moved away is
   // cleared; with fields to write, or with no path named, it is refused.
-  if (planGone && (writing || !planArg)) die(goneMessage(record, writing));
+  if (planGone && (writing || !planArg)) die(goneMessage(config, record, writing));
   const planRepoPath = toRepoPath(abs, config.repoRoot);
-  const again = `runlist baton --done${planArg ? ` ${planRepoPath}` : ''}`;
+  const again = planArg ? doneCommand(planRepoPath) : 'runlist baton --done';
 
   if (fields.next_step !== undefined && JSON.stringify(fields.next_step) === comparableNextStep(record.nextStep)) {
     die(`Not done: --next-step repeats the next_step ${planRepoPath} had when the prompt was saved (${record.savedAt}). Write where the work goes from here.\nSaved prompt: ${record.name}`);
@@ -284,6 +303,12 @@ export function runBatonDone(planArg, config, { json = false, dryRun = false, ne
         if (relocated) finish(readFileSync(source, 'utf8'));
         withPathLocks([record.recordFile], { repoRoot: config.repoRoot }, () => {
           current();
+          // The saved path was gone when this started; a restore since then
+          // (`set active` on the archived copy) brings the plan back as it
+          // was, and that handoff is finished there, not cleared.
+          if (existsSync(path.resolve(config.repoRoot, record.plan))) {
+            die(`${record.plan} is back at the path its handoff was saved for, so the handoff was not cleared. Finish it there: \`${clearCommand(record)}\` once the plan is up to date.\nSaved prompt: ${record.name}`);
+          }
           rmSync(record.recordFile, { force: true });
         });
       } else {
@@ -331,6 +356,8 @@ export function runBatonDone(planArg, config, { json = false, dryRun = false, ne
   }
   if (planGone) {
     process.stderr.write(`${green('✓ Handoff cleared')}: ${planRepoPath} is gone, so there is no plan to update there; its record is removed.\n`);
+    const others = listPendingHandoffs(config).filter(r => typeof r.plan === 'string' && path.basename(r.plan) === path.basename(planRepoPath));
+    if (others.length) process.stderr.write(`Still pending, each for its own saved path: ${others.map(r => r.plan).join(', ')}.\n`);
   } else {
     const how = writing ? `${Object.keys(fields).join(' and ')} written` : 'next_step was updated after the prompt was saved';
     process.stderr.write(`${green('✓ Handoff done')}: ${planRepoPath} ${how}.\n`);

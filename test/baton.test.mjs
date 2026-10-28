@@ -1,5 +1,5 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
-import { ok, strictEqual, match, rejects } from 'node:assert';
+import { ok, strictEqual, deepStrictEqual, match, rejects } from 'node:assert';
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync, rmSync, appendFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -1696,6 +1696,7 @@ describe('runlist baton: the plan update after the prompt, and the name last', (
         match(r.stderr, new RegExp(`^ {2}docs/plans/${side}/axle\\.md \\(gone; record \\.runlist/handoffs/axle-[0-9a-f]{16}\\.json, prompt resume-axle`, 'm'));
         match(r.stderr, new RegExp(`^ {2}runlist baton --done docs/plans/${side}/axle\\.md$`, 'm'));
       }
+      match(r.stderr, /At most one of these was saved for this plan; clear that one by its old path/);
     }
     strictEqual(readFileSync(moved, 'utf8'), before);
     strictEqual(records().length, 2);
@@ -1711,6 +1712,8 @@ describe('runlist baton: the plan update after the prompt, and the name last', (
     strictEqual(cleared.status, 0, cleared.stderr);
     match(cleared.stderr, /✓ Handoff cleared: docs\/plans\/x\/axle\.md is gone/);
     strictEqual(lastLine(cleared.stderr), 'Saved prompt: resume-axle');
+    // The one left is not presented as this plan's.
+    match(cleared.stderr, /^Still pending, each for its own saved path: docs\/plans\/y\/axle\.md\.$/m);
     strictEqual(JSON.stringify(records().map(r => r.plan)), JSON.stringify(['docs/plans/y/axle.md']), 'only x\'s record cleared');
     strictEqual(readFileSync(moved, 'utf8'), before, 'clearing writes no plan');
 
@@ -1724,6 +1727,119 @@ describe('runlist baton: the plan update after the prompt, and the name last', (
     const unknown = run(['baton', '--done', 'docs/plans/q/axle.md']);
     ok(unknown.status !== 0);
     match(unknown.stderr, /not found/i);
+  });
+
+  it('a gone path with a record of its own is never resolved to another root\'s plan of the same name', () => {
+    writeFileSync(configPath, `export const root = ['docs', 'plans'];\nexport const journal = true;\n`);
+    const gone = writePlanAt('plans/widget.md', { title: 'widget', nextStep: 'first' });
+    const other = writePlanAt('docs/plans/widget.md', { title: 'widget', nextStep: 'other step' });
+    strictEqual(run(['baton', 'plans/widget.md', '--message', 'resume']).status, 0);
+    strictEqual(run(['use', 'docs/prompts/resume-widget.md', '--no-claim']).status, 0);
+    strictEqual(run(['baton', 'docs/plans/widget.md', '--message', 'resume']).status, 0);
+    rmSync(gone);
+    writeFileSync(other, readFileSync(other, 'utf8').replace('next_step: other step', 'next_step: other changed'));
+    const before = readFileSync(other, 'utf8');
+    const pending = () => records().map(r => r.plan).sort();
+
+    // However the gone path is typed, it is that path's handoff: a write is refused.
+    for (const arg of ['plans/widget.md', './plans/widget.md', 'plans/widget', path.join(tmpDir, 'plans', 'widget.md')]) {
+      const r = run(['baton', '--done', arg, '--next-step', 'written via the gone path', '--json']);
+      ok(r.status !== 0, `${arg}: ${r.stdout}`);
+      match(r.stderr, /^plans\/widget\.md is gone \(moved or archived\?\), so nothing was written/, arg);
+      strictEqual(readFileSync(other, 'utf8'), before, `${arg}: the other root's plan is untouched`);
+      deepStrictEqual(pending(), ['docs/plans/widget.md', 'plans/widget.md'], `${arg}: both records kept`);
+    }
+
+    // Without fields it clears only its own record.
+    const r = run(['baton', '--done', 'plans/widget.md', '--json']);
+    strictEqual(r.status, 0, r.stderr);
+    const value = JSON.parse(r.stdout);
+    strictEqual(value.plan, 'plans/widget.md');
+    strictEqual(value.planGone, true);
+    deepStrictEqual(pending(), ['docs/plans/widget.md']);
+    strictEqual(readFileSync(other, 'utf8'), before);
+  });
+
+  it('a clear refuses once the plan is restored to its saved path while the clear waited', () => {
+    // At the docs root, where restoring the archived copy puts it back.
+    const plan = writePlanAt('docs/latch.md', { title: 'latch', nextStep: 'first' });
+    strictEqual(run(['baton', 'docs/latch.md', '--message', 'resume']).status, 0);
+    strictEqual(run(['archive', 'docs/latch.md']).status, 0);
+    const archived = path.join(docsDir, 'archived', 'latch.md');
+    ok(existsSync(archived), 'archive moved the plan');
+    const file = recordOf('docs/latch.md');
+    ok(existsSync(file));
+    // The restore lands after the command found the path gone and before it
+    // takes the record's lock: the first lock it reaches.
+    const preload = path.join(tmpDir, 'restore-plan.mjs');
+    writeFileSync(preload, `
+import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+const mkdir = fs.mkdirSync;
+let restored = false;
+fs.mkdirSync = function (target, ...args) {
+  if (!restored && /[\\\\/]locks[\\\\/][^\\\\/]+\\.lock$/.test(String(target))) {
+    restored = true;
+    const r = spawnSync(process.execPath, [${JSON.stringify(bin)}, 'set', 'active', 'docs/archived/latch.md', '--config', ${JSON.stringify(configPath)}], { cwd: ${JSON.stringify(tmpDir)}, encoding: 'utf8' });
+    if (r.status !== 0) throw new Error('restore failed: ' + r.stderr);
+  }
+  return mkdir.call(this, target, ...args);
+};
+syncBuiltinESMExports();
+`);
+    const r = spawnSync(process.execPath, ['--import', pathToFileURL(preload).href, bin, 'baton', '--done', 'docs/latch.md', '--json', '--config', configPath], {
+      cwd: tmpDir, encoding: 'utf8',
+      env: { ...process.env, NO_COLOR: '1', CLAUDE_CODE_SESSION_ID: 'test-sid', RUNLIST_ERROR_LOG_DIR: path.join(tmpDir, '.logs') },
+    });
+    ok(existsSync(plan), 'the plan was restored');
+    match(readFileSync(plan, 'utf8'), /^next_step: first$/m, 'unchanged next_step');
+    ok(r.status !== 0, r.stdout);
+    match(r.stderr, /docs\/latch\.md is back at the path its handoff was saved for, so the handoff was not cleared/);
+    ok(existsSync(file), 'record kept');
+  });
+
+  it('a write refused for an archived plan names baton --status archived', () => {
+    writePlanAt('docs/plans/hasp.md', { title: 'hasp', nextStep: 'first' });
+    strictEqual(run(['baton', 'docs/plans/hasp.md', '--message', 'resume']).status, 0);
+    strictEqual(run(['archive', 'docs/plans/hasp.md']).status, 0);
+    for (const target of ['docs/plans/hasp.md', 'docs/archived/hasp.md']) {
+      const r = run(['baton', '--done', target, '--next-step', 'second']);
+      ok(r.status !== 0, target);
+      match(r.stderr, /To archive a plan as part of a handoff, use `runlist baton --status archived`\./, target);
+    }
+    // A plan moved by hand is not called archived.
+    writePlanAt('docs/plans/pawl.md', { title: 'pawl', nextStep: 'first' });
+    strictEqual(run(['baton', 'docs/plans/pawl.md', '--message', 'resume']).status, 0);
+    rmSync(path.join(plansDir, 'pawl.md'));
+    const moved = run(['baton', '--done', 'docs/plans/pawl.md', '--next-step', 'second']);
+    ok(moved.status !== 0);
+    ok(!/baton --status archived/.test(moved.stderr), moved.stderr);
+  });
+
+  it('every printed --done command quotes a path that needs it, and runs as printed', () => {
+    const plan = writePlanAt('docs/plans/a lane/widget.md', { title: 'widget', nextStep: 'first' });
+    const saved = run(['baton', 'docs/plans/a lane/widget.md', '--message', 'resume']);
+    strictEqual(saved.status, 0, saved.stderr);
+    match(saved.stderr, /`runlist baton --done "docs\/plans\/a lane\/widget\.md" --next-step "<next move>"`/);
+    ok(run(['hud']).stdout.includes('`runlist baton --done "docs/plans/a lane/widget.md" --next-step'), 'hud quotes it too');
+
+    const early = run(['baton', '--done', 'docs/plans/a lane/widget.md']);
+    ok(early.status !== 0);
+    match(early.stderr, /then run `runlist baton --done "docs\/plans\/a lane\/widget\.md" --next-step/);
+
+    rmSync(plan);
+    const gone = run(['baton', '--done', '--next-step', 'second']);
+    ok(gone.status !== 0);
+    const command = gone.stderr.match(/clear this handoff by its old path: `([^`]+)`/)?.[1];
+    strictEqual(command, 'runlist baton --done "docs/plans/a lane/widget.md"');
+    const cleared = spawnSync(`${command.replace(/^runlist /, `"${process.execPath}" "${bin}" `)} --config "${configPath}"`, {
+      cwd: tmpDir, encoding: 'utf8', shell: true,
+      env: { ...process.env, NO_COLOR: '1', CLAUDE_CODE_SESSION_ID: 'test-sid', RUNLIST_ERROR_LOG_DIR: path.join(tmpDir, '.logs') },
+    });
+    strictEqual(cleared.status, 0, cleared.stderr);
+    match(cleared.stderr, /✓ Handoff cleared: docs\/plans\/a lane\/widget\.md is gone/);
+    strictEqual(records().length, 0);
   });
 
   for (const legacy of [false, true]) it(`a --done that read an older ${legacy ? 'id-less ' : ''}record publishes nothing and leaves its replacement`, () => {

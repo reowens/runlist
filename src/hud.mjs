@@ -2,7 +2,7 @@ import { flagsHudLine, openFlags } from './flags.mjs';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { asString, currentSessionId, isArchivedPath, relTime, toRepoPath } from './util.mjs';
+import { asString, currentSessionId, isArchivedPath, relTime, shellQuote, toRepoPath } from './util.mjs';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { promptDirectory } from './new.mjs';
 import { dim, yellow } from './color.mjs';
@@ -461,7 +461,7 @@ export function runHud(argv, config) {
   // A handoff this session started and did not finish (a compaction or a stop
   // between saving the prompt and updating the plan).
   try {
-    for (const record of pendingHandoffsForSession(config)) process.stdout.write(yellow(`[runlist] ${handoffNotDoneLine(record, `runlist baton --done ${record.plan}`)}`) + '\n');
+    for (const record of pendingHandoffsForSession(config)) process.stdout.write(yellow(`[runlist] ${handoffNotDoneLine(record, `runlist baton --done ${shellQuote(record.plan)}`)}`) + '\n');
   } catch { /* advisory */ }
   if (hud.misuseRecap) process.stdout.write(yellow(`[runlist] ${hud.misuseRecap}`) + '\n');
   if (hud.deadClaimsLine) process.stdout.write(yellow(hud.deadClaimsLine) + '\n');
