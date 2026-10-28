@@ -9,7 +9,7 @@ import {
 } from './host-integration.mjs';
 import { LEGACY_PLUGIN_ID, readInstalledPlugin, readInstalledPluginRecords } from './update.mjs';
 import { executableName, which } from './util.mjs';
-import { installationReport, formatInstallationReport } from './installation.mjs';
+import { installationReport, formatInstallationReport, persistentCliOnPath, PERSISTENT_CLI_WARNING } from './installation.mjs';
 import { codexStatus, installCodexPlugin, installedCodexStatus } from './codex-integration.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -85,13 +85,13 @@ function reportStatus(json, config) {
   }
 }
 
-function installCodex(argv, dryRun, json) {
+function installCodex(argv, dryRun, json, prerequisites) {
   if (argv.includes('--remove')) {
     process.stderr.write('Codex removal is managed by `codex plugin remove`; the personal marketplace source is left available.\n');
     process.exitCode = 1;
     return;
   }
-  const result = installCodexPlugin({ version: pkg.version, dryRun });
+  const result = { ...installCodexPlugin({ version: pkg.version, dryRun }), ...prerequisites };
   if (result.action === 'refused') {
     if (json) process.stdout.write(JSON.stringify(result, null, 2) + '\n');
     else process.stderr.write(`refused: ${result.reason}\n`);
@@ -128,11 +128,11 @@ function installCodex(argv, dryRun, json) {
   }
 }
 
-function installClaude(argv, dryRun, json, opts = {}) {
+function installClaude(argv, dryRun, json, opts = {}, prerequisites = {}) {
   const remove = argv.includes('--remove');
   const steps = planClaudeInstall({ installed: readInstalledPlugin(), legacyInstalled: readInstalledPluginRecords({ id: LEGACY_PLUGIN_ID, ...(process.env.CLAUDE_CONFIG_DIR ? { configDir: process.env.CLAUDE_CONFIG_DIR } : {}) }), hasClaude: opts.claudeBin || which('claude'), remove });
   if (json) {
-    process.stdout.write(JSON.stringify({ host: 'claude', dryRun, steps }, null, 2) + '\n');
+    process.stdout.write(JSON.stringify({ host: 'claude', dryRun, steps, ...prerequisites }, null, 2) + '\n');
     return;
   }
   let ran = false;
@@ -170,12 +170,12 @@ function installClaude(argv, dryRun, json, opts = {}) {
   if (ran && !remove && !process.exitCode) process.stdout.write(green('\n✓ restart Claude Code (or /reload-plugins) to apply.\n'));
 }
 
-function installOpencode(argv, dryRun, json) {
+function installOpencode(argv, dryRun, json, prerequisites) {
   const force = argv.includes('--force');
   const dir = flagValue(argv, '--path');
-  const result = argv.includes('--remove')
+  const result = { ...(argv.includes('--remove')
     ? removeOpencodePlugin({ dryRun, force, dir })
-    : installOpencodePlugin({ version: pkg.version, dryRun, force, dir });
+    : installOpencodePlugin({ version: pkg.version, dryRun, force, dir })), ...prerequisites };
 
   if (json) {
     process.stdout.write(JSON.stringify(result, null, 2) + '\n');
@@ -223,7 +223,10 @@ export function runInstall(argv, _config, opts = {}) {
   }
 
   const dryRun = Boolean(opts.dryRun);
-  if (host === 'claude') { installClaude(argv, dryRun, json, opts); return; }
-  if (host === 'codex') { installCodex(argv, dryRun, json); return; }
-  installOpencode(argv, dryRun, json);
+  const persistentCliMissing = !argv.includes('--remove') && !persistentCliOnPath().available;
+  const prerequisites = persistentCliMissing ? { persistentCliMissing: true } : {};
+  if (persistentCliMissing && !json) process.stderr.write(`Warning: ${PERSISTENT_CLI_WARNING}\n`);
+  if (host === 'claude') { installClaude(argv, dryRun, json, opts, prerequisites); return; }
+  if (host === 'codex') { installCodex(argv, dryRun, json, prerequisites); return; }
+  installOpencode(argv, dryRun, json, prerequisites);
 }

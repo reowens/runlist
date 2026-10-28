@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
+import { accessSync, constants, existsSync, lstatSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,18 +7,68 @@ import { desktopLaunch } from './desktop.mjs';
 import { codexStatus } from './codex-integration.mjs';
 import { opencodeStatus } from './host-integration.mjs';
 import { sourceFingerprint } from './agent-hosts.mjs';
+import { LEGACY_PRODUCT_NAME, PRODUCT_NAME } from './naming.mjs';
 export { sourceFingerprint } from './agent-hosts.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 function json(file) { try { return JSON.parse(readFileSync(file,'utf8')); } catch { return null; } }
 function resolved(file) { try { return realpathSync(file); } catch { return null; } }
-function executable(name, env) {
-  const suffixes = process.platform === 'win32' ? ['', '.cmd', '.exe'] : [''];
+function executable(name, env, { cwd = process.cwd(), runnable = false, accept = () => true } = {}) {
+  const suffixes = process.platform === 'win32' ? ['', ...(env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';')] : [''];
   for (const dir of (env.PATH ?? '').split(path.delimiter).filter(Boolean)) for (const suffix of suffixes) {
-    const file = path.resolve(dir,name+suffix);
-    try { if (lstatSync(file).isFile() || lstatSync(file).isSymbolicLink()) return file; } catch {}
+    const file = path.resolve(cwd, dir, name + suffix);
+    try {
+      if (!accept(file)) continue;
+      if (runnable) {
+        if (!statSync(file).isFile()) continue;
+        accessSync(file, constants.X_OK);
+        return file;
+      }
+      if (lstatSync(file).isFile() || lstatSync(file).isSymbolicLink()) return file;
+    } catch {}
   }
   return null;
+}
+
+export const PERSISTENT_CLI_WARNING = 'Host hooks need a lasting runlist CLI on PATH. Run `npm install -g runlist`, then restart/reload the host. Hooks may not run until then.';
+
+export function persistentCliOnPath({ env = process.env, cwd = process.cwd() } = {}) {
+  const normalize = file => {
+    const value = path.resolve(cwd, file).replace(/\\/g, '/');
+    return process.platform === 'win32' ? value.toLowerCase() : value;
+  };
+  const localBins = new Set();
+  // Evidence: npm 11.20.0, offline npx --package <local tarball> <probe>,
+  // exported npm_command=exec, npm_lifecycle_event=npx and prepended
+  // <cache>/_npx/<hash>/node_modules/.bin, then project/ancestor bins.
+  // libnpmexec/lib/index.js and @npmcli/run-script/lib/set-path.js confirm
+  // those shapes. Cache bins are temporary regardless of npm env markers;
+  // project/ancestor bins are excluded under npm, which injects them even
+  // for local devDependencies. Do not infer persistence from the launcher.
+  if (env.npm_command || env.npm_execpath || env.npm_lifecycle_event) {
+    for (const start of [cwd, env.INIT_CWD, env.npm_config_local_prefix, env.npm_package_json && path.dirname(env.npm_package_json)].filter(Boolean)) {
+      let dir = path.resolve(cwd, start);
+      for (;;) {
+        const bin = path.join(dir, 'node_modules', '.bin');
+        localBins.add(normalize(bin));
+        localBins.add(normalize(resolved(bin) || bin));
+        const parent = path.dirname(dir);
+        if (parent === dir) break;
+        dir = parent;
+      }
+    }
+  }
+  const inCache = file => /(?:^|\/)_npx\/[^/]+\/node_modules(?:\/|$)/.test(normalize(file));
+  const accept = file => {
+    const dir = path.dirname(file), realDir = resolved(dir) || dir;
+    return !localBins.has(normalize(dir)) && !localBins.has(normalize(realDir))
+      && !inCache(dir) && !inCache(realDir) && !inCache(resolved(file) || file);
+  };
+  for (const name of [PRODUCT_NAME, LEGACY_PRODUCT_NAME, 'rl']) {
+    const file = executable(name, env, { cwd, runnable: true, accept });
+    if (file) return { available: true, path: file };
+  }
+  return { available: false, path: null };
 }
 
 function identity(root) {

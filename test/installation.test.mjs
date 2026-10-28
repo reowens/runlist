@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,existsSync,rmSync,symlinkSync,realpathSync} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {installationReport,sourceFingerprint,formatInstallationReport,readInstalledPluginRecords} from '../src/installation.mjs';
+import {installationReport,sourceFingerprint,formatInstallationReport,readInstalledPluginRecords,persistentCliOnPath} from '../src/installation.mjs';
 
 function fixture(t) {
   const home=realpathSync(mkdtempSync(path.join(os.tmpdir(),'runlist-installation-')));t.after(()=>rmSync(home,{recursive:true,force:true}));
@@ -68,4 +68,87 @@ test('legacy installation report plugin hashes include standalone hooks.json',t=
   assert.equal(f.report().integrations.claude[0].sameSource,true);
   f.write(path.join(installed,'hooks.json'),'{"hooks":{"SessionStart":"old"}}');
   assert.equal(f.report().integrations.claude[0].sameSource,false);
+});
+
+// PATH fixtures describe synthetic launchers; none of these files is executed.
+function cliFixture(t) {
+  const f = fixture(t);
+  const cwd = path.join(f.project, 'nested');
+  mkdirSync(cwd);
+  const bin = (directory, name = 'runlist') => {
+    const file = path.join(directory, name + (process.platform === 'win32' ? '.cmd' : ''));
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(file, 'exit 99\n', { mode: 0o755 });
+    return file;
+  };
+  const env = { PATH: '', npm_command: 'exec' };
+  return { ...f, cwd, bin, env, check: () => persistentCliOnPath({ cwd, env }) };
+}
+
+test('persistent CLI detection rejects npx cache bins even without npm markers', t => {
+  const f = cliFixture(t);
+  const cacheBin = path.join(f.home, 'custom-cache/_npx/abc123/node_modules/.bin');
+  f.bin(cacheBin);
+  f.env.PATH = cacheBin;
+  delete f.env.npm_command;
+  assert.deepEqual(f.check(), { available: false, path: null });
+});
+
+test('persistent CLI detection rejects project and ancestor bins injected by npm', t => {
+  const f = cliFixture(t);
+  const bins = [f.cwd, f.project, f.home].map(dir => path.join(dir, 'node_modules/.bin'));
+  for (const dir of bins) f.bin(dir);
+  f.env.PATH = bins.join(path.delimiter);
+  assert.deepEqual(f.check(), { available: false, path: null });
+  delete f.env.npm_command;
+  assert.equal(f.check().available, true, 'an explicitly configured PATH outside npm is respected');
+});
+
+test('persistent CLI detection accounts for npm prefix and initial cwd outside current cwd', t => {
+  const f = cliFixture(t);
+  const binDir = path.join(f.home, 'workspace/node_modules/.bin');
+  f.bin(binDir);
+  f.env.PATH = binDir;
+  for (const key of ['INIT_CWD', 'npm_config_local_prefix']) {
+    f.env[key] = path.dirname(path.dirname(binDir));
+    assert.equal(f.check().available, false);
+    delete f.env[key];
+  }
+});
+
+for (const name of ['runlist', 'dotmd', 'rl']) test(`persistent CLI detection finds lasting ${name} after temporary entries`, t => {
+  const f = cliFixture(t);
+  const ephemeral = path.join(f.home, 'cache/_npx/abc123/node_modules/.bin');
+  f.bin(ephemeral);
+  const lasting = path.join(f.home, 'lasting-bin');
+  const expected = f.bin(lasting, name);
+  f.env.PATH = [ephemeral, path.join(f.project, 'node_modules/.bin'), lasting].join(path.delimiter);
+  assert.deepEqual(f.check(), { available: true, path: expected });
+});
+
+test('persistent CLI detection skips directories, non-executable files and broken links', t => {
+  if (process.platform === 'win32') return t.skip('POSIX executable bits and unprivileged symlinks.');
+  const f = cliFixture(t);
+  const binDir = path.join(f.home, 'bad-bin');
+  mkdirSync(path.join(binDir, 'runlist'), { recursive: true });
+  writeFileSync(path.join(binDir, 'rl'), 'not executable\n', { mode: 0o644 });
+  symlinkSync(path.join(binDir, 'missing'), path.join(binDir, 'dotmd'));
+  f.env.PATH = binDir;
+  assert.equal(f.check().available, false);
+});
+
+test('persistent CLI detection follows directory and launcher links into an npx cache', t => {
+  if (process.platform === 'win32') return t.skip('Symlink creation requires Windows privileges.');
+  const f = cliFixture(t);
+  const cacheBin = path.join(f.home, 'cache/_npx/abc123/node_modules/.bin');
+  const target = f.bin(cacheBin);
+  const linkedDir = path.join(f.home, 'linked-bin');
+  symlinkSync(cacheBin, linkedDir, 'dir');
+  f.env.PATH = linkedDir;
+  assert.equal(f.check().available, false);
+  const lastingDir = path.join(f.home, 'lasting-bin');
+  mkdirSync(lastingDir);
+  symlinkSync(target, path.join(lastingDir, 'runlist'));
+  f.env.PATH = lastingDir;
+  assert.equal(f.check().available, false);
 });

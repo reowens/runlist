@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 import { which } from './util.mjs';
+import { persistentCliOnPath, PERSISTENT_CLI_WARNING } from './installation.mjs';
 
 const workerUrl = new URL('./setup-worker.mjs', import.meta.url).href;
 const bin = fileURLToPath(new URL('../bin/runlist.mjs', import.meta.url));
@@ -102,7 +103,17 @@ function runHost({ host, dryRun, cwd, configPath }) {
     cwd, encoding: 'utf8', timeout: 120000, maxBuffer: 4 * 1024 * 1024,
     env: { ...process.env, RUNLIST_JOURNAL: '0', DOTMD_JOURNAL: '0', NO_COLOR: '1', FORCE_COLOR: '0' },
   });
-  return { available: which(host), status: result.status, stdout: result.stdout || '', stderr: result.error?.message || result.stderr || '' };
+  // Setup owns this prerequisite in Outstanding, including JSON. Do not also
+  // bury the installer's copy in a completed host action's captured output.
+  const stderr = (result.error?.message || result.stderr || '').replace(`Warning: ${PERSISTENT_CLI_WARNING}\n`, '');
+  return { available: which(host), status: result.status, stdout: result.stdout || '', stderr };
+}
+
+function checkHostCli(report, cwd) {
+  const missing = !persistentCliOnPath({ cwd }).available;
+  report.checks.host.persistentCliMissing = missing;
+  report.outstanding = report.outstanding.filter(item => item.id !== 'persistent-cli');
+  if (missing) report.outstanding.push({ id: 'persistent-cli', description: PERSISTENT_CLI_WARNING });
 }
 
 // One readline iterator retains queued answers and handles EOF at every prompt,
@@ -210,6 +221,7 @@ export async function runSetup(argv, config, options = {}) {
     if (choices.host !== 'none') {
       const host = await hostRunner({ host: choices.host, dryRun: true, cwd, configPath });
       report.checks.host = { host: choices.host, available: host.available, previewExitCode: host.status };
+      checkHostCli(report, cwd);
       report.actions.push({ id: 'host', description: `Installer dry-run for selected ${choices.host} host; no integration was installed by this preview`, preview: `${host.stdout || ''}${host.stderr || ''}` });
       if (host.status !== 0) report.outstanding.push({ description: `Host preview reported exit ${host.status}; installation may be unavailable or refused` });
       if (!host.available) report.outstanding.push({ description: `${choices.host} CLI is unavailable; install/activation cannot be verified` });
@@ -265,6 +277,7 @@ export async function runSetup(argv, config, options = {}) {
       if (report.failed.length) report.outstanding.push({ description: `Host install for ${choices.host} was not attempted after project setup failed` });
       else if (!report.checks.host.available) report.failed.push({ description: `${choices.host} CLI is unavailable; host install was not attempted` });
       else {
+        checkHostCli(report, cwd);
         const host = await hostRunner({ host: choices.host, dryRun: false, cwd, configPath: configPath || path.join(cwd, 'runlist.config.mjs') });
         if (host.status !== 0) report.failed.push({ description: `${choices.host} install failed (exit ${host.status})`, output: `${host.stdout || ''}${host.stderr || ''}` });
         else report.completed.push({ id: 'host', description: `${choices.host} install verb completed`, output: `${host.stdout || ''}${host.stderr || ''}` });
