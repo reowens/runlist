@@ -4,6 +4,11 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ## Unreleased
 
+### Fixed
+
+- Baton's printed Git command stages new, untracked plans before committing
+  them, so the first handoff in a fresh repository succeeds.
+
 ### Development
 
 - Added compact task help and agent guidance for discovering common workflows.

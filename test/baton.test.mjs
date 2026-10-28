@@ -29,12 +29,13 @@ function setupProject({ journal = true } = {}) {
   writeFileSync(configPath, `export const root = 'docs';\nexport const journal = ${journal};\n`);
 }
 
-function writePlan(name, { status = 'in-session', frontmatter = true } = {}) {
+function writePlan(name, { status = 'in-session', frontmatter = true, tracked = true } = {}) {
   const file = path.join(plansDir, `${name}.md`);
   const content = frontmatter
     ? `---\ntype: plan\nstatus: ${status}\ntitle: ${name}\n---\n# ${name}\n\nbody\n`
     : `# ${name}\n\nno frontmatter here\n`;
   writeFileSync(file, content);
+  if (!tracked) return file;
   spawnSync('git', ['add', file], { cwd: tmpDir });
   spawnSync('git', ['commit', '-qm', `add ${name}`], { cwd: tmpDir });
   return file;
@@ -96,6 +97,39 @@ afterEach(() => {
   if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
 });
 
+describe('runlist baton in a fresh repository', () => {
+  for (const promptTracking of ['untracked', 'tracked', 'local']) it(`prints an executable commit command with ${promptTracking} prompts`, () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-baton-fresh-'));
+    const git = args => spawnSync('git', args, { cwd: tmpDir, encoding: 'utf8' });
+    const cli = args => spawnSync(process.execPath, [path.resolve(import.meta.dirname, '../bin/runlist.mjs'), ...args], {
+      cwd: tmpDir, encoding: 'utf8',
+      env: { ...process.env, NO_COLOR: '1', CLAUDE_CODE_SESSION_ID: 'fresh-session', RUNLIST_ERROR_LOG_DIR: path.join(tmpDir, '.logs') },
+    });
+    for (const args of [['init', '-q'], ['config', 'user.email', 'test@example.com'], ['config', 'user.name', 'Test'], ['commit', '--allow-empty', '-qm', 'Initial commit']]) {
+      const result = git(args);
+      strictEqual(result.status, 0, result.stderr);
+    }
+    for (const args of [['setup', '--yes', '--prompt-tracking', promptTracking], ['new', 'plan', 'demo'], ['use', 'docs/plans/demo.md']]) {
+      const result = cli(args);
+      strictEqual(result.status, 0, result.stderr);
+    }
+    writeFileSync(path.join(tmpDir, 'draft.md'), '## Progress\nThe first step is complete.\n\n## Next\nFinish the remaining step.\n');
+    const result = cli(['baton', '@draft.md']);
+    strictEqual(result.status, 0, result.stderr);
+    const command = result.stderr.split('\n').find(line => line.startsWith('  git '))?.trim();
+    strictEqual(command, 'git add -- docs/plans/demo.md && git commit -m "baton: demo in-session → active" -- docs/plans/demo.md');
+    // A staged prompt must stay outside the commit, even when policy allows it.
+    if (promptTracking === 'tracked') strictEqual(git(['add', '--', 'docs/prompts/resume-demo.md']).status, 0);
+    const committed = spawnSync(command, { cwd: tmpDir, encoding: 'utf8', shell: true });
+    strictEqual(committed.status, 0, committed.stderr);
+    const plan = git(['show', 'HEAD:docs/plans/demo.md']);
+    strictEqual(plan.status, 0, plan.stderr);
+    match(plan.stdout, /status: active/);
+    strictEqual(git(['diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD']).stdout.trim(), 'docs/plans/demo.md');
+    strictEqual(git(['ls-tree', '-r', '--name-only', 'HEAD', '--', 'docs/prompts']).stdout, '');
+  });
+});
+
 describe('runlist baton', () => {
   beforeEach(() => setupProject());
 
@@ -114,17 +148,37 @@ describe('runlist baton', () => {
     ok(plan.includes('status: active'), `plan released to active:\n${plan}`);
 
     match(r.stderr, /Baton passed/);
-    match(r.stderr, /git commit -m "baton: auth-revamp in-session → active" -- docs\/plans\/auth-revamp\.md/);
+    strictEqual(r.stderr.split('\n').find(line => line.startsWith('  git ')),
+      '  git commit -m "baton: auth-revamp in-session → active" -- docs/plans/auth-revamp.md');
     ok(!r.stderr.includes('prompts/resume-auth-revamp.md --'), 'prompt not in pathspec');
   });
 
-  it('formats a configured commit argv with shell-safe message and plan path', () => {
-    const plan = writePlan('quote $PATH');
+  for (const tracked of [true, false]) it(`formats a configured commit argv unchanged for a ${tracked ? 'tracked' : 'untracked'} plan`, () => {
+    const plan = writePlan('quote $PATH', { tracked });
     appendFileSync(configPath, '\nexport function batonCommitCommand(message, paths) { return ["just", "commit", message, ...paths]; }\n');
     const r = run(['baton', plan, '--message', 'resume']);
     strictEqual(r.status, 0, r.stderr);
-    ok(r.stderr.includes('just commit "baton: quote \\$PATH in-session → active" "docs/plans/quote \\$PATH.md"'), r.stderr);
+    strictEqual(r.stderr.split('\n').find(line => line.startsWith('  just ')),
+      '  just commit "baton: quote \\$PATH in-session → active" "docs/plans/quote \\$PATH.md"');
+    ok(!r.stderr.includes('git add'), 'wrapper command has no staging prefix');
     ok(!r.stderr.includes('docs/prompts/'), 'session prompt excluded from commit command');
+  });
+
+  it('quotes an untracked plan in both staging and commit pathspecs', () => {
+    writePlan('quote $PATH', { tracked: false });
+    const r = run(['baton', 'docs/plans/quote $PATH.md', '--message', 'resume']);
+    strictEqual(r.status, 0, r.stderr);
+    const command = r.stderr.split('\n').find(line => line.startsWith('  git ')).trim();
+    strictEqual(command, 'git add -- "docs/plans/quote \\$PATH.md" && git commit -m "baton: quote \\$PATH in-session → active" -- "docs/plans/quote \\$PATH.md"');
+  });
+
+  it('keeps gitignored untracked plans out of commit hints', () => {
+    writeFileSync(path.join(tmpDir, '.gitignore'), 'docs/plans/\n');
+    writePlan('ignored-demo', { tracked: false });
+    const r = run(['baton', 'docs/plans/ignored-demo.md', '--message', 'resume']);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stderr, /is gitignored — no commit needed/);
+    ok(!r.stderr.includes('git add') && !r.stderr.includes('git commit'), r.stderr);
   });
 
   // Regression: a prompt-refresh pass named a plan slug to re-save its handoff

@@ -12,6 +12,7 @@ import { mutateFileSet } from './atomic-mutation.mjs';
 import { assertPlanMutationAuthorized, authoritativeSessionId, listOwnedPlans, readPlanOwnership } from './pickup.mjs';
 import { HANDOFF_TEMPLATES, parentPromptName } from './prompt-handoff.mjs';
 import { readTemplateStore, templateFile } from './template-store.mjs';
+import { isGitIgnored, isTracked } from './git.mjs';
 
 // `runlist baton` is the one-command handoff: save the resume prompt AND release
 // the plan in a single atomic-ish verb. It exists because the three-step skill
@@ -83,18 +84,20 @@ function archivedCopyPath(promptPath, config) {
 }
 
 function commitCommand(config, message, paths) {
-  const fallback = ['git', 'commit', '-m', message, '--', ...paths];
-  let argv = fallback;
   if (typeof config.hooks.batonCommitCommand === 'function') {
     try {
       const custom = config.hooks.batonCommitCommand(message, [...paths]);
       if (!Array.isArray(custom) || custom.length === 0 || !custom.every(part => typeof part === 'string' && part.length > 0)) {
         throw new Error('return a nonempty string argv array');
       }
-      argv = custom;
+      return custom.map(shellQuote).join(' ');
     } catch (err) { warn(`batonCommitCommand failed (${err.message}); printing the default git command.`); }
   }
-  return argv.map(shellQuote).join(' ');
+  const command = ['git', 'commit', '-m', message, '--', ...paths].map(shellQuote).join(' ');
+  const untracked = paths.filter(file => !isTracked(file, config.repoRoot)
+    && !isGitIgnored(path.resolve(config.repoRoot, file), config.repoRoot));
+  if (!untracked.length) return command;
+  return `${['git', 'add', '--', ...untracked].map(shellQuote).join(' ')} && ${command}`;
 }
 
 // With no plan named, --done finds this session's record; a named plan is
@@ -508,12 +511,7 @@ export async function runBaton(argv, config, opts = {}) {
     process.stderr.write(dim(`Meant to change it? runlist set <status> ${repoPath}\n`));
   }
   if (statusChanged) {
-    let gitignored = false;
-    try {
-      const { isGitIgnored } = await import('./git.mjs');
-      gitignored = isGitIgnored(planPath, config.repoRoot);
-    } catch { /* not a git repo — fall through to the hint */ }
-    if (gitignored) {
+    if (isGitIgnored(planPath, config.repoRoot)) {
       process.stderr.write(dim(`${repoPath} is gitignored — no commit needed.\n`));
     } else {
       process.stderr.write(`${prefix}Commit the repository files (session files stay OUT of the pathspec):\n`);
