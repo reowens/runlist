@@ -98,7 +98,10 @@ function installCodex(argv, dryRun, json) {
     process.exitCode = 1;
     return;
   }
-  if (!json) process.stdout.write(`${dryRun ? '[dry-run] ' : ''}${result.action} codex integration (${pkg.version}) at ${result.plugin}\n`);
+  if (!json) {
+    const action = dryRun ? ({ installed: 'Would install', updated: 'Would update', current: 'Already current' }[result.action] ?? result.action) : result.action;
+    process.stdout.write(`${dryRun ? '[dry-run] ' : ''}${action} codex integration (${pkg.version}) at ${result.plugin}\n`);
+  }
   if (dryRun) {
     if (json) process.stdout.write(JSON.stringify(result, null, 2) + '\n');
     return;
@@ -197,7 +200,7 @@ function installOpencode(argv, dryRun, json) {
       process.stdout.write(dim('Restart OpenCode to apply. Sessions fall back to a process-scoped identity.\n'));
       return result;
     default:
-      process.stdout.write(`${prefix}${green('✓')} ${result.action} opencode integration (${pkg.version})\n${dim(result.path)}\n`);
+      process.stdout.write(`${prefix}${dryRun ? ({ installed: 'Would install', updated: 'Would update' }[result.action] ?? result.action) : `${green('✓')} ${result.action}`} opencode integration (${pkg.version})\n${dim(result.path)}\n`);
       if (dryRun) return result;
       process.stdout.write('\nRestart OpenCode to apply. New sessions then get:\n');
       process.stdout.write(`  ${dim('·')} a per-session ownership identity (one session can no longer release another's plan)\n`);

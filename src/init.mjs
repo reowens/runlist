@@ -218,7 +218,7 @@ const KNOWN_STALE_DAYS = {
 
 function generateDetectedConfig(scan, rootPath, promptTracking) {
   const lines = [`// runlist.config.mjs — auto-detected from ${scan.docCount} existing docs`, ''];
-  lines.push(`export const root = '${rootPath}';`);
+  lines.push(`export const root = ${rootPath === 'docs' ? "'docs'" : JSON.stringify(rootPath)};`);
   lines.push(`export const promptTracking = '${promptTracking}';`);
   lines.push('');
 
@@ -268,7 +268,7 @@ function generateDetectedConfig(scan, rootPath, promptTracking) {
   }
 
   lines.push('export const index = {');
-  lines.push(`  path: '${rootPath}/docs.md',`);
+  lines.push(`  path: ${rootPath === 'docs' ? "'docs/docs.md'" : JSON.stringify(path.posix.join(rootPath, 'docs.md'))},`);
   lines.push(`  startMarker: '<!-- GENERATED:runlist:start -->',`);
   lines.push(`  endMarker: '<!-- GENERATED:runlist:end -->',`);
   lines.push(`  snapshot: 'status',`);
@@ -290,6 +290,17 @@ export async function runInit(cwd, config, opts = {}) {
     }
   }
   const existingConfig = Boolean(config.configPath && existsSync(config.configPath));
+  // Internal setup input; the public init argv contract stays unchanged.
+  const selectedRoot = opts.docsRoot ?? 'docs';
+  if (typeof selectedRoot !== 'string' || !selectedRoot.trim() || path.isAbsolute(selectedRoot)
+      || /[\r\n\0\\]/.test(selectedRoot)
+      || selectedRoot.split('/').includes('..')) {
+    die('docsRoot must be a relative project path without traversal.');
+  }
+  if (existingConfig && opts.docsRoot !== undefined
+      && (config.docsRoots ?? [config.docsRoot]).some(root => path.resolve(config.repoRoot, selectedRoot) !== root)) {
+    die('Existing configured roots are preserved. Edit the root export manually to change the docs layout.');
+  }
   const promptTracking = existingConfig ? (config.promptTracking ?? config.raw?.promptTracking ?? 'local') : (requestedPolicy ?? 'untracked');
   if (!['untracked', 'tracked', 'local'].includes(promptTracking)) {
     die('promptTracking must be one of: untracked, tracked, local.');
@@ -303,8 +314,8 @@ export async function runInit(cwd, config, opts = {}) {
   // resolver's config-less root (which is the whole working directory).
   const projectRoot = existingConfig ? config.repoRoot : cwd;
   const configPath = existingConfig ? config.configPath : path.join(cwd, 'runlist.config.mjs');
-  const docsRoots = existingConfig ? (config.docsRoots ?? [config.docsRoot]) : [path.join(cwd, 'docs')];
-  const indexPath = existingConfig ? config.indexPath : path.join(cwd, 'docs', 'docs.md');
+  const docsRoots = existingConfig ? (config.docsRoots ?? [config.docsRoot]) : [path.resolve(cwd, selectedRoot)];
+  const indexPath = existingConfig ? config.indexPath : path.join(docsRoots[0], 'docs.md');
   const layout = existingConfig ? config : { ...config, repoRoot: cwd, docsRoot: docsRoots[0], docsRoots };
   const label = file => path.relative(projectRoot, file).split(path.sep).join('/') || '.';
   const dryTag = dryRun ? `${dim('[dry-run]')} ` : '';
@@ -360,8 +371,10 @@ export async function runInit(cwd, config, opts = {}) {
     process.stdout.write(`  ${dryTag}${dim('exists')}  ${label(configPath)}\n`);
   } else {
     const body = scan.docCount > 0
-      ? generateDetectedConfig(scan, 'docs', promptTracking)
-      : STARTER_CONFIG.replace("promptTracking = 'untracked'", `promptTracking = '${promptTracking}'`);
+      ? generateDetectedConfig(scan, selectedRoot, promptTracking)
+      : STARTER_CONFIG.replace("root = 'docs'", `root = ${opts.docsRoot === undefined ? "'docs'" : JSON.stringify(selectedRoot)}`)
+        .replace("path: 'docs/docs.md'", `path: ${opts.docsRoot === undefined ? "'docs/docs.md'" : JSON.stringify(path.posix.join(selectedRoot, 'docs.md'))}`)
+        .replace("promptTracking = 'untracked'", `promptTracking = '${promptTracking}'`);
     if (!dryRun) writeFileSync(configPath, body, 'utf8');
     const detail = scan.docCount > 0 ? ` (detected ${scan.docCount} docs)` : '';
     process.stdout.write(`  ${dryTag}${green('create')}  runlist.config.mjs${detail}\n`);
@@ -385,7 +398,7 @@ export async function runInit(cwd, config, opts = {}) {
     if (!exists && !dryRun) mkdirSync(subPath, { recursive: true });
     process.stdout.write(`  ${dryTag}${exists ? dim('exists') : green('create')}  ${label(subPath)}/${detail}\n`);
 
-    const keeper = sub === 'plans'
+    const keeper = sub === 'plans' && opts.samplePlan !== false
       ? { file: SAMPLE_PLAN_NAME, body: samplePlan(new Date().toISOString().slice(0, 10), label(path.join(subPath, SAMPLE_PLAN_NAME))) }
       : { file: '.gitkeep', body: '' };
     const keeperPath = path.join(subPath, keeper.file);
@@ -451,7 +464,7 @@ export async function runInit(cwd, config, opts = {}) {
   // Bulk-tag hint — when init found pre-existing .md files without
   // type/status, point at the command that can tag them in one shot. Init's
   // job here is discovery; the per-file detail lives in `bulk-tag --dry-run`.
-  if (scan?.untaggedCount > 0) {
+  if (opts.guidance !== false && scan?.untaggedCount > 0) {
     const n = scan.untaggedCount;
     const noun = n === 1 ? 'file' : 'files';
     process.stdout.write(`\n  ${yellow('hint')}    ${n} untagged .md ${noun} found — run \`runlist bulk-tag --dry-run\` to preview tagging.\n`);
@@ -467,7 +480,7 @@ export async function runInit(cwd, config, opts = {}) {
   // repo has any `.claude/` of its own (the common greenfield case).
   const likelyClaudeUser = hasProjectClaude || existsSync(path.join(os.homedir(), '.claude'));
 
-  if (likelyClaudeUser) {
+  if (opts.guidance !== false && likelyClaudeUser) {
     const sessionStart = detectSessionStartHook(cwd);
     if (sessionStart.wired) {
       process.stdout.write(`  ${dim('exists')}  ${sessionStart.file} (SessionStart hook for \`runlist hud\` already wired)\n`);
@@ -512,20 +525,25 @@ export async function runInit(cwd, config, opts = {}) {
 
   if (promptTracking === 'tracked') {
     process.stdout.write('\n  Prompt tracking: tracked — prompt Git operations are allowed.\n');
+  } else if (promptTracking === 'local') {
+    process.stdout.write('\n  Prompt tracking: local — the guard denies prompt Git operations.\n');
+    process.stdout.write('  This policy does not itself add ignore rules; git add -A can still stage prompts that are not ignored.\n');
   } else {
-    process.stdout.write(`\n  Prompt tracking: ${promptTracking}. Leave pending prompts untracked to reduce commit churn.\n`);
+    process.stdout.write('\n  Prompt tracking: untracked. Leave pending prompts untracked to reduce commit churn.\n');
     process.stdout.write('  `git add -A` can still stage any pending prompts that are not ignored.\n');
   }
   if (!argv.includes('--gitignore')) {
     process.stdout.write('  Ignore files unchanged: runtime state in .runlist/ (and legacy .dotmd/) may also be staged by git add -A.\n');
     process.stdout.write('  Review selected files, or preview explicit ignore rules with `runlist init --gitignore --dry-run`.\n');
   }
-  process.stdout.write(dryRun
-    ? '\nReady to initialize the project. Host integration is separate.\n'
-    : '\nReady. Project initialized. Host integration is separate.\n');
-  process.stdout.write('A few starting points:\n');
-  process.stdout.write(`  runlist new doc my-doc            # scaffold a reference doc\n`);
-  process.stdout.write(`  runlist new plan my-plan          # scaffold an execution plan\n`);
-  process.stdout.write(`  runlist list                      # see what you've got\n`);
-  process.stdout.write(`  runlist hud                       # session-start triage\n\n`);
+  if (opts.guidance !== false) {
+    process.stdout.write(dryRun
+      ? '\nReady to initialize the project. Host integration is separate.\n'
+      : '\nReady. Project initialized. Host integration is separate.\n');
+    process.stdout.write('A few starting points:\n');
+    process.stdout.write(`  runlist new doc my-doc            # scaffold a reference doc\n`);
+    process.stdout.write(`  runlist new plan my-plan          # scaffold an execution plan\n`);
+    process.stdout.write(`  runlist list                      # see what you've got\n`);
+    process.stdout.write(`  runlist hud                       # session-start triage\n\n`);
+  }
 }

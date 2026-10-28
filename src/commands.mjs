@@ -53,6 +53,9 @@ const definitions = [
   command('help', none, 'setup', [form('[topic]', { args: positionals(0, 1) })]),
   command('completions', none, 'setup', [form('<bash|zsh>', { args: positionals(1, 1) })]),
   command('init', mutates('repository setup paths and config files; ignore rules only by explicit opt-in'), 'setup', [form('', { options: [flag('--force'), flag('--gitignore'), value('--prompt-tracking')] })]),
+  command('setup', mutates('explicit project onboarding choices; noninteractive preview unless --yes; host installation only when selected'), 'setup', [form('', {
+    options: [flag('--yes'), value('--docs-root'), value('--prompt-tracking'), flag('--gitignore'), value('--host'), value('--first-plan'), value('--current-state'), value('--next-step'), value('--adopt'), flag('--json')],
+  })]),
   command('config', mutates('validated promptTracking export only; show/get are read-only'), 'setup', [
     form('show', { subcommands: ['show'], options: [flag('--json')] }),
     form('get <key>', { subcommands: ['get'], args: positionals(1, 1), options: [flag('--json')] }),

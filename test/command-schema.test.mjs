@@ -84,6 +84,17 @@ describe('command schema', () => {
     throws(() => validateCommandArgs('init', ['--prompt-tracking']), /Missing value/);
   });
 
+  it('declares setup choices and requires values while keeping document adoption repeatable', () => {
+    const args = ['--yes', '--docs-root', 'notes', '--prompt-tracking', 'untracked', '--host', 'none',
+      '--first-plan', 'example', '--current-state', 'Requirements agreed.', '--next-step', 'Build a prototype.',
+      '--adopt', 'notes/one.md', '--adopt', 'notes/two.md', '--gitignore', '--json'];
+    deepStrictEqual(validateCommandArgs('setup', args), args);
+    throws(() => validateCommandArgs('setup', ['--first-plan']), /Missing value/);
+    throws(() => validateCommandArgs('setup', ['unexpected']), /Usage:/);
+    ok(COMPLETION_COMMANDS.includes('setup'));
+    ok(commandCompletionWords('setup').includes('--adopt'));
+  });
+
   it('covers every literal dispatcher command branch', () => {
     const bin = readFileSync(path.resolve(import.meta.dirname, '..', 'bin', 'runlist.mjs'), 'utf8');
     const dispatched = [...bin.matchAll(/command === '([^']+)'/g)]

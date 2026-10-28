@@ -27,7 +27,7 @@ const REDACTED = '[redacted]';
 const SENSITIVE_VALUE_FLAGS = new Set([
   '--body', '--message', '--note', '--reason', '--question', '--answers', '--choice', '--title',
   '--token', '--password', '--passphrase', '--secret', '--api-key', '--apikey',
-  '--auth', '--authorization', '--cookie', '--header',
+  '--auth', '--authorization', '--cookie', '--header', '--current-state', '--next-step',
 ]);
 
 function sanitizeCredentialShapes(value) {
@@ -120,7 +120,7 @@ export function sanitizeTelemetryText(value, secrets = []) {
     text = text.split(secret).join(REDACTED);
   }
   return sanitizeCredentialShapes(text)
-    .replace(/((?:--body|--message|--note|--reason|--token|--password|--passphrase|--secret|--api-key|--apikey|--auth|--authorization|--cookie|--header)(?:=|\s+))([^\s]+)/gi, `$1${REDACTED}`)
+    .replace(/((?:--body|--message|--note|--reason|--token|--password|--passphrase|--secret|--api-key|--apikey|--auth|--authorization|--cookie|--header|--current-state|--next-step)(?:=|\s+))([^\s]+)/gi, `$1${REDACTED}`)
     .replace(/(git\s+commit\b[^\n]*?(?:\s-m|\s--message)(?:=|\s+))((?:"[^"]*")|(?:'[^']*')|[^\s]+)/gi, `$1${REDACTED}`)
     .replace(/((?:sed|perl|g?awk)\b[^\n]*?\s(?:-e\s+)?)((?:"[^"]*")|(?:'[^']*'))/gi, `$1${REDACTED}`);
 }

@@ -29,14 +29,14 @@ function run(args, cwd, opts = {}) {
 // Exercise runInit's argv contract independently of the CLI registry, which is
 // maintained separately. The existing CLI tests above/below still cover init's
 // default dispatch and global dry-run flag.
-function init(argv = [], cwd = tmpDir) {
+function init(argv = [], cwd = tmpDir, options = {}) {
   const script = `
     import { resolveConfig } from ${JSON.stringify(new URL('../src/config.mjs', import.meta.url).href)};
     import { runInit } from ${JSON.stringify(new URL('../src/init.mjs', import.meta.url).href)};
     const argv = process.argv.slice(1);
     try {
       await runInit(process.cwd(), await resolveConfig(process.cwd()), {
-        argv, dryRun: argv.includes('--dry-run'),
+        argv, dryRun: argv.includes('--dry-run'), ...${JSON.stringify(options)},
       });
     } catch (error) { console.error(error.message); process.exitCode = 1; }
   `;
@@ -56,6 +56,68 @@ function snapshot(dir = tmpDir, prefix = '') {
 
 afterEach(() => {
   if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
+});
+
+describe('init internal setup options', () => {
+  it('uses a selected relative root for fresh config, sample, prompts and index', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-selected-'));
+    const result = init([], tmpDir, { docsRoot: 'notes/team' });
+    strictEqual(result.status, 0, result.stderr);
+    ok(existsSync(path.join(tmpDir, 'notes/team/plans/example-plan.md')));
+    ok(existsSync(path.join(tmpDir, 'notes/team/prompts/.gitkeep')));
+    ok(existsSync(path.join(tmpDir, 'notes/team/docs.md')));
+    ok(!existsSync(path.join(tmpDir, 'docs')));
+    const source = readFileSync(path.join(tmpDir, 'runlist.config.mjs'), 'utf8');
+    ok(source.includes('root = "notes/team"'));
+    ok(source.includes('path: "notes/team/docs.md"'));
+  });
+
+  it('encodes a selected root safely in detected config', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-selected-'));
+    mkdirSync(path.join(tmpDir, "team's-notes"));
+    writeFileSync(path.join(tmpDir, "team's-notes/reference.md"), '---\ntype: doc\nstatus: reference\n---\n# Existing note\n');
+    const result = init([], tmpDir, { docsRoot: "team's-notes" });
+    strictEqual(result.status, 0, result.stderr);
+    const checked = run(['config', 'get', 'promptTracking', '--json']);
+    strictEqual(checked.status, 0, checked.stderr);
+    strictEqual(JSON.parse(checked.stdout).value, 'untracked');
+    ok(readFileSync(path.join(tmpDir, 'runlist.config.mjs'), 'utf8').includes('root = "team\'s-notes"'));
+  });
+
+  it('rejects traversal before any writes, including opt-in ignore rules', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-selected-'));
+    const before = snapshot();
+    const result = init(['--gitignore'], tmpDir, { docsRoot: '../notes' });
+    strictEqual(result.status, 1);
+    deepStrictEqual(snapshot(), before);
+  });
+
+  it('suppresses embedded host guidance and footer without hiding scaffold and policy details', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-selected-'));
+    mkdirSync(path.join(tmpDir, '.claude'));
+    const before = snapshot();
+    const result = init(['--dry-run', '--gitignore'], tmpDir, { guidance: false });
+    strictEqual(result.status, 0, result.stderr);
+    ok(result.stdout.includes('example-plan.md'));
+    ok(result.stdout.includes('Prompt tracking: untracked'));
+    ok(result.stdout.includes('.gitignore'));
+    ok(!result.stdout.includes('/plugin install'));
+    ok(!result.stdout.includes('SessionStart'));
+    ok(!result.stdout.includes('Ready to initialize'));
+    ok(!result.stdout.includes('A few starting points'));
+    deepStrictEqual(snapshot(), before);
+  });
+
+  it('uses a keepfile and no broad tagging guidance for embedded setup', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-embedded-'));
+    mkdirSync(path.join(tmpDir, 'docs'));
+    writeFileSync(path.join(tmpDir, 'docs/selected.md'), '# Existing note\n');
+    const result = init([], tmpDir, { samplePlan: false, guidance: false });
+    strictEqual(result.status, 0, result.stderr);
+    ok(existsSync(path.join(tmpDir, 'docs/plans/.gitkeep')));
+    ok(!existsSync(path.join(tmpDir, 'docs/plans/example-plan.md')));
+    ok(!result.stdout.includes('bulk-tag'));
+  });
 });
 
 describe('init basic', () => {

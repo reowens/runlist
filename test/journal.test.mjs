@@ -133,6 +133,8 @@ describe('telemetry sanitizer', () => {
       ['baton', 'work', secret],
       ['query', `DATABASE_URL=postgres://user:${secret}@db.example/app`],
       ['query', '--client-secret', secret],
+      ['setup', '--first-plan', 'example', '--current-state', secret, '--next-step', `${secret}_NEXT`],
+      ['setup', `--current-state=${secret}`, `--next-step=${secret}_NEXT`],
     ];
     for (const input of cases) {
       const output = sanitizeTelemetryArgv(input);

@@ -14,6 +14,12 @@ runlist (formerly dotmd) is a CLI for managing markdown documents with YAML fron
 
 ## Document Types
 
+**Project onboarding.** Before a project has a config, use the plugin's
+`runlist-setup` skill and `runlist setup`. It previews noninteractively unless
+`--yes` is supplied; `--dry-run` always previews. Select any host installation,
+ignore rules or existing-document adoption explicitly. The setup skill routes
+shell-less and remote assistants without claiming local Desktop setup.
+
 Every document has a `type:` field in its frontmatter. Types determine which statuses are valid and how the document appears in briefings.
 
 | type | purpose | statuses |

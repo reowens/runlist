@@ -6,6 +6,9 @@ allowed-tools: "Bash(runlist:*), Bash(rl:*), Bash(dotmd:*), Read"
 
 # runlist workflow
 
+For installing or onboarding Runlist, including a project with no config yet,
+use the **runlist-setup** skill. This skill covers ongoing document work.
+
 This repo's plans, reference docs, and saved prompts are managed by the **runlist** CLI (markdown + YAML frontmatter; installed from the `runlist` package, and `dotmd` still works as an alias). Always drive them through `runlist` — never hand-edit frontmatter, never read prompts with the file tools, follow the project's `promptTracking` policy for prompt commits. The session-start hook reports relevant live state; the recipes below supply command syntax. Read repository-specific plan statuses with `runlist statuses list --type plan`. Use `runlist plans` for a compact plan dashboard, `runlist agent-context` for structured agent orientation, and `runlist briefing` only when the comprehensive view is needed; its output grows with the corpus.
 
 **Workflow contract** — the irreducible verbs at a glance; the sections below expand each one.

@@ -115,6 +115,7 @@ const HELP = {
   _main: `runlist v${pkg.version} — frontmatter markdown document manager
 
 Common commands:
+  setup                 Guided project setup; preview changes before applying
   plans                 Live plans (excludes archived)
   show <file>           Plan/doc outline and open boxes; --section reads one section
   prompts               Prompt queue/admin (list, next, archive, new)
@@ -332,6 +333,7 @@ Create & Export:
   export [--format md|html|json]    Export docs as markdown, HTML, or JSON
 
 Setup:
+  setup [--yes] [--json]            Guided setup, meaningful first plan and selected document adoption
   init                              Create starter config + docs directory
   config show|get|set                Inspect prompt tracking policy or explicitly change it
   install [claude|codex|opencode]  Install the agent-host integration (no arg = status)
@@ -1248,6 +1250,35 @@ Examples:
 
 Use --dry-run (-n) to preview changes without writing anything.`,
 
+  setup: `runlist setup — guided project setup, with a concrete preview
+
+Run in a terminal for choices and confirmation. Without an interactive terminal,
+setup previews only; add --yes to apply selected actions. --dry-run always
+previews without writing. The CLI works without the optional desktop app.
+
+  --docs-root <path>       Fresh project docs folder (default docs); existing roots preserved
+  --prompt-tracking <p>    untracked (recommended), tracked, or local; existing choice preserved
+  --gitignore             Explicitly add missing ignore rules; default leaves ignore files alone
+  --host <host>           none (default), claude, codex, or opencode; explicit host install
+  --first-plan <slug>     Create a plan from the following user-supplied state and next action
+  --current-state <text>  What is true now (required with --first-plan)
+  --next-step <text>      Concrete next action (required with --first-plan)
+  --adopt <path>          Preview/adopt selected untagged Markdown; repeat for more paths
+  --json                  Structured preview or completed/outstanding report
+  --yes                   Apply choices without terminal questions
+
+Examples:
+  runlist setup
+  runlist setup --docs-root notes --dry-run
+  runlist setup --first-plan example --current-state "Requirements agreed." --next-step "Build a prototype." --dry-run
+  runlist setup --first-plan example --current-state "Requirements agreed." --next-step "Build a prototype." --yes
+  runlist setup --adopt docs/notes.md --dry-run
+
+Existing JavaScript hooks, configured folders and prompt locations are preserved.
+Untracked does not mean ignored: git add -A may include prompts and runtime state.
+Setup reports pre-existing document issues and unfinished host integration;
+installed integration still needs a new/reloaded host session.`,
+
   init: `runlist init [--prompt-tracking <untracked|tracked|local>] [--gitignore]
 
 Creates starter config and missing scaffold files; respects configured roots
@@ -2001,7 +2032,7 @@ async function main() {
   );
   const doctorExplicitApply = args.includes('--apply') || args.includes('--yes');
   const effectiveDryRun = dryRun || (command === 'doctor' && !doctorSubMode && !doctorExplicitApply);
-  const passiveMachineContext = command === 'agent-context' || command === 'config'
+  const passiveMachineContext = command === 'agent-context' || command === 'config' || command === 'setup'
     || (command === 'context' && args.includes('--json') && args.includes('--compact'));
   // Git/frontmatter drift is validation work, not index construction. Keep the
   // bounded history scan on commands that report or repair that drift; ordinary
@@ -2080,7 +2111,7 @@ async function main() {
   // nags. `install`/`doctor`/`update` are skipped: they report this themselves,
   // and telling `runlist install opencode` to run `runlist install opencode` is
   // noise.
-  if (!['install', 'doctor', 'update', 'hud', 'guard'].includes(command)) {
+  if (!['install', 'doctor', 'update', 'hud', 'guard', 'setup'].includes(command)) {
     const { degradedIdentityNotice } = await import('../src/host-integration.mjs');
     const notice = degradedIdentityNotice(config?.repoRoot, { version: pkg.version });
     if (notice) process.stderr.write(`${notice}\n`);
@@ -2125,6 +2156,13 @@ async function main() {
   if (command === 'config') {
     const { runConfig } = await import('../src/config-command.mjs');
     await runConfig(restArgs, config, { dryRun });
+    return;
+  }
+
+  if (command === 'setup') {
+    if (rootArg || typeArg) die('Setup does not use --root/--type query filters. Choose a fresh docs folder with --docs-root; existing configured roots are preserved.');
+    const { runSetup } = await import('../src/setup.mjs');
+    await runSetup(restArgs, config, { dryRun });
     return;
   }
 

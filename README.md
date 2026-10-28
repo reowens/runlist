@@ -17,7 +17,7 @@ safe to mutate.
 ```bash
 npm install -g runlist      # global CLI; choose agent integration separately
 npm install -D runlist      # project scripts via node_modules/.bin
-npx runlist init            # try it without installing
+npx runlist setup           # guided project setup without a permanent CLI install
 ```
 
 `runlist` is the canonical executable, `rl` is its short convenience alias, and
@@ -194,8 +194,10 @@ Use `runlist desktop --app /path/to/application` for a custom installation path.
 
 ### Agent host setup
 
-The CLI alone gives an agent no orientation and no session identity. Install the
-integration for whichever host you run:
+For project onboarding, start with [`runlist setup`](#quick-start). It preserves
+existing configuration and installs a host integration only when selected.
+The CLI alone does not load the workflow skill or hooks into your assistant.
+You can also inspect or install an integration separately:
 
 ```bash
 runlist install             # what's installed for each host
@@ -208,6 +210,48 @@ runlist doctor --session    # what identity runlist sees here, and from where
 The integrations are one-time and global. Codex exports `CODEX_THREAD_ID` to
 every tool shell, so its identity works without the plugin; the plugin adds a
 workflow skill, session orientation, and the tool guard.
+
+The Claude Code and Codex plugins include a discoverable **runlist-setup** skill
+for requests such as “Claude, help me set up Runlist in this project,” including
+projects with no Runlist config yet. The ordinary **runlist** skill handles the
+ongoing plan/doc/prompt workflow. The setup skill is available only after its
+plugin is installed and loaded; typing its name in an assistant without that
+plugin does not install it. Use the terminal bootstrap below first.
+Host hooks need a persistent `runlist` executable on that host's `PATH`; an
+ephemeral `npx` run alone does not provide it.
+
+### Which assistant can run setup?
+
+Use a shell in the checkout you want to configure. These surfaces have different
+execution environments:
+
+- **Claude Desktop Chat:** a conversation alone does not provide Runlist's CLI
+  or the Runlist Claude Code plugin. An assistant without a suitable shell can
+  give you the terminal commands below, but cannot report them as executed.
+  Desktop extensions and connectors are separate integrations; this plugin
+  supplies no Desktop Chat execution bridge. See Anthropic's
+  [connector and desktop-extension guidance](https://support.claude.com/en/articles/11725091-when-to-use-desktop-and-web-connectors).
+- **Claude Cowork:** verify the actual workspace and shell first. Current
+  sessions run in the cloud by default; legacy local sessions execute code in
+  an isolated VM. Connected local-folder access does not establish that shell
+  commands run on your Mac or PC. See the official
+  [Cowork architecture](https://support.claude.com/en/articles/14479288-claude-cowork-architecture-overview).
+- **Claude Code:** use a local terminal session or a local Code session in the
+  desktop app with the intended checkout selected. Desktop Code also supports
+  cloud and SSH environments; those execute elsewhere. See
+  [Claude Code desktop environments](https://code.claude.com/docs/en/desktop).
+  Install and verify the plugin in that environment; follow the host's
+  [plugin activation or reload result](https://code.claude.com/docs/en/discover-plugins).
+- **Codex:** Local and Worktree sessions use your computer; Cloud uses a remote
+  workspace. Choose the intended project and execution mode before setup. See
+  the official [Codex environments documentation](https://learn.chatgpt.com/docs/environments/modes).
+
+A successful `npm install` in a cloud, SSH, container, or Cowork shell installs
+into that environment's npm scope. It does not prove that your local computer's
+CLI, host plugin, or GUI was installed. Report the paths actually changed.
+With no shell or checkout access, run the bootstrap in a local terminal yourself.
+The optional [Runlist desktop GUI](#optional-desktop-gui) is installed separately
+with `runlist desktop install` on supported Macs; `setup` never downloads it.
 
 ### Codex Plugin
 
@@ -296,18 +340,97 @@ supports `/reload-plugins`.
 
 ## Quick Start
 
+From a terminal in your project, install the CLI using one of the scopes above,
+then start guided setup:
+
 ```bash
-runlist init                    # create config, docs/, and the generated index
-runlist new plan auth-refresh  # scaffold a typed document
-runlist plans                  # compact live plan dashboard
-runlist briefing               # comprehensive active-work view
-runlist check                  # validate schema, references, and lifecycle shape
-runlist doctor                 # preview repairs; add --apply to write
+cd /path/to/your/project
+runlist setup                   # terminal: collect choices, preview, confirm
+# Or bootstrap without a permanent CLI install:
+npx runlist setup
 ```
 
-The CLI works without the optional Runlist desktop app. Install an agent
-integration separately with `runlist install claude`, `runlist install codex`,
-or `runlist install opencode`.
+An interactive terminal without `--yes`, `--json`, or `--dry-run` collects missing choices and asks you to
+confirm the concrete preview. In a noninteractive shell, omitting `--yes` prints
+a preview, writes nothing, and does not wait for input. `--dry-run` always
+previews, even with `--yes`; `--json` requests a machine-readable report.
+
+For deterministic setup, preview explicit options and then apply those same
+options with `--yes`. This example chooses a relative docs root in a new project,
+leaves prompts untracked, and installs no host integration:
+
+```bash
+runlist setup --docs-root docs --prompt-tracking untracked --host none --dry-run --json
+runlist setup --docs-root docs --prompt-tracking untracked --host none --yes --json
+```
+
+`--yes` applies explicit options and defaults without asking more questions.
+Fresh projects default to `docs/`, prompt tracking `untracked`, no ignore-file
+edits, no host install, no first plan, and no document adoption. Existing config,
+roots, JavaScript functions, and hooks are preserved; an existing prompt policy
+is retained unless you explicitly select another. Changing an existing root
+with `--docs-root` is refused with manual configuration guidance. Review and edit
+that project's root export and dependent paths yourself; setup is not a generic
+JavaScript config editor and does not move documents.
+
+To include existing Markdown, select each file explicitly. For example, if
+these two files exist inside your configured docs root:
+
+```bash
+runlist setup --adopt docs/notes/design.md --adopt docs/notes/constraints.md --dry-run
+runlist setup --adopt docs/notes/design.md --adopt docs/notes/constraints.md --yes
+```
+
+Only the selected paths are considered for adoption. Review the proposed
+frontmatter changes; setup never blanket-tags your existing docs. Other
+untagged docs remain outstanding and may still appear in validation findings.
+An `attention` result means setup applied the selected changes and project
+validation still needs attention; it exits with status 1. Inspect the report's
+completed actions and validation findings before retrying.
+
+Optional choices can be combined in the same preview/apply pair:
+
+- `--gitignore` explicitly requests missing ignore rules. Without it, ignore
+  files are untouched. Selecting `tracked` does not remove existing ignore rules.
+- `--host claude`, `--host codex`, or `--host opencode` selects the existing
+  `runlist install` integration. The default is `--host none`. Host installation
+  requires apply; a preview does not install anything. Check which host executable
+  your shell resolves before applying, particularly with multiple Claude installs:
+  in Bash/Zsh use `type -a runlist rl node npm claude` (PowerShell:
+  `Get-Command runlist,rl,node,npm,claude -All`). Setup does not install or update
+  the agent host itself.
+- `--first-plan <slug>` also requires `--current-state <text>` and
+  `--next-step <text>`. Supply your actual state and immediate action; do not use
+  invented progress or placeholders. `current_state` is capped at 1,500 characters
+  and `next_step` at 800; longer details belong in the plan body. For example,
+  after replacing these illustrative values with your own:
+
+  ```bash
+  runlist setup --first-plan auth-refresh \
+    --current-state "The existing login flow has no retry path." \
+    --next-step "Reproduce a failed login and record the expected retry behavior." \
+    --dry-run
+  ```
+
+Read setup's **completed**, **outstanding**, and **failed** results separately.
+Configuration written successfully does not mean every document passed checks
+or that a running host loaded its plugin. Unselected untagged documents,
+unavailable host tools, and required host reloads must remain visible. Address
+the named failure, inspect what already completed, then preview a retry; do not
+silence validation to make onboarding look complete. Use the existing commands
+for follow-up inspection:
+
+```bash
+runlist plans                  # compact live plan dashboard
+runlist check                  # schema, references, and lifecycle findings
+runlist doctor                 # preview repairs; add --apply only for chosen repairs
+runlist doctor --session        # identity in this shell, not proof of host activation
+```
+
+After a host install, follow its activation/trust instructions and verify the
+skill and hooks in that host. Restart the session or reload plugins where
+required; setup cannot certify a future session. For lower-level initialization
+without onboarding, `runlist init` remains available.
 
 New projects recommend leaving pending prompts untracked to reduce commit churn.
 `runlist init` leaves `.gitignore` and other ignore files untouched by default.
