@@ -48,8 +48,17 @@ supported Windows distribution or an installed-app qualification.
 - Managed job: 350.555 seconds, peak committed memory 2,991 MiB; native task
   cleanup was confirmed. The build used vendored crates and pre-staged JavaScript
   dependencies under the worker's required network policy.
-- The unsigned installer remains unverified. Native-window launch, installation
-  on a fresh/minimum Windows host and code signing remain unverified.
+- An unsigned NSIS installer was produced and recovered with its SHA-256
+  verified: 243,608,057 bytes,
+  `f9a6054d7c0e0e2bb179b344061beba9a6fd797101ee8e463557c873baf7d5fa`.
+  Its PE certificate table is empty. Extracted contents include the full
+  214,884,560-byte offline WebView2 installer with pinned SHA-256
+  `1c401b327fbc7bb9731b4e350a2194f083cbc3ede46508d52e1cae6610a39bea`;
+  the bundled Node executable matches the pinned Node 24.22.1 archive.
+- Installer automation acceptance remains open: an MSVC telemetry helper
+  survived the completed build and prevented managed job cleanup. Native-window
+  launch, installation on a fresh/minimum Windows host and code signing remain
+  unverified.
 
 ## Current Mac release — 2026-10-27
 
