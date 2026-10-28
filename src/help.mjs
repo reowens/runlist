@@ -1,5 +1,23 @@
 import { commandHelpContext } from './commands.mjs';
 
+export function unsupportedCommandHelp(command) {
+  switch (command) {
+    case 'edit':
+      return 'Edit document text and ordinary frontmatter with your file editor.\n'
+        + 'Change lifecycle status with `runlist set <status> <file>`.\n'
+        + 'For ordered membership commands, read `runlist runlist --help`.';
+    case 'claims':
+      return 'Inspect ownership with `runlist doctor --claims` (read-only).\n'
+        + 'Do not add --apply or --force merely to inspect another session\'s claim.';
+    case 'link':
+      return 'Inspect references with `runlist xref <file>`. Edit ordinary reference fields with your file editor.\n'
+        + 'For ordered plan membership, use `runlist runlist add <hub> <child>`.\n'
+        + 'Inspect saved prompts with `runlist prompts show <name>`; `runlist use` consumes them.';
+    default:
+      return null;
+  }
+}
+
 function creationHelp(type) {
   return `runlist new ${type} <slug> @<draft-file> — create a ${type} from a draft
 

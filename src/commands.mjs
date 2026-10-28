@@ -315,6 +315,11 @@ function scanArgs(name, argv, options, passthrough = false, dashPositionalsAfter
     if (!option) {
       if (passthrough) continue;
       if (positional.length >= dashPositionalsAfter) { positional.push(arg); continue; }
+      if (name === 'show' && arg === '--lines') {
+        throw new Error('Unknown flag for `runlist show`: --lines\n\n'
+          + 'Drop --lines. Continue with `runlist show <file> --section "<heading>" --from <line>`.\n'
+          + 'Section output is bounded automatically; --from is an absolute file line.');
+      }
       throw new Error(`Unknown flag for \`runlist ${name}\`: ${arg}`);
     }
     if (option.arity === 1) {

@@ -9,7 +9,7 @@ import { scopeFilingCoverage } from '../src/filing.mjs';
 import { die, warn, levenshtein, isArchivedPath, toRepoPath } from '../src/util.mjs';
 import { recordCliInvocation, recordGlobalError, sanitizeTelemetryArgv } from '../src/journal.mjs';
 import { findRepeatFailureHint } from '../src/hints.mjs';
-import { focusedCommandHelp } from '../src/help.mjs';
+import { focusedCommandHelp, unsupportedCommandHelp } from '../src/help.mjs';
 import {
   KNOWN_COMMANDS,
   canonicalCommand,
@@ -31,6 +31,8 @@ const QUERY_VALUE_FLAGS = new Set([
 
 function requireCommandPolicy(command, policy) {
   if (policy) return policy;
+  const correction = unsupportedCommandHelp(command);
+  if (correction) die(`Unknown command: ${command}\n\n${correction}`);
   const matches = KNOWN_COMMANDS
     .map(cmd => ({ cmd, dist: levenshtein(command, cmd) }))
     .sort((a, b) => a.dist - b.dist);
@@ -1628,6 +1630,7 @@ heading matches case-insensitively: exact first, then as a prefix, then as a
 substring; other matches are named. A section read stops at 500 lines or
 60 KB and prints the command that continues it. Headings and boxes inside code
 fences are ignored. Several files at once get a shorter outline each.
+There is no --lines option; continue with --section "<heading>" --from <line>.
 
 A phase heading shows its own boxes as [done/total], → marks the active phase
 (the one \`use\` would point at), and a marker its boxes contradict is named
