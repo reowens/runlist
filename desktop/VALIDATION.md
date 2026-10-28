@@ -27,9 +27,10 @@ sign, install or qualify a new supported platform. The build still reports
   engine passed all 65 helper/frontend tests with no skips.
 - The Mac application passed the private vocabulary bundle check (188 files);
   the bundled Node payload and Acorn metadata match their pinned vendor inputs.
-- The complete Windows application subsequently passed a native compile;
+- The complete Windows application subsequently passed a native compile and
+  unsigned offline-installer build;
   see [Windows compile candidate](#windows-compile-candidate--2026-10-28).
-  Installer, native-window, fresh-installation, minimum-host, signing and
+  Native-window, fresh-installation, minimum-host, signing and
   notarization acceptance remain separate.
 
 ## Windows compile candidate — 2026-10-28
@@ -48,17 +49,20 @@ supported Windows distribution or an installed-app qualification.
 - Managed job: 350.555 seconds, peak committed memory 2,991 MiB; native task
   cleanup was confirmed. The build used vendored crates and pre-staged JavaScript
   dependencies under the worker's required network policy.
-- An unsigned NSIS installer was produced and recovered with its SHA-256
-  verified: 243,608,057 bytes,
-  `f9a6054d7c0e0e2bb179b344061beba9a6fd797101ee8e463557c873baf7d5fa`.
-  Its PE certificate table is empty. Extracted contents include the full
+- The normal managed installer task exited 0 and returned a verified unsigned
+  NSIS installer: 243,621,825 bytes, SHA-256
+  `118b286498db8e53abdc4fb84f7df017421ae0d6a5cb7ccd774c44b2d761e77e`.
+  Its PE certificate table is empty. Its extracted contents include the full
   214,884,560-byte offline WebView2 installer with pinned SHA-256
   `1c401b327fbc7bb9731b4e350a2194f083cbc3ede46508d52e1cae6610a39bea`;
   the bundled Node executable matches the pinned Node 24.22.1 archive.
-- Installer automation acceptance remains open: an MSVC telemetry helper
-  survived the completed build and prevented managed job cleanup. Native-window
-  launch, installation on a fresh/minimum Windows host and code signing remain
-  unverified.
+- Installer managed job: 375.119 seconds, peak committed memory
+  1,370 MiB. The pinned compiler telemetry helper
+  was stopped automatically within the outer worker Job Object; complete task
+  cleanup and artifact transport were confirmed without manual intervention.
+- Native-window launch, installation on a fresh/minimum Windows host and code
+  signing remain unverified. These build results qualify the frozen candidate,
+  which still reports 0.99.1; the release workflow owns the version bump.
 
 ## Current Mac release — 2026-10-27
 
