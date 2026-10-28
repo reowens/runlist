@@ -24,6 +24,8 @@ describe('Codex plugin distribution', () => {
     strictEqual(first.action, 'installed');
     ok(existsSync(path.join(first.plugin, 'hooks', 'hooks.json')));
     ok(existsSync(path.join(first.plugin, 'skills', 'runlist', 'SKILL.md')));
+    strictEqual(readFileSync(path.join(first.plugin, 'skills', 'runlist', 'SKILL.md'), 'utf8'),
+      readFileSync(path.join(root, 'plugins', 'runlist-codex', 'skills', 'runlist', 'SKILL.md'), 'utf8'));
     const manifest = JSON.parse(readFileSync(first.marketplace, 'utf8'));
     strictEqual(manifest.plugins[0].source.path, './plugins/runlist-codex');
     strictEqual(installCodexPlugin({ version, homedir: h }).action, 'current');

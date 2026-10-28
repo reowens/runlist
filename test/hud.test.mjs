@@ -33,12 +33,12 @@ function writeDoc(docsDir, filename, frontmatter, body = '') {
   return filePath;
 }
 
-function runCli(args, { session = 'sess-A', input } = {}) {
+function runCli(args, { session = 'sess-A', input, env = {} } = {}) {
   return spawnSync('node', [bin, ...args, '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
     cwd: tmpDir,
     encoding: 'utf8',
     input,
-    env: { ...process.env, CLAUDE_CODE_SESSION_ID: session, PATH: process.env.PATH },
+    env: { ...process.env, CLAUDE_CODE_SESSION_ID: session, PATH: process.env.PATH, ...env },
   });
 }
 
@@ -86,7 +86,8 @@ describe('runlist hud', () => {
     ok(child.stdout.includes('runlist show <file> --section "<heading>"'), child.stdout);
     ok(child.stdout.includes('Do NOT: cat/read a docs/prompts/*.md'), child.stdout);
     ok(child.stdout.includes('runlist baton --subagent <task-slug> @<draft-file>'), child.stdout);
-    ok(child.stdout.includes('runlist help baton'), child.stdout);
+    ok(child.stdout.includes('--parent resume-<parent>'), child.stdout);
+    ok(child.stdout.includes('preserve its claim'), child.stdout);
     ok(!child.stdout.includes('Plan statuses'), child.stdout);
     ok(child.stdout.length < 700, `child primer too large: ${child.stdout.length}`);
     const parent = runCli(['hud']);
@@ -216,7 +217,7 @@ describe('runlist hud', () => {
     writeFileSync(indexPath, staleIndex);
 
     for (const args of [['hud'], ['hud', '--json']]) {
-      const r = runCli(args);
+      const r = runCli(args, { env: { RUNLIST_JOURNAL: '1' } });
       strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
       strictEqual(readFileSync(indexPath, 'utf8'), staleIndex, `${args.join(' ')} left index untouched`);
       if (args.includes('--json')) {

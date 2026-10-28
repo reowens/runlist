@@ -26,7 +26,7 @@ function setupProject(extraConfig = '') {
 function run(args, env = {}) {
   return spawnSync('node', [bin, ...args, '--config', configPath], {
     cwd: tmpDir, encoding: 'utf8',
-    env: { ...process.env, ...env, NO_COLOR: '1', DOTMD_JOURNAL: env.DOTMD_JOURNAL ?? '' },
+    env: { ...process.env, RUNLIST_JOURNAL: undefined, DOTMD_JOURNAL: '', ...env, NO_COLOR: '1' },
   });
 }
 
@@ -41,6 +41,22 @@ describe('journal: opt-in default', () => {
     const r = run(['plans']);
     strictEqual(r.status, 0, r.stderr);
     ok(!existsSync(journalFile), `expected no journal file, found: ${journalFile}`);
+  });
+
+  it('test preload preserves an opt-in repository journal despite inherited host identity and opt-in env', () => {
+    writeFileSync(configPath, "export const root = 'docs';\nexport const journal = true;\n");
+    mkdirSync(path.dirname(journalFile), { recursive: true });
+    const sentinel = JSON.stringify({ schema: 2, ts: new Date().toISOString(), sid: 'operator', argv: ['plans'], v: 'sentinel' }) + '\n';
+    writeFileSync(journalFile, sentinel);
+    for (const args of [['--help'], ['new', 'plan', '--help'], ['baton', '--help'], ['help', 'all']]) {
+      const result = spawnSync(process.execPath, ['--import', path.join(import.meta.dirname, 'setup-env.mjs'), bin, ...args], {
+        cwd: tmpDir, encoding: 'utf8',
+        env: { ...process.env, RUNLIST_JOURNAL: '1', DOTMD_JOURNAL: '1', CODEX_THREAD_ID: 'inherited-operator-thread' },
+      });
+      strictEqual(result.status, 0, result.stderr);
+    }
+    strictEqual(readFileSync(journalFile, 'utf8'), sentinel);
+    ok(!existsSync(journalBackup));
   });
 });
 
@@ -153,6 +169,24 @@ describe('journal: enabled via config', () => {
     strictEqual(readFileSync(journalFile,'utf8'),before);
   });
 
+  it('focused help retains parent topic aggregates and never logs supplied names or bodies', () => {
+    const secret = 'PRIVATE_HELP_ARGUMENT_825c';
+    for (const args of [
+      ['new', 'plan', secret, '--message', secret, '--help'],
+      ['prompt', 'peek', secret, '--help'],
+      ['baton', '--subagent', secret, '--parent', secret, '--help'],
+    ]) {
+      const result = run(args);
+      strictEqual(result.status, 0, result.stderr);
+    }
+    const raw = readFileSync(journalFile, 'utf8');
+    ok(!raw.includes(secret), raw);
+    const entries = raw.trim().split('\n').map(JSON.parse);
+    deepStrictEqual(entries.map(row => row.helpTopic), ['new', 'prompts', 'baton']);
+    deepStrictEqual(entries.map(row => row.argv), [['new', '--help'], ['prompts', '--help'], ['baton', '--help']]);
+    ok(entries.every(row => row.outcome === 'help' && row.exit === 0));
+  });
+
   it('help stays usable with a broken config and disabled help never creates a journal', () => {
     writeFileSync(configPath, "throw new Error('broken config');\n");
     strictEqual(run(['new','--help']).status, 0);
@@ -182,7 +216,7 @@ describe('journal: concurrent writes', () => {
       procs.push(new Promise(resolve => {
         const child = spawnSync('node', [bin, 'plans', '--config', configPath], {
           cwd: tmpDir, encoding: 'utf8',
-          env: { ...process.env, DOTMD_JOURNAL: '1', NO_COLOR: '1' },
+          env: { ...process.env, RUNLIST_JOURNAL: undefined, DOTMD_JOURNAL: '1', NO_COLOR: '1' },
         });
         resolve(child);
       }));
@@ -203,8 +237,15 @@ describe('journal: rotation', () => {
 
   it('retains and reads bounded multi-version cohorts without overwriting the prior release', () => {
     const config = { repoRoot: tmpDir, journal: true };
-    for (let i = 0; i < TELEMETRY_BACKUPS + 3; i++) {
-      appendJournalEntry(config, { ts:new Date().toISOString(), sid:'s', argv:['plans'], exit:0, v:`test-${i}` });
+    const inherited = process.env.RUNLIST_JOURNAL;
+    process.env.RUNLIST_JOURNAL = '1';
+    try {
+      for (let i = 0; i < TELEMETRY_BACKUPS + 3; i++) {
+        appendJournalEntry(config, { ts:new Date().toISOString(), sid:'s', argv:['plans'], exit:0, v:`test-${i}` });
+      }
+    } finally {
+      if (inherited === undefined) delete process.env.RUNLIST_JOURNAL;
+      else process.env.RUNLIST_JOURNAL = inherited;
     }
     const entries = readJournalEntries(config);
     strictEqual(entries.length, TELEMETRY_BACKUPS + 1);

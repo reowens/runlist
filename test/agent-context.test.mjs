@@ -68,7 +68,7 @@ describe('agent context v1', () => {
   it('CLI section selection and context alias share the same byte budget without passive writes', async () => {
     await configFor("export const root = 'docs';\nexport const journal = true;\n");
     writeFileSync(path.join(repo,'docs/p.md'),'---\ntype: plan\nstatus: active\nupdated: 2026-10-05\nnext_step: Do the first thing\n---\n# Plan\n');
-    const run=args=>spawnSync('node',[BIN,...args],{cwd:repo,encoding:'utf8',env:{...process.env,NO_COLOR:'1'}});
+    const run=args=>spawnSync('node',[BIN,...args],{cwd:repo,encoding:'utf8',env:{...process.env,RUNLIST_JOURNAL:'1',NO_COLOR:'1'}});
     for(const args of [['agent-context'],['context','--json','--compact']]) {
       const result=run([...args,'--sections','plans,prompts,counts','--max-bytes','4096']);
       strictEqual(result.status,0,result.stderr);

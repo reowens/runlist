@@ -1214,6 +1214,16 @@ runlist help statuses
 runlist <command> --help
 ```
 
+For a short recipe for one task, request focused help:
+
+```bash
+runlist new plan --help       # also: new doc, new prompt
+runlist prompts show --help   # inspect without consuming
+runlist baton --subagent --help
+```
+
+The parent command's help retains the complete options and examples.
+
 Shell completion is generated from the same command registry:
 
 ```bash

@@ -9,6 +9,7 @@ import { scopeFilingCoverage } from '../src/filing.mjs';
 import { die, warn, levenshtein, isArchivedPath, toRepoPath } from '../src/util.mjs';
 import { recordCliInvocation, recordGlobalError, sanitizeTelemetryArgv } from '../src/journal.mjs';
 import { findRepeatFailureHint } from '../src/hints.mjs';
+import { focusedCommandHelp } from '../src/help.mjs';
 import {
   KNOWN_COMMANDS,
   canonicalCommand,
@@ -113,6 +114,7 @@ const HELP = {
 
 Common commands:
   plans                 Live plans (excludes archived)
+  show <file>           Plan/doc outline and open boxes; --section reads one section
   prompts               Prompt queue/admin (list, next, archive, new)
   briefing              Full briefing with plan counts + next steps
   agent-context         Compact bounded JSON context for agents
@@ -1984,8 +1986,10 @@ async function main() {
   if (args.includes('--help') || args.includes('-h')) {
     requireCommandPolicy(command, dispatchPolicy);
     await captureHelpConfig(command);
-    process.stdout.write(`${HELP[command] ?? commandUsage(command)}\n`);
-    if (command === 'new') {
+    const focused = focusedCommandHelp(command, restArgs);
+    if (focused?.fallback) process.stdout.write(`No focused help for this request; showing complete \`runlist ${command} --help\`.\n\n`);
+    process.stdout.write(`${focused?.text ?? HELP[command] ?? commandUsage(command)}\n`);
+    if (command === 'new' && !focused?.text) {
       // Best effort: outside a runlist repo, or with a broken config, the
       // static help above is the whole answer.
       try {

@@ -148,7 +148,7 @@ describe('dotmd use — plan', () => {
       '',
     ].join('\n'));
 
-    const res = run(['use', 'docs/plans/dry-plan.md', '--dry-run']);
+    const res = run(['use', 'docs/plans/dry-plan.md', '--dry-run'], { RUNLIST_JOURNAL: '1' });
     strictEqual(res.status, 0, `stderr: ${res.stderr}`);
     strictEqual(readFileSync(file, 'utf8'), before, 'plan remains byte-identical');
     ok(!existsSync(sentinel), 'onPickup hook was not invoked');

@@ -293,9 +293,9 @@ export function buildHud(config) {
 // stop, and a pointer for the rare child handoff. Statuses are not listed —
 // `runlist set` names the valid ones when given a wrong one.
 const SUBAGENT_PRIMER = [
-  'runlist manages this repo\'s plans/docs/prompts (markdown + YAML frontmatter). Read a plan or long doc with `runlist show <file>` (outline and open boxes with line numbers), then `runlist show <file> --section "<heading>"`, never whole. Orient: `runlist plans`.',
-  'Do NOT: cat/read a docs/prompts/*.md (use `runlist use <file>`); git add/commit a prompt (session-local); hand-edit a `status:` field (use `runlist set <status> <file>`).',
-  'Handing work back as a saved prompt: `runlist baton --subagent <task-slug> @<draft-file>` (`runlist help baton` for --parent and --template).',
+  'runlist manages plans/docs/prompts. Orient: `runlist plans`. Read: `runlist show <file>`, then `runlist show <file> --section "<heading>"`, never whole.',
+  'Do NOT: cat/read a docs/prompts/*.md (`runlist prompts show <name>` peeks, `runlist use <name>` consumes); commit a prompt; hand-edit status (`runlist set <status> <file>`).',
+  "Return completed results to the parent. Unfinished handoff: `runlist baton --subagent <task-slug> @<draft-file> --parent resume-<parent>`. Use a distinct non-plan slug under a parent-owned plan; preserve its claim. `runlist baton --template` prints an outline; inspect a pending prompt before --replace.",
 ].join('\n');
 
 // The plugin's SessionStart/SubagentStart hooks fire in EVERY repo (it's enabled

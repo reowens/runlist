@@ -406,7 +406,7 @@ describe('runlist baton', () => {
     const journal = path.join(tmpDir, '.runlist', 'journal.jsonl');
     ok(!existsSync(journal), 'precondition: no journal history');
 
-    const consume = run(['use', 'resume-claimed.md'], { sid: 'fresh-session' });
+    const consume = run(['use', 'resume-claimed.md'], { sid: 'fresh-session', env: { RUNLIST_JOURNAL: '1' } });
     strictEqual(consume.status, 0, consume.stderr);
     const entries = readFileSync(journal, 'utf8').trim().split('\n').map(JSON.parse);
     ok(!entries.some(entry => entry.argv?.join(' ') === 'set in-session docs/plans/claimed.md'));

@@ -1152,7 +1152,7 @@ describe('durable lifecycle ownership', () => {
   it('journal enablement does not change ownership outcomes', () => {
     setup(`export const journal = true;\n`);
     const file = plan('journal-independent');
-    strictEqual(run(['use', file], 'A').status, 0);
+    strictEqual(run(['use', file], 'A', { RUNLIST_JOURNAL: '1' }).status, 0);
     const record = JSON.parse(readFileSync(ownershipFile(), 'utf8'));
     strictEqual(record.sessionId, 'A');
     strictEqual(record.state, 'owned');

@@ -1257,7 +1257,7 @@ describe('set — baton-on-exit nudge', () => {
       cwd: tmpDir, encoding: 'utf8',
       // DOTMD_JOURNAL off by default so the journal-suppression path is only
       // exercised by the test that opts in.
-      env: { ...process.env, DOTMD_JOURNAL: '0', ...extraEnv },
+      env: { ...process.env, RUNLIST_JOURNAL: undefined, DOTMD_JOURNAL: '0', ...extraEnv },
     });
   }
 

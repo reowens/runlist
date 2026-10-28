@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import { deepStrictEqual, strictEqual, ok } from 'node:assert';
-import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, readdirSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -59,6 +59,7 @@ describe('CLI integration', () => {
     const result = run(['--help']);
     ok(result.stdout.includes('Common commands:'), 'has Common commands section');
     ok(result.stdout.includes('prompts'), 'top-level help surfaces prompt queue commands');
+    ok(result.stdout.includes('show <file>'), 'top-level help surfaces read-only plan inspection');
     ok(result.stdout.includes('runlist help all'), 'points at full command list');
     // Keep the top-level terse — full categorized list lives under `help all`.
     ok(result.stdout.split('\n').length < 30,
@@ -95,6 +96,73 @@ describe('CLI integration', () => {
     strictEqual(result.status, 1);
     ok(result.stderr.includes('Unknown help topic'), 'reports unknown topic');
     ok(result.stderr.includes('statuses'), 'lists statuses as available');
+  });
+
+  it('focused help is bounded and leaves plans, prompts and repository state untouched', () => {
+    const docsDir = setupProject();
+    mkdirSync(path.join(docsDir, 'plans'));
+    mkdirSync(path.join(docsDir, 'prompts'));
+    const plan = path.join(docsDir, 'plans', 'example.md');
+    const prompt = path.join(docsDir, 'prompts', 'resume-example.md');
+    const planBody = '---\ntype: plan\nstatus: active\n---\n# Example\n';
+    const promptBody = '---\ntype: prompt\nstatus: pending\nplan: ../plans/example.md\n---\nResume\n';
+    writeFileSync(plan, planBody);
+    writeFileSync(prompt, promptBody);
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), `export const root = 'docs';
+export function validate() { throw new Error('help must not validate'); }
+export function transformDoc() { throw new Error('help must not transform'); }
+export const templates = { plan: { body() { throw new Error('help must not render'); } } };
+`);
+    const before = readdirSync(tmpDir, { recursive: true }).sort();
+    const cases = [
+      [['new', 'plan'], 'runlist new plan <slug> @<draft-file>'],
+      [['new', 'doc'], 'runlist new doc <slug> @<draft-file>'],
+      [['new', 'prompt'], 'runlist new prompt <slug> @<draft-file>'],
+      [['prompts', 'show', 'resume-example'], 'without consuming'],
+      [['baton', '--subagent', 'example', '@/missing-draft.md'], 'preserve the parent'],
+      [['baton', '--subagent', '--template'], 'without saving'],
+    ];
+    for (const [args, expected] of cases) {
+      const result = run([...args, '--help']);
+      strictEqual(result.status, 0, result.stderr);
+      ok(result.stdout.includes(expected), result.stdout);
+      ok(result.stdout.split('\n').length <= 30, result.stdout);
+      ok(Buffer.byteLength(result.stdout) <= 4096, result.stdout);
+    }
+    strictEqual(readFileSync(plan, 'utf8'), planBody);
+    strictEqual(readFileSync(prompt, 'utf8'), promptBody);
+    deepStrictEqual(readdirSync(tmpDir, { recursive: true }).sort(), before);
+    ok(!existsSync(path.join(tmpDir, '.runlist')));
+  });
+
+  it('focused help resolves aliases and skips option values when choosing a form', () => {
+    setupProject();
+    const config = path.join(tmpDir, 'dotmd.config.mjs');
+    const canonicalBin = path.resolve(import.meta.dirname, '..', 'bin', 'runlist.mjs');
+    const canonical = spawnSync(process.execPath, [canonicalBin, 'prompts', 'show', '--help'], {
+      cwd: tmpDir, encoding: 'utf8', env: process.env,
+    });
+    const alias = run(['--config', config, 'prompt', 'peek', '-h']);
+    strictEqual(alias.status, 0, alias.stderr);
+    strictEqual(alias.stdout, canonical.stdout);
+    const reordered = run(['new', '--title', 'prompt', '--root', 'docs', 'doc', '--config', config, '-h']);
+    strictEqual(reordered.status, 0, reordered.stderr);
+    ok(reordered.stdout.startsWith('runlist new doc <slug>'), reordered.stdout);
+    for (const args of [['new', 'custom-type'], ['prompts', 'nonexistent'], ['baton', '--note', '--subagent']]) {
+      const fallback = run([...args, '--help']);
+      strictEqual(fallback.status, 0, fallback.stderr);
+      ok(fallback.stdout.startsWith('No focused help for this request; showing complete'), fallback.stdout);
+    }
+  });
+
+  it('focused help remains available with broken repository configuration', () => {
+    setupProject();
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), "throw new Error('broken config');\n");
+    for (const args of [['new', 'plan'], ['prompts', 'show'], ['baton', '--subagent']]) {
+      const result = run([...args, '--help']);
+      strictEqual(result.status, 0, result.stderr);
+      ok(result.stdout.startsWith(`runlist ${args[0]}`), result.stdout);
+    }
   });
 
   it('list shows docs grouped by status', () => {

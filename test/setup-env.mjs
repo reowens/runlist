@@ -10,6 +10,11 @@ import path from 'node:path';
 
 const OWNER_FLAG = 'RUNLIST_TEST_LOG_DIR_OWNER';
 
+// Tests can inherit a live host identity and run the CLI from this checkout.
+// Journal tests opt in explicitly only for their temporary repositories.
+process.env.RUNLIST_JOURNAL = '0';
+process.env.DOTMD_JOURNAL = '0';
+
 // Node's test runner hands its children FORCE_COLOR=1 when it runs in a colour
 // terminal, and color.mjs honours that first, so every output comparison saw
 // escape codes under a TTY and passed only where stdout was piped. Each test

@@ -34,6 +34,7 @@ function run(args) {
     env: {
       ...process.env,
       NO_COLOR: '1',
+      RUNLIST_JOURNAL: undefined,
       DOTMD_JOURNAL: '1',
       TMPDIR: externalDir,
       TMP: externalDir,

@@ -35,6 +35,7 @@ function run(args, env = {}) {
     env: {
       ...process.env,
       NO_COLOR: '1',
+      RUNLIST_JOURNAL: undefined,
       DOTMD_JOURNAL: '1',
       CLAUDE_CODE_SESSION_ID: FIXED_SID,
       CLAUDE_SESSION_ID: FIXED_SID,
@@ -171,6 +172,7 @@ describe('F17c: repeat-failure hints', () => {
       env: {
         ...process.env,
         NO_COLOR: '1',
+        RUNLIST_JOURNAL: undefined,
         DOTMD_JOURNAL: '1',
         CLAUDE_CODE_SESSION_ID: FIXED_SID,
         CLAUDE_SESSION_ID: FIXED_SID,

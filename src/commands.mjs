@@ -325,6 +325,19 @@ function scanArgs(name, argv, options, passthrough = false, dashPositionalsAfter
   return positional;
 }
 
+// Help selects a form without requiring the arguments needed to execute it.
+export function commandHelpContext(name, argv) {
+  const definition = commandDefinition(name);
+  if (!definition) return null;
+  const options = optionMap(definition.forms);
+  for (const option of GLOBAL_OPTIONS) {
+    for (const alias of option.names) if (!options.has(alias)) options.set(alias, option);
+  }
+  const positional = scanArgs(definition.name, argv, options);
+  const selected = definition.forms.find(entry => entry.subcommands.includes(positional[0]));
+  return { positional, subcommand: selected?.subcommands[0] ?? null };
+}
+
 export function normalizeCommandArgs(name, argv) {
   const canonical = canonicalCommand(name);
   if (canonical !== 'roadmap') return [...argv];
