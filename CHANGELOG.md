@@ -13,6 +13,8 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ### Changed
 
+- Setup skills preserve requested first-plan facts and prompt policy, and use
+  the shell-selected CLI without treating duplicate installations as a blocker.
 - Release completion ends after verified publication. Local desktop installation,
   first-launch approval and installed-app diagnostics are separate optional work.
 
