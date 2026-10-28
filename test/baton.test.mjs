@@ -254,6 +254,68 @@ describe('runlist baton', () => {
     ok(!r.stderr.includes('git add') && !r.stderr.includes('git commit'), r.stderr);
   });
 
+  for (const archived of [false, true]) it(`does not call the commit hook for an ignored source plan${archived ? ' moved into a non-ignored directory' : ''}`, () => {
+    writeFileSync(path.join(tmpDir, '.gitignore'), archived ? 'docs/plans/\n' : 'docs/\n');
+    writePlan('demo', { tracked: false });
+    appendFileSync(configPath, `
+import { writeFileSync } from 'node:fs';
+export function batonCommitCommand(message, paths) {
+  writeFileSync(new URL('./hook-called', import.meta.url), 'called');
+  return ['just', 'commit', message, ...paths];
+}
+`);
+    const r = run(['baton', 'docs/plans/demo.md', '--message', 'resume', ...(archived ? ['--status', 'archived'] : [])]);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stderr, /docs\/plans\/demo.md is gitignored — no commit needed\./);
+    ok(!existsSync(path.join(tmpDir, 'hook-called')), 'ignored source bypasses the hook');
+    ok(!/just commit|git add|git commit/.test(r.stderr), r.stderr);
+    strictEqual(git(['diff', '--cached', '--name-only']), '');
+    if (archived) ok(existsSync(path.join(docsDir, 'archived', 'demo.md')));
+  });
+
+  it('prints no commit for an ignored source archived into a non-ignored directory', () => {
+    writeFileSync(path.join(tmpDir, '.gitignore'), 'docs/plans/\n');
+    writePlan('demo', { tracked: false });
+    const r = run(['baton', 'docs/plans/demo.md', '--status', 'archived', '--message', 'resume']);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stderr, /docs\/plans\/demo.md is gitignored — no commit needed\./);
+    ok(existsSync(path.join(docsDir, 'archived', 'demo.md')));
+    strictEqual(spawnSync('git', ['check-ignore', '-q', 'docs/archived/demo.md'], { cwd: tmpDir }).status, 1);
+    ok(!/git add|git commit/.test(r.stderr), r.stderr);
+    strictEqual(git(['diff', '--cached', '--name-only']), '');
+  });
+
+  for (const command of ['ls-files', 'ls-tree', 'check-ignore']) it(`falls back to the plain commit hint when ${command} classification fails`, () => {
+    const tracked = command === 'ls-tree';
+    writePlan('demo', { tracked });
+    const preload = path.join(tmpDir, 'fail-classification.mjs');
+    // Fail only classification, after normal lifecycle work has completed.
+    writeFileSync(preload, `
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+const original = childProcess.spawnSync;
+childProcess.spawnSync = (file, args, options) => {
+  if (file === 'git' && args[0] === ${JSON.stringify(command)}
+      && args[1] === ${JSON.stringify(command === 'ls-tree' ? '-r' : command === 'ls-files' ? '-z' : '--stdin')}) {
+    return { status: 128, stdout: '', stderr: 'Synthetic classification failure' };
+  }
+  return original(file, args, options);
+};
+syncBuiltinESMExports();
+`);
+    const r = spawnSync(process.execPath, ['--import', preload, bin,
+      'baton', 'docs/plans/demo.md', '--message', 'resume', ...(tracked ? ['--status', 'archived'] : []), '--config', configPath], {
+      cwd: tmpDir, encoding: 'utf8',
+      env: { ...process.env, NO_COLOR: '1', CLAUDE_CODE_SESSION_ID: 'test-sid', RUNLIST_ERROR_LOG_DIR: path.join(tmpDir, '.logs') },
+    });
+    strictEqual(r.status, 0, r.stderr);
+    strictEqual(r.stderr.split('\n').find(line => line.startsWith('  git ')), tracked
+      ? '  git commit -m "baton: demo in-session → archived" -- docs/plans/demo.md docs/archived/demo.md'
+      : '  git commit -m "baton: demo in-session → active" -- docs/plans/demo.md');
+    ok(!r.stderr.includes('git add'), r.stderr);
+    if (tracked) executeCommitHint(r);
+  });
+
   // Regression: a prompt-refresh pass named a plan slug to re-save its handoff
   // and got a status flip it never asked for (`awaiting` → the default
   // `active`), which it then had to notice and undo. Baton has no claim to

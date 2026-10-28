@@ -80,6 +80,69 @@ describe('gitCommitPaths', () => {
     deepStrictEqual(gitCommitPaths(['missing.md', 'ignored.md'], tmpDir), { paths: [], add: [] });
     deepStrictEqual(gitCommitPaths([], tmpDir), { paths: [], add: [] });
   });
+
+  it('chunks index and HEAD lookups while preserving order and move sources', () => {
+    setupRepo();
+    for (const name of ['kept.md', 'old-a.md', 'old-b.md', 'old-c.md']) commitFile(path.join(tmpDir, name), 'Synthetic\n');
+    const removed = spawnSync('git', ['rm', '--', 'old-a.md', 'old-b.md', 'old-c.md'], { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(removed.status, 0, removed.stderr);
+    writeFileSync(path.join(tmpDir, 'new.md'), 'New\n');
+    writeFileSync(path.join(tmpDir, 'ignored.md'), 'Ignored\n');
+    writeFileSync(path.join(tmpDir, '.gitignore'), 'ignored.md\n');
+    const paths = ['old-a.md', 'new.md', 'kept.md', 'old-b.md', 'ignored.md', 'old-c.md', 'missing.md'];
+    const calls = [];
+    const result = gitCommitPaths(paths, tmpDir, {
+      maxPathsPerBatch: 2,
+      runGit(file, args, options) {
+        if (['ls-files', 'ls-tree'].includes(args[0])) {
+          const batch = args.slice(args.indexOf('--') + 1);
+          ok(batch.length > 0 && batch.length <= 2, JSON.stringify(args));
+          calls.push(args[0]);
+        }
+        return spawnSync(file, args, options);
+      },
+    });
+    deepStrictEqual(result, { paths: ['old-a.md', 'new.md', 'kept.md', 'old-b.md', 'old-c.md'], add: ['new.md'] });
+    strictEqual(calls.filter(command => command === 'ls-files').length, 4);
+    strictEqual(calls.filter(command => command === 'ls-tree').length, 2);
+  });
+
+  for (const command of ['ls-files', 'ls-tree', 'check-ignore']) it(`discards partial classification when ${command} fails`, () => {
+    setupRepo();
+    for (const name of ['old-a.md', 'old-b.md']) commitFile(path.join(tmpDir, name), 'Old\n');
+    const removed = spawnSync('git', ['rm', '--', 'old-a.md', 'old-b.md'], { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(removed.status, 0, removed.stderr);
+    writeFileSync(path.join(tmpDir, 'new.md'), 'New\n');
+    const paths = ['old-a.md', 'old-b.md', 'new.md', 'missing.md'];
+    let calls = 0;
+    const result = gitCommitPaths(paths, tmpDir, {
+      maxPathsPerBatch: 1,
+      runGit(file, args, options) {
+        if (args[0] === command && ++calls === (command === 'check-ignore' ? 1 : 2)) {
+          return { status: 128, stdout: '', stderr: 'Synthetic classification failure' };
+        }
+        return spawnSync(file, args, options);
+      },
+    });
+    deepStrictEqual(result, { paths, add: [] });
+  });
+
+  it('falls back when a Git subprocess cannot start', () => {
+    setupRepo();
+    writeFileSync(path.join(tmpDir, 'new.md'), 'New\n');
+    deepStrictEqual(gitCommitPaths(['new.md'], tmpDir, {
+      runGit: () => ({ status: null, error: new Error('Synthetic spawn failure') }),
+    }), { paths: ['new.md'], add: [] });
+  });
+
+  it('falls back for a path outside the repository', () => {
+    setupRepo();
+    commitFile(path.join(tmpDir, 'old.md'), 'Old\n');
+    const removed = spawnSync('git', ['rm', '--', 'old.md'], { cwd: tmpDir, encoding: 'utf8' });
+    strictEqual(removed.status, 0, removed.stderr);
+    const paths = ['old.md', '../outside.md'];
+    deepStrictEqual(gitCommitPaths(paths, tmpDir), { paths, add: [] });
+  });
 });
 
 describe('getGitLastModified', () => {

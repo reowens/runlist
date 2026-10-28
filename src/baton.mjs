@@ -513,14 +513,17 @@ export async function runBaton(argv, config, opts = {}) {
     process.stderr.write(dim(`${repoPath} left at \`${oldStatus}\` — it was not in-session, so there was no claim to release.\n`));
     process.stderr.write(dim(`Meant to change it? runlist set <status> ${repoPath}\n`));
   }
-  if (statusChanged) {
+  if (statusChanged && isGitIgnored(planPath, config.repoRoot)) {
+    // Check the source even after a move: an ignored plan must not produce a
+    // commit hint for its destination or rewritten references, including hooks.
+    process.stderr.write(dim(`${repoPath} is gitignored — no commit needed.\n`));
+  } else if (statusChanged) {
     const command = commitCommand(config, `baton: ${path.basename(planPath, '.md')} ${oldStatus} → ${status}`, operationResult.repositoryFiles);
     if (command) {
       process.stderr.write(`${prefix}Commit the repository files (session files stay OUT of the pathspec):\n`);
       process.stderr.write(`${prefix}  ${command}\n`);
     } else {
-      const reason = isGitIgnored(planPath, config.repoRoot) ? `${repoPath} is gitignored` : 'No repository files to commit';
-      process.stderr.write(dim(`${reason} — no commit needed.\n`));
+      process.stderr.write(dim('No repository files to commit — no commit needed.\n'));
     }
   }
   if (operationResult.deferredGeneratedFiles.length) process.stderr.write(dim(`Generated index deferred: ${operationResult.deferredGeneratedFiles.join(', ')}\n`));

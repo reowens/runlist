@@ -9,6 +9,9 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 - Baton's printed Git command stages new files before committing, preserves
   both sides of tracked plan moves, and omits ignored or never-tracked missing
   files. Literal pathspecs protect filenames containing Git pattern characters.
+- Baton keeps ignored source plans out of commit hints, including custom hooks
+  and moves into public directories. Git path classification is batched and
+  falls back to the plain commit hint if classification fails.
 
 ### Development
 
