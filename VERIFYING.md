@@ -94,6 +94,47 @@ the qualified Git preflight and required integration mode. Other hosts can still
 report unsupported Git integration skips; passing the CLI suite does not expand
 the Git write support matrix. A missing or failed manual run remains unqualified.
 
+## Local Linux desktop checks with Docker
+
+On a Linux/x64 host with an accessible native Docker daemon, run as your regular
+user (the runner also uses `flock` from util-linux):
+
+```sh
+node scripts/check-linux-docker.mjs
+```
+
+The runner freezes tracked and nonignored source files, rejects nonpublic content
+and changes during capture, and records the base commit, working-tree status and
+per-file hashes in `.runlist/docker/runs/<run>/run.json`. Working changes are
+retained as `source.patch` and copies of nonignored new files under `untracked/`.
+It never mounts the live
+checkout, Git metadata, credentials or private planning corpus into the container.
+Only the Dockerfile, container script and runtime lock enter the image context.
+
+The Ubuntu 22.04/x64 image pins its base digest, Rust 1.95.0 and the desktop's
+checksum-pinned Node runtime, read directly from `desktop/runtime-lock.json`.
+Ubuntu package repositories and Tauri's downloaded packaging tools are not
+snapshot-pinned, so this is a repeatable build environment, not a byte-reproducible
+installer claim.
+
+The container runs without root as your UID/GID, with 4 CPUs, 8 GiB memory,
+2 Cargo jobs and no display. It runs the existing desktop JavaScript tests, Rust
+library tests, installer build, bundled-engine checks and extracted Debian/AppImage
+checks. Downloads need network access; the complete build is not an offline job.
+Each Docker build/run has a 30-minute deadline. Failure stops the sequence, records
+the result and removes the container. It does not install or launch Runlist.
+
+Logs stay beside `run.json`; successful installers and the package report are in
+`artifacts/`. Download and compiler caches persist under `.runlist/docker/cache/`,
+separated by the image-input hash. New source does not rebuild the toolchain
+image. A nonblocking `flock` prevents concurrent containers from sharing writable
+caches and releases automatically when the Docker command exits. The ordinary
+CLI suite remains a separate `npm test` command.
+
+These checks cover Linux builds and headless packaged behavior. Native window,
+macOS signing/notarization and Windows build checks stay on their existing native
+workers. This command is optional and adds no release acceptance step.
+
 ## Desktop qualification
 
 Desktop packaging is explicitly selected, rather than running on every source
