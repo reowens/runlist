@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import os from 'node:os';
@@ -7,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { desktopLaunch } from './desktop.mjs';
 import { codexStatus } from './codex-integration.mjs';
 import { opencodeStatus } from './host-integration.mjs';
+import { sourceFingerprint } from './agent-hosts.mjs';
+export { sourceFingerprint } from './agent-hosts.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 function json(file) { try { return JSON.parse(readFileSync(file,'utf8')); } catch { return null; } }
@@ -20,27 +21,6 @@ function executable(name, env) {
   return null;
 }
 
-// Hash only the shared engine inputs, never plans, state, credentials or runtime
-// binaries. Ignore the release label so a local candidate can prove code parity.
-export function sourceFingerprint(root, entries = ['package.json','src','bin','assets','desktop/helper.mjs','desktop/trust.mjs','desktop/line-framer.mjs']) {
-  try {
-    const files=[],hash=createHash('sha256');let bytes=0;
-    const visit = name => {
-      const file=path.join(root,name),stat=lstatSync(file);
-      if(stat.isSymbolicLink())throw new Error('symlink');
-      if(stat.isDirectory()) { for(const child of readdirSync(file).sort())visit(`${name}/${child}`); }
-      else if(stat.isFile()) {
-        bytes+=stat.size;if(bytes>64*1024*1024||files.length>=2000)throw new Error('limit');
-        let content=readFileSync(file);
-        if(name==='package.json'){const pkg=JSON.parse(content);delete pkg.version;content=Buffer.from(JSON.stringify(pkg));}
-        hash.update(name+'\0').update(createHash('sha256').update(content).digest());files.push(name);
-      }
-    };
-    for(const name of [...entries].sort())if(existsSync(path.join(root,name)))visit(name);
-    return files.length ? {state:'readable',sha256:hash.digest('hex'),files:files.length} : {state:'unavailable'};
-  } catch { return {state:'unreadable'}; }
-}
-
 function identity(root) {
   const realRoot=resolved(root),pkg=realRoot&&json(path.join(realRoot,'package.json'));
   if(!pkg||typeof pkg!=='object'||Array.isArray(pkg))return {path:root,resolvedPath:realRoot,state:existsSync(root)?'unreadable':'missing'};
@@ -49,8 +29,8 @@ function identity(root) {
 }
 
 // Shared with update; reading a host registry does not activate or modify it.
-export function readInstalledPluginRecords({home=os.homedir(),id}={}) {
-  const plugins=json(path.join(home,'.claude/plugins/installed_plugins.json'))?.plugins??{};
+export function readInstalledPluginRecords({home=os.homedir(),configDir=path.join(home,'.claude'),id}={}) {
+  const plugins=json(path.join(configDir,'plugins/installed_plugins.json'))?.plugins??{};
   id ??= plugins['runlist@runlist']?'runlist@runlist':plugins['dotmd@dotmd']?'dotmd@dotmd':Object.keys(plugins).find(k=>/^(?:runlist|dotmd)@/.test(k));
   if(!id||!plugins[id])return null;
   return {id,entries:(Array.isArray(plugins[id])?plugins[id]:[plugins[id]]).filter(Boolean)};
@@ -79,7 +59,7 @@ export function installationReport(config={}, {root=packageRoot,home=os.homedir(
   const cache=path.join(home,'.codex/plugins/cache',market,'runlist-codex');
   let cached=[];
   try {cached=readdirSync(cache).slice(0,20).map(version=>({path:path.join(cache,version),version,role:'cached copy; active host copy unverified'}));}catch{}
-  const pluginFiles=['skills','commands','hooks','.claude-plugin','.codex-plugin'];
+  const pluginFiles=['skills','commands','hooks','hooks.json','bin','.claude-plugin','.codex-plugin'];
   const pluginCopy = (file,version,role,source) => {
     const fingerprint=file?sourceFingerprint(file,pluginFiles):{state:'unavailable'},expected=sourceFingerprint(source,pluginFiles);
     return {path:file,version:version??null,role,fingerprint,sameSource:fingerprint.sha256&&expected.sha256?fingerprint.sha256===expected.sha256:null};

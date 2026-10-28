@@ -160,7 +160,7 @@ const definitions = [
 
   command('export', mutates('external output path intentionally unrestricted'), 'mutate', [form('[file]', { args: positionals(0, 1), options: [value('--format'), value('--output'), value('--status'), value('--module'), value('--root'), value('--type')] })]),
   command('guard', mutates('global misuse log; no managed document writes'), 'mutate', [form('')]),
-  command('update', mutates('global CLI and plugin installation state'), 'mutate', [form('', { options: [flag('--check'), flag('--cli-only'), flag('--plugin-only')] })]),
+  command('update', mutates('global CLI and installed host integrations; --check is offline and read-only'), 'mutate', [form('', { options: [flag('--check'), flag('--json'), flag('--cli-only'), flag('--plugin-only'), value('--host'), value('--claude-config'), value('--claude-bin')] })]),
   command('install', mutates('agent-host plugin directory outside the repo'), 'mutate', [
     form('[host]', { args: positionals(0, 1), options: [flag('--remove'), flag('--force'), flag('--json'), value('--path')] }),
   ]),
@@ -189,7 +189,7 @@ const definitions = [
   ]),
   command('fix-membership', mutates('managed source sweep'), 'mutate', [form('[hubs...]', { args: positionals(0, Infinity), options: [flag('--json')] })]),
   command('sync-status', mutates('managed source sweep'), 'mutate', [form('[hubs...]', { args: positionals(0, Infinity), options: [flag('--adopt'), flag('--json')] })]),
-  command('doctor', mutates('managed sweeps, repo index, and maintenance config paths by mode'), 'mutate', [form('[path]', { args: positionals(0, 1), options: [flag('--apply', '--yes'), flag('--statuses'), optionalValue('--migrate-template'), flag('--migrate-prompts'), flag('--frontmatter-fix'), flag('--project'), flag('--prompts'), flag('--transactions'), flag('--claims'), flag('--session'), value('--older-than'), flag('--json'), flag('--include-archived')] })]),
+  command('doctor', mutates('managed sweeps and maintenance by mode; --hosts reports read-only or applies explicitly selected host repairs'), 'mutate', [form('[path]', { args: positionals(0, 1), options: [flag('--apply', '--yes'), flag('--statuses'), optionalValue('--migrate-template'), flag('--migrate-prompts'), flag('--frontmatter-fix'), flag('--project'), flag('--prompts'), flag('--transactions'), flag('--claims'), flag('--session'), flag('--hosts'), value('--repair'), value('--claude-config'), value('--claude-bin'), value('--older-than'), flag('--json'), flag('--include-archived')] })]),
   command('statuses', mutates('project config path; document scan is read-only'), 'mutate', [
     form('list', { subcommands: ['list'], options: [value('--type'), flag('--json')] }),
     form('add <name>', { subcommands: ['add'], args: positionals(1, 1), options: STATUS_PROPERTY_OPTIONS }),

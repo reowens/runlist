@@ -338,6 +338,77 @@ if an installed host fails to update. Uninstalled hosts are not added.
 Restart the affected host sessions to load updated integrations; Claude Code also
 supports `/reload-plugins`.
 
+## Host health and selected repairs
+
+Inspect Claude, Codex and OpenCode together before choosing a repair:
+
+```bash
+runlist doctor --hosts
+runlist doctor --hosts --json
+runlist update --check --json
+```
+
+These reports are offline: they read executable paths, registries and managed
+assets without running host programs or importing the project's JavaScript
+config. They work before project initialization and with a broken project config.
+The report includes the CLI launcher, Node/npm scope, Claude profiles and shared
+plugin stores, installed/catalog versions, source comparisons and reload steps.
+Newer published versions are not queried by an offline check; it compares the
+local files and saved catalogs. An online `runlist update` refreshes catalogs.
+
+`missing`, `stale`, `foreign`, `current` and `unknown` are distinct. `current`
+describes the reported files or catalog comparison; installed and loaded states
+remain separate. Cached files never establish that a running session loaded the
+skill or trusted its hooks. A local checkout can contain unreleased assets while
+the published Claude catalog and installed plugin still match.
+
+Host repairs are selected explicitly and previewed by default:
+
+```bash
+runlist doctor --hosts --repair codex
+runlist doctor --hosts --repair codex --apply --dry-run
+runlist doctor --hosts --repair codex --apply
+```
+
+Repeat `--repair` to select several hosts. In host mode, `--apply` requires named
+repair targets; `--dry-run` always prevents execution. A selected repair can
+install a missing integration or refresh managed content. Foreign/unreadable
+content is preserved, independent host failures are reported separately, and
+remaining source/activation checks stay visible. Host application upgrades
+remain with each host's installer.
+Already-current Claude/OpenCode files need no repair. Codex may still require
+an installed-copy check even when its marketplace source is current. Blocked
+repairs offer a safe preview or manual next step instead of an apply command
+that would repeat the refusal. Saved enablement and live activation stay separate.
+
+When Claude has multiple binaries or profiles, use the native binary shown in
+the inventory and explicit absolute profile paths. Replace these placeholders
+with the paths from your report:
+
+```bash
+runlist doctor --hosts --repair claude \
+  --claude-config /absolute/profile --claude-bin /absolute/native/claude
+runlist doctor --hosts --repair claude \
+  --claude-config /absolute/profile --claude-bin /absolute/native/claude --apply
+runlist update --host claude \
+  --claude-config /absolute/profile --claude-bin /absolute/native/claude --dry-run
+```
+
+Repeat `--claude-config` for separate profiles. Shared physical plugin stores are
+updated once, while each profile's enabled settings and each saved scope remain
+visible. A wrapper can override `CLAUDE_CONFIG_DIR`; Runlist refuses ambiguous
+targeting and asks for an explicit native binary. It does not infer an account
+from the wrapper's filename or script contents.
+
+`runlist update --host claude|codex|opencode` restricts the update to that installed
+host integration and conflicts with `--cli-only`. Missing integrations remain
+missing during update. Without a host selector, update retains its CLI and
+installed-host workflow, refreshing official Claude catalogs before scoped
+updates and checking managed asset contents even when versions match. The npm
+scope and effects on local CLI links are reported; checkout sources and project
+dependencies are preserved. Reload/restart the affected hosts and review their
+hook trust settings after repairs or updates.
+
 ## Quick Start
 
 From a terminal in your project, install the CLI using one of the scopes above,

@@ -112,7 +112,7 @@ describe('Codex hook payloads', () => {
     const stub = path.join(fakeBin, 'runlist');
     writeFileSync(stub, `#!/bin/sh\nexec "${process.execPath}" "${bin}" "$@"\n`);
     chmodSync(stub, 0o755);
-    const env = { ...process.env, PATH: `${fakeBin}${path.delimiter}${process.env.PATH}`, RUNLIST_ERROR_LOG_DIR: path.join(h, 'logs') };
+    const env = { ...process.env, HOME: h, USERPROFILE: h, CLAUDE_CONFIG_DIR: undefined, PATH: `${fakeBin}${path.delimiter}${process.env.PATH}`, RUNLIST_ERROR_LOG_DIR: path.join(h, 'logs') };
     const call = payload => spawnSync('sh', [hook, 'guard'], { cwd: repo, env, input: JSON.stringify(payload), encoding: 'utf8' });
     const patch = call({ tool_name: 'apply_patch', tool_input: { command: '*** Begin Patch\n*** Update File: docs/plans/x.md\n@@\n-status: active\n+status: archived\n*** End Patch' } });
     strictEqual(patch.status, 0, patch.stderr);
@@ -130,7 +130,7 @@ describe('Codex hook payloads', () => {
     writeFileSync(stub, `#!/bin/sh\nexec "${process.execPath}" "${bin}" "$@"\n`);
     chmodSync(stub, 0o755);
     const unrelated = spawnSync('sh', [hook, 'guard'], {
-      cwd: h, env: { ...process.env, PATH: `${fakeBin}${path.delimiter}${process.env.PATH}` },
+      cwd: h, env: { ...process.env, HOME: h, USERPROFILE: h, CLAUDE_CONFIG_DIR: undefined, PATH: `${fakeBin}${path.delimiter}${process.env.PATH}` },
       input: JSON.stringify({ tool_name: 'mcp__filesystem__read_file', tool_input: { path: 'docs/prompts/x.md' } }), encoding: 'utf8',
     });
     strictEqual(unrelated.status, 0);
@@ -141,5 +141,43 @@ describe('Codex hook payloads', () => {
     const absent = spawnSync(shell, [hook, '--hint', 'hud'], { cwd: h, env: { PATH: '/usr/bin:/bin' }, encoding: 'utf8' });
     strictEqual(absent.status, 0);
     match(absent.stdout, /npm i -g runlist/);
+  });
+});
+
+describe('Codex same-version source integrity', () => {
+  it('detects changed, missing and extra managed assets without trusting the marker version', () => {
+    const h = fresh();
+    const installed = installCodexPlugin({ version, homedir: h });
+    const skill = path.join(installed.plugin, 'skills/runlist/SKILL.md');
+    writeFileSync(skill, readFileSync(skill, 'utf8') + '\nchanged source\n');
+    strictEqual(codexStatus({ version, homedir: h }).sourceParity.state, 'mismatch');
+    strictEqual(installCodexPlugin({ version, homedir: h }).action, 'updated');
+    rmSync(path.join(installed.plugin, 'hooks/hooks.json'));
+    strictEqual(codexStatus({ version, homedir: h }).stale, true);
+    installCodexPlugin({ version, homedir: h });
+    writeFileSync(path.join(installed.plugin, 'extra-hook.js'), 'changed');
+    strictEqual(codexStatus({ version, homedir: h }).sourceParity.state, 'mismatch');
+    installCodexPlugin({ version, homedir: h });
+    strictEqual(codexStatus({ version, homedir: h }).sourceParity.state, 'match');
+  });
+
+  it('inspects a host-provided installed path independently and leaves absent path parity unknown', () => {
+    const h = fresh();
+    const source = installCodexPlugin({ version, homedir: h });
+    // A separately generated tree stands in for the host cache.
+    const secondHome = path.join(h, 'second-home');
+    const second = installCodexPlugin({ version, homedir: secondHome });
+    const read = installedPath => installedCodexStatus({ homedir: h, run: () => ({ status: 0, stdout: JSON.stringify({ installed: [
+      { pluginId: 'runlist-codex@personal', installed: true, version, ...(installedPath ? { installPath: installedPath } : {}) },
+    ] }) }) });
+    strictEqual(read().sourceParity.state, 'unknown');
+    strictEqual(read(second.plugin).sourceParity.state, 'match');
+    writeFileSync(path.join(second.plugin, 'hooks/hooks.json'), '{}');
+    strictEqual(read(second.plugin).ok, false);
+    strictEqual(read(second.plugin).sourceParity.state, 'mismatch');
+    strictEqual(read(second.plugin).loaded, 'unknown');
+    strictEqual(codexStatus({ version, homedir: h }).stale, false, source.plugin);
+    const offline = installedCodexStatus({ homedir: h, offline: true, run() { throw new Error('must not execute'); } });
+    strictEqual(offline.state, 'unknown');
   });
 });

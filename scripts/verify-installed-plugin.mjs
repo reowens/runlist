@@ -1,9 +1,19 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readInstalledPluginRecords } from '../src/update.mjs';
+import { publishedClaudePluginStatus } from '../src/update.mjs';
+import { discoverClaudeProfiles } from '../src/agent-hosts.mjs';
+import os from 'node:os';
 
 export function verifyInstalledPluginVersion(expectedVersion, opts = {}) {
-  const plugin = readInstalledPluginRecords({ ...opts, id: 'runlist@runlist' });
+  const home = opts.home ?? os.homedir();
+  const env = opts.env ?? (opts.home ? {} : process.env);
+  const configDirs = (opts.claudeConfigDirs ?? (opts.configDir ? [opts.configDir] : [])).map(dir => path.resolve(dir));
+  const profiles = discoverClaudeProfiles({ home, env, configDirs }).filter(profile =>
+    !configDirs.length || configDirs.some(dir => (profile.configDirs ?? [profile.configDir]).includes(dir)));
+  const unreadable = profiles.filter(profile => profile.registryState === 'unreadable');
+  if (unreadable.length) return { ok: false, reason: `Claude installed-plugin registry unreadable: ${unreadable.map(profile => profile.registryPath).join(', ')}` };
+  const installed = profiles.map(profile => ({ profile, plugin: profile.plugins.find(item => item.id === 'runlist@runlist') })).filter(item => item.plugin);
+  const plugin = installed.length ? { id: 'runlist@runlist', entries: installed.flatMap(item => item.plugin.entries) } : null;
   if (!plugin || plugin.entries.length === 0) {
     return { ok: false, reason: 'runlist@runlist plugin is not installed' };
   }
@@ -14,6 +24,8 @@ export function verifyInstalledPluginVersion(expectedVersion, opts = {}) {
       reason: `${plugin.id} has ${mismatches.map(entry => entry.version ?? 'unknown').join(', ')}, expected ${expectedVersion}`,
     };
   }
+  const drift = installed.filter(({ profile, plugin }) => publishedClaudePluginStatus(plugin, profile).state === 'mismatch');
+  if (drift.length) return { ok: false, reason: `${drift.map(item => item.profile.configDir).join(', ')}: installed Claude assets differ from the registered official catalog` };
   return { ok: true, plugin: { id: plugin.id, version: expectedVersion } };
 }
 

@@ -128,9 +128,9 @@ function installCodex(argv, dryRun, json) {
   }
 }
 
-function installClaude(argv, dryRun, json) {
+function installClaude(argv, dryRun, json, opts = {}) {
   const remove = argv.includes('--remove');
-  const steps = planClaudeInstall({ installed: readInstalledPlugin(), legacyInstalled: readInstalledPluginRecords({ id: LEGACY_PLUGIN_ID }), hasClaude: which('claude'), remove });
+  const steps = planClaudeInstall({ installed: readInstalledPlugin(), legacyInstalled: readInstalledPluginRecords({ id: LEGACY_PLUGIN_ID, ...(process.env.CLAUDE_CONFIG_DIR ? { configDir: process.env.CLAUDE_CONFIG_DIR } : {}) }), hasClaude: opts.claudeBin || which('claude'), remove });
   if (json) {
     process.stdout.write(JSON.stringify({ host: 'claude', dryRun, steps }, null, 2) + '\n');
     return;
@@ -151,8 +151,8 @@ function installClaude(argv, dryRun, json) {
     if (step.reason) process.stdout.write(`${step.reason}\n`);
     if (dryRun) { process.stdout.write(dim(`[dry-run] Would run: ${step.cmd.join(' ')}${step.cwd ? ` (in ${step.cwd})` : ''}\n`)); continue; }
     process.stdout.write(dim(`$ ${step.cmd.join(' ')}${step.cwd ? ` (in ${step.cwd})` : ''}\n`));
-    const result = spawnSync(executableName(step.cmd[0]), step.cmd.slice(1), {
-      stdio: 'inherit', shell: process.platform === 'win32',
+    const result = spawnSync(opts.claudeBin || executableName(step.cmd[0]), step.cmd.slice(1), {
+      stdio: 'inherit', shell: process.platform === 'win32' && !opts.claudeBin,
       ...(step.cwd ? { cwd: step.cwd } : {}),
     });
     ran = true;
@@ -205,8 +205,7 @@ function installOpencode(argv, dryRun, json) {
       process.stdout.write('\nRestart OpenCode to apply. New sessions then get:\n');
       process.stdout.write(`  ${dim('·')} a per-session ownership identity (one session can no longer release another's plan)\n`);
       process.stdout.write(`  ${dim('·')} the ${bold('runlist hud')} primer at session start, like Claude Code's SessionStart hook\n`);
-      process.stdout.write(dim('\nPlans already in-session were claimed under the old process-scoped identity;\n'));
-      process.stdout.write(dim('close them before restarting, or reclaim with --force afterwards.\n'));
+      process.stdout.write(dim('\nIf plans were claimed under a previous process-scoped identity, close them before restarting or explicitly reclaim them afterwards.\n'));
       return result;
   }
 }
@@ -224,7 +223,7 @@ export function runInstall(argv, _config, opts = {}) {
   }
 
   const dryRun = Boolean(opts.dryRun);
-  if (host === 'claude') { installClaude(argv, dryRun, json); return; }
+  if (host === 'claude') { installClaude(argv, dryRun, json, opts); return; }
   if (host === 'codex') { installCodex(argv, dryRun, json); return; }
   installOpencode(argv, dryRun, json);
 }

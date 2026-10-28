@@ -1,15 +1,47 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, writeFileSync, rmSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { compareVersions, readInstalledPlugin, planMarketplaceRepair, planUpdate, planPluginUpdates, verifyPluginScopeUpdates, verifyManagedHostUpdates } from '../src/update.mjs';
+import { compareVersions, readInstalledPlugin, planMarketplaceRepair, planUpdate, planPluginUpdates, verifyPluginScopeUpdates, verifyManagedHostUpdates, runUpdate, updateOptions, planClaudeProfileUpdates, publishedClaudePluginStatus } from '../src/update.mjs';
+import { discoverClaudeProfiles } from '../src/agent-hosts.mjs';
 import { installCodexPlugin } from '../src/codex-integration.mjs';
 import { installOpencodePlugin, installedVersion } from '../src/host-integration.mjs';
 import { detectVersionDrift } from '../src/hud.mjs';
 import { verifyInstalledPluginVersion } from '../scripts/verify-installed-plugin.mjs';
 import { updateInstalledPluginVersion } from '../scripts/update-installed-plugin.mjs';
+
+function nativeInventory(binary) {
+  const candidate = { path: binary, resolvedPath: binary, kind: 'native' };
+  return { claude: { selected: candidate, candidates: [candidate], explicit: true },
+    codex: { selected: null, candidates: [] }, opencode: { selected: null, candidates: [] } };
+}
+
+test('unreadable selected marketplace or settings data never becomes an update command', () => {
+  const base = { configDir: '/selected-profile', storeKey: '/selected-store', registryState: 'readable',
+    installed: { id: 'runlist@runlist', entries: [{ scope: 'user', version: '1.2.3' }] } };
+  for (const extra of [
+    { knownMarketplacesState: 'unreadable' },
+    { settings: [{ configDir: base.configDir, state: 'unreadable' }] },
+  ]) {
+    const steps = planClaudeProfileUpdates([{ ...base, ...extra }], nativeInventory('/native/claude').claude);
+    assert.equal(steps.length, 1);
+    assert.equal(steps[0].kind, 'refusal');
+    assert.equal(steps[0].cmd, undefined);
+  }
+});
+
+async function capturedUpdate(argv, opts) {
+  const original = process.stdout.write, exitCode = process.exitCode;
+  let stdout = '';
+  process.exitCode = 0;
+  process.stdout.write = chunk => { stdout += chunk; return true; };
+  try {
+    const result = await runUpdate(argv, {}, opts);
+    return { stdout, stderr: '', status: process.exitCode ?? 0, result };
+  } finally { process.stdout.write = original; process.exitCode = exitCode; }
+}
 
 test('compareVersions orders semver and tolerates junk', () => {
   assert.equal(compareVersions('0.53.0', '0.54.0'), -1);
@@ -22,7 +54,11 @@ test('compareVersions orders semver and tolerates junk', () => {
 
 function withHome(fn) {
   const home = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'dotmd-upd-')));
-  try { return fn(home); } finally { rmSync(home, { recursive: true, force: true }); }
+  try {
+    const result = fn(home);
+    if (result?.then) return result.finally(() => rmSync(home, { recursive: true, force: true }));
+    rmSync(home, { recursive: true, force: true }); return result;
+  } catch (err) { rmSync(home, { recursive: true, force: true }); throw err; }
 }
 
 // Mirrors what `claude plugin install` leaves behind: the install record AND a
@@ -221,7 +257,7 @@ test('release updater executes and verifies every scope without trusting command
     let entries = [{ scope: 'user', version: '0.9.0' }, { scope: 'project', projectPath: project, version: '0.8.0' }];
     writeInstalled(home, { 'runlist@runlist': entries });
     const calls = [];
-    const result = updateInstalledPluginVersion('1.0.0', { home, log() {}, run(command, args, options) {
+    const result = updateInstalledPluginVersion('1.0.0', { home, executables: nativeInventory('claude'), log() {}, run(command, args, options) {
       calls.push([command, args, options.cwd]);
       const scope = args.at(-1);
       entries = entries.map(entry => entry.scope === scope ? { ...entry, version: '1.0.0' } : entry);
@@ -233,7 +269,7 @@ test('release updater executes and verifies every scope without trusting command
     assert.equal(verifyInstalledPluginVersion('1.0.0', { home }).ok, true);
     entries[1].version = '0.8.0';
     writeInstalled(home, { 'runlist@runlist': entries });
-    assert.match(updateInstalledPluginVersion('1.0.0', { home, log() {}, run: () => ({ status: 0 }) }).reason, /project .*has 0.8.0/);
+    assert.match(updateInstalledPluginVersion('1.0.0', { home, executables: nativeInventory('claude'), log() {}, run: () => ({ status: 0 }) }).reason, /project .*has 0.8.0/);
   });
 });
 
@@ -243,7 +279,7 @@ test('release updater continues independent scopes after a failure and retains p
     let entries = [{ scope: 'project', projectPath: project, version: '0.8.0' }, { scope: 'user', version: '0.9.0' }];
     writeInstalled(home, { 'runlist@runlist': entries });
     const calls = [];
-    const result = updateInstalledPluginVersion('1.0.0', { home, log() {}, run(command, args, options) {
+    const result = updateInstalledPluginVersion('1.0.0', { home, executables: nativeInventory('claude'), log() {}, run(command, args, options) {
       calls.push(args.at(-1));
       if (options.cwd) return { status: null, error: new Error('project unavailable') };
       entries[1].version = '1.0.0';
@@ -257,13 +293,13 @@ test('release updater continues independent scopes after a failure and retains p
   });
 });
 
-test('update check and dry-run expose all scope versions and execution directories', () => {
-  withHome(home => {
+test('update check and dry-run expose all scope versions and execution directories', async () => {
+  await withHome(async home => {
     const project = path.join(home, 'project with spaces');
     mkdirSync(project);
     writeInstalled(home, { 'runlist@runlist': [{ scope: 'user', version: '99.0.0' }, { scope: 'project', projectPath: project, version: '0.1.0' }] });
     const bin = path.resolve(import.meta.dirname, '..', 'bin', 'runlist.mjs');
-    const env = { ...process.env, HOME: home, USERPROFILE: home, NO_COLOR: '1' };
+    const env = { ...process.env, CLAUDE_CONFIG_DIR: undefined, HOME: home, USERPROFILE: home, NO_COLOR: '1' };
     const check = spawnSync(process.execPath, [bin, 'update', '--check'], { cwd: home, encoding: 'utf8', env });
     assert.equal(check.status, 0, check.stderr);
     assert.match(check.stdout, /99.0.0 .*user/);
@@ -273,21 +309,19 @@ test('update check and dry-run expose all scope versions and execution directori
     const fakeClaude = path.join(fakeBin, process.platform === 'win32' ? 'claude.cmd' : 'claude');
     writeFileSync(fakeClaude, process.platform === 'win32' ? '@exit /b 0\r\n' : '#!/bin/sh\nexit 0\n');
     chmodSync(fakeClaude, 0o755);
-    const run = args => spawnSync(process.execPath, [bin, 'update', '--plugin-only', ...args], {
-      cwd: home, encoding: 'utf8', env: { ...env, PATH: `${fakeBin}${path.delimiter}${process.env.PATH}` },
-    });
-    const dry = run(['--dry-run']);
-    assert.equal(dry.status, 0, dry.stderr);
+    const run = args => capturedUpdate(['--plugin-only', ...args], { home, env, executables: nativeInventory(fakeClaude), expectedVersion: JSON.parse(readFileSync(new URL('../package.json', import.meta.url))).version });
+    const dry = await run(['--dry-run']);
+    assert.equal(dry.status, 0, dry.stdout);
     assert.match(dry.stdout, /--scope user/);
     assert.ok(dry.stdout.includes(`--scope project (in ${project})`));
-    const noOp = run([]);
+    const noOp = await run([]);
     assert.equal(noOp.status, 1, noOp.stdout + noOp.stderr);
     assert.match(noOp.stdout, /project .*has 0.1.0/);
   });
 });
 
-test('CLI update and marketplace install repair execute each scope at its recorded directory', () => {
-  withHome(home => {
+test('updater and marketplace install repair execute each scope at its recorded directory', async () => {
+  await withHome(async home => {
     const first = path.join(home, 'first project');
     const second = path.join(home, 'second project');
     const fakeBin = path.join(home, 'bin');
@@ -319,11 +353,12 @@ if (args[1] === 'marketplace') {
       : `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`);
     chmodSync(wrapper, 0o755);
     const bin = path.resolve(import.meta.dirname, '..', 'bin', 'runlist.mjs');
-    const env = { ...process.env, HOME: home, USERPROFILE: home, NO_COLOR: '1', PATH: `${fakeBin}${path.delimiter}${process.env.PATH}` };
+    const env = { ...process.env, CLAUDE_CONFIG_DIR: undefined, HOME: home, USERPROFILE: home, NO_COLOR: '1', PATH: `${fakeBin}${path.delimiter}${process.env.PATH}` };
     for (const args of [['update', '--plugin-only'], ['install', 'claude']]) {
       writeInstalled(home, { 'runlist@runlist': entries }, args[0] === 'install' ? [] : ['runlist']);
       writeFileSync(trace, '');
-      const result = spawnSync(process.execPath, [bin, ...args], { cwd: home, encoding: 'utf8', env });
+      const result = args[0] === 'update' ? await capturedUpdate(args.slice(1), { home, env, executables: nativeInventory(wrapper), run: (command, args, options) => spawnSync(command, args, { cwd: home, ...options }) })
+        : spawnSync(process.execPath, [bin, ...args], { cwd: home, encoding: 'utf8', env });
       assert.equal(result.status, 0, result.stdout + result.stderr);
       const calls = readFileSync(trace, 'utf8').trim().split('\n').map(line => JSON.parse(line));
       const updates = calls.filter(call => call.args[1] === 'update');
@@ -352,11 +387,11 @@ test('update --dry-run previews global commands without executing them', () => {
     const result = spawnSync('node', [bin, 'update', '--dry-run'], {
       cwd: home,
       encoding: 'utf8',
-      env: { ...process.env, HOME: home, USERPROFILE: home, PATH: `${fakeBin}${path.delimiter}${process.env.PATH}` },
+      env: { ...process.env, CLAUDE_CONFIG_DIR: undefined, HOME: home, USERPROFILE: home, PATH: `${fakeBin}${path.delimiter}${process.env.PATH}` },
     });
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /\[dry-run\] Would run: npm i -g/);
-    assert.match(result.stdout, /\[dry-run\] Would run: claude plugin update/);
+    assert.match(result.stdout, /\[dry-run\] Refused: cannot establish wrapper-to-profile mapping/);
     assert.equal(existsSync(sentinel), false);
   });
 });
@@ -382,14 +417,14 @@ test('update runs every host step past a failed one, then exits 1 naming the fai
       cwd: home,
       encoding: 'utf8',
       env: {
-        ...process.env, NO_COLOR: '1', HOME: home, USERPROFILE: home, OPENCODE_CONFIG_DIR: ocDir,
+        ...process.env, CLAUDE_CONFIG_DIR: undefined, NO_COLOR: '1', HOME: home, USERPROFILE: home, OPENCODE_CONFIG_DIR: ocDir,
         PATH: `${fakeBin}${path.delimiter}${process.env.PATH}`,
       },
     });
     assert.equal(result.status, 1, result.stdout + result.stderr);
-    assert.match(result.stdout, /claude exited 1/);
+    assert.match(result.stdout, /cannot establish wrapper-to-profile mapping/);
     assert.match(result.stdout, /updated opencode integration/);
-    assert.match(result.stdout, /1 step failed: claude plugin update runlist@runlist/);
+    assert.match(result.stdout, /1 step failed: cannot establish wrapper-to-profile mapping/);
     assert.notEqual(installedVersion(stale.path), '0.1.0');
   });
 });
@@ -443,7 +478,7 @@ if (process.argv[3] === 'list') console.log(JSON.stringify({installed: [{pluginI
     const sentinel = path.join(home, 'wrong-cli-used');
     writeNodeCommand(fakeBin, 'runlist', `require('node:fs').writeFileSync(${JSON.stringify(sentinel)}, 'wrong'); process.exitCode = 1;`);
     const result = spawnSync(process.execPath, [path.join(fixture, 'bin/runlist.mjs'), 'update'], {
-      cwd: home, encoding: 'utf8', env: { ...process.env, HOME: home, USERPROFILE: home, OPENCODE_CONFIG_DIR: ocDir,
+      cwd: home, encoding: 'utf8', env: { ...process.env, CLAUDE_CONFIG_DIR: undefined, HOME: home, USERPROFILE: home, OPENCODE_CONFIG_DIR: ocDir,
         PATH: `${fakeBin}${path.delimiter}${process.env.PATH}`, NO_COLOR: '1' },
     });
     assert.equal(result.status, 0, result.stdout + result.stderr);
@@ -458,7 +493,7 @@ test('release host updater refuses a version mismatch before touching installati
   withHome(home => {
     const root = path.resolve(import.meta.dirname, '..');
     const result = spawnSync(process.execPath, [path.join(root, 'scripts/update-installed-hosts.mjs'), '0.0.0'], {
-      cwd: home, encoding: 'utf8', env: { ...process.env, HOME: home, USERPROFILE: home },
+      cwd: home, encoding: 'utf8', env: { ...process.env, CLAUDE_CONFIG_DIR: undefined, HOME: home, USERPROFILE: home },
     });
     assert.equal(result.status, 1);
     assert.match(result.stderr, /host update requires this CLI version/);
@@ -484,11 +519,11 @@ if (process.argv[3] === 'list') console.log(JSON.stringify({installed: [{pluginI
       writeFileSync(cache, '0.1.0');
       const oc = installOpencodePlugin({ version: '0.1.0', env: { OPENCODE_CONFIG_DIR: ocDir }, homedir: home });
       const result = spawnSync(process.execPath, [path.join(root, 'scripts/update-installed-hosts.mjs'), version], {
-        cwd: home, encoding: 'utf8', env: { ...process.env, HOME: home, USERPROFILE: home, OPENCODE_CONFIG_DIR: ocDir,
+        cwd: home, encoding: 'utf8', env: { ...process.env, CLAUDE_CONFIG_DIR: undefined, HOME: home, USERPROFILE: home, OPENCODE_CONFIG_DIR: ocDir,
           PATH: `${fakeBin}${path.delimiter}${process.env.PATH}`, NO_COLOR: '1', CODEX_NOOP: noOp ? '1' : '0' },
       });
       assert.equal(result.status, 1, result.stdout + result.stderr);
-      assert.match(result.stdout, /claude exited 1/);
+      assert.match(result.stdout, /cannot establish wrapper-to-profile mapping/);
       assert.equal(installedVersion(oc.path), version, 'an independent host failure must not strand OpenCode');
       assert.equal(readFileSync(cache, 'utf8'), noOp ? '0.1.0' : version);
       assert.ok(!result.stdout.includes('Installed host integrations verified'));
@@ -556,5 +591,203 @@ test('detectVersionDrift: warns when CLI is behind a newer cached plugin', () =>
   withPluginRoot('99.0.0', true, (root) => {
     const msg = detectVersionDrift({ CLAUDE_PLUGIN_ROOT: root });
     assert.match(msg, /CLI .* is behind the plugin 99\.0\.0/);
+  });
+});
+
+function writeProfile(configDir, entries, { catalog, official = true } = {}) {
+  const plugins = path.join(configDir, 'plugins');
+  mkdirSync(plugins, { recursive: true });
+  writeFileSync(path.join(plugins, 'installed_plugins.json'), JSON.stringify({ plugins: { 'runlist@runlist': entries } }));
+  writeFileSync(path.join(plugins, 'known_marketplaces.json'), JSON.stringify({ runlist: {
+    source: { source: 'github', repo: official ? 'reowens/runlist' : 'other/runlist' }, ...(catalog ? { installLocation: catalog } : {}),
+  } }));
+}
+
+function fakeProfileUpdate(command, args, options) {
+  if (args[1] === 'update') {
+    const file = path.join(options.env.CLAUDE_CONFIG_DIR, 'plugins/installed_plugins.json');
+    const registry = JSON.parse(readFileSync(file));
+    for (const entry of registry.plugins['runlist@runlist']) {
+      if (entry.scope === args.at(-1) && (entry.scope === 'user' || entry.projectPath === options.cwd)) entry.version = '1.2.3';
+    }
+    writeFileSync(file, JSON.stringify(registry));
+  }
+  return { status: 0 };
+}
+
+test('host selection is host-only and selector validation fails before any work', () => {
+  assert.equal(updateOptions(['--host', 'codex']).pluginOnly, true);
+  assert.throws(() => updateOptions(['--host', 'codex', '--cli-only']), /conflicts/);
+  assert.throws(() => updateOptions(['--host', 'elsewhere']), /must be/);
+  assert.throws(() => updateOptions(['--claude-config', 'relative']), /absolute/);
+  assert.throws(() => updateOptions(['--claude-bin']), /requires a value/);
+});
+
+test('offline JSON check and dry-run never execute discovered host binaries', async () => {
+  await withHome(async home => {
+    const bin = path.join(home, 'bin'); mkdirSync(bin);
+    const sentinel = path.join(home, 'executed');
+    for (const name of ['claude', 'codex', 'opencode', 'npm']) writeNodeCommand(bin, name,
+      `require('node:fs').writeFileSync(${JSON.stringify(sentinel)}, 'executed');`);
+    writeProfile(path.join(home, '.claude'), [{ scope: 'user', version: '1.2.3' }]);
+    const env = { HOME: home, USERPROFILE: home, PATH: bin };
+    const check = await capturedUpdate(['--check', '--json'], { home, env, run() { throw new Error('offline execution'); } });
+    const report = JSON.parse(check.stdout);
+    assert.equal(report.offline, true);
+    assert.equal(report.hostReport.hosts.claude.loaded, 'unknown');
+    assert.equal(report.hostReport.executables.claude.candidates.length, 1);
+    assert.equal(report.hostReport.hosts.claude.profiles[0].plugins[0].catalog.state, 'unknown');
+    await capturedUpdate(['--host', 'claude', '--dry-run'], { home, env, run() { throw new Error('preview execution'); } });
+    assert.equal(existsSync(sentinel), false);
+  });
+});
+
+test('selected Claude profiles use the exact executable, environment and scoped project directory', async () => {
+  await withHome(async home => {
+    const defaultProfile = path.join(home, '.claude');
+    const selectedProfile = path.join(home, '.claude-work');
+    const project = path.join(home, 'project'); mkdirSync(project);
+    writeProfile(defaultProfile, [{ scope: 'user', version: '0.1.0' }]);
+    writeProfile(selectedProfile, [{ scope: 'user', version: '0.1.0' }, { scope: 'project', projectPath: project, version: '0.1.0' }]);
+    writeFileSync(path.join(selectedProfile, 'unmanaged.txt'), 'keep');
+    const binary = path.join(home, 'native executable');
+    const calls = [];
+    const result = await capturedUpdate(['--host', 'claude', '--claude-config', selectedProfile], {
+      home, env: { PATH: '', CLAUDE_CONFIG_DIR: defaultProfile }, executables: nativeInventory(binary), expectedVersion: '1.2.3',
+      run(command, args, options) { calls.push({ command, args, options }); return fakeProfileUpdate(command, args, options); },
+    });
+    assert.equal(result.status, 0, result.stdout);
+    assert.deepEqual(calls.map(call => call.args.slice(0, 3)), [['plugin', 'marketplace', 'update'], ['plugin', 'update', 'runlist@runlist'], ['plugin', 'update', 'runlist@runlist']]);
+    assert.ok(calls.every(call => call.command === binary && call.options.env.CLAUDE_CONFIG_DIR === selectedProfile));
+    assert.equal(calls.at(-1).options.cwd, project);
+    assert.equal(readInstalledPlugin({ home, configDir: defaultProfile }).version, '0.1.0');
+    assert.equal(readFileSync(path.join(selectedProfile, 'unmanaged.txt'), 'utf8'), 'keep');
+  });
+});
+
+test('shared physical Claude stores update once and an explicitly selected alias supplies the environment', { skip: process.platform === 'win32' && 'requires directory symlinks' }, async () => {
+  await withHome(async home => {
+    const original = path.join(home, '.claude'), alias = path.join(home, '.claude-shared');
+    writeProfile(original, [{ scope: 'user', version: '0.1.0' }]);
+    mkdirSync(alias); symlinkSync(path.join(original, 'plugins'), path.join(alias, 'plugins'), 'dir');
+    const calls = [];
+    const opts = { home, env: { PATH: '' }, executables: nativeInventory('/injected/native'), expectedVersion: '1.2.3',
+      run(command, args, options) { calls.push(options.env.CLAUDE_CONFIG_DIR); return fakeProfileUpdate(command, args, options); } };
+    const result = await capturedUpdate(['--host', 'claude', '--claude-config', alias], opts);
+    assert.equal(result.status, 0, result.stdout);
+    assert.deepEqual(calls, [alias, alias]);
+    calls.length = 0;
+    await capturedUpdate(['--host', 'claude'], opts);
+    assert.deepEqual(calls, [original, original]);
+  });
+});
+
+test('marketplace failure blocks only its own store and fresh verification checks every installed scope', async () => {
+  await withHome(async home => {
+    const first = path.join(home, '.claude'), second = path.join(home, '.claude-work');
+    writeProfile(first, [{ scope: 'user', version: '0.1.0' }]);
+    writeProfile(second, [{ scope: 'user', version: '0.1.0' }]);
+    const calls = [];
+    const result = await capturedUpdate(['--host', 'claude'], {
+      home, env: { PATH: '' }, executables: nativeInventory('/injected/native'), expectedVersion: '1.2.3',
+      run(command, args, options) {
+        calls.push([options.env.CLAUDE_CONFIG_DIR, args[1]]);
+        if (options.env.CLAUDE_CONFIG_DIR === first) return { status: 1 };
+        return fakeProfileUpdate(command, args, options);
+      },
+    });
+    assert.equal(result.status, 1);
+    assert.deepEqual(calls, [[first, 'marketplace'], [second, 'marketplace'], [second, 'update']]);
+    assert.match(result.stdout, /user has 0.1.0, expected 1.2.3/);
+    assert.equal(readInstalledPlugin({ home, configDir: second }).version, '1.2.3');
+  });
+});
+
+test('published Claude parity includes top-level hooks.json and rejects a same-version no-op', async () => {
+  await withHome(async home => {
+    const catalog = path.join(home, 'catalog'), source = path.join(catalog, 'plugins/runlist');
+    const installed = path.join(home, 'installed');
+    mkdirSync(path.join(catalog, '.claude-plugin'), { recursive: true });
+    mkdirSync(path.join(source, '.claude-plugin'), { recursive: true });
+    writeFileSync(path.join(catalog, '.claude-plugin/marketplace.json'), JSON.stringify({ name: 'runlist', plugins: [{ name: 'runlist', source: './plugins/runlist' }] }));
+    writeFileSync(path.join(source, '.claude-plugin/plugin.json'), JSON.stringify({ name: 'runlist', version: '1.2.3' }));
+    writeFileSync(path.join(source, 'hooks.json'), '{"hooks":{}}');
+    cpSync(source, installed, { recursive: true });
+    const configDir = path.join(home, '.claude');
+    writeProfile(configDir, [{ scope: 'user', version: '1.2.3', installPath: installed }], { catalog });
+    const profile = discoverClaudeProfiles({ home, env: {} })[0];
+    assert.equal(publishedClaudePluginStatus(profile.installed, profile).state, 'match');
+    writeFileSync(path.join(installed, 'hooks.json'), '{"hooks":{"changed":true}}');
+    assert.equal(publishedClaudePluginStatus(profile.installed, profile).state, 'mismatch');
+    const result = await capturedUpdate(['--host', 'claude'], { home, env: { PATH: '' }, executables: nativeInventory('/injected/native'), run: () => ({ status: 0 }) });
+    assert.equal(result.status, 1);
+    assert.match(result.stdout, /assets differ from the refreshed registered official marketplace catalog/);
+  });
+});
+
+test('profile readers honor process environment but explicit home fixtures stay home-based', () => {
+  withHome(home => {
+    const configDir = path.join(home, '.claude-work');
+    writeProfile(path.join(home, '.claude'), [{ scope: 'user', version: '0.1.0' }]);
+    writeProfile(configDir, [{ scope: 'user', version: '2.0.0' }]);
+    const previous = process.env.CLAUDE_CONFIG_DIR;
+    process.env.CLAUDE_CONFIG_DIR = configDir;
+    try {
+      assert.equal(readInstalledPlugin().version, '2.0.0');
+      assert.equal(readInstalledPlugin({ home }).version, '0.1.0');
+      assert.equal(readInstalledPlugin({ home, env: { CLAUDE_CONFIG_DIR: configDir } }).version, '2.0.0');
+      assert.equal(readInstalledPlugin({ home, configDir }).version, '2.0.0');
+    } finally { if (previous === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = previous; }
+  });
+});
+
+test('missing integrations remain absent and explicit unknown wrappers cannot mutate profiles', async () => {
+  await withHome(async home => {
+    const configDir = path.join(home, '.claude-work');
+    writeProfile(configDir, [{ scope: 'user', version: '1.2.3' }]);
+    const inventory = nativeInventory('/injected/wrapper'); inventory.claude.selected.kind = 'wrapper';
+    const result = await capturedUpdate(['--host', 'claude', '--claude-config', configDir], {
+      home, env: { PATH: '' }, executables: inventory, run() { throw new Error('wrapper executed'); },
+    });
+    assert.equal(result.status, 1);
+    assert.match(result.stdout, /--claude-bin.*native.*--claude-config/);
+    const absent = await capturedUpdate(['--host', 'codex'], { home, env: { PATH: '' }, executables: nativeInventory('/injected/native'), run() { throw new Error('missing integration install'); } });
+    assert.equal(absent.status, 0);
+    assert.equal(existsSync(path.join(home, 'plugins')), false);
+  });
+});
+
+test('Claude legacy migration preserves scope and project identity for install and uninstall', () => {
+  const project = path.resolve(os.tmpdir(), 'legacy project');
+  const legacy = { id: 'dotmd@dotmd', entries: [{ scope: 'user' }, { scope: 'project', projectPath: project }] };
+  const steps = planUpdate({ pluginOnly: true }, { plugin: legacy, hasClaude: true });
+  assert.deepEqual(steps.filter(step => step.kind === 'plugin').map(step => [step.cmd, step.cwd]), [
+    [['claude', 'plugin', 'install', 'runlist@runlist', '--scope', 'user'], undefined],
+    [['claude', 'plugin', 'install', 'runlist@runlist', '--scope', 'project'], project],
+  ]);
+  assert.deepEqual(steps.filter(step => step.kind === 'legacy').map(step => [step.cmd, step.cwd]), [
+    [['claude', 'plugin', 'uninstall', 'dotmd@dotmd', '--scope', 'user'], undefined],
+    [['claude', 'plugin', 'uninstall', 'dotmd@dotmd', '--scope', 'project'], project],
+  ]);
+});
+
+test('unreadable Claude registries and unavailable explicit executables refuse rather than falling back', () => {
+  const inventory = nativeInventory('/injected/native');
+  const unreadable = planClaudeProfileUpdates([{ configDir: '/profile', registryPath: '/profile/plugins/installed_plugins.json', registryState: 'unreadable' }], inventory);
+  assert.equal(unreadable[0].kind, 'refusal');
+  const unavailable = planClaudeProfileUpdates([{ configDir: '/profile', installed: { id: 'runlist@runlist', entries: [{ scope: 'user' }] }, storeKey: '/profile/plugins' }], { selected: null, candidates: [], explicit: true });
+  assert.equal(unavailable[0].kind, 'refusal');
+  assert.match(unavailable[0].reason, /--claude-bin is unavailable/);
+});
+
+test('release helpers cannot claim every installed profile verified when one registry is unreadable', () => {
+  withHome(home => {
+    writeProfile(path.join(home, '.claude'), [{ scope: 'user', version: '1.2.3' }]);
+    const broken = path.join(home, '.claude-other/plugins'); mkdirSync(broken, { recursive: true });
+    writeFileSync(path.join(broken, 'installed_plugins.json'), '{invalid');
+    assert.match(verifyInstalledPluginVersion('1.2.3', { home }).reason, /registry unreadable/);
+    const result = updateInstalledPluginVersion('1.2.3', { home, env: { PATH: '' }, executables: nativeInventory('/injected/native'), log() {}, run: () => ({ status: 0 }) });
+    assert.equal(result.ok, false);
+    assert.match(result.reason, /registry unreadable/);
   });
 });

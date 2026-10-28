@@ -650,3 +650,20 @@ describe('runlist install command', () => {
     match(result.stderr, /Unknown host/);
   });
 });
+
+describe('OpenCode generated source integrity', () => {
+  it('refreshes changed JavaScript even when the version banner matches', () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), 'runlist-oc-integrity-'));
+    try {
+      const options = { version: '1.2.3', homedir: home, env: {} };
+      const installed = installOpencodePlugin(options);
+      const original = readFileSync(installed.path, 'utf8');
+      writeFileSync(installed.path, original + '\n// changed generated JS\n');
+      strictEqual(opencodeStatus(options).sourceParity.state, 'mismatch');
+      strictEqual(opencodeStatus(options).stale, true);
+      strictEqual(installOpencodePlugin(options).action, 'updated');
+      strictEqual(readFileSync(installed.path, 'utf8'), original);
+      strictEqual(opencodeStatus(options).sourceParity.state, 'match');
+    } finally { rmSync(home, { recursive: true, force: true }); }
+  });
+});

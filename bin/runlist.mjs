@@ -211,12 +211,24 @@ host gets that a different way:
 Writing outside the repo is why this is an explicit verb: \`runlist doctor\`
 reports a missing integration but never installs one.`,
 
-  update: `runlist update — update the runlist CLI and the Claude Code plugin together
+  update: `runlist update — update the CLI and already installed host integrations
 
   runlist update                 npm i -g runlist  +  claude plugin update runlist@runlist
   runlist update --check         report CLI vs plugin versions, do nothing (network-free)
+  runlist update --check --json  offline executable/profile/source report; no host programs run
   runlist update --cli-only      only the npm CLI
-  runlist update --plugin-only   only the plugin
+  runlist update --plugin-only   only installed host integrations
+  runlist update --host codex    only this installed host integration (no npm CLI/GUI update)
+  runlist update --host claude --claude-config /absolute/profile --claude-bin /absolute/native/claude
+
+--host accepts claude, codex or opencode and conflicts with --cli-only.
+Repeat --claude-config to select separate profiles; shared stores update once.
+--claude-bin preserves the chosen executable path. Unknown wrapper/profile
+mapping requires an explicit native binary; no profile is guessed.
+Missing integrations stay missing during update; use install or an explicitly
+selected doctor repair. Unmarked files remain user-owned. Catalog/source parity
+and installed records are checked separately from live activation, which still
+requires reload/trust. Unpublished checkout differences are labelled separately.
 
 The plugin and CLI ship in lockstep; a release bumps both. Updating the plugin
 requires a session restart (or /reload-plugins) to apply. The plugin step needs
@@ -867,6 +879,17 @@ sync hub status rows, sync dates from git, regenerate the index, then show
 remaining issues.
 
 Modes:
+  --hosts                Unified Claude/Codex/OpenCode inventory: executables,
+                         profiles/shared stores, installed/expected versions,
+                         source parity and unknown live-session loading.
+                         Read-only, offline, no project JS import; supports --json.
+  --hosts --repair <h>    Preview repairs for named hosts only; repeat --repair
+                         for more hosts. Add --apply to execute those targets.
+                         --dry-run always wins. --apply alone is refused here.
+                         Use --claude-config /absolute/profile (repeatable) and
+                         --claude-bin /absolute/native/claude for explicit targeting.
+                         Repair may install a selected missing integration;
+                         foreign/unreadable content and ambiguous wrappers are refused.
   (default)              Auto-fix pass — previews by default since 0.37.0
                          (F4). Use --apply (alias --yes) to actually write;
                          explicit --dry-run still wins over --apply if both
@@ -2039,11 +2062,14 @@ async function main() {
   // reads still run schema/reference validation without walking 10k commits.
   const gitStaleness = command === 'check' || command === 'doctor';
   _suppressObservability = effectiveDryRun || command === 'hud' || passiveMachineContext;
+  const hostDiagnostics = command === 'doctor' && restArgs.includes('--hosts');
+  const updateInspection = command === 'update' && restArgs.includes('--check');
+  if (hostDiagnostics || updateInspection) _suppressObservability = true;
 
   // Per-command help
   if (args.includes('--help') || args.includes('-h')) {
     requireCommandPolicy(command, dispatchPolicy);
-    await captureHelpConfig(command);
+    if (!hostDiagnostics && !updateInspection) await captureHelpConfig(command);
     const focused = focusedCommandHelp(command, restArgs);
     if (focused?.fallback) process.stdout.write(`No focused help for this request; showing complete \`runlist ${command} --help\`.\n\n`);
     process.stdout.write(`${focused?.text ?? HELP[command] ?? commandUsage(command)}\n`);
@@ -2067,6 +2093,37 @@ async function main() {
     const { runCompletions } = await import('../src/completions.mjs');
     runCompletions(restArgs);
     return;
+  }
+
+  // Host diagnostics must work before project setup and with a broken project
+  // config. This branch deliberately imports no project JavaScript and runs no
+  // state migration or document sweep. Only selected repairs can write.
+  if (command === 'doctor' && restArgs.includes('--hosts')) {
+    requireCommandPolicy(command, dispatchPolicy);
+    try { restArgs = validateCommandArgs(command, restArgs); } catch (err) { die(err.message); }
+    const { runDoctorHosts } = await import('../src/doctor-hosts.mjs');
+    await runDoctorHosts(restArgs, { repoRoot: process.cwd() }, { dryRun });
+    return;
+  }
+
+  if (command === 'update') {
+    requireCommandPolicy(command, dispatchPolicy);
+    try { restArgs = validateCommandArgs(command, restArgs); } catch (err) { die(err.message); }
+    const { runUpdate } = await import('../src/update.mjs');
+    await runUpdate(restArgs, { repoRoot: process.cwd() }, { dryRun });
+    return;
+  }
+
+  if (command === 'install') {
+    requireCommandPolicy(command, dispatchPolicy);
+    try { restArgs = validateCommandArgs(command, restArgs); } catch (err) { die(err.message); }
+    const { runInstall } = await import('../src/install.mjs');
+    await runInstall(restArgs, { repoRoot: process.cwd() }, { dryRun });
+    return;
+  }
+
+  if (command === 'doctor' && restArgs.some(arg => ['--repair', '--claude-config', '--claude-bin'].includes(arg))) {
+    die('Host repair and Claude selectors require runlist doctor --hosts.');
   }
 
   if (command === 'baton' && restArgs.includes('--template')) {

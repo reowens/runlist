@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,existsSync,rmSync,symlinkSync,realpathSync} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {installationReport,sourceFingerprint,formatInstallationReport} from '../src/installation.mjs';
+import {installationReport,sourceFingerprint,formatInstallationReport,readInstalledPluginRecords} from '../src/installation.mjs';
 
 function fixture(t) {
   const home=realpathSync(mkdtempSync(path.join(os.tmpdir(),'runlist-installation-')));t.after(()=>rmSync(home,{recursive:true,force:true}));
@@ -49,4 +49,23 @@ test('shows managed host copies and leaves missing or unreadable identities expl
   const report=f.report();assert.equal(report.integrations.claude[0].sameSource,false);
   const missing=installationReport({repoRoot:f.project},{...f.options,app:path.join(f.home,'missing.app')});assert.equal(missing.desktop.state,'missing');assert.equal(missing.desktop.sameEngineSource,null);
   const file=path.join(installed,'skills/runlist/SKILL.md');assert.equal(readFileSync(file,'utf8'),'old instructions');
+});
+
+test('installed plugin reader accepts an explicit profile without changing default or legacy selection',t=>{
+  const f=fixture(t),configDir=path.join(f.home,'.claude-robot');
+  f.write(path.join(f.home,'.claude/plugins/installed_plugins.json'),JSON.stringify({plugins:{'dotmd@dotmd':{scope:'user',version:'0.1.0'}}}));
+  f.write(path.join(configDir,'plugins/installed_plugins.json'),JSON.stringify({plugins:{'runlist@runlist':[{scope:'user',version:'1.2.3'},{scope:'project',version:'1.2.2',projectPath:f.project}]}}));
+  assert.equal(readInstalledPluginRecords({home:f.home}).id,'dotmd@dotmd');
+  const selected=readInstalledPluginRecords({home:f.home,configDir});
+  assert.equal(selected.id,'runlist@runlist');assert.equal(selected.entries.length,2);
+  assert.equal(readInstalledPluginRecords({home:f.home,configDir,id:'dotmd@dotmd'}),null);
+});
+
+test('legacy installation report plugin hashes include standalone hooks.json',t=>{
+  const f=fixture(t),source=path.join(f.root,'plugins/runlist'),installed=path.join(f.home,'claude-copy');
+  for(const dir of [source,installed])f.write(path.join(dir,'hooks.json'),'{"hooks":{}}');
+  f.write(path.join(f.home,'.claude/plugins/installed_plugins.json'),JSON.stringify({plugins:{'runlist@runlist':[{scope:'user',version:'1.2.3',installPath:installed}]}}));
+  assert.equal(f.report().integrations.claude[0].sameSource,true);
+  f.write(path.join(installed,'hooks.json'),'{"hooks":{"SessionStart":"old"}}');
+  assert.equal(f.report().integrations.claude[0].sameSource,false);
 });

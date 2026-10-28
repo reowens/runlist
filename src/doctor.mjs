@@ -287,6 +287,7 @@ export function runDoctor(argv, config, opts = {}) {
     ? dim('[preview — run with --apply to write]')
     : dim('[applying changes]');
   process.stdout.write(bold('runlist doctor') + ' ' + modeNote + '\n\n');
+  process.stdout.write(dim('Agent integrations: runlist doctor --hosts (read-only); select --repair <host> to preview host repairs.\n\n'));
   if (dryRun) {
     const skippedHooks = ['validate', 'transformDoc', 'formatSnapshot', 'renderCheck']
       .filter(name => typeof config.hooks?.[name] === 'function');

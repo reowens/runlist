@@ -113,6 +113,11 @@ export function opencodeStatus(opts = {}) {
   const installed = generated?.version ?? oldGenerated?.version ?? null;
   const legacyGenerated = Boolean(oldGenerated);
   const legacyBanner = generated?.marker === LEGACY_GENERATED_MARKER || oldGenerated?.marker === LEGACY_GENERATED_MARKER;
+  let sourceParity = { state: 'unknown' };
+  if (installed && !legacyBanner && !legacyGenerated) {
+    try { sourceParity = { state: readFileSync(filePath, 'utf8') === renderOpencodePlugin(version ?? installed) ? 'match' : 'mismatch' }; }
+    catch { /* An unreadable file cannot establish parity. */ }
+  }
   return {
     path: filePath,
     legacyPath,
@@ -121,7 +126,8 @@ export function opencodeStatus(opts = {}) {
     // Generated legacy files migrate to runlist.js. Unmarked files remain user-owned.
     foreign: (currentExists && !generated) || (!currentExists && oldExists && !oldGenerated),
     foreignPath: currentExists && !generated ? filePath : oldExists && !oldGenerated ? legacyPath : null,
-    stale: installed !== null && ((version !== undefined && installed !== version) || legacyBanner || legacyGenerated),
+    sourceParity,
+    stale: installed !== null && ((version !== undefined && installed !== version) || legacyBanner || legacyGenerated || sourceParity.state !== 'match'),
     legacyBanner,
     legacyGenerated,
   };
