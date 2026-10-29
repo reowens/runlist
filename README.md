@@ -1659,4 +1659,4 @@ and the explicit compatibility and desktop qualification workflows.
 
 MIT
 
-Remaining [protective parser/global Git/Codex hook error changes](../../platform/docs/plans/assets/p3-hook-error-review-20261029/README.md) are prepared for review and remain unapplied; they preserve intentional observational behavior and the accepted filesystem profiles above. The global Git setting is shared through ROBOT's existing link to Personal, and the proposed registration edit preserves that link.
+The reviewed [protective parser/global Git/Codex hook error changes](../../platform/docs/plans/assets/p3-hook-error-review-20261029/README.md) are applied. [Application evidence](../../platform/docs/plans/assets/p3-hook-error-review-20261029/applied/README.md) records passing guard/global/fault checks and one corrected Codex sibling-prefix fixture awaiting a focused rerun under the test limit. Intentional observers, accepted filesystem profiles and ROBOT's shared settings symlink are preserved.
