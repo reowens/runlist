@@ -72,15 +72,18 @@ test('baton --done after a slug-mode handoff fails, which is why /baton must not
   }
 });
 
-test('README quick path installs from the terminal, sets up the project first, and keeps its claims to what is documented', () => {
+test('README quick path is install, baton, /pickup — no setup step, planning optional', () => {
   const path3 = quickPath();
-  assert.match(path3, /npm install -g runlist\n\s+claude plugin marketplace add reowens\/runlist\n\s+claude plugin install runlist@runlist\n\s+cd \/path\/to\/your\/project\n\s+runlist setup\n/);
-  assert.ok(path3.indexOf('runlist setup') < path3.indexOf('2. **Stop with a handoff'), 'setup comes before the first handoff');
-  assert.match(path3, /if you save one first, setup carries it into the configured prompt folder/);
-  assert.doesNotMatch(path3, /where a later setup will not/);
-  assert.match(path3, /^1\. \*\*Install, then set up your project\*\*/m);
-  assert.match(path3, /^2\. \*\*Stop with a handoff/m);
-  assert.match(path3, /^3\. \*\*Pick it up next time/m);
+  assert.match(path3, /npm install -g runlist\n\s+claude plugin marketplace add reowens\/runlist\n\s+claude plugin install runlist@runlist\n\s+```/);
+  assert.match(path3, /There is no setup step\./);
+  assert.match(path3, /^1\. \*\*Install\*\* \(once, in a terminal\):/m);
+  assert.match(path3, /^2\. \*\*Stop with a handoff\.\*\*/m);
+  assert.match(path3, /^3\. \*\*Pick it up next time\.\*\* In a new session, type `\/pickup`/m);
+  const steps = path3.slice(path3.indexOf('1. **Install'), path3.indexOf('Planning is optional'));
+  assert.doesNotMatch(steps, /runlist setup/, 'setup is not a step before the first handoff');
+  assert.match(steps, /first handoff in a project also writes a small\s+`runlist\.config\.mjs`/);
+  assert.match(path3, /Planning is optional: when you want plans, docs and an index, run `runlist\s+setup`/);
+  assert.match(path3, /your saved handoffs stay where they are/);
   // Desktop's plugin browser is only for finding runlist once the marketplace is registered.
   assert.match(path3, /once the marketplace is registered/);
   assert.doesNotMatch(path3, /untested|has no shell|have no shell|restart it from a terminal|Restart Claude Desktop/);
@@ -91,6 +94,25 @@ test('README quick path installs from the terminal, sets up the project first, a
   assert.doesNotMatch(path3, /doctor --session/);
   assert.match(path3, /Claude Code \(the Code tab in Claude Desktop, or a terminal\)\s+running on your own machine/);
   assert.doesNotMatch(path3, /Cowork[^.]*\bno shell\b/);
+});
+
+test('/baton, /plans and both skills lead with handoffs and keep plan steps conditional', () => {
+  const baton = read('plugins/runlist/commands/baton.md');
+  const verb = baton.slice(baton.indexOf('2. **'), baton.indexOf('3. **'));
+  assert.ok(verb.indexOf('runlist baton <slug> @/tmp/baton.md') < verb.indexOf('runlist baton @/tmp/baton.md'), 'slug form first');
+  assert.match(verb, /Pick the slug yourself/);
+  assert.match(verb, /\*\*Only in a project that uses plans\*\*/);
+  assert.match(read('plugins/runlist/commands/plans.md'), /If it says planning is off, relay that line and stop/);
+  for (const file of ['plugins/runlist/skills/runlist/SKILL.md', 'plugins/runlist-codex/skills/runlist/SKILL.md']) {
+    const skill = read(file);
+    const handoffs = skill.indexOf('## Handoffs (every project)');
+    assert.ok(handoffs > 0, `${file}: handoff section`);
+    assert.ok(handoffs < skill.indexOf('## Planning projects'), `${file}: handoffs before planning`);
+    assert.ok(handoffs < skill.indexOf('runlist use <plan-file>'), `${file}: plan verbs come after handoffs`);
+    assert.match(skill, /`runlist plans`[^\n]*says planning is off/);
+  }
+  const claude = read('plugins/runlist/skills/runlist/SKILL.md');
+  assert.ok(claude.indexOf('## Planning projects') < claude.indexOf('<!-- runlist:canonical-workflow:start -->'), 'the plan contract sits under planning');
 });
 
 test('GETTING_STARTED points source review at the checkout section', () => {

@@ -7,13 +7,14 @@ import { promptDirectory } from './new.mjs';
 
 const KEY = 'promptTracking';
 const VALUES = ['untracked', 'tracked', 'local'];
-const READABLE = Object.freeze([KEY, 'root', 'docsRoots', 'index.path', 'archiveDir', 'promptDirectory']);
+const READABLE = Object.freeze([KEY, 'mode', 'root', 'docsRoots', 'index.path', 'archiveDir', 'promptDirectory']);
 const USAGE = 'Usage: runlist config show [--json] | get <key> [--json] | set promptTracking <untracked|tracked|local> [--json]';
 
 function inspectSettings(config) {
   const source = key => config.settingSources?.[key] ?? 'unknown';
   return {
     promptTracking: { value: config.promptTracking, source: config.promptTrackingSource },
+    mode: { value: config.mode ?? 'plans', source: source('mode') },
     root: { value: config.raw?.root ?? '.', source: source('root') },
     docsRoots: { value: config.docsRoots ?? [config.docsRoot], source: 'derived' },
     'index.path': { value: config.indexPath ?? null, source: source('index.path') },
@@ -26,6 +27,7 @@ function inspectSettings(config) {
 
 function manualSetting(key, configPath) {
   const file = configPath ?? 'runlist.config.mjs (create it with runlist setup)';
+  if (key === 'mode') return `A handoffs-only project turns planning on with runlist setup, which previews the change to ${file} first.`;
   if (key === 'root' || key === 'docsRoots') return `Edit the root export in ${file}, review dependent index/template paths, then run runlist init --dry-run and runlist check. A new project can choose --docs-root during setup. Existing files are not moved automatically.`;
   if (key === 'promptDirectory') return `Edit templates.prompt.dir or templates.prompt.targetRoot and the root export in ${file}, then inspect runlist config get promptDirectory. Existing prompts are not moved automatically.`;
   return `Edit ${key === 'index.path' ? 'the index.path property (or legacy readme.path)' : 'the archiveDir export'} in ${file}, then run runlist init --dry-run and runlist check. Existing files are not moved automatically.`;

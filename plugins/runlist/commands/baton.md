@@ -4,28 +4,35 @@ when_to_use: "Use when the user says baton (“baton this”, “baton now”, �
 allowed-tools: "Bash(runlist:*), Bash(rl:*), Bash(dotmd:*), Bash(git commit:*), Write, Edit"
 ---
 
-Save a resume prompt for the work in flight, then bring the plans up to date. The user's `/baton` (or "baton", "save where we are", "hand off", "pick it up next time") is the request. The next session loads it with `/pickup`. If the repo defines baton (`templates.prompt.baton` in its runlist config, printed by the hook when the user asks for a baton), that definition wins wherever it differs from the steps below.
+Save a resume prompt for the work in flight (and, in a project that uses plans, bring the plans up to date). The user's `/baton` (or "baton", "save where we are", "hand off", "pick it up next time") is the request. The next session loads it with `/pickup`. If the repo defines baton (`templates.prompt.baton` in its runlist config, printed by the hook when the user asks for a baton), that definition wins wherever it differs from the steps below.
 
 Start with `runlist baton --template` if useful. Resume and subagent outlines can be customized in the Runlist desktop app's Templates editor (`runlist.templates.json`; not a Claude Desktop feature); repository baton instructions still apply.
 
-1. **Write the draft** to a temp file (`/tmp/baton.md`): 10–20 lines — the next concrete decision plus any gotchas, NOT a recap. Reference the relevant plan/doc paths inside the draft so the next session can orient.
+1. **Write the draft** to a temp file (`/tmp/baton.md`): 10–20 lines — the next concrete decision plus any gotchas, NOT a recap. Reference the relevant file paths inside the draft so the next session can orient.
 
-2. **Run the verb** — pick the form that matches reality:
+2. **Run the verb.** With no plan in play — the usual case, and the only one when the project has no runlist config yet or `runlist plans` says planning is off:
 
    ```bash
-   runlist baton @/tmp/baton.md                # a plan is in-session: saves resume-<plan-slug>,
-                                             # flips it in-session → active, prints the exact commit
-   runlist baton <slug> @/tmp/baton.md         # no plan involved: saves resume-<slug>, touches NOTHING else
+   runlist baton <slug> @/tmp/baton.md         # saves resume-<slug>, touches NOTHING else
    ```
 
-   The user saying "save a resume prompt for this" does NOT require a plan — slug mode exists precisely for that. Variations (plan mode only):
+   Pick the slug yourself: a few words naming the work (`checkout-totals`); never ask the user to name it. In a Git repository with no runlist config, this first baton also writes a handoffs-only `runlist.config.mjs` and a prompts folder; relay baton's one-line note about it. The user saying "save a resume prompt for this" does NOT require a plan — slug mode exists precisely for that.
+
+   **Only in a project that uses plans**, when this session owns an in-session plan:
+
+   ```bash
+   runlist baton @/tmp/baton.md                # saves resume-<plan-slug>, flips the plan
+                                             # in-session → active, prints the exact commit
+   ```
+
+   Variations (plan mode only):
    - `runlist baton <plan-file> @/tmp/baton.md` — when baton can't tell which plan is yours.
    - `--status paused|awaiting|partial|blocked` — when the plan's reality changed; default `active` is right for plain "work continues".
    - `--note "why"` — records the reason in `## Version History` in the same call.
 
    Always pass the draft (`@<file>`). A bare `runlist baton` saves nothing: it prints these same forms and exits. If a handoff may already be pending, inspect it with `runlist prompts show <resume-slug>` first. Keep it if current; if stale, pass `--replace` with the new draft. Baton archives the prior text and refreshes exactly one pending handoff with the plan release. Never consume a prompt merely to replace it. If baton refuses, it names the pending prompt to inspect.
 
-3. **Finish the handoff only if baton asks.** Read baton's output. If it says `Handoff not done yet` (it released an in-session plan that has a `next_step`), update that plan's body, then run:
+3. **Finish the handoff only if baton asks** (plan handoffs only). Read baton's output. If it says `Handoff not done yet` (it released an in-session plan that has a `next_step`), update that plan's body, then run:
 
    ```bash
    runlist baton --done --next-step "<next move>" [--current-state "<where it stands>"]

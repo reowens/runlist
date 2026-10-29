@@ -684,6 +684,7 @@ export async function resolveConfig(cwd, explicitConfigPath, options = {}) {
     promptTracking: config.promptTracking,
     promptTrackingSource,
     settingSources: {
+      mode: Object.hasOwn(userConfig, 'mode') ? 'config' : 'default',
       root: Object.hasOwn(userConfig, 'root') ? 'config' : 'default',
       'index.path': Object.hasOwn(userConfig.index ?? {}, 'path') ? (legacyIndex ? 'legacy-readme' : 'config') : 'default',
       archiveDir: Object.hasOwn(userConfig, 'archiveDir') ? 'config' : 'default',

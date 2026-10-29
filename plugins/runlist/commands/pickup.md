@@ -15,8 +15,9 @@ Resume saved work. The user's `/pickup` is the request to consume a handoff.
   its explicit name.
 - With several pending prompts: list their names from the
   compact survey. Ask which one to resume; never consume the oldest by default.
-- With none pending: say there are no pending handoffs and point to
-  `runlist plans` for in-flight plans.
+- With none pending: say there are no pending handoffs. In a project that
+  uses plans, point to `runlist plans` for in-flight plans; if it says planning
+  is off, there is nothing more to resume.
 
 Never Read prompt files with file tools. Peek only with
 `runlist prompts show <name>`; consume only with `runlist use <name>`.

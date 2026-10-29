@@ -21,39 +21,37 @@ and the optional Runlist desktop app.
 The quickest way to get value from runlist: **save where you are, pick it up in
 a later session.** A saved handoff (runlist calls it a *baton*) is a short
 resume note kept in your project, so the next Claude session starts oriented
-instead of from a blank page.
+instead of from a blank page. There is no setup step.
 
-1. **Install, then set up your project** (once, in a terminal):
+1. **Install** (once, in a terminal):
 
    ```bash
    npm install -g runlist
    claude plugin marketplace add reowens/runlist
    claude plugin install runlist@runlist
-   cd /path/to/your/project
-   runlist setup
    ```
 
-   `runlist setup` shows what it will create (a `runlist.config.mjs` and a
-   `docs/` folder) and asks before writing; add `--yes` to accept those defaults
-   without questions. Without an interactive terminal it only previews, so
-   rerun it with `--yes` to apply. Set up before your first handoff when possible;
-   if you save one first, setup carries it into the configured prompt folder.
-   Terminal
-   sessions, Claude Desktop's **Code** tab (local sessions) and VS Code read the
-   same plugin settings, so one install covers them all. Start a new session
-   afterwards, or run `/reload-plugins` in one that is already open.
+   Terminal sessions, Claude Desktop's **Code** tab (local sessions) and VS Code
+   read the same plugin settings, so one install covers them all. Start a new
+   session afterwards, or run `/reload-plugins` in one that is already open.
 
    The `claude` command comes with the Claude Code CLI
    ([install it](https://code.claude.com/docs/en/setup)). If it is missing,
    `runlist install claude` prints these same commands and where to get it. In
    Claude Desktop, once the marketplace is registered, the **Code** tab → **+** →
    **Add plugins** browser lists runlist too (not available in cloud or WSL
-   sessions). Setup can also be done by asking Claude in the project, once the
-   plugin is loaded; see the [beginner setup guide](GETTING_STARTED.md).
-2. **Stop with a handoff.** In a Claude Code session (terminal or Desktop's Code
-   tab), say "baton" or "save where we are", or type `/baton`.
+   sessions).
+2. **Stop with a handoff.** In a Claude Code session in your project's Git
+   repository (terminal or Desktop's Code tab), say "baton" or "save where we
+   are", or type `/baton`. The first handoff in a project also writes a small
+   `runlist.config.mjs` and keeps handoffs in `docs/prompts/` (or `prompts/`
+   when the project has no `docs/` folder).
 3. **Pick it up next time.** In a new session, type `/pickup` or say "pick up
    where we left off".
+
+Planning is optional: when you want plans, docs and an index, run `runlist
+setup` in the project (see the [beginner setup guide](GETTING_STARTED.md)). It
+previews first, and your saved handoffs stay where they are.
 
 If a session hook says it found neither `runlist` nor `dotmd` on its PATH, either
 runlist is not installed yet or the app is searching a different PATH than your

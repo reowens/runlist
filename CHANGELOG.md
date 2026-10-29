@@ -6,6 +6,26 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ### Added
 
+- Handoffs need no setup. In a Git repository with no runlist config, the first
+  `runlist baton <slug>` (or `runlist new prompt`) also writes a handoffs-only
+  `runlist.config.mjs` at the repository root: `mode: 'handoffs'` and a root
+  that is the prompt folder itself (`docs/prompts/` when `docs/` exists, else
+  `prompts/`; runlist prompts an older version left in `prompts/` are adopted
+  in place). The scan never reaches the project's own docs, there is no index,
+  and `plans`, `health`, hub and module views say planning is off; `new plan`
+  and `new doc` refuse. The config is created exclusively and never overwrites
+  one that appears concurrently. Baton refuses outside a Git repository and in
+  a home directory that is a repository. `--dry-run` writes nothing; baton
+  `--json` gains `handoffsSetup`.
+- The save hint answers an explicit save request ("baton", "save where we
+  are") in an unconfigured Git repository; SessionStart stays silent there.
+  Handoffs-mode hints, the subagent primer and baton's missing-name error say
+  nothing about plans.
+- `runlist setup` in a handoffs-only project turns planning on: it previews and
+  then rewrites the config's `mode` and `root`, adds plans and an index, and
+  leaves the saved prompts where they are. The README quick path is now install,
+  "baton", `/pickup`; the skills put handoffs first and mark plan sections
+  conditional on planning being on.
 - Newcomer handoffs have a `/pickup` command, distinct save/pickup hints, and a
   session-start introduction until the first saved prompt. Hints recognize
   session/time-qualified save requests and ignore relayed task reports, quoted

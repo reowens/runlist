@@ -1,9 +1,16 @@
 ---
 name: runlist-setup
-description: Set up Runlist in a project, including before any Runlist config exists. Use when asked to install, initialize, onboard, or adopt existing project docs into Runlist. Use the runlist skill for ordinary plan, doc, and prompt work after setup.
+description: Set up Runlist planning in a project, including before any Runlist config exists or after handoffs-only use. Use when asked to install, initialize, onboard, turn on planning, or adopt existing project docs into Runlist. Use the runlist skill for ordinary plan, doc, and prompt work after setup.
 ---
 
 # Runlist project setup
+
+Setup is for planning. Session handoffs need none: if the user only wants to
+save where they are and pick it up later, do not run setup; the first
+`runlist baton <slug> @<draft-file>` in a Git repository writes a handoffs-only
+`runlist.config.mjs`. In a handoffs-only project (`runlist plans` says planning
+is off), setup turns planning on: it rewrites that config's `mode` and `root`,
+adds plans and an index, and keeps the saved prompts where they are.
 
 Turn the user's requested choices into a reviewed `runlist setup` preview and
 apply the authorized changes. Ask only for missing preferences that affect the

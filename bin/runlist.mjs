@@ -1287,7 +1287,7 @@ Run in a terminal for choices and confirmation. Without an interactive terminal,
 setup previews only; add --yes to apply selected actions. --dry-run always
 previews without writing. The CLI works without the optional desktop app.
 
-  --docs-root <path>       Fresh project docs folder (default docs); existing roots preserved
+  --docs-root <path>       Fresh or handoffs-only project docs folder (default docs); existing roots preserved
   --prompt-tracking <p>    untracked (recommended), tracked, or local; existing choice preserved
   --gitignore             Explicitly add missing ignore rules; default leaves ignore files alone
   --host <host>           none (default), claude, codex, or opencode; explicit host install
@@ -1307,6 +1307,9 @@ Examples:
   runlist setup --adopt docs/notes.md --dry-run
 
 Existing JavaScript hooks, configured folders and prompt locations are preserved.
+In a handoffs-only project (the config the first baton writes), setup turns
+planning on: it rewrites that config's mode and root, adds plans and an index,
+and leaves the prompts where they are (--docs-root picks the docs folder).
 Fresh setup carries runlist prompts and plans (including archives) into the new
 folders, fixing references and local handoff/ownership state. Foreign files stay put.
 Setup must finish transaction recovery before writing the first config; unresolved
@@ -1340,8 +1343,9 @@ Host integration is separate: runlist install <claude|codex|opencode>.`,
   runlist config get promptDirectory [--json]
   runlist config set promptTracking <untracked|tracked|local> [--dry-run] [--json]
 
-Shows effective values and their sources: promptTracking, root, docsRoots,
-index.path, archiveDir and promptDirectory. Resolved roots, index and prompt
+Shows effective values and their sources: promptTracking, mode (plans, or
+handoffs when planning is off), root, docsRoots, index.path, archiveDir and
+promptDirectory. Resolved roots, index and prompt
 directory use absolute paths; root keeps its configured string or array.
 Only promptTracking is CLI-editable; other settings give manual config guidance.
 Inspection imports the trusted project's JavaScript config but invokes no hooks.
@@ -1464,6 +1468,11 @@ Usage (write the resume to a file first, then pick the form that matches):
   runlist baton --done [<plan-file>] --next-step "..."   # after a plan handoff: write next_step, confirm it
   The resume can also come from stdin (\`-\`, or a pipe) or --message "..." for one-liners.
   Baton prints the prompt name it saved, as its last line too, and, in plan mode, the git commit to run.
+
+No setup needed: in a Git repository with no runlist config, the first saved
+prompt also creates a handoffs-only runlist.config.mjs at the repository root
+(prompts in docs/prompts/ when docs/ exists, else prompts/; planning stays off
+until \`runlist setup\`). Outside a Git repository baton refuses.
 
 The resume (10–20 lines): the next concrete decision plus any gotchas, and the
 paths of the plans/docs it concerns — not a recap of the plan body.

@@ -87,8 +87,9 @@ export function choosePromptRoot(top) {
 
 // Runlist plans an older version saved before any config: those belong to a
 // planning user, and `runlist setup` (not a handoffs config) is what carries them.
-function hasPreConfigPlans(config) {
-  const roots = [path.join(config.docsRoot, 'plans'), path.join(config.docsRoot, config.archiveDir)];
+function hasPreConfigPlans(config, top = null) {
+  const bases = [...new Set([config.docsRoot, ...(top ? [top] : [])])];
+  const roots = bases.flatMap(base => [path.join(base, 'plans'), path.join(base, config.archiveDir)]);
   return roots.some(dir => markdownIn(dir).some(file => {
     try { return parseSimpleFrontmatter(extractFrontmatter(readFileSync(file, 'utf8')).frontmatter ?? '').type === 'plan'; }
     catch { return false; }
@@ -98,8 +99,10 @@ function hasPreConfigPlans(config) {
 // Whether the next prompt saved from `cwd` would create a handoffs config:
 // cheap enough for a hook (stat calls and a few frontmatter reads, no index).
 export function wouldCreateHandoffsConfig(cwd, config) {
-  if (config.configFound || handoffsAnchor(cwd).refusal) return false;
-  try { return !hasPreConfigPlans(config); } catch { return false; }
+  if (config.configFound) return false;
+  const anchor = handoffsAnchor(cwd);
+  if (anchor.refusal) return false;
+  try { return !hasPreConfigPlans(config, anchor.top); } catch { return false; }
 }
 
 function setupLine(created, dryRun) {
@@ -118,8 +121,8 @@ function setupLine(created, dryRun) {
  */
 export async function ensureHandoffsConfig(cwd, config, { dryRun = false, home } = {}) {
   if (config.configFound) return { config, created: null, line: null };
-  if (hasPreConfigPlans(config)) return { config, created: null, line: null, legacy: true };
   const anchor = handoffsAnchor(cwd, { home });
+  if (hasPreConfigPlans(config, anchor.top)) return { config, created: null, line: null, legacy: true };
   if (anchor.refusal) die(anchor.refusal);
   const top = anchor.top;
   const promptRoot = choosePromptRoot(top);

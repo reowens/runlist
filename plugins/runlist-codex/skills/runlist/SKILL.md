@@ -1,16 +1,26 @@
 ---
 name: runlist
-description: Manage a repository's plans, docs, decisions, and saved prompts with the runlist CLI. Use for explicit consume requests for saved prompts, starting or closing plan work, checking the plan queue, or creating or consuming a handoff.
+description: Save and resume session handoffs, and manage a repository's plans, docs, decisions, and saved prompts with the runlist CLI. Use for explicit consume requests for saved prompts, creating or consuming a handoff, starting or closing plan work, or checking the plan queue.
 ---
 
 # Runlist workflow
 
 For an explicit `consume <prompt>` request, run `runlist use <prompt>` before file discovery or other task commands. If the native request hook already supplied the consumed handoff, continue from that output without consuming it again. Report a consumption failure before starting the handoff's work.
 
-For installing or onboarding Runlist, including a project with no config yet,
-use the **runlist-setup** skill. This skill covers ongoing document work.
+For installing Runlist or turning on planning, use the **runlist-setup** skill.
+Handoffs need no setup. This skill covers ongoing work.
 
-Use this skill in repositories with `runlist.config.mjs` or `dotmd.config.mjs`. The CLI is `runlist` (from the `runlist` package; `dotmd` remains an alias). The session hook prints a short live orientation. `CODEX_THREAD_ID` is the session identity used for plan claims; do not replace it with a process ID.
+The CLI is `runlist` (from the `runlist` package; `dotmd` remains an alias). The session hook prints a short live orientation. `CODEX_THREAD_ID` is the session identity used for plan claims; do not replace it with a process ID.
+
+## Handoffs (every project)
+
+- Save where the session stands: write the resume to a temp file (next concrete move, decisions, gotchas, paths; not a recap), then `runlist baton <slug> @/tmp/draft.md`, picking a short slug that names the work yourself. It saves `resume-<slug>`; report the name baton prints last. In a Git repository with no runlist config, this first baton also writes a handoffs-only `runlist.config.mjs` and a prompts folder.
+- Resume: `runlist prompts` lists pending handoffs and `runlist use <name>` consumes one. With several pending, ask which; never consume the oldest by default.
+- If `runlist plans` says planning is off, the project uses runlist for handoffs only: skip the planning bullets below, create no plans or docs, and suggest `runlist setup` only when the user asks for planning.
+
+## Planning projects
+
+These apply where `runlist plans` shows a dashboard (a `runlist.config.mjs` or `dotmd.config.mjs` with planning on).
 
 - Orient with `runlist plans`. Use `runlist agent-context` for structured state; `runlist briefing` is the comprehensive view and can be large.
 - Create from a draft with `runlist new plan <slug> @/tmp/draft.md` or `runlist new doc <slug> @/tmp/draft.md`. Draft headings become the body; opening frontmatter supplies fields such as `current_state` and `next_step`, while the command fixes `type`.

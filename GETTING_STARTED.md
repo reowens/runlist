@@ -1,7 +1,12 @@
 # Get started with Runlist
 
 Runlist manages Markdown plans, docs and saved prompts in a project folder.
-The CLI works without a GUI. **Runlist desktop** is an optional document app;
+If all you want is session handoffs (save where you are, pick it up next time),
+you need no setup: install the CLI and plugin
+([three-step quick path](README.md#handoffs-in-3-steps)) and say "baton" in a
+Claude Code session in your project's Git repository. The first handoff writes a
+handoffs-only `runlist.config.mjs`. This guide covers setup, which turns on
+planning: plans, docs and a generated index. The CLI works without a GUI. **Runlist desktop** is an optional document app;
 **Claude Desktop** is a separate product that may host your assistant.
 
 This guide tracks the repository source. npm installs the latest published
@@ -34,12 +39,16 @@ not provide that. npm installs neither agent integrations nor the desktop app.
 
 ## 2. Preview and apply project setup
 
-Set up before saving your first handoff when possible. If you save one first,
-setup carries runlist's pre-setup prompts and plans, including archives, into the
-new folders and fixes their references and local handoff/ownership state. This is
-part of the scaffold; foreign files stay put. Preview lists each move, and
-`--no-carry-prompts` leaves these artifacts in place instead. This carry-over
-only runs when creating the first config.
+Setup is for planning. In a project that already saved handoffs, setup turns
+planning on: it rewrites the handoffs-only config's `mode` and `root`, adds
+`docs/plans/` and the index, and leaves the saved prompts where they are. The
+preview shows the config before and after.
+
+Prompts and plans that an older runlist saved before any config existed are
+carried into the new folders when setup writes the first config, with their
+references and local handoff/ownership state fixed. Foreign files stay put.
+Preview lists each move, and `--no-carry-prompts` leaves these artifacts in
+place instead.
 
 Run this inside the intended project folder:
 
@@ -154,9 +163,10 @@ and the [host routes](README.md#which-assistant-can-run-setup).
 
 ### Save where you are, pick it up later
 
-With the Claude Code plugin installed, stopping and resuming takes two phrases.
-When you are done for now, say "baton" or "save where we are" (or type `/baton`);
-the assistant writes a short resume note, called a *baton*, into your project.
+With the Claude Code plugin installed, stopping and resuming takes two phrases,
+with or without setup. When you are done for now, say "baton" or "save where we
+are" (or type `/baton`); the assistant writes a short resume note, called a
+*baton*, into your project.
 In the next session, type `/pickup` or say "pick up where we left off". The
 [three-step quick path](README.md#handoffs-in-3-steps) has the install commands.
 

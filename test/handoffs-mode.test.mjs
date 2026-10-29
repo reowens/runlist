@@ -117,6 +117,15 @@ describe('zero-setup handoffs: the first baton configures the repository', () =>
     assert.ok(!has('src/app/runlist.config.mjs') && !has('src/app/prompts'));
   });
 
+  it('leaves plans an older version saved at the toplevel to setup, even from a subfolder', () => {
+    put('plans/sample.md', '---\ntype: plan\nstatus: planned\n---\n# Sample\n');
+    put('src/app/index.js', '');
+    const saved = ok(['baton', 'exporter', draft()], { cwd: at('src/app') });
+    assert.match(saved.stdout + saved.stderr, /run `runlist setup`; it carries this prompt over/);
+    assert.doesNotMatch(saved.stdout + saved.stderr, /Set up runlist for handoffs/);
+    assert.ok(!has('runlist.config.mjs'));
+  });
+
   it('refuses outside a Git repository and in a home directory that is a repository, writing nothing', () => {
     const plain = mkdtempSync(path.join(os.tmpdir(), 'runlist-handoffs-plain-'));
     try {
@@ -238,6 +247,7 @@ describe('handoffs-only hints and wording', () => {
       assert.equal(refused.status, 1, args.join(' '));
       assert.match(refused.stderr, /needs planning\. Planning is off in this project; `runlist setup` turns it on/);
     }
+    assert.equal(JSON.parse(ok(['config', 'get', 'mode', '--json']).stdout).value, 'handoffs');
     const doctor = ok(['doctor']);
     assert.doesNotMatch(doctor.stdout + doctor.stderr, /warning:|error:/i);
   });

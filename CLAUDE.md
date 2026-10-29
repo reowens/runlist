@@ -12,6 +12,18 @@ runlist (formerly dotmd) is a CLI for managing markdown documents with YAML fron
 
 **Never add a host's environment variable to `SESSION_ID_SOURCES` without verifying the host sets it.** The OpenCode entries were plausible-looking guesses (`OPENCODE_SESSION_ID`, `OPENCODE_SESSION`) that nothing sets, so every OpenCode session failed closed on `runlist use` — and the test could not catch it, because "runlist honors `OPENCODE_SESSION_ID` when set" stays true whether or not anything sets it. Verify against the host itself (its binary, its docs, or `env` inside a real session) and record the evidence in the source comment, then encode the *scope* (`session` / `process` / `terminal`) honestly: a process- or terminal-scoped id is shared by sibling sessions, and calling it per-session is what turns a coarse fallback into a silent ownership bug.
 
+**Handoffs-only mode.** Handoffs need no setup. In a Git repository with no
+config, the first saved prompt (`runlist baton <slug>`, `runlist new prompt`)
+writes a handoffs-only `runlist.config.mjs` at the Git toplevel
+(`src/handoffs-mode.mjs`): `mode: 'handoffs'` plus a `root` that is the prompt
+folder itself (`docs/prompts/` when `docs/` exists, else `prompts/`). The scan
+never reaches the project's docs, so `check` stays quiet and there is no index.
+`config.planning` is false there: plan views print the planning-off line, plan
+verbs refuse, and hook wording drops plan talk. `runlist setup` upgrades the
+config in place (rewrites `mode`/`root`, adds the index) and keeps prompts put.
+Plan-mode baton, and repositories holding plans saved before any config, keep
+the old pre-setup behaviour so setup's carry-over still owns them.
+
 ## Document Types
 
 **Project onboarding.** Before a project has a config, use the plugin's

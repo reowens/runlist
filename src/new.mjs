@@ -938,6 +938,7 @@ export async function runNew(argv, config, opts = {}) {
   if (typeName === 'prompt' && !config.configFound && !userNameDirIn(name) && !rootName) {
     handoffsSetup = await ensureHandoffsConfig(process.cwd(), config, { dryRun });
     config = handoffsSetup.config;
+    if (handoffsSetup.line && !dryRun) process.stdout.write(`${handoffsSetup.line}\n`);
     if (dryRun && handoffsSetup.created) {
       process.stdout.write(`${dim(handoffsSetup.line)}\n${dim('[dry-run]')} Would create: ${path.posix.join(handoffsSetup.created.promptDirectory, `${slugify(path.basename(name, '.md'))}.md`)}\n`);
       return;
@@ -1167,8 +1168,7 @@ export async function runNew(argv, config, opts = {}) {
   // Prompt consumption and Git tracking are separate choices. Describe the
   // resolved policy, then flag an actually ignored target for any type.
   if (typeName === 'prompt') {
-    if (handoffsSetup?.line) process.stdout.write(`${handoffsSetup.line}\n`);
-    else process.stdout.write(unconfiguredPromptHint(config));
+    if (!handoffsSetup?.line) process.stdout.write(unconfiguredPromptHint(config));
     const tracking = config.promptTracking ?? 'local';
     const policy = tracking === 'tracked' ? 'Prompt commits are allowed.'
       : tracking === 'untracked' ? 'Leave untracked to reduce commit churn; git add -A can still stage it.'
