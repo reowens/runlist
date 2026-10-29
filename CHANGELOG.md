@@ -13,6 +13,12 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ### Fixed
 
+- Fresh `runlist setup` carries prompts and plans saved before configuration,
+  including archives, into its new folders without overwriting collisions or
+  moving foreign Markdown. Previews and JSON list the moves; apply repairs
+  references and local handoff/ownership paths. `--no-carry-prompts` opts out.
+  Unconfigured baton and prompt creation now point newcomers to setup.
+
 - Handoff hints check that the host ships `/pickup`, keep user text outside
   relay reports, and reject code-subject save requests and possessive pickup
   times. Hook globs skip ordinary words and repository paths containing

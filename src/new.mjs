@@ -420,6 +420,17 @@ export function promptDirectory(config, template = resolveTemplate('prompt', con
   return template.dir && !routed ? path.join(targetRoot, template.dir) : targetRoot;
 }
 
+// The same default/template routing used by `new plan`, including before setup.
+export function planDirectory(config, template = resolveTemplate('plan', config)) {
+  const roots = config.docsRoots ?? [config.docsRoot];
+  const routed = template.targetRoot && roots.find(root => root.endsWith(template.targetRoot) || path.basename(root) === template.targetRoot);
+  return routed || path.join(catchAllRoot(config), template.dir || '');
+}
+
+export function unconfiguredPromptHint(config) {
+  return config.configFound ? '' : 'No runlist config here yet — run `runlist setup`; it carries this prompt over.\n';
+}
+
 function bindPromptParent(content, parentPrompt) {
   if (!parentPrompt) return content;
   const { frontmatter, body } = extractFrontmatter(content);
@@ -1126,6 +1137,7 @@ export async function runNew(argv, config, opts = {}) {
   // Prompt consumption and Git tracking are separate choices. Describe the
   // resolved policy, then flag an actually ignored target for any type.
   if (typeName === 'prompt') {
+    process.stdout.write(unconfiguredPromptHint(config));
     const tracking = config.promptTracking ?? 'local';
     const policy = tracking === 'tracked' ? 'Prompt commits are allowed.'
       : tracking === 'untracked' ? 'Leave untracked to reduce commit churn; git add -A can still stage it.'

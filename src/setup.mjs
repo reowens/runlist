@@ -17,13 +17,14 @@ const valueFlags = new Map([
 
 function parse(argv, config) {
   const choices = { docsRoot: null, promptTracking: config.configFound ? config.promptTracking : 'untracked',
-    selectPromptTracking: false, gitignore: false, host: 'none', firstPlan: null, currentState: null, nextStep: null, adopt: [] };
+    selectPromptTracking: false, gitignore: false, host: 'none', firstPlan: null, currentState: null, nextStep: null, adopt: [], carryPrompts: true };
   const flags = { yes: false, json: false };
   const seen = new Set();
   for (let i = 0; i < argv.length; i++) {
     const [flag, ...equals] = argv[i].split('=');
     if (flag !== '--adopt' && seen.has(flag)) throw new Error(`Repeated setup flag: ${flag}`);
     seen.add(flag);
+    if (flag === '--no-carry-prompts' && !equals.length) { choices.carryPrompts = false; continue; }
     if (['--yes', '--json', '--gitignore'].includes(flag) && !equals.length) {
       if (flag === '--gitignore') choices.gitignore = true;
       else flags[flag.slice(2)] = true;
@@ -164,7 +165,9 @@ async function collect(choices, seen, existing, ask) {
 function render(report, out, json) {
   if (json) { out.write(`${JSON.stringify(report, null, 2)}\n`); return; }
   out.write(`Setup ${report.status} (${report.mode})\n`);
+  let carryHeading = false;
   for (const action of report.mode === 'preview' ? report.actions : []) {
+    if (action.id.startsWith('carry:') && !carryHeading) { out.write('\nCarry over prompts and plans saved before setup\n'); carryHeading = true; }
     out.write(`\n${action.description}${action.path ? `: ${action.path}` : ''}\n`);
     if (action.preview) out.write(action.preview.endsWith('\n') ? action.preview : `${action.preview}\n`);
   }
@@ -209,7 +212,11 @@ export async function runSetup(argv, config, options = {}) {
     const plan = prepared.data;
     if (plan.skippedValidationHooks.length) report.outstanding.push({ description: `Custom ${plan.skippedValidationHooks.join('/')} hooks were not executed by setup validation; run runlist check to execute the project's custom checks` });
     const adoptionSnapshots = plan.adoptions.map(item => [item.path, readFileSync(item.path, 'utf8')]);
+    const carryMoves = plan.carry.moves;
     report.actions.push({ id: 'init', description: 'Initialize missing scaffolding; preserve configured roots, JavaScript and hooks', path: configPath || path.join(cwd, 'runlist.config.mjs'), preview: prepared.output, ...plan.layout });
+    for (const move of carryMoves) report.actions.push({ id: `carry:${move.from}`, description: `move ${move.from} → ${move.to}`, from: move.from, to: move.to, type: move.type });
+    report.outstanding.push(...plan.carry.outstanding);
+    if (plan.carry.remaining.length) report.notes.push({ description: 'notice: files remain outside the configured roots; include their folders in the root export to keep using them without moving files', paths: plan.carry.remaining.map(file => path.relative(cwd, file).split(path.sep).join('/')) });
     if (plan.layout.sample) report.notes.push({ description: 'An existing example sample is preserved unchanged; archive or edit it explicitly when ready', path: plan.layout.sample });
     if (plan.policy) report.actions.push({ id: 'policy', description: `Set promptTracking to ${choices.promptTracking} using the narrow config setter`, path: configPath });
     else report.actions.push({ id: 'policy-info', description: `Prompt tracking: ${choices.promptTracking}${existing ? (config.promptTrackingSource === 'legacy-default' ? ' (legacy compatibility default preserved; choose --prompt-tracking explicitly)' : ' (preserve existing choice)') : ' (new project default/selection)'}` });
@@ -260,10 +267,16 @@ export async function runSetup(argv, config, options = {}) {
     // Each stage preflights again in a fresh process. This is deliberately a
     // sequence of honest operations, not an advertised multi-stage transaction.
     const steps = [ ...(plan.policy ? ['policy'] : []), 'init', ...plan.adoptions.filter(item => item.candidate).map(item => item.path), ...(plan.firstPlan ? ['plan'] : []), ...(report.actions.some(action => action.id === 'index') ? ['index'] : []) ];
+    if (carryMoves.length) steps.unshift('carry');
     for (const [stepIndex, step] of steps.entries()) {
       const adoption = plan.adoptions.find(item => item.path === step);
       try {
-        const result = runWorker({ ...request, operation: adoption ? 'adopt' : step, ...(adoption ? { path: step, expectedSource: adoptionSnapshots.find(([file]) => file === step)[1] } : {}) });
+        const result = runWorker({ ...request, operation: adoption ? 'adopt' : step, ...(step === 'carry' ? { moves: carryMoves } : {}), ...(adoption ? { path: step, expectedSource: adoptionSnapshots.find(([file]) => file === step)[1] } : {}) });
+        if (step === 'carry') {
+          for (const move of result.data.completed) report.completed.push({ ...report.actions.find(item => item.id === `carry:${move.from}`) });
+          if (result.data.error) throw new Error(result.data.error);
+          continue;
+        }
         const action = report.actions.find(item => item.id === (adoption ? `adopt:${step}` : step));
         const { preview, ...completedAction } = action;
         report.completed.push({ ...completedAction, output: result.output });

@@ -36,9 +36,9 @@ instead of from a blank page.
    `runlist setup` shows what it will create (a `runlist.config.mjs` and a
    `docs/` folder) and asks before writing; add `--yes` to accept those defaults
    without questions. Without an interactive terminal it only previews, so
-   rerun it with `--yes` to apply. Do this before your first handoff: saving a
-   handoff in a project with no config puts it where a later setup will not
-   look. Terminal
+   rerun it with `--yes` to apply. Set up before your first handoff when possible;
+   if you save one first, setup carries it into the configured prompt folder.
+   Terminal
    sessions, Claude Desktop's **Code** tab (local sessions) and VS Code read the
    same plugin settings, so one install covers them all. Start a new session
    afterwards, or run `/reload-plugins` in one that is already open.

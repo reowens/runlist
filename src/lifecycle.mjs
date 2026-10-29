@@ -188,7 +188,7 @@ function findFilingRoot(filePath, fileRoot, docType, config) {
 // prompt churn doesn't bury plans/docs in the shared <root>/<archiveDir>.
 // Everything else archives under fileRoot. Used by both runStatus (set
 // archived) and runArchive so the two paths stay in lockstep.
-function archiveBaseFor(filePath, fileRoot, docType, config) {
+export function archiveBaseFor(filePath, fileRoot, docType, config) {
   const nest = config.lifecycle?.archiveNestedTypes?.has(docType) ?? false;
   return nest ? findFilingRoot(filePath, fileRoot, docType, config) : fileRoot;
 }

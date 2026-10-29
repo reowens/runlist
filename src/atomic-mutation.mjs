@@ -286,7 +286,7 @@ function validateTransactionArtifact(candidate, directory, label) {
 function validateParticipantPath(participant, repoRoot, options, label) {
   if (!participant || typeof participant.path !== 'string' || !path.isAbsolute(participant.path)
     || !['managed', 'generated'].includes(participant.policy)
-    || !['source', 'target', 'referrer', 'ownership', 'creation', 'deletion'].includes(participant.label)) {
+    || !['source', 'target', 'referrer', 'ownership', 'handoff', 'creation', 'deletion'].includes(participant.label)) {
     throw new MutationConflictError(`Invalid transaction participant ${label}.`);
   }
   const txRoot = transactionRoot(repoRoot, options);
@@ -300,6 +300,14 @@ function validateParticipantPath(participant, repoRoot, options, label) {
   } else {
     const authorized = safeGeneratedPath(participant.path, repoRoot, options, 'Transaction generated participant');
     if (options.config) {
+      // Setup carries the saved prompt/plan paths in pending handoffs in the
+      // same transaction as the document. Keep this permission as narrow as
+      // ownership state; arbitrary generated repository files remain refused.
+      if (participant.label === 'handoff') {
+        const root = path.join(stateDir(repoRoot), 'handoffs');
+        if (path.dirname(authorized) !== root || !authorized.endsWith('.json')) throw new MutationConflictError(`Generated handoff participant is outside handoff state: ${participant.path}`);
+        return;
+      }
       const ownershipRoot = path.join(stateDir(repoRoot), 'ownership');
       if (!contained(ownershipRoot, authorized)) throw new MutationConflictError(`Generated transaction participant is outside session ownership state: ${participant.path}`);
       if (participant.label !== 'ownership') throw new MutationConflictError(`Session-generated participant must be classified as ownership: ${participant.path}`);
@@ -328,7 +336,7 @@ function validateManifest(manifest, manifestPath, directory, repoRoot, options) 
     validateGeneration(participant.new, directory, `participants[${index}].new`);
     const shape = `${participant.old.exists ? 1 : 0}${participant.new.exists ? 1 : 0}`;
     const expectedShapes = {
-      source: ['10'], target: ['01'], referrer: ['11'], creation: ['01'], deletion: ['10'], ownership: ['01', '10'],
+      source: ['10'], target: ['01'], referrer: ['11'], creation: ['01'], deletion: ['10'], ownership: ['01', '10'], handoff: ['11'],
     }[participant.label];
     if (!expectedShapes.includes(shape)) throw new MutationConflictError(`Invalid generation shape for transaction ${participant.label} participant.`);
     if (!Array.isArray(participant.transientHashes) || !participant.transientHashes.every(hash => typeof hash === 'string' && /^[a-f\d]{64}$/.test(hash))) {
@@ -699,7 +707,7 @@ function beginMoveManifest({ repoRoot, transactionId, operation, sessionId, sour
   add(targetPath, { exists: false }, { exists: true, content: targetContent, mode: source.identity.mode }, 'target');
   for (const item of updates) add(item.path,
     { exists: true, content: item.snapshot.content, hash: item.snapshot.hash, mode: item.snapshot.identity.mode },
-    { exists: true, content: item.content, mode: item.snapshot.identity.mode }, item.label === 'ownership' || !String(item.path).endsWith('.md') ? 'ownership' : 'referrer');
+    { exists: true, content: item.content, mode: item.snapshot.identity.mode }, item.label === 'handoff' ? 'handoff' : item.label === 'ownership' || !String(item.path).endsWith('.md') ? 'ownership' : 'referrer');
   for (const item of creations) add(item.path, { exists: false }, { exists: true, content: item.content, mode: item.mode ?? (0o666 & ~process.umask()) }, item.label === 'ownership' || !String(item.path).endsWith('.md') ? 'ownership' : 'creation');
   for (const item of deletions) add(item.path,
     { exists: true, content: item.snapshot.content, hash: item.snapshot.hash, mode: item.snapshot.identity.mode }, { exists: false }, item.label === 'ownership' || !String(item.path).endsWith('.md') ? 'ownership' : 'deletion');
@@ -1285,6 +1293,9 @@ export function createFileExclusive(filePath, content, options) {
 
 export function moveFileAtomic(sourcePath, targetPath, render, options) {
   const { repoRoot, finalize, rollbackFinalize, testHooks, updates = [], creations = [], deletions = [], guards = [] } = options;
+  for (const item of updates.filter(item => item.label === 'handoff')) {
+    validateParticipantPath({ path: path.resolve(item.path), policy: 'generated', label: 'handoff' }, repoRoot, options, 'handoff update');
+  }
   recoverAbandonedTransactions(repoRoot, options);
   return withPathLocks([sourcePath, targetPath, ...updates.map(item => item.path), ...creations.map(item => item.path), ...deletions.map(item => item.path), ...guards.map(item => item.path)], options, () => {
     testHooks?.afterTransactionPhase?.('lock', { sourcePath, targetPath });

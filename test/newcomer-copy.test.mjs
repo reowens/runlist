@@ -76,6 +76,8 @@ test('README quick path installs from the terminal, sets up the project first, a
   const path3 = quickPath();
   assert.match(path3, /npm install -g runlist\n\s+claude plugin marketplace add reowens\/runlist\n\s+claude plugin install runlist@runlist\n\s+cd \/path\/to\/your\/project\n\s+runlist setup\n/);
   assert.ok(path3.indexOf('runlist setup') < path3.indexOf('2. **Stop with a handoff'), 'setup comes before the first handoff');
+  assert.match(path3, /if you save one first, setup carries it into the configured prompt folder/);
+  assert.doesNotMatch(path3, /where a later setup will not/);
   assert.match(path3, /^1\. \*\*Install, then set up your project\*\*/m);
   assert.match(path3, /^2\. \*\*Stop with a handoff/m);
   assert.match(path3, /^3\. \*\*Pick it up next time/m);

@@ -34,6 +34,13 @@ not provide that. npm installs neither agent integrations nor the desktop app.
 
 ## 2. Preview and apply project setup
 
+Set up before saving your first handoff when possible. If you save one first,
+setup carries runlist's pre-setup prompts and plans, including archives, into the
+new folders and fixes their references and local handoff/ownership state. This is
+part of the scaffold; foreign files stay put. Preview lists each move, and
+`--no-carry-prompts` leaves these artifacts in place instead. This carry-over
+only runs when creating the first config.
+
 Run this inside the intended project folder:
 
 ```bash

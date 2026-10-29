@@ -191,13 +191,13 @@ function scanExistingDocs(roots, indexPath, excludeDirs = new Set()) {
 
 // Count .md files (regardless of frontmatter) directly inside a single directory.
 // Used to detect root-level plans/ or prompts/ siblings that aren't under docsRoot.
-function countMarkdownFiles(dir) {
+function countMarkdownFiles(dir, excludeFiles = new Set()) {
   let withFrontmatter = 0;
   let withoutFrontmatter = 0;
   let entries;
   try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return { withFrontmatter, withoutFrontmatter }; }
   for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
+    if (!entry.isFile() || !entry.name.endsWith('.md') || excludeFiles.has(path.join(dir, entry.name))) continue;
     let raw;
     try { raw = readFileSync(path.join(dir, entry.name), 'utf8'); } catch { continue; }
     const { frontmatter } = extractFrontmatter(raw);
@@ -360,7 +360,7 @@ export async function runInit(cwd, config, opts = {}) {
   for (const sub of TYPE_SUBDIRS) {
     const siblingPath = path.join(projectRoot, sub);
     if (docsRoots.some(root => siblingPath === root || siblingPath.startsWith(root + path.sep))) continue;
-    const counts = countMarkdownFiles(siblingPath);
+    const counts = countMarkdownFiles(siblingPath, new Set((opts.carryMoves ?? []).map(move => move.source)));
     const total = counts.withFrontmatter + counts.withoutFrontmatter;
     if (total > 0) siblingsWithContent.push({ sub, total });
   }
@@ -387,7 +387,7 @@ export async function runInit(cwd, config, opts = {}) {
   }
 
   for (const [sub, subPath] of typeDirs) {
-    if (siblingSet.has(sub) && !existsSync(subPath)) {
+    if (siblingSet.has(sub) && !existsSync(subPath) && !opts.carryMoves?.some(move => path.dirname(move.target) === subPath)) {
       process.stdout.write(`  ${dryTag}${yellow('skip')}    ${label(subPath)}/ (root-level ./${sub}/ already holds content)\n`);
       continue;
     }
@@ -402,7 +402,7 @@ export async function runInit(cwd, config, opts = {}) {
       ? { file: SAMPLE_PLAN_NAME, body: samplePlan(new Date().toISOString().slice(0, 10), label(path.join(subPath, SAMPLE_PLAN_NAME))) }
       : { file: '.gitkeep', body: '' };
     const keeperPath = path.join(subPath, keeper.file);
-    const dirIsEmpty = !existsSync(subPath) || readdirSync(subPath).length === 0;
+    const dirIsEmpty = (!existsSync(subPath) || readdirSync(subPath).length === 0) && !opts.carryMoves?.some(move => move.target.startsWith(subPath + path.sep));
     if (existsSync(keeperPath)) {
       process.stdout.write(`  ${dryTag}${dim('exists')}  ${label(keeperPath)}\n`);
     } else if (dirIsEmpty) {

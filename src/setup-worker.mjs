@@ -13,6 +13,7 @@ import { authorizeManagedSource, authorizeRepoGeneratedPath } from './managed-pa
 import { readTemplateStore } from './template-store.mjs';
 import { regenIndex, renderLifecycleMutation } from './lifecycle.mjs';
 import { snapshotFile, replaceSnapshot } from './atomic-mutation.mjs';
+import { planSetupCarry, applySetupCarry } from './setup-carry.mjs';
 
 function regularOrMissing(file, directory = false) {
   let stat;
@@ -50,7 +51,7 @@ function firstPlan(config, choices) {
   return { path: file, status, body, argv: ['plan', path.relative(config.repoRoot, file), '--status', status, '--body', body], checks: { errors: doc.errors, warnings: doc.warnings } };
 }
 
-function scaffolding(config, existing, choices) {
+function scaffolding(config, existing, choices, moves = []) {
   const planTemplate = { dir: 'plans', targetRoot: 'plans', ...config.raw.templates?.plan };
   const routed = planTemplate.targetRoot && config.docsRoots.find(root => root.endsWith(planTemplate.targetRoot) || path.basename(root) === planTemplate.targetRoot);
   const plansDir = routed || path.join(catchAllRoot(config), planTemplate.dir || '');
@@ -59,7 +60,7 @@ function scaffolding(config, existing, choices) {
     if (existsSync(target) || config.docsRoots.some(root => sibling === root || sibling.startsWith(root + path.sep)) || !existsSync(sibling)) return true;
     // Match init's refusal to create a parallel type directory beside an
     // already populated root-level plans/ or prompts/ directory.
-    return !readdirSync(sibling, { withFileTypes: true }).some(entry => entry.isFile() && entry.name.endsWith('.md'));
+    return moves.some(move => path.dirname(move.target) === target) || !readdirSync(sibling, { withFileTypes: true }).some(entry => entry.isFile() && entry.name.endsWith('.md'));
   });
   const dirs = [...config.docsRoots, ...typeDirs.map(([, target]) => target)];
   const files = existing ? [] : [config.configPath];
@@ -70,7 +71,7 @@ function scaffolding(config, existing, choices) {
     authorizeRepoGeneratedPath(dir, config, { kind: 'Setup folder' });
     regularOrMissing(dir, true);
     if (i < config.docsRoots.length) continue;
-    if (!existsSync(dir) || readdirSync(dir).length === 0) {
+    if ((!existsSync(dir) || readdirSync(dir).length === 0) && !moves.some(move => move.target.startsWith(dir + path.sep))) {
       markers.push(path.join(dir, '.gitkeep'));
     }
   }
@@ -134,6 +135,8 @@ function inventory(config) {
 export async function setupWorker(request) {
   const { operation, cwd, configPath, choices } = request;
   let config = await resolveConfig(cwd, configPath || undefined);
+  const before = config;
+  if (operation === 'carry') return applySetupCarry(request.moves, before);
   const existing = Boolean(config.configPath && existsSync(config.configPath));
   if (!existing) {
     const root = path.resolve(cwd, choices.docsRoot || 'docs');
@@ -144,7 +147,8 @@ export async function setupWorker(request) {
   config._execution = { ...config._execution, suppressSideEffects: true, gitStaleness: false };
   const initArgv = [ ...(choices.gitignore ? ['--gitignore'] : []), ...(!existing ? ['--prompt-tracking', choices.promptTracking] : []) ];
   if (operation === 'prepare') {
-    const layout = scaffolding(config, existing, choices);
+    const carry = planSetupCarry(before, config, choices.carryPrompts);
+    const layout = scaffolding(config, existing, choices, carry.moves);
     let policy = null;
     if (existing && choices.selectPromptTracking) {
       policy = await runConfig(['set', 'promptTracking', choices.promptTracking], config, { dryRun: true });
@@ -152,7 +156,7 @@ export async function setupWorker(request) {
     }
     // Init sees the proposed policy for ignore planning, but never edits the
     // existing config. The narrow setter owns that separate apply stage.
-    await runInit(config.repoRoot, config, { argv: initArgv, dryRun: true, guidance: false, samplePlan: false, ...(!existing ? { docsRoot: choices.docsRoot } : {}) });
+    await runInit(config.repoRoot, config, { argv: initArgv, dryRun: true, guidance: false, samplePlan: false, carryMoves: carry.moves, ...(!existing ? { docsRoot: choices.docsRoot } : {}) });
     const untagged = inventory(config);
     const adoptions = [];
     for (const selected of choices.adopt) {
@@ -161,7 +165,8 @@ export async function setupWorker(request) {
       adoptions.push(preview);
     }
     const plan = firstPlan(config, choices);
-    return { layout, policy, adoptions, firstPlan: plan, untagged, skippedValidationHooks: ['validate', 'transformDoc'].filter(name => typeof config.hooks?.[name] === 'function') };
+    if (plan && carry.moves.some(move => move.target === plan.path)) throw new Error(`First plan collides with a pre-setup plan being carried over: ${plan.path}`);
+    return { layout, policy, adoptions, firstPlan: plan, untagged, carry, skippedValidationHooks: ['validate', 'transformDoc'].filter(name => typeof config.hooks?.[name] === 'function') };
   }
   if (operation === 'init') {
     // A policy change is applied first; this new process now resolves it.

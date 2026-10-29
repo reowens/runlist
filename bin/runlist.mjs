@@ -1295,6 +1295,7 @@ previews without writing. The CLI works without the optional desktop app.
   --current-state <text>  What is true now (required with --first-plan)
   --next-step <text>      Concrete next action (required with --first-plan)
   --adopt <path>          Preview/adopt selected untagged Markdown; repeat for more paths
+  --no-carry-prompts      Leave pre-setup prompts and plans in place (default carries them over)
   --json                  Structured preview or completed/outstanding report
   --yes                   Apply choices without terminal questions
 
@@ -1306,6 +1307,8 @@ Examples:
   runlist setup --adopt docs/notes.md --dry-run
 
 Existing JavaScript hooks, configured folders and prompt locations are preserved.
+Fresh setup carries runlist prompts and plans (including archives) into the new
+folders, fixing references and local handoff/ownership state. Foreign files stay put.
 Untracked does not mean ignored: git add -A may include prompts and runtime state.
 Setup lists a missing persistent CLI on PATH under Outstanding.
 JSON includes checks.host.persistentCliMissing only when true.

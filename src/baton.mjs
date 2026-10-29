@@ -3,7 +3,7 @@ import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { asString, toRepoPath, die, warn, isArchivedPath, resolveRefPath, nowIso, shellQuote } from './util.mjs';
 import { buildIndex, resolveDocArg } from './index.mjs';
-import { preparePromptDocument, runNew, readBodyInput, readPipedBodyInput, slugify } from './new.mjs';
+import { preparePromptDocument, runNew, readBodyInput, readPipedBodyInput, slugify, unconfiguredPromptHint } from './new.mjs';
 import { ensurePlanCompletionBeforeRelease, planHasPendingCompletion, renderLifecycleMutation, runSet } from './lifecycle.mjs';
 import { green, dim, yellow } from './color.mjs';
 import { handoffNotDoneLine, recordPendingHandoff, runBatonDone } from './handoff-record.mjs';
@@ -517,6 +517,7 @@ export async function runBaton(argv, config, opts = {}) {
     return operationResult;
   }
   const verdict = replacement?.alreadyCurrent ? '✓ Handoff kept' : pendingHandoff ? '✓ Prompt saved' : replacement ? '✓ Baton replaced' : '✓ Baton passed';
+  if (!dryRun && (planPath || replacement)) process.stderr.write(unconfiguredPromptHint(config));
   process.stderr.write(`\n${prefix}${green(verdict)}: ${createdSlug} (the next session's hud surfaces it — nothing to paste into chat)\n`);
   if (archivedPromptRepoPath) process.stderr.write(dim(`${prefix}Previous handoff preserved: ${archivedPromptRepoPath}\n`));
   if (planGuard) {
