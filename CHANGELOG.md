@@ -52,8 +52,8 @@ All notable changes to `runlist` are documented here. Older releases predate thi
   `runlist baton --done <old path>`, clears that handoff's record, which is how
   an ambiguous match is resolved. A path named this way is matched to its own
   record before any root or file-name lookup, so it never reaches a plan of the
-  same name elsewhere, and the clear is refused if the plan returns to that
-  path before the record is removed. Printed `--done` commands quote paths
+  same name elsewhere, and the clear is refused if the plan is back at that
+  path when the clear rechecks under the record lock. Printed `--done` commands quote paths
   that need it.
 - CLI settings inspection now includes effective document roots, index, archive
   directory and prompt location, with value sources and explicit edit limits.
