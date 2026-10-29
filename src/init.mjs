@@ -7,6 +7,7 @@ import { green, dim, yellow } from './color.mjs';
 import { die, warn } from './util.mjs';
 import { catchAllRoot, promptDirectory } from './new.mjs';
 import { authorizeRepoGeneratedPath } from './managed-path.mjs';
+import { LEGACY_PROMPT_DIR, PROMPT_DIR } from './naming.mjs';
 
 // Subdirectories scaffolded under docsRoot and tracked separately during scans.
 // Each maps to a builtin type (plan, prompt). New types added here should also
@@ -388,7 +389,7 @@ export async function runInit(cwd, config, opts = {}) {
   }
 
   for (const [sub, subPath] of typeDirs) {
-    if (siblingSet.has(sub) && !existsSync(subPath) && !opts.carryMoves?.some(move => path.dirname(move.target) === subPath)) {
+    if (siblingSet.has(sub) && sub !== LEGACY_PROMPT_DIR && !existsSync(subPath) && !opts.carryMoves?.some(move => path.dirname(move.target) === subPath)) {
       process.stdout.write(`  ${dryTag}${yellow('skip')}    ${label(subPath)}/ (root-level ./${sub}/ already holds content)\n`);
       continue;
     }
@@ -427,9 +428,16 @@ export async function runInit(cwd, config, opts = {}) {
     }
   }
 
-  if (siblingsWithContent.length > 0) {
-    const list = siblingsWithContent.map(({ sub, total }) => `${sub}/ (${total} .md file${total === 1 ? '' : 's'})`).join(', ');
-    const roots = [...new Set([...docsRoots.map(label), ...siblingsWithContent.map(s => s.sub)])];
+  // The root prompts/ older builds saved prompts in is never suggested as a
+  // root (one prompt location, src/naming.mjs); its prompts are carried and
+  // whatever else is there is the user's.
+  const sibling = ({ sub, total }) => `${sub}/ (${total} .md file${total === 1 ? '' : 's'})`;
+  const legacySibling = siblingsWithContent.find(({ sub }) => sub === LEGACY_PROMPT_DIR);
+  if (legacySibling) process.stdout.write(`\n  ${yellow('notice')}  ${sibling(legacySibling)} is left untouched: runlist keeps prompts in ${PROMPT_DIR}/ and does not read or write ${LEGACY_PROMPT_DIR}/.\n`);
+  const otherSiblings = siblingsWithContent.filter(({ sub }) => sub !== LEGACY_PROMPT_DIR);
+  if (otherSiblings.length > 0) {
+    const list = otherSiblings.map(sibling).join(', ');
+    const roots = [...new Set([...docsRoots.map(label), ...otherSiblings.map(s => s.sub)])];
     process.stdout.write(`\n  ${yellow('notice')}  found at repo root: ${list}\n`);
     process.stdout.write(`           These are outside the configured roots. To include them without moving files,\n`);
     process.stdout.write(`           choose the roots in ${label(configPath)}, for example:\n`);

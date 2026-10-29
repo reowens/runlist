@@ -19,19 +19,25 @@ writes a handoffs-only `runlist.config.mjs` at the Git toplevel
 prompt folder itself, created with `docs/` when missing. The scan never reaches
 the project's docs, so `check` stays quiet and there is no index. Prompts go to
 `docs/prompts/` in every mode, before any config too (`PROMPT_DIR` in
-`src/naming.mjs`); nothing writes a root `prompts/`. Prompts an older runlist
-saved there are carried into `docs/prompts/` by the first save, with setup's
-transactional carry (`src/setup-carry.mjs` names that folder as a source).
-`config.planning` is false there: plan views print the planning-off line, plan
-verbs refuse, and hook wording drops plan talk. `runlist setup` upgrades the
-config in place (rewrites `mode`, widens `root` to `docs`, adds the index) and
-keeps prompts put.
+`src/naming.mjs`), anchored at the Git toplevel; nothing creates a file in a
+root `prompts/` before setup or in handoffs mode (`authorizeManagedDestination`
+refuses it). Prompts an older runlist saved there, at any depth, are carried
+into `docs/prompts/` with their folders by the first save, by setup, and before
+any document-changing command in a repo with no config (`carryBeforeChange`,
+called from the dispatcher), with setup's transactional carry
+(`src/setup-carry.mjs`). `config.planning` is false there: plan views print the
+planning-off line, plan verbs refuse, and hook wording drops plan talk.
+`runlist setup` upgrades the config in place (rewrites `mode`, widens `root` to
+`docs`, adds the index) and keeps prompts put. It is the only way planning is
+created: before any config, `new` makes prompts and nothing else.
 Plan-mode baton, and repositories holding plans saved before any config, keep
-the old pre-setup behaviour so setup's carry-over still owns them.
+the old pre-setup behaviour (no config written) so setup's carry-over still
+owns those plans.
 
 The rules that keep it safe, and where each one lives:
 - **The prompt folder is often the user's.** In handoffs mode runlist manages
-  only `type: prompt` files there. The filter (`src/handoffs-scope.mjs`) sits
+  only `type: prompt` files there, and only there (a typed prompt elsewhere is
+  not one of the handoffs). The filter (`src/handoffs-scope.mjs`) sits
   in `collectDocFiles`, `resolveDocArg` and `authorizeManagedSource`, so every
   scanning verb, file argument and mutation inherits it; don't patch commands
   one by one.
@@ -42,9 +48,13 @@ The rules that keep it safe, and where each one lives:
   be hidden comes from the recursive document scan of the Git top (skipping
   `.git` and `node_modules`), on the save path only. An unreadable folder means
   "unknown", which keeps the unconfigured behaviour.
-- **Plan, check, then publish.** `planHandoffsConfig` writes nothing; the
-  caller runs every refusing check against the proposed config; only then
-  `publishHandoffsConfig` writes. A config every command imports must never
+- **Finish, plan, check, carry, then publish.** `planHandoffsConfig` first
+  finishes moves an earlier command left unfinished, under the unconfigured
+  roots that authorized them (a config written over one strands it), then
+  decides without writing; the caller runs every refusing check against
+  `docs/prompts/` as the carry will leave it (`existsAfterCarry`,
+  `carriedOnto`); only then does the carry run and `publishHandoffsConfig`
+  write. A config every command imports must never
   hold reservation data, so it passes `requireAtomicPublish` to
   `createFileExclusive` and refuses on filesystems without hard links.
 - **Generated JavaScript is checked before it replaces the config.** Setup's

@@ -80,6 +80,41 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ### Fixed
 
+- Baton-only mode, second review. A carry killed part-way (any phase) no
+  longer breaks the next baton: moves an earlier command left unfinished are
+  finished under the unconfigured roots before anything is surveyed, and a
+  move that cannot be finished refuses the save, so no config is written over
+  it. Prompts below the root `prompts/` are found at any depth and carried with
+  their folders (`prompts/team/old.md` → `docs/prompts/team/old.md`), on the
+  first baton and in setup; prompts saved with a status older builds wrote
+  (`held`, `shelved`, `claimed`) count. A save is checked against
+  `docs/prompts/` as the carry will leave it before anything moves: a duplicate
+  refuses with nothing carried, and `--replace` dry-run reports the same
+  replacement apply makes. The unconfigured saves that remain (beside plans
+  saved before setup, outside Git) carry the same way and save to
+  `docs/prompts/` at the Git toplevel, never below the working folder. Before
+  any config, a command that changes documents (`use`, `next`, `prompts use|
+  next|archive`, `archive`, `set`, …) carries those prompts first; dry-run
+  lists the move and stops. Nothing creates a file in a root `prompts/` before
+  setup or where planning is off; a path-like prompt name outside
+  `docs/prompts/` refuses, and `setup --docs-root prompts` or `.` refuses. Links
+  to a carried prompt from Markdown runlist does not manage (no frontmatter, a
+  README say) are listed for the user to update, never edited.
+- Planning is created by `runlist setup` and nothing else. Before any config,
+  `new plan`, `new doc`, `new hub` and `new decision` refuse with the
+  planning-off line (earlier plans stay visible); in a handoffs-only project
+  `init`, `bulk tag`, `xref` and `migrate type <x> <non-prompt>` meet the gate.
+  The gate reads arguments as the command runs them: a preset's own `--type`,
+  repeated `--type` and comma lists count, and a preset no longer skips it. The
+  registry walk now fails for a command that is neither marked nor listed as
+  working without planning. A `type: prompt` file outside the prompt folder is
+  not one of the handoffs (`show`, `prompts show`, `use`, `check <path>`).
+- Handoffs-only output: the hook no longer asks for plan updates for a carried
+  handoff record; `statuses`, `new --list-types`, `new --help`, `help`, `help
+  statuses`, a planning command's `--help`, the removed lifecycle verbs and the
+  child-handoff footer speak of prompts only. The setup preview reports foreign
+  files in the root `prompts/` as left untouched and never suggests it as a
+  root.
 - `runlist setup --docs-root` with `$&` or `$'` in the folder name wrote the
   pattern's expansion into a fresh config; the name is now written as given.
 

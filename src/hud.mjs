@@ -602,8 +602,10 @@ export function runHud(argv, config) {
     process.stdout.write(yellow(`[runlist] in-session (yours): ${hud.owned.path} — continue it; hand off with \`runlist baton @/tmp/draft.md\` before stopping.`) + '\n');
   }
   // A handoff this session started and did not finish (a compaction or a stop
-  // between saving the prompt and updating the plan).
-  try {
+  // between saving the prompt and updating the plan). Where planning is off
+  // there is no plan to update: a record carried in from before stays on disk
+  // for `runlist setup`, and the hook asks for nothing it cannot do.
+  if (!isHandoffsMode(config)) try {
     for (const record of pendingHandoffsForSession(config)) process.stdout.write(yellow(`[runlist] ${handoffNotDoneLine(record, `runlist baton --done ${shellQuote(record.plan)}`)}`) + '\n');
   } catch { /* advisory */ }
   if (hud.misuseRecap) process.stdout.write(yellow(`[runlist] ${hud.misuseRecap}`) + '\n');

@@ -94,11 +94,12 @@ describe('setup carries runlist artifacts written before configuration', () => {
     put('prompts/reference.md', '---\ntype: doc\nstatus: active\n---\n# Reference\n');
     put('prompts/notes.txt', 'User notes\n');
     const preview = await setup();
-    assert.match(preview.output, /found at repo root: prompts\/ \(3 .md files\)/);
-    assert.doesNotMatch(preview.output, /skip\s+docs\/prompts/);
+    assert.match(preview.output, /prompts\/ \(3 .md files\) is left untouched: runlist keeps prompts in docs\/prompts\//);
+    assert.doesNotMatch(preview.output, /skip\s+docs\/prompts|export const root/);
     const applied = await setup(['--yes']);
     assert.equal(applied.report.status, 'completed');
-    assert.match(applied.output, /outside the configured roots/);
+    assert.match(applied.output, /left untouched in prompts\//);
+    assert.doesNotMatch(applied.output, /outside the configured roots/);
     assert.match(applied.output, /prompts\/library.md/);
     assert.equal(read('prompts/library.md'), foreign);
     assert.equal(read('prompts/invalid.md'), prompt('draft'));
@@ -108,9 +109,8 @@ describe('setup carries runlist artifacts written before configuration', () => {
   });
 
   it('moves an already consumed prompt into the configured archive and removes empty old folders', async () => {
-    saved();
-    okCli(['use', 'resume-fresh'], 'carry-b');
-    assert.ok(has('prompts/archived/resume-fresh.md'));
+    // Consumed by an older build, which archived it beside itself.
+    put('prompts/archived/resume-fresh.md', prompt('archived'));
     const { report } = await setup(['--yes']);
     assert.equal(report.status, 'completed', JSON.stringify(report.failed));
     assert.ok(has('docs/prompts/archived/resume-fresh.md'));
@@ -256,7 +256,8 @@ describe('setup carries runlist artifacts written before configuration', () => {
 
   it('carries pre-setup plans, prompt-to-plan links, inbound references and handoff state', async () => {
     put('draft', '# Synthetic work\n\nInspect the exporter.\n');
-    okCli(['new', 'plan', 'sample', '@draft']);
+    // Nothing creates a plan before setup; one an older build saved.
+    put('plans/sample.md', '---\ntype: plan\nstatus: planned\ncreated: 2026-10-01\nupdated: 2026-10-01\nnext_step: Inspect the exporter.\n---\n# Sample\n\n## Problem\n\nInspect the exporter.\n');
     okCli(['use', 'sample']);
     okCli(['baton', 'sample', '@draft']);
     const beforeConfig = await resolveConfig(repo);
@@ -289,7 +290,8 @@ describe('setup carries runlist artifacts written before configuration', () => {
 
   it('carries plans archived before setup from the shared default archive', async () => {
     put('draft', '# Synthetic plan\n\nInspect the exporter.\n');
-    okCli(['new', 'plan', 'sample', '@draft']);
+    // Nothing creates a plan before setup; one an older build saved.
+    put('plans/sample.md', '---\ntype: plan\nstatus: planned\ncreated: 2026-10-01\nupdated: 2026-10-01\n---\n# Sample\n\n## Problem\n\nInspect the exporter.\n');
     okCli(['archive', 'sample']);
     assert.ok(has('archived/sample.md'));
     const { report } = await setup(['--yes']);
@@ -312,7 +314,8 @@ describe('setup carries runlist artifacts written before configuration', () => {
 
   it('keeps the setup hint, and creates no handoffs config, where plans were saved before setup', async () => {
     put('draft', '# Synthetic plan\n\nInspect the exporter.\n');
-    okCli(['new', 'plan', 'sample', '@draft']);
+    // Nothing creates a plan before setup; one an older build saved.
+    put('plans/sample.md', '---\ntype: plan\nstatus: planned\ncreated: 2026-10-01\nupdated: 2026-10-01\n---\n# Sample\n\n## Problem\n\nInspect the exporter.\n');
     const first = okCli(['baton', 'notes', '@draft']);
     assert.equal((first.stdout + first.stderr).match(/it carries this prompt over/g)?.length, 1);
     assert.doesNotMatch(first.stdout + first.stderr, /runlist init|Set up runlist for handoffs/);
@@ -750,7 +753,8 @@ describe('carry-over transaction safety', () => {
 
   for (const phase of ['ownership-publication', 'canonical-commit']) it(`recovers a carried plan and its ownership after a kill at ${phase}`, async () => {
     put('draft', '# Synthetic plan\n\nInspect the exporter.\n');
-    okCli(['new', 'plan', 'sample', '@draft']);
+    // Nothing creates a plan before setup; one an older build saved.
+    put('plans/sample.md', '---\ntype: plan\nstatus: planned\ncreated: 2026-10-01\nupdated: 2026-10-01\n---\n# Sample\n\n## Problem\n\nInspect the exporter.\n');
     const session = availableSessionId();
     okCli(['use', 'sample'], session);
     const { config, moves } = await planned();

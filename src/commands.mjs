@@ -62,7 +62,7 @@ const ACTION = Object.freeze({ planning: 'action' });
 const definitions = [
   command('help', none, 'setup', [form('[topic]', { args: positionals(0, 1) })]),
   command('completions', none, 'setup', [form('<bash|zsh>', { args: positionals(1, 1) })]),
-  command('init', mutates('repository setup paths and config files; ignore rules only by explicit opt-in'), 'setup', [form('', { options: [flag('--force'), flag('--gitignore'), value('--prompt-tracking')] })]),
+  command('init', mutates('repository setup paths and config files; ignore rules only by explicit opt-in'), 'setup', [form('', { options: [flag('--force'), flag('--gitignore'), value('--prompt-tracking')] })], ACTION),
   command('setup', mutates('explicit project onboarding choices; noninteractive preview unless --yes; host installation only when selected'), 'setup', [form('', {
     options: [flag('--yes'), flag('--no-carry-prompts'), value('--docs-root'), value('--prompt-tracking'), flag('--gitignore'), value('--host'), value('--first-plan'), value('--current-state'), value('--next-step'), value('--adopt'), flag('--json')],
   })]),
@@ -130,7 +130,7 @@ const definitions = [
   command('show', none, 'read', [form('<file...>', { args: positionals(1, Infinity), options: [flag('--json'), flag('--card'), flag('--all'), flag('--frontmatter'), value('--section', '-s'), value('--from')] })]),
   command('xref', mutates('the flags log under the state directory with --check --flag; otherwise read-only'), 'read', [
     form('<file...> | --check [--flag]', { args: positionals(0, Infinity), options: [flag('--json'), flag('--check'), flag('--flag')] }),
-  ]),
+  ], VIEW),
   command('record', mutates('native flag or decision through the shared domain writer'), 'mutate', [form('<file> <action>', { args: positionals(2, 2), options: [value('--note'), value('--option'), value('--expected-revision'), flag('--json')] })], ACTION),
   command('decision', mutates('selected decision source through the source editor'), 'mutate', [form('<file> <id>', { args: positionals(2, 2), options: [value('--disposition'), value('--note'), value('--choice'), value('--expected-revision'), flag('--json')] })], ACTION),
   command('decisions', none, 'read', [form('[doc-or-id]', { args: positionals(0, 1), options: [flag('--all'), flag('--json'), flag('--check')] })], VIEW),
@@ -180,7 +180,7 @@ const definitions = [
   command('archive', mutates('managed source and same-root destination'), 'mutate', [form('<file>', { args: positionals(1, 1), options: [...LIFECYCLE_OPTIONS, flag('--closeout-template'), flag('--fix-refs'), flag('--strings')] })]),
   command('bulk', mutates('managed source sweep; archive destinations preserve roots'), 'mutate', [
     form('archive <files...>', { subcommands: ['archive'], args: positionals(1, Infinity), options: [flag('--json'), flag('--no-index'), flag('--show-files')] }),
-    form('tag [files...]', { subcommands: ['tag'], args: positionals(0, Infinity), options: [value('--type'), value('--status'), flag('--json')] }),
+    form('tag [files...]', { planning: 'action', subcommands: ['tag'], args: positionals(0, Infinity), options: [value('--type'), value('--status'), flag('--json')] }),
   ]),
   command('bulk-tag', mutates('managed source sweep'), 'mutate', [form('[files...]', { args: positionals(0, Infinity), options: [value('--type'), value('--status'), flag('--json')] })], ACTION),
   command('touch', mutates('managed source or managed source sweep'), 'mutate', [form('[file...]', { args: positionals(0, Infinity), options: [flag('--git')] })]),

@@ -6,7 +6,7 @@ import { collectDocFiles } from './index.mjs';
 import { updateFrontmatter } from './lifecycle.mjs';
 import { bold, green, dim } from './color.mjs';
 import { authorizeManagedSweep } from './managed-path.mjs';
-import { assertInsideHandoffs } from './handoffs-scope.mjs';
+import { assertInsideHandoffs, isHandoffsMode, planningRefusal } from './handoffs-scope.mjs';
 
 export function runMigrate(argv, config, opts = {}) {
   const { dryRun } = opts;
@@ -25,6 +25,11 @@ export function runMigrate(argv, config, opts = {}) {
 
   if (!field || !oldValue || !newValue) {
     die('Usage: runlist migrate <field> <old-value> <new-value> [files...]');
+  }
+  // A handoffs-only project manages prompts and nothing else: a prompt given
+  // another type would drop out of every listing (src/handoffs-scope.mjs).
+  if (isHandoffsMode(config) && field === 'type' && newValue !== 'prompt') {
+    die(planningRefusal(`\`runlist migrate type ${oldValue} ${newValue}\``));
   }
 
   const allFiles = collectDocFiles(config);

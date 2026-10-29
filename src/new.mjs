@@ -693,11 +693,115 @@ next_step:
 `;
 }
 
+// Where `runlist new` puts a document: the name's own folder (read relative
+// to the repo, or to --root), else the template's root and folder. Shared by
+// the check a first prompt runs before the carry and by the write itself.
+function resolveNewTarget(name, typeName, template, config, rootName, { explainRoots = true } = {}) {
+  // If name contains path separators, split into directory prefix and basename
+  let nameDir = null;
+  let namePart = name;
+  if (name.includes('/') || name.includes(path.sep)) {
+    nameDir = path.dirname(name);
+    namePart = path.basename(name, '.md');
+  } else if (name.endsWith('.md')) {
+    namePart = name.slice(0, -3);
+  }
+  // A prefix the *user* typed and one a template declares resolve differently
+  // below, so the distinction has to survive the template's assignment to nameDir.
+  const userNameDir = nameDir;
+
+  // Slugify
+  const slug = namePart.toLowerCase().replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  if (!slug) { die('Name resolves to empty slug: ' + name); }
+
+  // Resolve target root. Precedence: CLI --root > template.targetRoot > config.docsRoot.
+  // When the chosen root is a first-class type-container (matched by --root or targetRoot),
+  // we skip the `template.dir` join — the root already points at the right directory.
+  let targetRoot = catchAllRoot(config);
+  let routedToTypeRoot = false;
+  if (rootName) {
+    const roots = config.docsRoots || [config.docsRoot];
+    const match = roots.find(r => r.endsWith(rootName) || path.basename(r) === rootName);
+    if (!match) {
+      const available = roots.map(r => path.basename(r)).join(', ');
+      die(`Unknown root: ${rootName}\nAvailable: ${available}`);
+    }
+    targetRoot = match;
+    routedToTypeRoot = true;
+  } else if (typeof template === 'object' && template.targetRoot) {
+    const roots = config.docsRoots || [config.docsRoot];
+    const match = roots.find(r => r.endsWith(template.targetRoot) || path.basename(r) === template.targetRoot);
+    if (match) {
+      targetRoot = match;
+      routedToTypeRoot = true;
+    }
+  }
+
+  // Template-declared subdirectory (e.g., prompt → 'prompts') — only relevant when we
+  // didn't already land in a type-specific root via --root or targetRoot.
+  if (typeof template === 'object' && template.dir && !nameDir && !routedToTypeRoot) {
+    nameDir = path.join(path.relative(config.repoRoot, targetRoot), template.dir);
+  }
+
+  // Path — a directory prefix is read relative to the repo, because `runlist new
+  // plan docs/plans/feature` is a full repo path and has to stay one. That was
+  // the ONLY reading, which is how `--root` came to be silently ignored the
+  // moment a name contained a slash: the block above picked a root and this line
+  // threw it away, so the one flag the out-of-root error advertises could not
+  // fix the error. With an explicit --root the prefix is now read relative to
+  // that root — unless the repo-relative reading already lands inside it, so
+  // full paths keep working.
+  const allRoots = config.docsRoots ?? [config.docsRoot];
+  let baseDir;
+  if (!nameDir) baseDir = targetRoot;
+  else if (userNameDir && rootName) {
+    const repoRelative = path.resolve(config.repoRoot, nameDir);
+    baseDir = lexicallyInside(targetRoot, repoRelative) ? repoRelative : path.resolve(targetRoot, nameDir);
+  } else baseDir = path.resolve(config.repoRoot, nameDir);
+  const filePath = path.join(baseDir, slug + '.md');
+  const repoPath = toRepoPath(filePath, config.repoRoot);
+
+  // Without --root there is nothing to disambiguate with, so a prefix pointing
+  // outside every root stays an error — but it names the flag that resolves it,
+  // and the flag now works. The generic containment error underneath reports
+  // absolute paths and no remedy, which is what agents kept re-guessing at.
+  //
+  // Gated on the remedy actually working: the suggestion is only offered when
+  // `--root` would land the file inside that root. That is what keeps this off
+  // a traversal (`../escaped`, an absolute path), where `--root` fixes nothing
+  // and the containment check below is the error that should speak — printing
+  // an untested remedy is the very defect this finding is about.
+  if (explainRoots && userNameDir && !rootName && !allRoots.some(root => lexicallyInside(root, filePath))) {
+    const rooted = path.resolve(targetRoot, userNameDir, slug + '.md');
+    if (lexicallyInside(targetRoot, rooted)) {
+      die(`Destination is outside every configured root:\n`
+        + `  ${repoPath}\n\n`
+        + `A name with a \`/\` is read relative to the repo.\n`
+        + `To place it under a root instead:\n`
+        + `  runlist new ${typeName} ${name} --root ${path.basename(targetRoot)}\n`
+        + `     → ${toRepoPath(rooted, config.repoRoot)}\n\n`
+        + `Roots: ${allRoots.map(root => path.basename(root)).join(', ')}`);
+    }
+  }
+  return { nameDir, namePart, userNameDir, slug, targetRoot, baseDir, filePath, repoPath };
+}
+
+// Prompts live in the prompt folder and nowhere else where planning is off or
+// not set up yet (one prompt location, src/naming.mjs): a name with a folder in
+// it lands inside that folder or is refused, so nothing writes a root prompts/.
+function assertPromptFolder(target, name, config) {
+  if (config.configFound && !isHandoffsMode(config)) return;
+  const folder = promptDirectory(config);
+  if (lexicallyInside(folder, target.filePath)) return;
+  const where = toRepoPath(folder, config.repoRoot);
+  die(`Nothing saved: prompts are saved in ${where}/, and \`${name}\` is outside it. Use a plain name (runlist new prompt ${path.basename(name, '.md')} …) or a path inside ${where}/.`);
+}
+
 export async function runNew(argv, config, opts = {}) {
   const { dryRun } = opts;
 
   if (argv.find(a => !a.startsWith('-')) === 'decision') {
-    if (isHandoffsMode(config)) die(planningRefusal('`runlist new decision`'));
+    if (isHandoffsMode(config) || !config.configFound) die(planningRefusal('`runlist new decision`'));
     return runNewDecisionArgs(argv, config, opts);
   }
 
@@ -788,8 +892,10 @@ export async function runNew(argv, config, opts = {}) {
     if (runlistArg === null && !roadmap) coordination = true;
   }
   // A handoffs-only project scans its prompt folder alone; anything else
-  // created there would land among the prompts and outside every listing.
-  if (isHandoffsMode(config) && typeName !== 'prompt') die(planningRefusal(`\`runlist new ${typeName}\``));
+  // created there would land among the prompts and outside every listing. With
+  // no config at all there is no planning yet either: `runlist setup` is the
+  // one way to turn it on, so nothing but a prompt is created before it.
+  if ((isHandoffsMode(config) || !config.configFound) && typeName !== 'prompt') die(planningRefusal(`\`runlist new ${typeName}\``));
 
   if (!name) {
     if (isInteractive()) {
@@ -935,133 +1041,44 @@ export async function runNew(argv, config, opts = {}) {
   }
 
   // Zero setup: the first prompt saved in a repository with no config creates
-  // a handoffs-only config (src/handoffs-mode.mjs), after every check that can
-  // refuse the save has run against the proposed layout, so a refused command
-  // leaves nothing behind and dry-run refuses where apply would.
-  let handoffsSetup = null;
+  // a handoffs-only config (src/handoffs-mode.mjs), and prompts an older
+  // version saved in the root prompts/ move to docs/prompts/ first. Every check
+  // that can refuse the save runs against docs/prompts/ as that carry leaves
+  // it, before anything moves or is written, and dry-run stops at that point.
   let handoffsLine = null;
-  const publishHandoffs = async () => {
-    const published = await publishHandoffsConfig(handoffsSetup, { testHooks: opts.testHooks });
-    config = published.config;
-    assertPublishedPromptFolder(handoffsSetup, published, promptDirectory(config));
-    handoffsLine = published.line;
-    if (handoffsLine) process.stdout.write(`${handoffsLine}\n`);
-    handoffsSetup = null;
-  };
-  if (typeName === 'prompt' && !config.configFound && !userNameDirIn(name) && !rootName) {
-    const setup = await planHandoffsConfig(process.cwd(), config);
-    if (setup && !setup.legacy) {
-      handoffsSetup = setup;
-      config = setup.config;
-      if (dryRun) process.stdout.write(`${dim(setup.dryRunLine)}\n`);
-      // Prompts an older version saved in the root prompts/ move to
-      // docs/prompts/ first; one that would land on this name already exists.
-      const slug = slugify(path.basename(name, '.md'));
-      if (!slug) die('Name resolves to empty slug: ' + name);
-      const carried = carriedOnto(setup, path.join(setup.promptDir, `${slug}.md`));
-      if (carried) die(`File already exists: ${carried.from} (it moves to ${carried.to} when handoffs are set up here)`);
+  if (typeName === 'prompt' && !config.configFound && !opts.handoffsPlanned) {
+    const setup = await planHandoffsConfig(process.cwd(), config, { dryRun, out: process.stdout });
+    config = setup.config;
+    const target = resolveNewTarget(name, typeName, resolveTemplate('prompt', config), config, rootName, { explainRoots: false });
+    assertPromptFolder(target, name, config);
+    const carried = carriedOnto(setup, target.filePath);
+    if (carried) die(`File already exists: ${carried.from} (it moves to ${carried.to} before this prompt is saved)`);
+    if (existsSync(target.filePath)) die(`File already exists: ${target.repoPath}`);
+    if (dryRun) {
+      if (setup.dryRunLine) process.stdout.write(`${dim(setup.dryRunLine)}\n`);
       await carryLegacyPrompts(setup, { dryRun, out: process.stdout });
-      if (!setup.promptDirExists) {
-        // A folder that does not exist yet holds nothing to collide with, and
-        // the checks below cannot inspect it; only the name can still refuse.
-        if (dryRun) {
-          process.stdout.write(`${dim('[dry-run]')} Would create: ${path.posix.join(setup.promptRoot, `${slug}.md`)}\n`);
-          return;
-        }
-        await publishHandoffs();
-      }
+      process.stdout.write(`${dim('[dry-run]')} Would create: ${target.repoPath}\n${dim('[dry-run]')} Type: prompt\n`);
+      return;
+    }
+    await carryLegacyPrompts(setup, { out: process.stdout });
+    if (!setup.legacy) {
+      const published = await publishHandoffsConfig(setup, { testHooks: opts.testHooks });
+      config = published.config;
+      assertPublishedPromptFolder(setup, published, promptDirectory(config));
+      handoffsLine = published.line;
+      if (handoffsLine) process.stdout.write(`${handoffsLine}\n`);
     }
   }
 
-  // If name contains path separators, split into directory prefix and basename
-  let nameDir = null;
-  let namePart = name;
-  if (name.includes('/') || name.includes(path.sep)) {
-    nameDir = path.dirname(name);
-    namePart = path.basename(name, '.md');
-  } else if (name.endsWith('.md')) {
-    namePart = name.slice(0, -3);
-  }
-  // A prefix the *user* typed and one a template declares resolve differently
-  // below, so the distinction has to survive the template's assignment to nameDir.
-  const userNameDir = nameDir;
-
-  // Slugify
-  const slug = namePart.toLowerCase().replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').replace(/^-|-$/g, '');
-  if (!slug) { die('Name resolves to empty slug: ' + name); }
+  const promptFolderOnly = typeName === 'prompt' && (!config.configFound || isHandoffsMode(config));
+  const { namePart, slug, baseDir, filePath, repoPath } = resolveNewTarget(name, typeName, typeName === 'prompt' ? resolveTemplate('prompt', config) : template, config, rootName, { explainRoots: !promptFolderOnly });
+  if (promptFolderOnly) assertPromptFolder({ filePath }, name, config);
 
   // Title
   const docTitle = title ?? namePart.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
-  // Resolve target root. Precedence: CLI --root > template.targetRoot > config.docsRoot.
-  // When the chosen root is a first-class type-container (matched by --root or targetRoot),
-  // we skip the `template.dir` join — the root already points at the right directory.
-  let targetRoot = catchAllRoot(config);
-  let routedToTypeRoot = false;
-  if (rootName) {
-    const roots = config.docsRoots || [config.docsRoot];
-    const match = roots.find(r => r.endsWith(rootName) || path.basename(r) === rootName);
-    if (!match) {
-      const available = roots.map(r => path.basename(r)).join(', ');
-      die(`Unknown root: ${rootName}\nAvailable: ${available}`);
-    }
-    targetRoot = match;
-    routedToTypeRoot = true;
-  } else if (typeof template === 'object' && template.targetRoot) {
-    const roots = config.docsRoots || [config.docsRoot];
-    const match = roots.find(r => r.endsWith(template.targetRoot) || path.basename(r) === template.targetRoot);
-    if (match) {
-      targetRoot = match;
-      routedToTypeRoot = true;
-    }
-  }
-
-  // Template-declared subdirectory (e.g., prompt → 'prompts') — only relevant when we
-  // didn't already land in a type-specific root via --root or targetRoot.
-  if (typeof template === 'object' && template.dir && !nameDir && !routedToTypeRoot) {
-    nameDir = path.join(path.relative(config.repoRoot, targetRoot), template.dir);
-  }
-
-  // Path — a directory prefix is read relative to the repo, because `runlist new
-  // plan docs/plans/feature` is a full repo path and has to stay one. That was
-  // the ONLY reading, which is how `--root` came to be silently ignored the
-  // moment a name contained a slash: the block above picked a root and this line
-  // threw it away, so the one flag the out-of-root error advertises could not
-  // fix the error. With an explicit --root the prefix is now read relative to
-  // that root — unless the repo-relative reading already lands inside it, so
-  // full paths keep working.
   const allRoots = config.docsRoots ?? [config.docsRoot];
-  let baseDir;
-  if (!nameDir) baseDir = targetRoot;
-  else if (userNameDir && rootName) {
-    const repoRelative = path.resolve(config.repoRoot, nameDir);
-    baseDir = lexicallyInside(targetRoot, repoRelative) ? repoRelative : path.resolve(targetRoot, nameDir);
-  } else baseDir = path.resolve(config.repoRoot, nameDir);
-  const filePath = path.join(baseDir, slug + '.md');
-  const repoPath = toRepoPath(filePath, config.repoRoot);
 
-  // Without --root there is nothing to disambiguate with, so a prefix pointing
-  // outside every root stays an error — but it names the flag that resolves it,
-  // and the flag now works. The generic containment error underneath reports
-  // absolute paths and no remedy, which is what agents kept re-guessing at.
-  //
-  // Gated on the remedy actually working: the suggestion is only offered when
-  // `--root` would land the file inside that root. That is what keeps this off
-  // a traversal (`../escaped`, an absolute path), where `--root` fixes nothing
-  // and the containment check below is the error that should speak — printing
-  // an untested remedy is the very defect this finding is about.
-  if (userNameDir && !rootName && !allRoots.some(root => lexicallyInside(root, filePath))) {
-    const rooted = path.resolve(targetRoot, userNameDir, slug + '.md');
-    if (lexicallyInside(targetRoot, rooted)) {
-      die(`Destination is outside every configured root:\n`
-        + `  ${repoPath}\n\n`
-        + `A name with a \`/\` is read relative to the repo.\n`
-        + `To place it under a root instead:\n`
-        + `  runlist new ${typeName} ${name} --root ${path.basename(targetRoot)}\n`
-        + `     → ${toRepoPath(rooted, config.repoRoot)}\n\n`
-        + `Roots: ${allRoots.map(root => path.basename(root)).join(', ')}`);
-    }
-  }
   const destinationAuthorization = authorizeManagedDestination(filePath, config, { kind: 'New document destination' });
 
   if (existsSync(filePath)) {
@@ -1160,7 +1177,6 @@ export async function runNew(argv, config, opts = {}) {
   }
 
   if (typeName === 'prompt') content = bindPromptParent(content, opts.parentPrompt);
-  if (handoffsSetup) await publishHandoffs();
 
   // Ensure parent dir exists (templates with `dir:` may target a new subdirectory)
   mkdirSync(path.dirname(filePath), { recursive: true });
@@ -1242,7 +1258,9 @@ export async function runNew(argv, config, opts = {}) {
 // Sessions otherwise read the config file to find out.
 export function newHelpForRepo(config) {
   // Only types with a template: a status-only type can't be created by `new`.
-  const types = new Set([...Object.keys(BUILTIN_TEMPLATES), ...Object.keys(config.raw?.templates ?? {})]);
+  // Where planning is off, a prompt is the one thing it creates.
+  const promptsOnly = isHandoffsMode(config);
+  const types = promptsOnly ? new Set(['prompt']) : new Set([...Object.keys(BUILTIN_TEMPLATES), ...Object.keys(config.raw?.templates ?? {})]);
   const rows = [];
   const width = Math.max(...[...types].map(t => t.length));
   for (const typeName of types) {
@@ -1266,6 +1284,7 @@ export function newHelpForRepo(config) {
     if (statuses.length) rows.push(`  ${''.padEnd(width)}   statuses: ${statuses.join(', ')}`);
   }
   const roots = (config.docsRoots ?? [config.docsRoot]).map(r => path.basename(r));
+  if (promptsOnly) return `This repo:\n${rows.join('\n')}\n  Plans and docs come with planning; \`runlist setup\` turns it on.`;
   rows.push(`  ${'hub'.padEnd(width)} → a plan with a hub body (coordination unless --runlist or --roadmap)`);
   rows.push(`  ${'decision'.padEnd(width)} → an entry in an existing plan's decisions section`);
   return `This repo:
@@ -1326,8 +1345,12 @@ function listTemplates(config) {
     all[k] = v;
   }
 
+  // Before setup and where planning is off, a prompt is the one thing `new`
+  // creates, so it is the one type listed.
+  const promptsOnly = !config.configFound || isHandoffsMode(config);
   process.stdout.write(bold('Available types') + '\n\n');
   for (const [name, tmpl] of Object.entries(all)) {
+    if (promptsOnly && name !== 'prompt') continue;
     const desc = typeof tmpl === 'function'
       ? '(custom function)'
       : (tmpl.description ?? '');
@@ -1335,6 +1358,10 @@ function listTemplates(config) {
     process.stdout.write(`  ${name}${source}\n`);
     if (desc) process.stdout.write(`  ${dim(desc)}\n`);
     process.stdout.write('\n');
+  }
+  if (promptsOnly) {
+    process.stdout.write(`${dim('Plans and docs come with planning; `runlist setup` turns it on.')}\n`);
+    return;
   }
   process.stdout.write(`  hub\n  ${dim('A plan with a hub body: coordination by default, --runlist or --roadmap for the others.')}\n\n`);
   process.stdout.write(`  decision\n  ${dim('An entry in an existing plan\'s decisions section: runlist new decision <plan> --question "…" @record.md')}\n\n`);

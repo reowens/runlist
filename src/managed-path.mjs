@@ -1,6 +1,7 @@
 import { existsSync, lstatSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { managesFile, outsideHandoffsLine } from './handoffs-scope.mjs';
+import { LEGACY_PROMPT_DIR, PROMPT_DIR } from './naming.mjs';
 
 // These checks are authorization preflights, not filesystem transactions. A
 // concurrent actor can still replace a checked ancestor before the later write
@@ -141,10 +142,22 @@ export function authorizeManagedSource(input, config, { kind = 'Managed mutation
   return { path: managedPath, canonicalPath, root };
 }
 
-export function authorizeManagedDestination(input, config, { root: requiredRoot = null, kind = 'Managed mutation destination' } = {}) {
+// One prompt location (src/naming.mjs): before any config, and where
+// planning is off, nothing is created in the root prompts/ an older runlist
+// saved prompts in. Its prompts are carried out to docs/prompts/ instead.
+// Transaction recovery restoring a carry's source is not a new file.
+function assertNotLegacyPromptFolder(lexicalPath, config, kind) {
+  if (config.configFound && config.mode !== 'handoffs') return;
+  const legacy = path.join(path.resolve(config.repoRoot), LEGACY_PROMPT_DIR);
+  if (!contains(legacy, lexicalPath)) return;
+  throw new Error(`${kind}: ${path.relative(config.repoRoot, lexicalPath).split(path.sep).join('/')} is in ${LEGACY_PROMPT_DIR}/, where runlist no longer writes; prompts live in ${PROMPT_DIR}/.`);
+}
+
+export function authorizeManagedDestination(input, config, { root: requiredRoot = null, kind = 'Managed mutation destination', recovery = false } = {}) {
   const roots = rootsFor(config);
   const lexicalPath = path.resolve(input);
   markdown(lexicalPath, kind, roots);
+  if (!recovery) assertNotLegacyPromptFolder(lexicalPath, config, kind);
 
   const root = requiredRoot
     ? roots.find(candidate => candidate.lexicalPath === requiredRoot.lexicalPath && candidate.canonicalPath === requiredRoot.canonicalPath)

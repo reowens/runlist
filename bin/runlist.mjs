@@ -8,6 +8,7 @@ import { readPlanStage } from '../src/stages.mjs';
 import { scopeFilingCoverage } from '../src/filing.mjs';
 import { die, warn, levenshtein, isArchivedPath, toRepoPath } from '../src/util.mjs';
 import { recordCliInvocation, recordGlobalError, sanitizeTelemetryArgv } from '../src/journal.mjs';
+import { outsideHandoffs, outsideHandoffsLine } from '../src/handoffs-scope.mjs';
 import { findRepeatFailureHint } from '../src/hints.mjs';
 import { focusedCommandHelp, unsupportedCommandHelp } from '../src/help.mjs';
 import {
@@ -65,6 +66,9 @@ function applyPathScopeToIndex(index, config, inputs) {
 
   const selected = new Set();
   for (const input of inputs) {
+    // A handoffs-only project checks its prompts and nothing else; any other
+    // path hears that planning is off (src/handoffs-scope.mjs).
+    if (outsideHandoffs(input, config)) die(outsideHandoffsLine(input));
     const resolved = resolveExistingPath(input, config);
     if (!resolved) die(`Could not resolve check path: ${input}`);
 
@@ -111,6 +115,32 @@ function applyPathScopeToIndex(index, config, inputs) {
     index.countsByType[type][status] = (index.countsByType[type][status] ?? 0) + 1;
   }
 }
+
+// Help where planning is off (a handoffs-only project, src/handoffs-mode.mjs):
+// the handoff verbs and the command that turns planning on, nothing else.
+const HANDOFFS_HELP = `runlist v${pkg.version} — session handoffs (planning is off in this project)
+
+Commands:
+  baton <slug> @<draft-file>   Save a resume prompt for the next session (resume-<slug>)
+  prompts                      List saved prompts
+  prompts show <name...>       Read saved prompts without consuming them
+  use [<name>]                 Resume a saved prompt (no name: the oldest pending)
+  new prompt <name> @<file>    Save a prompt under a name of its own
+  hud                          What a new session is told at startup
+  setup                        Turn planning on (plans, docs and an index); prompts stay put
+
+More help:
+  runlist help statuses   Prompt statuses
+  runlist <cmd> --help    Per-command details
+
+Global flags: --config <path>  --dry-run/-n  --verbose  --version`;
+
+const HANDOFFS_STATUS_HELP = `runlist help statuses — prompt statuses (planning is off in this project)
+
+  pending    Saved for a later session. \`runlist use <name>\` resumes it.
+  archived   Consumed or set aside; kept under docs/prompts/archived/.
+
+Plan and doc statuses come with planning; \`runlist setup\` turns it on.`;
 
 const HELP = {
   _main: `runlist v${pkg.version} — frontmatter markdown document manager
@@ -1982,6 +2012,7 @@ function splitGlobalArgs(args) {
   let explicitConfig = null;
   let rootArg = null;
   let typeArg = null;
+  const typeArgs = [];
   let dryRun = false;
   let verbose = false;
 
@@ -1996,7 +2027,7 @@ function splitGlobalArgs(args) {
       if (local) rest.push(arg, next);
       else if (arg === '--config') explicitConfig = next;
       else if (arg === '--root') rootArg = next;
-      else typeArg = next;
+      else { typeArg = next; typeArgs.push(next); }
       i += 1;
       continue;
     }
@@ -2009,7 +2040,32 @@ function splitGlobalArgs(args) {
     rest.push(arg);
   }
 
-  return { command, rest, explicitConfig, rootArg, typeArg, dryRun, verbose };
+  return { command, rest, explicitConfig, rootArg, typeArg, typeArgs, dryRun, verbose };
+}
+
+// Every value given for `option`, as `--type x` or `--type=x`.
+function optionValues(args, option) {
+  const values = [];
+  for (let i = 0; i < args.length; i += 1) {
+    if (args[i] === option && args[i + 1] !== undefined) values.push(args[++i]);
+    else if (args[i].startsWith(`${option}=`)) values.push(args[i].slice(option.length + 1));
+  }
+  return values;
+}
+
+// The verbs that can change a document, for the carry that runs before them
+// in a repository with no config (src/handoffs-mode.mjs carryBeforeChange).
+const DOCUMENT_CHANGES = new Set(['use', 'next', 'archive', 'set', 'status', 'bulk', 'bulk-tag', 'touch', 'rename', 'migrate', 'fix-refs', 'sync-status', 'fix-membership', 'record', 'decision']);
+function changesDocuments(command, args) {
+  if (DOCUMENT_CHANGES.has(command)) return true;
+  if (command === 'prompts') return ['use', 'resume', 'next', 'archive', 'link', 'hold', 'shelve', 'unhold', 'unshelve'].includes(args[0]);
+  if (command === 'runlist' || command === 'roadmap') return args.some(arg => ['next', 'add', 'remove', 'reorder'].includes(arg));
+  if (command === 'yardstick') return ['mark', 'close', 'fold', 'clear'].includes(args[0]);
+  if (command === 'lint' || command === 'check') return args.includes('--fix');
+  // Not the transaction, claim and session tools: they are how a stuck move or
+  // claim is resolved, so nothing may run ahead of them.
+  if (command === 'doctor') return (args.includes('--apply') || args.includes('--yes')) && !args.some(arg => ['--transactions', '--claims', '--session'].includes(arg));
+  return false;
 }
 
 async function main() {
@@ -2024,7 +2080,7 @@ async function main() {
   // Before-command options are global. After the command, a schema-declared
   // local option wins; otherwise the historical anywhere-global form remains.
   const parsed = splitGlobalArgs(args);
-  let { command, explicitConfig, rootArg, typeArg, dryRun, verbose } = parsed;
+  let { command, explicitConfig, rootArg, typeArg, typeArgs, dryRun, verbose } = parsed;
   let restArgs = parsed.rest;
   const captureHelpConfig = async topic => {
     _resolvedCommand = 'help';
@@ -2083,6 +2139,10 @@ async function main() {
   if (command === 'help' || command === '--help' || command === '-h') {
     const topic = restArgs[0];
     await captureHelpConfig(topic ? (HELP[topic] || HELP[`help:${topic}`] ? topic : '(unknown)') : '_main');
+    if (_resolvedConfig?.mode === 'handoffs' && (!topic || topic === 'all' || topic === 'statuses')) {
+      process.stdout.write(`${topic === 'statuses' ? HANDOFFS_STATUS_HELP : HANDOFFS_HELP}\n`);
+      return;
+    }
     if (topic) {
       const key = `help:${topic}`;
       if (HELP[key]) { process.stdout.write(`${HELP[key]}\n`); return; }
@@ -2120,6 +2180,12 @@ async function main() {
   if (args.includes('--help') || args.includes('-h')) {
     requireCommandPolicy(command, dispatchPolicy);
     if (!hostDiagnostics && !updateInspection) await captureHelpConfig(command);
+    // A planning command's help, where planning is off, is that line.
+    if (_resolvedConfig?.mode === 'handoffs' && commandPlanning(command, restArgs.filter(arg => arg !== '--help' && arg !== '-h'))) {
+      const { PLANNING_OFF } = await import('../src/handoffs-scope.mjs');
+      process.stdout.write(`${PLANNING_OFF}\n`);
+      return;
+    }
     const focused = focusedCommandHelp(command, restArgs);
     if (focused?.fallback) process.stdout.write(`No focused help for this request; showing complete \`runlist ${command} --help\`.\n\n`);
     process.stdout.write(`${focused?.text ?? HELP[command] ?? commandUsage(command)}\n`);
@@ -2247,23 +2313,25 @@ async function main() {
   if (!config.presets[command]) requireCommandPolicy(command, dispatchPolicy);
 
   // Handoffs-only projects (src/handoffs-mode.mjs) have no plans or docs. A
-  // command the registry marks as needing planning, or any read filtered to a
-  // type other than prompts, says planning is off and names the command that
-  // turns it on. This runs before argument validation so `runlist runlist`
-  // with no hub gets the same answer. A user preset of the same name is the
-  // user's command and runs.
-  if (config.mode === 'handoffs' && !config.configuredPresetNames.has(command)) {
+  // command the registry marks as needing planning, or any command whose
+  // arguments ask for a type other than prompts, says planning is off and
+  // names the command that turns it on. The arguments are read as the command
+  // will run them: a preset's own arguments included, every --type counted
+  // (repeated, comma-separated, or --type=x). This runs before argument
+  // validation so `runlist runlist` with no hub gets the same answer.
+  if (config.mode === 'handoffs') {
     const { requirePlanning } = await import('../src/handoffs-scope.mjs');
-    const json = restArgs.includes('--json');
-    const ownTypeAt = commandOwnsOption(command, '--type') ? restArgs.indexOf('--type') : -1;
-    const typeFilter = typeArg ?? (ownTypeAt !== -1 ? restArgs[ownTypeAt + 1] : null);
-    const types = typeFilter ? typeFilter.split(',').map(t => t.trim()).filter(Boolean) : [];
+    const preset = config.presets[command];
+    const effective = [...(preset ?? []), ...restArgs];
+    const json = effective.includes('--json');
+    const types = [...typeArgs, ...optionValues(effective, '--type')].flatMap(value => value.split(',')).map(type => type.trim()).filter(Boolean);
+    const others = types.filter(type => type !== 'prompt');
     const planning = commandPlanning(command, restArgs);
-    const typed = !planning && types.length > 0 && !types.includes('prompt');
-    const requirement = planning?.requirement ?? (typed ? (commandPolicy(command)?.mutation === 'none' ? 'view' : 'action') : null);
+    const typed = !planning && others.length > 0;
+    const requirement = planning?.requirement ?? (typed ? (preset || commandPolicy(command)?.mutation === 'none' ? 'view' : 'action') : null);
     if (requirement) {
       for (const w of config.configWarnings ?? []) warn(w);
-      const what = `\`runlist ${[command, planning?.subcommand].filter(Boolean).join(' ')}${typed ? ` --type ${typeFilter}` : ''}\``;
+      const what = `\`runlist ${[command, planning?.subcommand].filter(Boolean).join(' ')}${typed ? ` --type ${others.join(',')}` : ''}\``;
       if (requirePlanning(config, what, requirement, { json })) return;
     }
   }
@@ -2272,6 +2340,25 @@ async function main() {
     restArgs = validateCommandArgs(command, restArgs, { preset: Boolean(config.presets[command]) });
   } catch (err) {
     die(err.message);
+  }
+
+  // Before any config, prompts an older runlist saved in the root prompts/
+  // move to docs/prompts/ ahead of a command that changes documents
+  // (src/handoffs-mode.mjs), so none is consumed, archived or rewritten where
+  // runlist no longer writes. A file argument naming a moved prompt follows it.
+  if (!config.configFound && changesDocuments(command, restArgs)) {
+    const { carryBeforeChange } = await import('../src/handoffs-mode.mjs');
+    const carried = await carryBeforeChange(config, { dryRun: effectiveDryRun });
+    if (carried?.preview) {
+      process.stderr.write(`[dry-run] \`runlist ${command}\` then runs on the moved prompts; nothing else is previewed until they have moved.\n`);
+      return;
+    }
+    if (carried) {
+      restArgs = restArgs.map(arg => {
+        const move = carried.moves.find(item => [process.cwd(), config.repoRoot].some(base => path.resolve(base, arg) === item.source));
+        return move ? move.target : arg;
+      });
+    }
   }
 
   // Init — runInit re-resolves the config from disk internally (after any
@@ -2499,9 +2586,11 @@ async function main() {
   if (command === 'misuse') { const { runMisuse } = await import('../src/misuse-read.mjs'); runMisuse(restArgs, config); return; }
   if (command === 'journal') { const { runJournal } = await import('../src/journal-read.mjs'); runJournal(restArgs, config); return; }
   if (command === 'pickup' || command === 'unpickup' || command === 'release' || command === 'finish') {
+    if (config.mode === 'handoffs') die(`\`runlist ${command}\` was removed. Handoffs: \`runlist baton <slug> @<file>\` saves one, \`runlist use <name>\` resumes one, \`runlist prompts\` lists them.`);
     die(`\`runlist ${command}\` was removed — use the ownership-aware lifecycle verbs:\n  runlist use <file>          # atomically claim + mark in-session + print the plan\n  runlist set <status> <file> # transition and release ownership when leaving in-session\n  runlist archive <file>      # close out atomically`);
   }
   if (command === 'runlist') { const { runRunlist } = await import('../src/runlist.mjs'); await runRunlist(restArgs, config, { dryRun }); return; }
+  if (command === 'handoff' && config.mode === 'handoffs') die('`runlist handoff` was removed. Handoffs: `runlist baton <slug> @<file>` saves one, `runlist use <name>` resumes one, `runlist prompts` lists them.');
   if (command === 'handoff') { die('`runlist handoff` was removed in 0.31.0. Use `runlist prompts new <name>` to create a saved prompt instead. The .dotmd/handoffs/ sidecar mechanism no longer exists; see CHANGELOG.'); }
   if (command === 'status') { const { runStatus } = await import('../src/lifecycle.mjs'); await runStatus(restArgs, config, { dryRun }); return; }
   if (command === 'set') { const { runSet } = await import('../src/lifecycle.mjs'); await runSet(restArgs, config, { dryRun }); return; }

@@ -58,7 +58,10 @@ export async function runStatuses(argv, config, opts = {}) {
 
 function runListStatuses(args, config) {
   const flags = parseFlags(args, { allowProps: false });
-  const types = flags.type ? flags.type.split(',').map(t => t.trim()).filter(Boolean) : [...config.validTypes];
+  // Where planning is off, prompts are the one type there is (the dispatcher
+  // refuses any other --type there).
+  const types = flags.type ? flags.type.split(',').map(t => t.trim()).filter(Boolean)
+    : config.mode === 'handoffs' ? ['prompt'] : [...config.validTypes];
 
   // For each type, derive a flag table from config.raw.
   const out = { types: {} };

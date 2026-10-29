@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 import { transactionResolutionAdvice } from './atomic-mutation.mjs';
 import { which } from './util.mjs';
+import { LEGACY_PROMPT_DIR, PROMPT_DIR } from './naming.mjs';
 import { persistentCliOnPath, PERSISTENT_CLI_WARNING } from './installation.mjs';
 
 const workerUrl = new URL('./setup-worker.mjs', import.meta.url).href;
@@ -61,6 +62,12 @@ function validate(choices, config, existing, upgrade = false) {
     throw new Error(`Turning planning on in this project makes docs/ the docs root, the folder that holds its prompts (docs/prompts/), so --docs-root cannot choose another. Rerun setup without --docs-root.`);
   }
   if (!existing || upgrade) choices.docsRoot ??= 'docs';
+  // Prompts are saved in <docs root>/prompts/, or in the docs root itself when
+  // it is named prompts. Neither may be the root prompts/ (one prompt location,
+  // src/naming.mjs).
+  if (!existing && ['.', LEGACY_PROMPT_DIR].includes(path.posix.normalize(choices.docsRoot).replace(/\/$/, ''))) {
+    throw new Error(`--docs-root ${choices.docsRoot} would save prompts in ${LEGACY_PROMPT_DIR}/ at the project root, where runlist no longer writes. Choose another docs folder (the default, docs, keeps prompts in ${PROMPT_DIR}/).`);
+  }
   if (choices.adopt.length > 100) throw new Error('Setup accepts at most 100 explicitly selected adoption files per run.');
   choices.adopt = [...new Set(choices.adopt)];
   for (const file of choices.adopt) {
@@ -236,8 +243,15 @@ export async function runSetup(argv, config, options = {}) {
     report.outstanding.push(...plan.carry.outstanding);
     report.outstanding.push(...plan.transactions.map(item => ({ id: `transaction:${item.id}`, description: `Outstanding transaction ${item.id}; setup must finish pre-config recovery before writing config. ${transactionResolutionAdvice(item)}`, path: item.manifestPath })));
     const carryNotice = () => `notice: files remain outside the configured roots${!choices.carryPrompts ? `; carry-over was disabled.${report.mode === 'preview' ? ' Before applying, rerun runlist setup without --no-carry-prompts to carry them.' : ''} After a config is written, rerunning setup does not carry these files; include their folders in the config root export to keep using them without moving files` : '; include their folders in the root export to keep using them without moving files'}`;
-    const remainingNotice = plan.carry.remaining.length ? { description: carryNotice(), paths: plan.carry.remaining.map(file => path.relative(cwd, file).split(path.sep).join('/')) } : null;
+    // The root prompts/ older builds saved prompts in is never a root to add
+    // (one prompt location, src/naming.mjs): what stays there is left alone.
+    const remainingPaths = plan.carry.remaining.map(file => path.relative(cwd, file).split(path.sep).join('/'));
+    const inLegacyFolder = file => file.startsWith(`${LEGACY_PROMPT_DIR}/`);
+    const remainingNotice = remainingPaths.some(file => !inLegacyFolder(file)) ? { description: carryNotice(), paths: remainingPaths.filter(file => !inLegacyFolder(file)) } : null;
     if (remainingNotice) report.notes.push(remainingNotice);
+    const legacyNotice = () => `notice: left untouched in ${LEGACY_PROMPT_DIR}/, which runlist does not read or write once set up (prompts live in ${PROMPT_DIR}/)${!choices.carryPrompts ? `; carry-over was disabled.${report.mode === 'preview' ? ' Before applying, rerun runlist setup without --no-carry-prompts to carry them.' : ''} After a config is written, rerunning setup does not carry these files` : ''}`;
+    const legacyRemaining = remainingPaths.some(inLegacyFolder) ? { description: legacyNotice(), paths: remainingPaths.filter(inLegacyFolder) } : null;
+    if (legacyRemaining) report.notes.push(legacyRemaining);
     if (plan.layout.sample) report.notes.push({ description: 'An existing example sample is preserved unchanged; archive or edit it explicitly when ready', path: plan.layout.sample });
     if (plan.policy) report.actions.push({ id: 'policy', description: `Set promptTracking to ${choices.promptTracking} using the narrow config setter`, path: configPath });
     else report.actions.push({ id: 'policy-info', description: `Prompt tracking: ${choices.promptTracking}${existing ? (config.promptTrackingSource === 'legacy-default' ? ' (legacy compatibility default preserved; choose --prompt-tracking explicitly)' : ' (preserve existing choice)') : ' (new project default/selection)'}` });
@@ -286,6 +300,7 @@ export async function runSetup(argv, config, options = {}) {
     applying = true;
     report.mode = 'apply';
     if (remainingNotice) remainingNotice.description = carryNotice();
+    if (legacyRemaining) legacyRemaining.description = legacyNotice();
     // Each stage preflights again in a fresh process. This is deliberately a
     // sequence of honest operations, not an advertised multi-stage transaction.
     const steps = [ ...(plan.upgrade ? ['upgrade'] : []), ...(plan.policy ? ['policy'] : []), 'init', ...plan.adoptions.filter(item => item.candidate).map(item => item.path), ...(plan.firstPlan ? ['plan'] : []), ...(report.actions.some(action => action.id === 'index') ? ['index'] : []) ];

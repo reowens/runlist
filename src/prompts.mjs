@@ -8,7 +8,7 @@ import { completePlanClaim, regenIndex, renderLifecycleMutation, runArchive } fr
 import { runNew } from './new.mjs';
 import { green, dim, yellow } from './color.mjs';
 import { authorizeManagedSource } from './managed-path.mjs';
-import { managesFile, outsideHandoffs, outsideHandoffsLine } from './handoffs-scope.mjs';
+import { isHandoffsMode, managesFile, outsideHandoffs, outsideHandoffsLine } from './handoffs-scope.mjs';
 import {
   authoritativeSessionId,
   classifyPlanPickup,
@@ -122,7 +122,7 @@ function childHandoffs(repoPath, config, index = null) {
   if (!children.length) return { paths: [], notice: '' };
   const parent = path.basename(repoPath, '.md');
   const names = children.map(doc => `- \`${doc.path}\``).join('\n');
-  return { paths: children.map(doc => doc.path), notice: `\n\n## Saved child handoffs\n\n${children.length} child handoff(s) remain pending:\n\n${names}\n\nInspect a child with \`rl prompts show <name>\`. Review its current state and authorization before resuming its lane. Fold completed results into the owning plan, then archive the completed handoff explicitly.\n\nPass \`--parent ${parent}\` when saving another child, or pass \`RUNLIST_PARENT_PROMPT=${parent}\` into its environment.\n` };
+  return { paths: children.map(doc => doc.path), notice: `\n\n## Saved child handoffs\n\n${children.length} child handoff(s) remain pending:\n\n${names}\n\nInspect a child with \`rl prompts show <name>\`. Review its current state and authorization before resuming its lane. ${isHandoffsMode(config) ? 'Fold completed results into the parent\'s work' : 'Fold completed results into the owning plan'}, then archive the completed handoff explicitly.\n\nPass \`--parent ${parent}\` when saving another child, or pass \`RUNLIST_PARENT_PROMPT=${parent}\` into its environment.\n` };
 }
 
 function runPromptsList(argv, config, opts = {}) {

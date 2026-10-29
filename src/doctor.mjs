@@ -174,7 +174,7 @@ async function runDoctorClaims(argv, config, opts = {}) {
     return;
   }
   if (claims.length === 0) {
-    process.stdout.write(green('✓') + ' No plans are claimed — nothing can be wedged by ownership.\n');
+    process.stdout.write(green('✓') + (config.mode === 'handoffs' ? ' Nothing is claimed.\n' : ' No plans are claimed — nothing can be wedged by ownership.\n'));
     return;
   }
 

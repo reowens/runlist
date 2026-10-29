@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { die, resolveDocPath } from './util.mjs';
@@ -13,14 +13,28 @@ import { die, resolveDocPath } from './util.mjs';
 
 export const PLANNING_OFF = 'Planning is off in this project; `runlist setup` turns it on (your prompts stay where they are).';
 
+export function isHandoffsMode(config) {
+  return config?.mode === 'handoffs';
+}
+
 export function readsAsPrompt(file) {
   try {
     return parseSimpleFrontmatter(extractFrontmatter(readFileSync(file, 'utf8')).frontmatter ?? '').type === 'prompt';
   } catch { return false; }
 }
 
+// A prompt in the prompt folder: the folder alone is not enough (the user's
+// own notes may sit there), and neither is the type (a `type: prompt` file
+// elsewhere in the project is not one of its handoffs).
 export function managesFile(file, config) {
-  return config?.mode !== 'handoffs' || readsAsPrompt(file);
+  if (config?.mode !== 'handoffs') return true;
+  const target = path.resolve(file);
+  return (config.docsRoots || [config.docsRoot]).some(root => within(root, target) || within(canonical(root), target)) && readsAsPrompt(file);
+}
+
+// Callers pass lexical and canonical paths alike (/var and /private/var).
+function canonical(directory) {
+  try { return realpathSync(directory); } catch { return directory; }
 }
 
 export function planningRefusal(what) {

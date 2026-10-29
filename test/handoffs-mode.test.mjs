@@ -416,14 +416,27 @@ describe('the first baton never hides what was saved before setup', () => {
     assert.match(ok(['plans']).stdout, /old/);
   });
 
-  it('keeps the unconfigured behaviour for prompts nested below prompts/, saving to docs/prompts/', () => {
-    put('docs/design.md', '# Notes\n');
+  it('carries prompts nested below prompts/ with their folders, sets up handoffs, and setup keeps them in view', () => {
     put('prompts/team/resume-old.md', PROMPT);
+    put('prompts/held/parked.md', PROMPT.replace('status: pending', 'status: held'));
+    put('prompts/team/notes.md', '# Team notes\n\nNot a runlist prompt.\n');
     const saved = ok(['baton', 'exporter', draft()]);
-    assert.match(saved.stdout + saved.stderr, /run `runlist setup`; it carries this prompt over/);
-    assert.ok(!has('runlist.config.mjs'));
-    assert.equal(read('prompts/team/resume-old.md'), PROMPT);
-    assert.ok(has('docs/prompts/resume-exporter.md'));
+    assert.match(saved.stderr, /Moved 2 prompts an older runlist saved in prompts\/ to docs\/prompts\/\./);
+    assert.match(saved.stderr, /Set up runlist for handoffs here/);
+    assert.equal(read('docs/prompts/team/resume-old.md'), PROMPT);
+    assert.ok(has('docs/prompts/held/parked.md') && !has('prompts/team/resume-old.md') && !has('prompts/held'));
+    assert.equal(read('prompts/team/notes.md'), '# Team notes\n\nNot a runlist prompt.\n', 'what is not a prompt stays');
+    assert.match(ok(['prompts']).stdout, /resume-old/);
+    rmSync(at('docs/prompts/held'), { recursive: true });
+    ok(['setup', '--yes']);
+    assert.match(ok(['use', 'resume-old'], { session: 'handoffs-b' }).stdout, /Earlier synthetic work/);
+    assert.ok(!has('prompts/team/resume-old.md'));
+  });
+
+  it('setup carries nested prompts too', () => {
+    put('prompts/team/resume-old.md', PROMPT);
+    ok(['setup', '--yes']);
+    assert.ok(has('docs/prompts/team/resume-old.md') && !has('prompts/team/resume-old.md'));
     assert.match(ok(['use', 'resume-old'], { session: 'handoffs-b' }).stdout, /Earlier synthetic work/);
   });
 
@@ -670,14 +683,16 @@ describe('one prompt location: nothing creates a root prompts/', () => {
     assert.ok(has('docs/prompts/archived/resume-exporter.md'));
   });
 
-  it('a save outside Git, where earlier handoffs keep working, goes to docs/prompts/', () => {
+  it('a save outside Git, where earlier handoffs keep working, carries them and goes to docs/prompts/', () => {
     const plain = mkdtempSync(path.join(os.tmpdir(), 'runlist-handoffs-plain-'));
     try {
       mkdirSync(path.join(plain, 'prompts'));
       writeFileSync(path.join(plain, 'prompts', 'resume-old.md'), PROMPT);
       ok(['baton', 'exporter', draft()], { cwd: plain });
       assert.ok(existsSync(path.join(plain, 'docs/prompts/resume-exporter.md')));
-      assert.deepEqual(readdirSync(path.join(plain, 'prompts')), ['resume-old.md']);
+      assert.ok(existsSync(path.join(plain, 'docs/prompts/resume-old.md')), 'carried, never adopted in place');
+      assert.ok(!existsSync(path.join(plain, 'prompts')));
+      assert.ok(!existsSync(path.join(plain, 'runlist.config.mjs')));
     } finally { rmSync(plain, { recursive: true, force: true }); }
   });
 });
@@ -699,5 +714,254 @@ describe('the setup preview counts what planning brings into view', () => {
     assert.doesNotMatch(ok(['setup']).stdout, /Planning brings/);
     put('docs/design.md', '# Design notes\n');
     assert.match(ok(['setup']).stdout, /Planning brings docs\/ under runlist: 1 existing Markdown file there will be checked, and listed as untagged if it has no runlist frontmatter; adopt it with `--adopt <path>` or leave it/);
+  });
+});
+
+describe('a carry killed part-way is finished before the next save', () => {
+  // SIGKILLs the process the moment the carry's transaction manifest reaches
+  // the named phase, as a crash would.
+  const KILLER = `import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
+const rename = fs.renameSync;
+fs.renameSync = function (from, to, ...rest) {
+  const result = rename.call(this, from, to, ...rest);
+  if (String(to).endsWith('manifest.json')) {
+    try {
+      const manifest = JSON.parse(fs.readFileSync(to, 'utf8'));
+      if (manifest.phase === process.env.RUNLIST_TEST_KILL_PHASE) process.kill(process.pid, 'SIGKILL');
+    } catch {}
+  }
+  return result;
+};
+syncBuiltinESMExports();
+`;
+  const manifests = () => {
+    const root = at('.runlist/transactions');
+    return existsSync(root) ? readdirSync(root).filter(entry => existsSync(path.join(root, entry, 'manifest.json'))) : [];
+  };
+  for (const phase of ['reservation', 'source-move', 'target-publication', 'canonical-commit', 'completed']) it(`killed at ${phase}`, () => {
+    const killer = path.join(home, 'kill.mjs');
+    writeFileSync(killer, KILLER);
+    put('prompts/older.md', PROMPT);
+    const killed = cli(['baton', 'exporter', draft()], { extra: { NODE_OPTIONS: `--import=${pathToFileURL(killer).href}`, RUNLIST_TEST_KILL_PHASE: phase } });
+    assert.equal(killed.signal, 'SIGKILL', phase);
+    assert.ok(!has('runlist.config.mjs'));
+    ok(['baton', 'exporter', draft()]);
+    assert.ok(has('runlist.config.mjs'));
+    assert.match(ok(['use', 'older'], { session: 'handoffs-b' }).stdout, /Earlier synthetic work/);
+    assert.ok(has('docs/prompts/archived/older.md'));
+    assert.deepEqual(manifests(), []);
+    assert.ok(!has('prompts'), 'nothing left in, or created in, a root prompts/');
+  });
+});
+
+describe('a refused save moves nothing', () => {
+  for (const [verb, args, duplicate, pattern] of [
+    ['baton', ['baton', 'exporter'], 'docs/prompts/resume-exporter.md', /already pending:\n {2}docs\/prompts\/resume-exporter\.md/],
+    ['new prompt', ['new', 'prompt', 'exporter'], 'docs/prompts/exporter.md', /File already exists: docs\/prompts\/exporter\.md/],
+  ]) it(`${verb}: a duplicate already in docs/prompts/ refuses before any prompt is carried, and dry-run agrees`, () => {
+    put('prompts/older.md', PROMPT);
+    put(duplicate, PROMPT);
+    const before = snapshot();
+    for (const extra of [['--dry-run'], []]) {
+      const refused = cli([...args, draft(), ...extra]);
+      assert.equal(refused.status, 1, extra.join(' '));
+      assert.match(refused.stdout + refused.stderr, pattern);
+      assert.doesNotMatch(refused.stdout + refused.stderr, /Moved|Would move/);
+      assert.deepEqual(snapshot(), before);
+    }
+  });
+
+  for (const folder of ['absent', 'empty']) it(`--replace of a prompt about to be carried previews what apply does (docs/prompts/ ${folder})`, () => {
+    put('prompts/resume-exporter.md', PROMPT);
+    if (folder === 'empty') mkdirSync(at('docs/prompts'), { recursive: true });
+    const before = snapshot();
+    const preview = JSON.parse(ok(['baton', 'exporter', draft(), '--replace', '--dry-run', '--json']).stdout);
+    assert.deepEqual(snapshot(), before);
+    const applied = JSON.parse(ok(['baton', 'exporter', draft(), '--replace', '--json']).stdout);
+    const expected = { previousPrompt: 'docs/prompts/resume-exporter.md', archivedPrompt: 'docs/prompts/archived/resume-exporter.md', pendingPrompt: 'docs/prompts/resume-exporter.md', alreadyCurrent: false };
+    assert.deepEqual(preview.replacement, expected);
+    assert.deepEqual(applied.replacement, expected);
+    assert.equal(preview.prompt, applied.prompt);
+    assert.equal(read('docs/prompts/archived/resume-exporter.md').includes('Earlier synthetic work'), true);
+    assert.ok(!has('prompts'));
+  });
+});
+
+describe('nothing creates a root prompts/ or a docs/prompts/ below the Git toplevel', () => {
+  const rootOnly = () => {
+    assert.ok(!has('prompts'), 'no root prompts/');
+    const nested = [];
+    const walk = directory => {
+      for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        if (!entry.isDirectory() || entry.name === '.git') continue;
+        const file = path.join(directory, entry.name);
+        if (entry.name === 'prompts' && path.basename(directory) === 'docs' && directory !== at('docs')) nested.push(file);
+        walk(file);
+      }
+    };
+    walk(repo);
+    assert.deepEqual(nested, [], 'no docs/prompts/ below the toplevel');
+  };
+
+  it('a path-like prompt name outside docs/prompts/ is refused; one inside it is kept', () => {
+    for (const name of ['prompts/escape', '../escape', 'notes/escape']) {
+      const refused = cli(['new', 'prompt', name, draft()]);
+      assert.equal(refused.status, 1, name);
+      assert.match(refused.stderr, /Nothing saved: prompts are saved in docs\/prompts\//, name);
+    }
+    assert.ok(!has('runlist.config.mjs'));
+    ok(['new', 'prompt', 'docs/prompts/team/inside', draft()]);
+    assert.ok(has('docs/prompts/team/inside.md'));
+    const again = cli(['new', 'prompt', 'prompts/escape', draft()]);
+    assert.equal(again.status, 1);
+    rootOnly();
+  });
+
+  for (const args of [['use', 'older'], ['use'], ['next'], ['prompts', 'use', 'older'], ['prompts', 'resume', 'older'], ['prompts', 'next'],
+    ['prompts', 'archive', 'older'], ['archive', 'prompts/older.md'], ['set', 'archived', 'prompts/older.md']]) it(`${args.join(' ')} before any config carries the prompt to docs/prompts/ first`, () => {
+    put('prompts/older.md', PROMPT);
+    put('README.md', '# Synthetic\n\n[Earlier](prompts/older.md)\n');
+    const result = ok(args, { session: 'handoffs-b' });
+    assert.match(result.stderr, /Moved 1 prompt an older runlist saved in prompts\/ to docs\/prompts\/\./);
+    assert.match(result.stderr, /README\.md links to prompts\/older\.md; update it to docs\/prompts\/older\.md/);
+    assert.equal(read('README.md'), '# Synthetic\n\n[Earlier](prompts/older.md)\n', 'Markdown runlist does not manage is never edited');
+    assert.ok(has('docs/prompts/archived/older.md'));
+    rootOnly();
+  });
+
+  it('dry-run of such a command lists the carry and changes nothing', () => {
+    put('prompts/older.md', PROMPT);
+    const before = snapshot();
+    const preview = ok(['archive', 'prompts/older.md', '--dry-run']);
+    assert.match(preview.stderr, /\[dry-run\] Would move 1 prompt an older runlist saved in prompts\/ to docs\/prompts\/:\n {2}prompts\/older\.md → docs\/prompts\/older\.md/);
+    assert.deepEqual(snapshot(), before);
+  });
+
+  for (const root of ['prompts', '.', './prompts/']) it(`setup refuses --docs-root ${root}`, () => {
+    const result = cli(['setup', '--yes', '--docs-root', root]);
+    assert.match(result.stdout + result.stderr, /would save prompts in prompts\/ at the project root/);
+    assert.ok(!has('runlist.config.mjs'));
+    rootOnly();
+  });
+
+  it('an unconfigured save from a subfolder goes to the toplevel docs/prompts/', () => {
+    put('plans/sample.md', PLAN);
+    put('src/app.js', '');
+    ok(['baton', 'exporter', draft()], { cwd: at('src') });
+    ok(['new', 'prompt', 'reminder', draft()], { cwd: at('src') });
+    assert.ok(has('docs/prompts/resume-exporter.md') && has('docs/prompts/reminder.md'));
+    assert.ok(!has('runlist.config.mjs'), 'a plan saved before setup still belongs to setup');
+    rootOnly();
+  });
+});
+
+describe('planning is created by setup and nothing else', () => {
+  it('init refuses in a handoffs-only project, writing nothing', () => {
+    ok(['baton', 'exporter', draft()]);
+    const before = snapshot();
+    const refused = cli(['init']);
+    assert.equal(refused.status, 1);
+    assert.match(refused.stderr, /`runlist init` needs planning\. Planning is off in this project; `runlist setup` turns it on/);
+    assert.deepEqual(snapshot(), before);
+  });
+
+  it('migrate refuses to give a prompt another type; a prompt stays a prompt', () => {
+    ok(['baton', 'exporter', draft()]);
+    const before = snapshot();
+    for (const type of ['plan', 'doc']) {
+      const refused = cli(['migrate', 'type', 'prompt', type]);
+      assert.equal(refused.status, 1, type);
+      assert.match(refused.stderr, new RegExp(`\`runlist migrate type prompt ${type}\` needs planning\\.`));
+    }
+    assert.deepEqual(snapshot(), before);
+    assert.match(ok(['prompts']).stdout, /resume-exporter/);
+  });
+
+  it('with no config at all, new plan, doc, hub and decision refuse and create nothing; earlier plans stay visible', () => {
+    put('plans/sample.md', PLAN);
+    const before = snapshot();
+    for (const args of [['new', 'plan', 'unexpected', draft()], ['new', 'doc', 'unexpected', draft()], ['new', 'hub', 'unexpected'], ['new', 'unexpected'],
+      ['new', 'decision', 'plans/sample.md', '--question', 'Which?', draft()]]) {
+      const refused = cli(args);
+      assert.equal(refused.status, 1, args.join(' '));
+      assert.match(refused.stderr, /needs planning\. Planning is off in this project; `runlist setup` turns it on/, args.join(' '));
+    }
+    assert.deepEqual(snapshot(), before);
+    assert.match(ok(['plans']).stdout, /sample/);
+  });
+});
+
+describe('outside the prompt folder, a prompt is not one of the handoffs', () => {
+  it('show, prompts show, use and check refuse a typed prompt elsewhere, and check refuses other paths', () => {
+    ok(['baton', 'exporter', draft()]);
+    put('notes/outside.md', PROMPT);
+    put('docs/plans/sample.md', PLAN);
+    for (const args of [['show', 'notes/outside.md'], ['prompts', 'show', 'notes/outside.md'], ['use', 'notes/outside.md'], ['check', 'notes/outside.md'], ['check', 'docs/plans'], ['check', 'docs/plans/sample.md']]) {
+      const refused = cli(args);
+      assert.equal(refused.status, 1, args.join(' '));
+      assert.match(refused.stderr, /is outside this project's handoffs: planning is off in this project/, args.join(' '));
+    }
+    assert.ok(has('notes/outside.md'));
+    assert.match(ok(['check', 'docs/prompts/resume-exporter.md']).stdout, /docs scanned: 1/);
+  });
+});
+
+describe('handoffs-only output asks for nothing planning would', () => {
+  it('a handoff record carried in for a plan that is gone does not make the hook ask for plan work', () => {
+    put('prompts/older.md', PROMPT);
+    put('.runlist/handoffs/synthetic.json', `${JSON.stringify({ id: 'synthetic', plan: 'plans/gone.md', prompt: 'prompts/older.md', name: 'older', savedAt: '2026-10-01T00:00:00Z', nextStep: '"x"', sessionId: 'handoffs-a' }, null, 2)}\n`);
+    ok(['baton', 'exporter', draft()]);
+    assert.equal(JSON.parse(read('.runlist/handoffs/synthetic.json')).prompt, 'docs/prompts/older.md', 'the record is kept');
+    const start = ok(['hud']).stdout;
+    assert.doesNotMatch(start, /Handoff not done|baton --done|plan/i);
+  });
+
+  it('statuses, new --list-types, help, removed verbs and the child footer speak of prompts only', () => {
+    ok(['baton', 'parent', draft()]);
+    const statuses = ok(['statuses']).stdout;
+    assert.match(statuses, /type: prompt/);
+    assert.doesNotMatch(statuses, /type: (plan|doc)/);
+    const types = ok(['new', '--list-types']).stdout;
+    assert.match(types, /\n {2}prompt\n/);
+    assert.doesNotMatch(types, /\n {2}(plan|doc|hub|decision)\n/);
+    for (const args of [['--help'], ['help'], ['help', 'all']]) {
+      const help = ok(args).stdout;
+      assert.match(help, /session handoffs \(planning is off in this project\)/, args.join(' '));
+      assert.doesNotMatch(help.replace(/planning is off|Turn planning on \(plans, docs and an index\)/g, ''), /\bplans?\b|in-session/i, args.join(' '));
+    }
+    assert.doesNotMatch(ok(['help', 'statuses']).stdout, /in-session|queued-after/);
+    assert.equal(ok(['plans', '--help']).stdout, 'Planning is off in this project; `runlist setup` turns it on (your prompts stay where they are).\n');
+    for (const command of ['pickup', 'release', 'finish', 'unpickup', 'handoff']) {
+      const removed = cli([command]);
+      assert.equal(removed.status, 1);
+      assert.match(removed.stderr, /was removed\. Handoffs: `runlist baton <slug> @<file>` saves one/);
+      assert.doesNotMatch(removed.stderr, /plan|in-session/);
+    }
+    const unnamed = cli(['set', 'archived']);
+    assert.equal(unnamed.status, 1);
+    assert.equal(unnamed.stderr, 'Name the prompt to change: runlist set archived <prompt>\n');
+    assert.match(ok(['doctor', '--claims']).stdout, /Nothing is claimed\./);
+    ok(['baton', '--subagent', 'child', draft(), '--parent', 'resume-parent']);
+    const footer = ok(['prompts', 'show', 'resume-parent']).stdout;
+    assert.match(footer, /Fold completed results into the parent's work/);
+    assert.doesNotMatch(footer, /owning plan/);
+  });
+});
+
+describe('setup never offers the root prompts/ back', () => {
+  it('reports foreign files there as left untouched', () => {
+    put('prompts/library.md', '# A prompt library\n');
+    put('prompts/older.md', PROMPT);
+    const unconfigured = ok(['setup']).stdout;
+    assert.match(unconfigured, /prompts\/ \(1 \.md file\) is left untouched: runlist keeps prompts in docs\/prompts\//);
+    assert.match(unconfigured, /notice: left untouched in prompts\/[^\n]*\n {4}prompts\/library\.md/);
+    assert.doesNotMatch(unconfigured, /export const root = \[[^\]]*"prompts"|include their folders/);
+    ok(['baton', 'exporter', draft()]);
+    const upgrade = ok(['setup']).stdout;
+    assert.match(upgrade, /is left untouched/);
+    assert.doesNotMatch(upgrade, /export const root = \[[^\]]*"prompts"/);
+    ok(['setup', '--yes']);
+    assert.equal(read('prompts/library.md'), '# A prompt library\n');
   });
 });

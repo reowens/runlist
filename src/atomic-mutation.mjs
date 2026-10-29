@@ -296,7 +296,7 @@ function validateParticipantPath(participant, repoRoot, options, label) {
   }
   if (participant.policy === 'managed' && options.config) {
     if (existsSync(participant.path)) authorizeManagedSource(participant.path, options.config, { kind: 'Transaction participant' });
-    else authorizeManagedDestination(participant.path, options.config, { kind: 'Transaction participant' });
+    else authorizeManagedDestination(participant.path, options.config, { kind: 'Transaction participant', recovery: true });
   } else {
     const authorized = safeGeneratedPath(participant.path, repoRoot, options, 'Transaction generated participant');
     if (options.config) {

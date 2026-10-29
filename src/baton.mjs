@@ -13,7 +13,7 @@ import { assertPlanMutationAuthorized, authoritativeSessionId, listOwnedPlans, r
 import { builtinHandoffTemplate, parentPromptName } from './prompt-handoff.mjs';
 import { readTemplateStore, templateFile } from './template-store.mjs';
 import { isGitIgnored, gitCommitPaths, literalGitPathspec } from './git.mjs';
-import { assertPublishedPromptFolder, carriedOnto, carryLegacyPrompts, isHandoffsMode, planHandoffsConfig, publishHandoffsConfig, readsAsHandoffsOnly } from './handoffs-mode.mjs';
+import { assertPublishedPromptFolder, carriedOnto, carryLegacyPrompts, existsAfterCarry, isHandoffsMode, planHandoffsConfig, publishHandoffsConfig, readsAsHandoffsOnly } from './handoffs-mode.mjs';
 
 // `runlist baton` is the one-command handoff: save the resume prompt AND release
 // the plan in a single atomic-ish verb. It exists because the three-step skill
@@ -78,13 +78,15 @@ function refusePendingHandoff(pending) {
   die(`Nothing saved: a handoff for this is already pending:\n${lines}\nInspect it with \`runlist prompts show ${slug}\`. If it is current, keep it and do not hand off again. If it is stale, re-run baton with \`--replace\` to preserve the old handoff under archived/.`);
 }
 
-function archivedCopyPath(promptPath, config) {
+// `projection` is a carry not yet made (src/handoffs-mode.mjs): its targets
+// count as taken, and the folder may not exist yet to authorize against.
+function archivedCopyPath(promptPath, config, projection = null) {
   const dir = path.join(path.dirname(promptPath), config.archiveDir);
   const ext = path.extname(promptPath);
   const stem = path.basename(promptPath, ext);
   let candidate = path.join(dir, `${stem}${ext}`);
-  for (let n = 2; existsSync(candidate); n++) candidate = path.join(dir, `${stem}-${n}${ext}`);
-  return authorizeManagedDestination(candidate, config, { kind: 'Baton replacement archive' }).path;
+  for (let n = 2; existsAfterCarry(projection, candidate); n++) candidate = path.join(dir, `${stem}-${n}${ext}`);
+  return projection ? candidate : authorizeManagedDestination(candidate, config, { kind: 'Baton replacement archive' }).path;
 }
 
 function commitCommand(config, message, paths) {
@@ -265,9 +267,14 @@ export async function runBaton(argv, config, opts = {}) {
   const slugBase = `${handoffPrefix}${unprefixed}`;
   let replacement = null;
   let alternatePromptPath = null;
-  const resolvePending = () => {
-    const target = preparePromptDocument(slugBase, body, config, { dryRun: true });
-    const pending = pendingHandoffs(target.filePath, planPath, config);
+  // With a carry planned but not made (`projection`), the check runs against
+  // docs/prompts/ as the carry will leave it, so a refusal comes before
+  // anything moves and dry-run answers as apply will.
+  const resolvePending = (projection = null) => {
+    const target = projection ? { filePath: path.join(projection.promptDir, `${slugBase}.md`) } : preparePromptDocument(slugBase, body, config, { dryRun: true });
+    const carriedHere = projection ? carriedOnto(projection, target.filePath) : null;
+    const pending = !projection ? pendingHandoffs(target.filePath, planPath, config)
+      : carriedHere ? [carriedHere.from] : existsSync(target.filePath) ? [toRepoPath(target.filePath, config.repoRoot)] : [];
     if (planPath) {
       const alternateSlug = `${subagent ? 'resume-' : 'subagent-'}${unprefixed}`;
       alternatePromptPath = preparePromptDocument(alternateSlug, body, config, { dryRun: true }).filePath;
@@ -284,12 +291,12 @@ export async function runBaton(argv, config, opts = {}) {
       const detail = pending.length ? `Found ${pending.length}:\n${pending.map(p => `  ${p}`).join('\n')}` : 'No pending handoff matches this work.';
       die(`Nothing replaced: --replace requires exactly one pending handoff. ${detail}`);
     }
-    const oldRepoPath = pending[0];
+    const oldRepoPath = carriedHere ? carriedHere.to : pending[0];
     if (subagent && /^resume-/i.test(path.basename(oldRepoPath))) {
       die(`Nothing replaced: ${oldRepoPath} is a parent handoff. Inspect it with \`runlist prompts show ${path.basename(oldRepoPath, '.md')}\`; use a separate task slug for the child handoff, or omit --subagent to refresh the parent handoff.`);
     }
-    const oldPath = authorizeManagedSource(path.resolve(config.repoRoot, oldRepoPath), config, { kind: 'Baton replacement source' }).path;
-    const oldRaw = readFileSync(oldPath, 'utf8');
+    const oldPath = carriedHere ? carriedHere.target : authorizeManagedSource(path.resolve(config.repoRoot, oldRepoPath), config, { kind: 'Baton replacement source' }).path;
+    const oldRaw = carriedHere ? carriedHere.expectedSource : readFileSync(oldPath, 'utf8');
     const { frontmatter, body: oldBody } = extractFrontmatter(oldRaw);
     const fm = parseSimpleFrontmatter(frontmatter);
     if (asString(fm.type) !== 'prompt' || asString(fm.status) !== 'pending') {
@@ -304,7 +311,7 @@ export async function runBaton(argv, config, opts = {}) {
     parentPrompt ??= priorParent;
     replacement = {
       oldPath, oldRepoPath, oldRaw, priorParent,
-      archivedPath: archivedCopyPath(oldPath, config),
+      archivedPath: archivedCopyPath(oldPath, config, projection),
       alreadyCurrent: oldBody.trim() === draft.body.trim()
         && Object.entries(draftFm).every(([key, value]) => key === 'parent_prompt' || JSON.stringify(fm[key]) === JSON.stringify(value))
         && (priorParent ?? null) === parentPrompt
@@ -314,45 +321,47 @@ export async function runBaton(argv, config, opts = {}) {
   };
 
   // Zero setup: a prompt saved in a repository with no config creates the
-  // handoffs-only config first (src/handoffs-mode.mjs). Every check that can
-  // refuse the save runs against the proposed layout before anything is
-  // written, and dry-run stops at the same point apply would refuse. Plan mode
-  // is left alone: a plan saved before setup belongs to `runlist setup`.
-  // Prompts an older version saved in the root prompts/ move to docs/prompts/
-  // first; one that would land on this save's name is the pending duplicate.
+  // handoffs-only config first (src/handoffs-mode.mjs). Prompts an older
+  // version saved in the root prompts/ move to docs/prompts/ first. Every check
+  // that can refuse the save runs against docs/prompts/ as that carry leaves
+  // it, before anything moves or is written, and dry-run stops at the same
+  // point. Plan mode is left alone: a plan saved before setup belongs to
+  // `runlist setup`.
   let handoffsCreated = null;
   let handoffsLine = null;
   if (!planPath && !config.configFound) {
-    const setup = await planHandoffsConfig(process.cwd(), config);
-    if (setup && !setup.legacy) {
-      config = setup.config;
-      const carried = carriedOnto(setup, path.join(setup.promptDir, `${slugBase}.md`));
-      if (carried && !replace) refusePendingHandoff([carried.from]);
-      await carryLegacyPrompts(setup, { dryRun, out: json ? { write() {} } : process.stderr });
-      // A folder that does not exist yet holds nothing to collide with.
-      if (setup.promptDirExists) resolvePending();
-      handoffsCreated = setup.created;
-      if (dryRun) {
-        handoffsLine = setup.dryRunLine;
-        if (!json) process.stderr.write(`${handoffsLine}\n`);
-        if (!setup.promptDirExists) {
-          const prompt = path.posix.join(setup.promptRoot, `${slugBase}.md`);
-          const result = { operation: 'baton', parentPrompt, dryRun: true, disposition: 'would-change', wouldChange: true, mode: 'slug', status: null,
-            repositoryFiles: [], sessionFiles: [prompt], generatedFiles: [], deferredGeneratedFiles: [], prompt, plan: null, planMovement: null,
-            replacement: null, claimRelease: null, handoffDone: true, savedPrompt: slugBase, handoffsSetup: handoffsCreated };
-          if (json) process.stdout.write(JSON.stringify(result, null, 2) + '\n');
-          else process.stderr.write(`${dim('[dry-run]')} Would create: ${prompt}\n`);
-          return result;
-        }
-      } else {
-        const published = await publishHandoffsConfig(setup, { testHooks: opts.testHooks });
-        config = published.config;
-        assertPublishedPromptFolder(setup, published, promptDirectory(config));
-        handoffsCreated = published.created;
-        handoffsLine = published.line;
-        if (handoffsLine && !json) process.stderr.write(`${handoffsLine}\n`);
+    const quiet = { write() {} };
+    const setup = await planHandoffsConfig(process.cwd(), config, { dryRun, out: json ? quiet : process.stderr });
+    config = setup.config;
+    resolvePending(setup);
+    await carryLegacyPrompts(setup, { dryRun, out: json ? quiet : process.stderr });
+    handoffsCreated = setup.created;
+    if (dryRun) {
+      handoffsLine = setup.dryRunLine;
+      if (handoffsLine && !json) process.stderr.write(`${handoffsLine}\n`);
+      const prompt = replacement?.oldRepoPath ?? path.posix.join(setup.promptRoot, `${slugBase}.md`);
+      const archivedPrompt = replacement && !replacement.alreadyCurrent ? toRepoPath(replacement.archivedPath, config.repoRoot) : null;
+      const result = { operation: 'baton', parentPrompt, dryRun: true, disposition: replacement?.alreadyCurrent ? 'already-current' : 'would-change', wouldChange: true, mode: 'slug', status: null,
+        repositoryFiles: [], sessionFiles: [prompt, ...(archivedPrompt ? [archivedPrompt] : [])], generatedFiles: [], deferredGeneratedFiles: [], prompt, plan: null, planMovement: null,
+        replacement: replacement ? { previousPrompt: replacement.oldRepoPath, archivedPrompt, pendingPrompt: prompt, alreadyCurrent: replacement.alreadyCurrent } : null,
+        claimRelease: null, handoffDone: true, savedPrompt: path.basename(prompt, '.md'), handoffsSetup: handoffsCreated };
+      if (json) process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+      else {
+        if (archivedPrompt) process.stderr.write(`${dim('[dry-run]')} Would preserve old handoff: ${replacement.oldRepoPath} → ${archivedPrompt}\n`);
+        process.stderr.write(`${dim('[dry-run]')} Would ${replacement ? (replacement.alreadyCurrent ? 'keep' : 'replace') : 'create'}: ${prompt}\n`);
       }
+      return result;
     }
+    if (!setup.legacy) {
+      const published = await publishHandoffsConfig(setup, { testHooks: opts.testHooks });
+      config = published.config;
+      assertPublishedPromptFolder(setup, published, promptDirectory(config));
+      handoffsCreated = published.created;
+      handoffsLine = published.line;
+      if (handoffsLine && !json) process.stderr.write(`${handoffsLine}\n`);
+    }
+    // The carry is made: check again against the files themselves below.
+    replacement = null;
   }
 
   let repoPath = null;
@@ -471,7 +480,7 @@ export async function runBaton(argv, config, opts = {}) {
       newResult = { sessionFiles: [replacement.oldRepoPath, ...(replacement.alreadyCurrent ? [] : [toRepoPath(replacement.archivedPath, config.repoRoot)])] };
     } else {
       try {
-        newResult = await runNew(['prompt', slugBase, '--body', body], config, { parentPrompt, dryRun, deferIndex: true });
+        newResult = await runNew(['prompt', slugBase, '--body', body], config, { parentPrompt, dryRun, deferIndex: true, handoffsPlanned: true });
       } catch (err) {
         // Lost a race with another baton between the pending check and the write.
         if (/File already exists/.test(String(err?.message))) refusePendingHandoff([prepared.repoPath]);

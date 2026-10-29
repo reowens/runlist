@@ -985,6 +985,8 @@ export async function runSet(argv, config, opts = {}) {
 
   if (!newStatus) die('Usage: runlist set <status> [<path>]');
   let sessionId = null;
+  // Where planning is off there is no claimed plan to default to.
+  if (!input && config.mode === 'handoffs') die(`Name the prompt to change: runlist set ${newStatus} <prompt>`);
   if (!input) {
     sessionId = authoritativeSessionId();
     const owned = listOwnedPlans(config, sessionId);

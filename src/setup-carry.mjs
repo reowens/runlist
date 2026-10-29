@@ -29,14 +29,40 @@ function directories(config, type) {
   return [live, archive];
 }
 
-// Live/archive pairs to carry from: the resolver's pre-config folders, plus
-// the root prompts/ (and its archive) where older builds saved prompts before
-// any config. Nothing writes there now (src/naming.mjs).
+// Live/archive pairs to carry from: the resolver's pre-config folders.
 function sourceDirectories(config, type) {
-  const own = directories(config, type);
-  if (type !== 'prompt' || !rootIsWorkingFolder(config)) return own;
-  const legacy = path.join(config.docsRoot, ...LEGACY_PROMPT_DIR.split('/'));
-  return [...own, legacy, path.join(legacy, config.archiveDir)];
+  return directories(config, type);
+}
+
+// The root prompts/ older builds saved prompts in before any config. Nothing
+// writes there now (src/naming.mjs); every prompt below it, at any depth, is
+// carried with its folder relative to prompts/ kept.
+export function legacyPromptRoot(config) {
+  return rootIsWorkingFolder(config) ? path.join(config.docsRoot, ...LEGACY_PROMPT_DIR.split('/')) : null;
+}
+
+function legacyMarkdownFiles(root, config) {
+  authorizeRepoGeneratedPath(root, config, { kind: 'Setup carry-over folder' });
+  if (!existsSync(root)) return [];
+  if (!lstatSync(root).isDirectory()) throw new Error(`Carry-over folder must be a regular directory: ${root}`);
+  const files = [];
+  // A folder's own files before its subfolders, so live prompts are planned
+  // ahead of the archive below them, as they always were.
+  const walk = directory => {
+    const entries = readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) if (entry.isFile() && entry.name.endsWith('.md')) files.push(path.join(directory, entry.name));
+    for (const entry of entries) if (entry.isDirectory()) walk(path.join(directory, entry.name));
+  };
+  walk(root);
+  return files;
+}
+
+// Prompt statuses older builds wrote and later dropped (see the prompt type
+// in src/config.mjs): a prompt saved with one is still one runlist saved.
+const RETIRED_PROMPT_STATUSES = new Set(['held', 'shelved', 'claimed']);
+
+function carryKey(target) {
+  return target.normalize('NFC').toLowerCase().normalize('NFC');
 }
 
 // Only the resolver's pre-config locations qualify. An unrelated prompts
@@ -48,6 +74,25 @@ export function planSetupCarry(before, after, enabled = true, { types = ['prompt
   const candidates = new Set();
   const seen = new Set();
   const targets = new Set();
+  const consider = ({ source, target, type, expectedSource }) => {
+    if (source === target) return;
+    authorizeManagedSource(source, before, { kind: 'Setup carry-over source' });
+    authorizeRepoGeneratedPath(target, after, { kind: 'Setup carry-over destination' });
+    const from = toRepoPath(source, before.repoRoot), to = toRepoPath(target, before.repoRoot);
+    if (!enabled) return;
+    const targetKey = carryKey(target);
+    if (existsSync(target) || targets.has(targetKey)) {
+      result.outstanding.push({ description: `Carry-over collision: ${from} → ${to}; ${targets.has(targetKey) ? 'collides with another file being carried' : 'destination exists'}, source left in place`, path: source });
+      return;
+    }
+    try { if (type === 'plan') prepareOwnershipMigration(from, target, before, { sessionId: availableSessionId() }); }
+    catch (error) {
+      result.outstanding.push({ description: `Carry-over refused for ${from}: ${error.message}`, path: source });
+      return;
+    }
+    result.moves.push({ source, target, from, to, type, expectedSource });
+    targets.add(targetKey);
+  };
   for (const type of types) {
     const oldDirs = sourceDirectories(before, type);
     const newDirs = directories(after, type);
@@ -65,36 +110,66 @@ export function planSetupCarry(before, after, enabled = true, { types = ['prompt
         if (directory === path.join(before.repoRoot, before.archiveDir) && !archiveStatus) continue;
         seen.add(source);
         const archived = i % 2 === 1 || archiveStatus;
-        const target = path.join(newDirs[archived ? 1 : 0], path.basename(source));
-        if (source === target) continue;
-        authorizeManagedSource(source, before, { kind: 'Setup carry-over source' });
-        authorizeRepoGeneratedPath(target, after, { kind: 'Setup carry-over destination' });
-        const from = toRepoPath(source, before.repoRoot), to = toRepoPath(target, before.repoRoot);
-        if (!enabled) continue;
-        const targetKey = target.normalize('NFC').toLowerCase().normalize('NFC');
-        if (existsSync(target) || targets.has(targetKey)) {
-          result.outstanding.push({ description: `Carry-over collision: ${from} → ${to}; ${targets.has(targetKey) ? 'collides with another file being carried' : 'destination exists'}, source left in place`, path: source });
-          continue;
-        }
-        try { if (type === 'plan') prepareOwnershipMigration(from, target, before, { sessionId: availableSessionId() }); }
-        catch (error) {
-          result.outstanding.push({ description: `Carry-over refused for ${from}: ${error.message}`, path: source });
-          continue;
-        }
-        result.moves.push({ source, target, from, to, type, expectedSource });
-        targets.add(targetKey);
+        consider({ source, target: path.join(newDirs[archived ? 1 : 0], path.basename(source)), type, expectedSource });
       }
+    }
+    // A `type: prompt` file anywhere below the root prompts/, with a status
+    // runlist gives prompts or one an older build did, is one runlist saved
+    // there; everything else there is the user's and stays.
+    const legacy = type === 'prompt' ? legacyPromptRoot(before) : null;
+    if (!legacy) continue;
+    for (const source of legacyMarkdownFiles(legacy, before)) {
+      candidates.add(source);
+      if (seen.has(source)) continue;
+      const expectedSource = readFileSync(source, 'utf8');
+      const parsed = parseSimpleFrontmatter(extractFrontmatter(expectedSource).frontmatter ?? '');
+      if (parsed.type !== 'prompt' || !(before.typeStatuses.get(type)?.has(parsed.status) || RETIRED_PROMPT_STATUSES.has(parsed.status))) continue;
+      seen.add(source);
+      const relative = path.relative(legacy, source);
+      const archivedAlready = relative.split(path.sep).slice(0, -1).includes(before.archiveDir);
+      const archiveStatus = before.typeStatuses.get(type)?.has(parsed.status) && statusMetadataFor(before, type, parsed.status)?.archive;
+      consider({ source, target: path.join(newDirs[archiveStatus && !archivedAlready ? 1 : 0], relative), type, expectedSource });
     }
   }
   result.remaining = [...candidates].filter(file => !result.moves.some(move => move.source === file));
   return result;
 }
 
+// Links to a carried prompt from Markdown runlist does not manage (no
+// frontmatter, so the move's reference sweep never rewrites it): a README that
+// points at prompts/older.md, say. Reported for the user to update, never
+// edited. Read only on the explicit save and setup paths.
+export function unmanagedCarryReferences(config, moves) {
+  if (!moves.length) return [];
+  const plain = [];
+  for (const file of collectDocFiles(config)) {
+    let content;
+    try { content = readFileSync(file, 'utf8'); } catch { continue; }
+    if (extractFrontmatter(content).frontmatter) continue;
+    // Lent a frontmatter block so the planner reads the body; never written.
+    plain.push({ path: file, content: `---\nrunlist-probe: true\n---\n${content}` });
+  }
+  if (!plain.length) return [];
+  const found = [];
+  for (const move of moves) {
+    const documents = [{ path: move.source, content: move.expectedSource }, ...plain.filter(item => item.path !== move.source)];
+    const { updates } = planReferenceMove({ documents, oldPath: move.source, newPath: move.target, repoRoot: config.repoRoot });
+    for (const update of updates) found.push({ file: toRepoPath(update.path, config.repoRoot), from: move.from, to: move.to });
+  }
+  return found.sort((a, b) => a.file.localeCompare(b.file) || a.from.localeCompare(b.from));
+}
+
 // Only clean parents of sources moved by this run or its recovery. An empty
 // default folder alone does not establish that setup owns its cleanup.
 export function cleanupSetupSourceDirectories(config, movedSources) {
   if (config.configFound) return;
-  const sources = [...new Set(['prompt', 'plan'].flatMap(type => sourceDirectories(config, type)))].filter(directory =>
+  const legacy = legacyPromptRoot(config);
+  const legacyFolders = legacy ? movedSources.flatMap(source => {
+    const folders = [];
+    for (let directory = path.dirname(source); directory.startsWith(`${legacy}${path.sep}`); directory = path.dirname(directory)) folders.push(directory);
+    return path.dirname(source) === legacy || folders.length ? [...folders, legacy] : [];
+  }) : [];
+  const sources = [...new Set([...['prompt', 'plan'].flatMap(type => sourceDirectories(config, type)), ...legacyFolders])].filter(directory =>
     movedSources.some(source => path.dirname(source) === directory || path.dirname(source).startsWith(`${directory}${path.sep}`)));
   for (const directory of sources.sort((a, b) => b.length - a.length)) {
     if (directory === config.repoRoot) continue;

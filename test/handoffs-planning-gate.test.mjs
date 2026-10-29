@@ -53,7 +53,56 @@ after(() => {
   for (const dir of [handoffs, planning, home]) rmSync(dir, { recursive: true, force: true });
 });
 
+// Every command and form either carries a `planning` mark or is listed here
+// as one that works where planning is off, with the reason. A plan or doc
+// command added without a mark fails until it is classified one way or the
+// other.
+const WORKS_WITHOUT_PLANNING = new Map(Object.entries({
+  // Setup, help and host plumbing.
+  help: 'answers for handoffs where planning is off', completions: 'shell completion', setup: 'turns planning on',
+  config: 'config inspection', 'config show': 'config inspection', 'config get': 'config inspection', 'config set': 'promptTracking only', watch: 'proxy: the child command meets the gate',
+  desktop: 'launch only', 'desktop install': 'installs the app', app: 'editor; documents come from the scan, prompts only here',
+  guard: 'hook', hud: 'hook, worded for handoffs', update: 'host refresh', install: 'host install', ship: 'release tooling',
+  model: 'local model', 'model status': 'local model', 'model start': 'local model', 'model stop': 'local model',
+  'model measure': 'local model', 'model use': 'local model', 'model cap': 'local model', 'self-check': 'internal',
+  journal: 'own invocations', errors: 'own errors', misuse: 'own misuse log',
+  pickup: 'removed, worded for handoffs', unpickup: 'removed, worded for handoffs', release: 'removed, worded for handoffs',
+  finish: 'removed, worded for handoffs', handoff: 'removed, worded for handoffs',
+  // The handoff verbs.
+  baton: 'saves a handoff', use: 'resumes a prompt; any other file is outside the handoffs', next: 'resumes the oldest prompt',
+  prompts: 'lists prompts', 'prompts list': 'lists prompts', 'prompts next': 'resumes a prompt', 'prompts use': 'resumes a prompt',
+  'prompts show': 'reads prompts', 'prompts archive': 'archives a prompt', 'prompts link': 'links child handoffs',
+  'prompts new': 'saves a prompt', 'prompts hold': 'prompt status', 'prompts unhold': 'prompt status',
+  // Reads and changes over the documents the scan finds, which here are the
+  // prompts alone; a --type other than prompt meets the gate in the dispatcher.
+  list: 'prompts only', json: 'prompts only', briefing: 'worded for handoffs', context: 'worded for handoffs',
+  'agent-context': 'worded for handoffs', query: 'prompts only', grep: 'prompts only', show: 'prompts only',
+  diff: 'prompts only', summary: 'prompts only', flags: 'flags log', flag: 'flags log', 'flag add': 'flags log',
+  'flag accept': 'flags log', 'flag reject': 'flags log', 'flag resolve': 'flags log', 'flag show': 'flags log', 'flag sync': 'flags log',
+  export: 'prompts only', status: 'prompt status', set: 'prompt status', archive: 'archives a prompt', bulk: 'prompts only',
+  'bulk archive': 'archives prompts', touch: 'prompts only', new: 'prompts only; other types refuse in runNew',
+  lint: 'prompts only', rename: 'prompts only', migrate: 'prompts only; a type other than prompt refuses in runMigrate',
+  'fix-refs': 'prompts only', refs: 'code roots, none in a handoffs config', 'refs repair': 'code roots, none in a handoffs config',
+  doctor: 'maintenance over the prompts', statuses: 'prompt statuses', 'statuses list': 'prompt statuses',
+  'statuses add': 'edits the types block', 'statuses set': 'edits the types block', 'statuses remove': 'edits the types block',
+  'statuses migrate': 'edits the types block', check: 'checks the prompts', index: 'says there is no index here',
+}));
+
 describe('the planning gate walks the command registry', () => {
+  it('classifies every command: a planning mark, or listed as working without planning', () => {
+    const unclassified = [];
+    for (const definition of Object.values(COMMAND_SCHEMA)) {
+      const argvs = definition.forms.map(form => [definition.name, ...form.subcommands.slice(0, 1)]);
+      if (definition.forms.every(form => form.subcommands.length)) argvs.push([definition.name]);
+      for (const argv of argvs) {
+        const name = argv.join(' ');
+        const marked = Boolean(commandPlanning(argv[0], argv.slice(1)));
+        if (marked === WORKS_WITHOUT_PLANNING.has(name)) unclassified.push(`${name}: ${marked ? 'marked and allowlisted' : 'neither marked nor allowlisted'}`);
+      }
+    }
+    assert.deepEqual(unclassified, []);
+  });
+
   it('covers the plan views and plan actions', () => {
     const names = new Set(cases.map(item => item.argv.join(' ')));
     for (const name of ['plans', 'health', 'runlists', 'roadmap', 'roadmap next', 'runlist', 'runlist add', 'modules', 'stale', 'bulk-tag', 'sync-status']) {
