@@ -17,7 +17,9 @@
 # stay non-blocking, and the PreToolUse guard in particular must never deny a
 # tool just because the optional CLI isn't installed.
 # Keep the published hook command stable for hosts caching its definition.
-if [ "${1:-}" = "--hint" ] && [ "${2:-}" = "hud" ]; then
+# Without node on PATH the JSON adapter cannot start; fall through to the
+# plain-text hint below rather than exiting 127.
+if [ "${1:-}" = "--hint" ] && [ "${2:-}" = "hud" ] && command -v node >/dev/null 2>&1; then
   exec node "$(dirname "$0")/session-start.mjs"
 fi
 

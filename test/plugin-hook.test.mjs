@@ -1,5 +1,5 @@
 import { describe, it } from 'node:test';
-import { strictEqual, ok, match } from 'node:assert';
+import { strictEqual, ok, match, deepStrictEqual } from 'node:assert';
 import { mkdtempSync, writeFileSync, readFileSync, chmodSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -148,7 +148,11 @@ describe('plugin hook wrapper (dotmd present)', { skip: process.platform === 'wi
       chmodSync(fake, 0o755);
       const hook = ['hud', '--prompt-submit'];
       const scripts = [wrapper, path.resolve(import.meta.dirname, '..', 'plugins', 'runlist-codex', 'bin', 'runlist-hook')];
-      strictEqual(readFileSync(scripts[0], 'utf8'), readFileSync(scripts[1], 'utf8'), 'both wrappers are byte-identical');
+      // The Codex wrapper adds its own SessionStart adapter, so only the shared
+      // prompt pre-filter has to match line for line.
+      const promptGlob = file => readFileSync(file, 'utf8').split('\n').filter(line => line.includes('[Bb][Aa][Tt][Oo][Nn]'));
+      ok(promptGlob(scripts[0]).length > 0, 'the Claude wrapper has a prompt pre-filter');
+      deepStrictEqual(promptGlob(scripts[1]), promptGlob(scripts[0]), 'both wrappers share one prompt pre-filter');
       const requests = ['Baton this', 'can you HAND OFF', 'save a resume prompt', 'pick it up next time', ...saveRequests, ...pickupRequests, ...mixedRequests, longRequest];
       let positives = 0;
       const payload = prompt => JSON.stringify({
