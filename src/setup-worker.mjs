@@ -12,7 +12,7 @@ import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { authorizeManagedSource, authorizeRepoGeneratedPath } from './managed-path.mjs';
 import { readTemplateStore } from './template-store.mjs';
 import { regenIndex, renderLifecycleMutation } from './lifecycle.mjs';
-import { snapshotFile, replaceSnapshot } from './atomic-mutation.mjs';
+import { snapshotFile, replaceSnapshot, inspectTransactions, recoverAbandonedTransactions } from './atomic-mutation.mjs';
 import { planSetupCarry, applySetupCarry } from './setup-carry.mjs';
 
 function regularOrMissing(file, directory = false) {
@@ -137,6 +137,16 @@ export async function setupWorker(request) {
   let config = await resolveConfig(cwd, configPath || undefined);
   const before = config;
   if (operation === 'carry') return applySetupCarry(request.moves, before);
+  if (operation === 'recover') {
+    try {
+      recoverAbandonedTransactions(before.repoRoot, { config: before });
+      const remaining = inspectTransactions(before.repoRoot, { config: before });
+      if (remaining.length) throw new Error(`Outstanding transactions: ${remaining.map(item => item.id).join(', ')}`);
+    } catch (error) {
+      throw new Error(`Pre-config transaction recovery failed: ${error.message}. Run runlist doctor --transactions --apply before rerunning setup; no config was written.`);
+    }
+    return null;
+  }
   const existing = Boolean(config.configPath && existsSync(config.configPath));
   if (!existing) {
     const root = path.resolve(cwd, choices.docsRoot || 'docs');
@@ -166,9 +176,13 @@ export async function setupWorker(request) {
     }
     const plan = firstPlan(config, choices);
     if (plan && carry.moves.some(move => move.target === plan.path)) throw new Error(`First plan collides with a pre-setup plan being carried over: ${plan.path}`);
-    return { layout, policy, adoptions, firstPlan: plan, untagged, carry, skippedValidationHooks: ['validate', 'transformDoc'].filter(name => typeof config.hooks?.[name] === 'function') };
+    const transactions = existing ? [] : inspectTransactions(before.repoRoot, { config: before });
+    return { layout, policy, adoptions, firstPlan: plan, untagged, carry, transactions, skippedValidationHooks: ['validate', 'transformDoc'].filter(name => typeof config.hooks?.[name] === 'function') };
   }
   if (operation === 'init') {
+    // Check again after carry, including when there were no moves. Never let
+    // a retained, live, deferred or failed-manual manifest cross the root change.
+    if (!existing) await setupWorker({ ...request, operation: 'recover' });
     // A policy change is applied first; this new process now resolves it.
     await runInit(config.repoRoot, config, { argv: initArgv, guidance: false, samplePlan: false, ...(!existing ? { docsRoot: choices.docsRoot } : {}) });
   } else if (operation === 'policy') {

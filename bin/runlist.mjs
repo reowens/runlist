@@ -1309,6 +1309,8 @@ Examples:
 Existing JavaScript hooks, configured folders and prompt locations are preserved.
 Fresh setup carries runlist prompts and plans (including archives) into the new
 folders, fixing references and local handoff/ownership state. Foreign files stay put.
+Setup must finish transaction recovery before writing the first config; unresolved
+transactions stay Outstanding. Inspect them with runlist doctor --transactions.
 Untracked does not mean ignored: git add -A may include prompts and runtime state.
 Setup lists a missing persistent CLI on PATH under Outstanding.
 JSON includes checks.host.persistentCliMissing only when true.
@@ -1347,7 +1349,7 @@ untracked recommends leaving pending prompts out of commits and warns in guards;
 tracked allows prompt Git operations; local denies them (legacy default for
 existing configs without an explicit choice). A new project defaults to untracked.
 Untracked does not mean ignored; git add -A can include pending prompts.
-Writes preserve hooks and refuse symlinks, computed or ambiguous exports. Run init first
+Writes preserve hooks and refuse symlinks, computed or ambiguous exports. Run setup first
 if no config exists. Changing policy never edits ignore files or Git state.`,
 
   plans: `runlist plans — list live plans (excludes archived by default)
@@ -2262,7 +2264,7 @@ async function main() {
   // cleanly on their own). The warning is still useful for interactive commands.
   const HOOK_COMMANDS = new Set(['hud', 'guard']);
   if (!config.configFound && command !== 'init' && !HOOK_COMMANDS.has(command)) {
-    warn('No runlist config found — using defaults. Run `runlist init` to create one.');
+    warn('No runlist config found — using defaults. Run `runlist setup` to create one and carry over saved prompts and plans.');
   }
 
   if (config.configWarnings && config.configWarnings.length > 0) {

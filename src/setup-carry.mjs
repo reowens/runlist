@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readFileSync, readdirSync, rmdirSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmdirSync } from 'node:fs';
 import path from 'node:path';
 import { promptDirectory, planDirectory } from './new.mjs';
 import { archiveBaseFor } from './lifecycle.mjs';
@@ -11,6 +11,9 @@ import { availableSessionId, prepareOwnershipMigration } from './pickup.mjs';
 import { listPendingHandoffs } from './handoff-record.mjs';
 import { captureGitIndexGeneration, isTracked } from './git.mjs';
 import { toRepoPath } from './util.mjs';
+import { locateConfig } from './config.mjs';
+import { CONFIG_FILENAMES } from './naming.mjs';
+import { statusMetadataFor } from './status-metadata.mjs';
 
 function markdownFiles(directory, config) {
   authorizeRepoGeneratedPath(directory, config, { kind: 'Setup carry-over folder' });
@@ -34,6 +37,7 @@ export function planSetupCarry(before, after, enabled = true) {
   if (before.configFound || !enabled) return result;
   const candidates = new Set();
   const seen = new Set();
+  const targets = new Set();
   for (const type of ['prompt', 'plan']) {
     const oldDirs = directories(before, type);
     const newDirs = directories(after, type);
@@ -45,14 +49,19 @@ export function planSetupCarry(before, after, enabled = true) {
         const expectedSource = readFileSync(source, 'utf8');
         const parsed = parseSimpleFrontmatter(extractFrontmatter(expectedSource).frontmatter ?? '');
         if (parsed.type !== type || !before.typeStatuses.get(type)?.has(parsed.status)) continue;
+        const archiveStatus = statusMetadataFor(before, type, parsed.status)?.archive;
+        // The shared root-level archive is also a common user folder. Its
+        // location alone is no evidence that runlist archived this document.
+        if (directory === path.join(before.repoRoot, before.archiveDir) && !archiveStatus) continue;
         seen.add(source);
-        const archived = i === 1 || before.lifecycle.archiveStatuses.has(parsed.status);
+        const archived = i === 1 || archiveStatus;
         const target = path.join(newDirs[archived ? 1 : 0], path.basename(source));
         if (source === target) continue;
         authorizeManagedSource(source, before, { kind: 'Setup carry-over source' });
         authorizeRepoGeneratedPath(target, after, { kind: 'Setup carry-over destination' });
         const from = toRepoPath(source, before.repoRoot), to = toRepoPath(target, before.repoRoot);
-        if (existsSync(target) || result.moves.some(move => move.target === target)) {
+        const targetKey = target.toLowerCase();
+        if (existsSync(target) || targets.has(targetKey)) {
           result.outstanding.push({ description: `Carry-over collision: ${from} → ${to}; destination exists, source left in place`, path: source });
           continue;
         }
@@ -62,6 +71,7 @@ export function planSetupCarry(before, after, enabled = true) {
           continue;
         }
         result.moves.push({ source, target, from, to, type, expectedSource });
+        targets.add(targetKey);
       }
     }
   }
@@ -76,7 +86,10 @@ export function applySetupCarry(moves, config, { testHooks } = {}) {
   const completed = [];
   const expectedSources = new Map(moves.map(move => [move.source, move.expectedSource]));
   try {
-    if (config.configFound) throw new Error('A config appeared after the carry-over preview; rerun setup.');
+    const checkConfig = () => {
+      if (config.configFound || locateConfig(config.configDir).configPath) throw new Error('A config appeared after the carry-over preview; rerun setup.');
+    };
+    checkConfig();
     for (const move of moves) {
       if (readFileSync(move.source, 'utf8') !== move.expectedSource) throw new Error(`Carry-over source changed after preview: ${move.from}`);
     }
@@ -97,14 +110,25 @@ export function applySetupCarry(moves, config, { testHooks } = {}) {
         return [{ path: record.recordFile, expectedContent, content: JSON.stringify(data, null, 2) + '\n', label: 'handoff' }];
       });
       const tracked = isTracked(move.source, config.repoRoot);
+      // Scaffold directories belong to setup, never to the move transaction.
+      // Recovery retains transaction-owned nonempty directories and their
+      // manifest; that manifest's old roots stop being valid after setup.
+      for (const directory of [path.dirname(move.target), ...(ownership ? [path.dirname(ownership.newRecordPath)] : [])]) {
+        authorizeRepoGeneratedPath(directory, config, { kind: 'Setup carry-over folder' });
+        mkdirSync(directory, { recursive: true });
+      }
+      checkConfig();
       moveFileAtomic(move.source, move.target, references.movedContent, {
         repoRoot: config.repoRoot, config, expectedSourceContent: expectedSources.get(move.source),
         updates: [...references.updates, ...handoffs],
         creations: ownership ? [{ path: ownership.newRecordPath, content: ownership.newContent, label: 'ownership' }] : [],
         deletions: ownership ? [{ path: ownership.oldRecordPath, expectedContent: ownership.oldContent, label: 'ownership' }] : [],
-        guards: [{ path: path.join(config.configDir, 'runlist.config.mjs'), absent: true }],
+        guards: CONFIG_FILENAMES.map(name => ({ path: path.join(config.configDir, name), absent: true })),
         gitMove: tracked, gitIndex: tracked ? captureGitIndexGeneration(config.repoRoot) : null,
-        operation: 'move', sessionId: availableSessionId(), testHooks,
+        operation: 'move', sessionId: availableSessionId(), testHooks: { ...testHooks, beforeMoveSnapshot(info) {
+          testHooks?.beforeMoveSnapshot?.(info);
+          checkConfig();
+        } },
       });
       for (const update of references.updates) if (expectedSources.has(update.path)) expectedSources.set(update.path, update.content);
       completed.push(move);

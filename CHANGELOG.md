@@ -18,6 +18,8 @@ All notable changes to `runlist` are documented here. Older releases predate thi
   moving foreign Markdown. Previews and JSON list the moves; apply repairs
   references and local handoff/ownership paths. `--no-carry-prompts` opts out.
   Unconfigured baton and prompt creation now point newcomers to setup.
+  Recover retained carry-over transactions with this version; older binaries
+  cannot read their new handoff participant label.
 
 - Handoff hints check that the host ships `/pickup`, keep user text outside
   relay reports, and reject code-subject save requests and possessive pickup

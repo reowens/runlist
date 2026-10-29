@@ -137,9 +137,9 @@ export function onCreate() { throw new Error('must not create'); }
 });
 
 describe('config command edits', () => {
-  it('requires init before set, including an explicit nonexistent config path', async () => {
-    await rejects(invoke(['set', 'promptTracking', 'tracked']), /runlist init/);
-    await rejects(invoke(['set', 'promptTracking', 'tracked'], {}, await resolveConfig(dir, 'missing.mjs')), /runlist init/);
+  it('requires setup before set, including an explicit nonexistent config path', async () => {
+    await rejects(invoke(['set', 'promptTracking', 'tracked']), /runlist setup/);
+    await rejects(invoke(['set', 'promptTracking', 'tracked'], {}, await resolveConfig(dir, 'missing.mjs')), /runlist setup/);
     deepStrictEqual(readdirSync(dir), ['.git']);
   });
 

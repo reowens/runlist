@@ -72,7 +72,7 @@ export async function runConfig(argv, config, { dryRun = false, out = process.st
     result = { supportedSettings: [KEY], readableSettings: READABLE, editableSettings: [KEY], ...setting };
   } else {
     if (!VALUES.includes(value)) throw new Error("promptTracking must be 'untracked', 'tracked', or 'local'.");
-    if (!configPath || !config.configFound || !existsSync(configPath)) throw new Error('No project config found. Run runlist init before config set.');
+    if (!configPath || !config.configFound || !existsSync(configPath)) throw new Error('No project config found. Run runlist setup before config set.');
     const file = assertRegularConfig(configPath, config.repoRoot);
     const snapshot = snapshotFile(file);
     checkSyntax(snapshot.content);

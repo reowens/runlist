@@ -581,7 +581,7 @@ function lastNewlineIndexBefore(content, pos) {
 
 function requireConfigPath(config) {
   if (!config.configPath || !existsSync(config.configPath)) {
-    die(`No runlist.config.mjs found in ${process.cwd()} — run \`runlist init\` first.`);
+    die(`No runlist.config.mjs found in ${process.cwd()} — run \`runlist setup\` first.`);
   }
 }
 

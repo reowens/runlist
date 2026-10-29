@@ -216,6 +216,7 @@ export async function runSetup(argv, config, options = {}) {
     report.actions.push({ id: 'init', description: 'Initialize missing scaffolding; preserve configured roots, JavaScript and hooks', path: configPath || path.join(cwd, 'runlist.config.mjs'), preview: prepared.output, ...plan.layout });
     for (const move of carryMoves) report.actions.push({ id: `carry:${move.from}`, description: `move ${move.from} → ${move.to}`, from: move.from, to: move.to, type: move.type });
     report.outstanding.push(...plan.carry.outstanding);
+    report.outstanding.push(...plan.transactions.map(item => ({ id: `transaction:${item.id}`, description: `Outstanding transaction ${item.id}; setup must finish pre-config recovery before writing config. Run runlist doctor --transactions --apply if recovery is refused`, path: item.manifestPath })));
     if (plan.carry.remaining.length) report.notes.push({ description: 'notice: files remain outside the configured roots; include their folders in the root export to keep using them without moving files', paths: plan.carry.remaining.map(file => path.relative(cwd, file).split(path.sep).join('/')) });
     if (plan.layout.sample) report.notes.push({ description: 'An existing example sample is preserved unchanged; archive or edit it explicitly when ready', path: plan.layout.sample });
     if (plan.policy) report.actions.push({ id: 'policy', description: `Set promptTracking to ${choices.promptTracking} using the narrow config setter`, path: configPath });
@@ -268,10 +269,17 @@ export async function runSetup(argv, config, options = {}) {
     // sequence of honest operations, not an advertised multi-stage transaction.
     const steps = [ ...(plan.policy ? ['policy'] : []), 'init', ...plan.adoptions.filter(item => item.candidate).map(item => item.path), ...(plan.firstPlan ? ['plan'] : []), ...(report.actions.some(action => action.id === 'index') ? ['index'] : []) ];
     if (carryMoves.length) steps.unshift('carry');
+    if (!existing) steps.unshift('recover');
     for (const [stepIndex, step] of steps.entries()) {
       const adoption = plan.adoptions.find(item => item.path === step);
       try {
         const result = runWorker({ ...request, operation: adoption ? 'adopt' : step, ...(step === 'carry' ? { moves: carryMoves } : {}), ...(adoption ? { path: step, expectedSource: adoptionSnapshots.find(([file]) => file === step)[1] } : {}) });
+        if (step === 'recover') {
+          report.outstanding = report.outstanding.filter(item => !item.id?.startsWith('transaction:'));
+          const refreshed = runWorker({ ...request, operation: 'prepare' });
+          if (JSON.stringify(refreshed.data.carry) !== JSON.stringify(plan.carry)) throw new Error('Transaction recovery changed the carry-over sources; rerun setup to review a fresh preview. No config was written.');
+          continue;
+        }
         if (step === 'carry') {
           for (const move of result.data.completed) report.completed.push({ ...report.actions.find(item => item.id === `carry:${move.from}`) });
           if (result.data.error) throw new Error(result.data.error);
@@ -301,7 +309,7 @@ export async function runSetup(argv, config, options = {}) {
         report.outstanding.push({ description: `Reload/restart ${choices.host} (for Codex, start a new thread and review/trust hooks); live host activation remains unverified` });
       }
     }
-    try {
+    if (!report.failed.length) try {
       const checked = runWorker({ ...request, operation: 'check', ...(plan.firstPlan ? { planPath: plan.firstPlan.path } : {}) }).data;
       report.checks.project = { status: 'checked', scope: 'whole project; built-in validation only, custom hooks not executed', errors: checked.errors, warnings: checked.warnings, untagged: checked.untagged };
       if (checked.firstPlan) report.checks.firstPlan = { status: checked.firstPlan.errors.length || checked.firstPlan.warnings.length ? 'findings' : 'passed', ...checked.firstPlan };

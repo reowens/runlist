@@ -9,9 +9,10 @@ import { resolveConfig } from '../src/config.mjs';
 import { runSetup } from '../src/setup.mjs';
 import { applySetupCarry, planSetupCarry } from '../src/setup-carry.mjs';
 import { listPendingHandoffs } from '../src/handoff-record.mjs';
-import { readPlanOwnership } from '../src/pickup.mjs';
+import { availableSessionId, readPlanOwnership } from '../src/pickup.mjs';
 import { moveFileAtomic, recoverAbandonedTransactions } from '../src/atomic-mutation.mjs';
 import { resolveRefPath } from '../src/util.mjs';
+import { CONFIG_FILENAMES } from '../src/naming.mjs';
 
 const bin = path.resolve(import.meta.dirname, '../bin/runlist.mjs');
 let repo, savedExit;
@@ -163,6 +164,30 @@ describe('setup carries runlist artifacts written before configuration', () => {
     assert.ok(!has('docs/prompts/resume-fresh.md'));
   });
 
+  it('accepts the carry opt-out through the CLI registry', () => {
+    saved();
+    const original = read('prompts/resume-fresh.md');
+    const report = JSON.parse(okCli(['setup', '--no-carry-prompts', '--yes', '--json']).stdout);
+    assert.equal(report.status, 'completed');
+    assert.equal(report.choices.carryPrompts, false);
+    assert.equal(moves(report).length, 0);
+    assert.equal(read('prompts/resume-fresh.md'), original);
+    assert.ok(!has('docs/prompts/resume-fresh.md'));
+  });
+
+  it('refuses the later case-folded destination duplicate while planning other moves', async () => {
+    put('prompts/example.md', prompt('archived'));
+    put('prompts/archived/EXAMPLE.md', prompt('archived'));
+    put('prompts/archived/other.md', prompt('archived'));
+    const before = await resolveConfig(repo);
+    const docsRoot = path.join(repo, 'docs');
+    const plan = planSetupCarry(before, { ...before, docsRoot, docsRoots: [docsRoot] });
+    assert.deepEqual(plan.moves.map(move => move.from), ['prompts/example.md', 'prompts/archived/other.md']);
+    assert.equal(plan.outstanding.length, 1);
+    assert.match(plan.outstanding[0].description, /Carry-over collision.*EXAMPLE.md/);
+    assert.deepEqual(plan.remaining, [path.join(repo, 'prompts/archived/EXAMPLE.md')]);
+  });
+
   it('routes to a selected docs root and preserves a nonempty source folder', async () => {
     saved();
     put('prompts/.gitkeep', '');
@@ -217,9 +242,22 @@ describe('setup carries runlist artifacts written before configuration', () => {
     assert.ok(!has('archived'));
   });
 
+  it('leaves an active plan in the generic root archive and names it in the outside-roots notice', async () => {
+    const content = '---\ntype: plan\nstatus: active\n---\n# Synthetic library\n';
+    put('archived/library.md', content);
+    const { report, output } = await setup(['--yes']);
+    assert.equal(report.status, 'completed');
+    assert.equal(moves(report).length, 0);
+    assert.equal(read('archived/library.md'), content);
+    assert.ok(!has('docs/archived/library.md'));
+    assert.match(output, /outside the configured roots/);
+    assert.match(output, /archived\/library.md/);
+  });
+
   it('prints the setup hint for unconfigured baton/new prompt and keeps baton JSON clean', async () => {
     const first = saved();
     assert.equal((first.stdout + first.stderr).match(/it carries this prompt over/g)?.length, 1);
+    assert.doesNotMatch(first.stdout + first.stderr, /runlist init/);
     assert.match(okCli(['new', 'prompt', 'other', '@draft']).stdout, /run `runlist setup`; it carries this prompt over/);
     assert.equal(JSON.parse(saved('third', ['--json']).stdout).prompt, 'prompts/resume-third.md');
     await setup(['--yes']);
@@ -228,6 +266,25 @@ describe('setup carries runlist artifacts written before configuration', () => {
 });
 
 describe('carry-over transaction safety', () => {
+  function assertNoTransactions() {
+    assert.deepEqual(readdirSync(path.join(repo, '.runlist/transactions')), []);
+  }
+
+  function killCarry(moves, phase, { direct = false } = {}) {
+    const script = `
+      import { resolveConfig } from ${JSON.stringify(pathToFileURL(path.resolve(import.meta.dirname, '../src/config.mjs')).href)};
+      import { applySetupCarry } from ${JSON.stringify(pathToFileURL(path.resolve(import.meta.dirname, '../src/setup-carry.mjs')).href)};
+      import { moveFileAtomic } from ${JSON.stringify(pathToFileURL(path.resolve(import.meta.dirname, '../src/atomic-mutation.mjs')).href)};
+      const config = await resolveConfig(process.argv[1]);
+      const moves = JSON.parse(process.argv[2]);
+      const testHooks = { afterTransactionPhase(phase) { if (phase === ${JSON.stringify(phase)}) process.kill(process.pid, 'SIGKILL'); } };
+      ${direct ? 'moveFileAtomic(moves[0].source, moves[0].target, moves[0].expectedSource, { repoRoot: config.repoRoot, config, testHooks });' : 'applySetupCarry(moves, config, { testHooks });'}
+    `;
+    const killed = spawnSync(process.execPath, ['--input-type=module', '-e', script, repo, JSON.stringify(moves)], { cwd: repo, encoding: 'utf8', timeout: 10000 });
+    assert.notEqual(killed.status, 0, killed.stdout + killed.stderr);
+    return readdirSync(path.join(repo, '.runlist/transactions')).map(name => JSON.parse(read(`.runlist/transactions/${name}/manifest.json`)));
+  }
+
   async function planned() {
     const config = await resolveConfig(repo);
     const docsRoot = path.join(repo, 'docs');
@@ -243,6 +300,24 @@ describe('carry-over transaction safety', () => {
     const before = snapshot();
     assert.match(applySetupCarry(moves, config).error, /changed after preview/);
     assert.deepEqual(snapshot(), before);
+  });
+
+  for (const filename of CONFIG_FILENAMES) it(`refuses carry when ${filename} appears after preview`, async () => {
+    saved();
+    const { config, moves } = await planned();
+    put(filename, "export const root = 'docs';\n");
+    const before = snapshot();
+    assert.match(applySetupCarry(moves, config).error, /A config appeared/);
+    assert.deepEqual(snapshot(), before);
+  });
+
+  it('rechecks legacy config discovery under the move lock', async () => {
+    saved();
+    const { config, moves } = await planned();
+    const result = applySetupCarry(moves, config, { testHooks: { beforeMoveSnapshot() { put('dotmd.config.mjs', "export const root = 'docs';\n"); } } });
+    assert.match(result.error, /A config appeared/);
+    assert.ok(has('prompts/resume-fresh.md'));
+    assert.ok(!has('docs/prompts/resume-fresh.md'));
   });
 
   it('refuses an artifact retagged during interactive confirmation before publishing a config', async () => {
@@ -287,25 +362,114 @@ describe('carry-over transaction safety', () => {
     assert.ok(has('prompts/resume-fresh.md'));
   });
 
-  it('recovers a killed carry transaction with an updated handoff participant', async () => {
+  for (const phase of ['target-publication', 'canonical-commit', 'backup-deletion', 'manifest-completion', 'cleanup']) it(`finishes setup and consumes a prompt after a kill at ${phase}, with no moves left to plan`, async () => {
+    saved();
+    const { moves } = await planned();
+    const manifests = killCarry(moves, phase);
+    assert.deepEqual(manifests[0].createdDirectories, []);
+    const before = snapshot();
+    const preview = await setup();
+    assert.match(preview.output, /Outstanding transaction.*pre-config recovery/);
+    assert.deepEqual(snapshot(), before);
+    const report = JSON.parse(okCli(['setup', '--yes', '--json']).stdout);
+    assert.equal(report.status, 'completed', JSON.stringify(report.failed));
+    assert.equal(report.outstanding.length, 0);
+    assertNoTransactions();
+    okCli(['use', 'resume-fresh'], 'carry-b');
+    assert.ok(has('docs/prompts/archived/resume-fresh.md'));
+    assertNoTransactions();
+  });
+
+  for (const flags of [[], ['--no-carry-prompts']]) it(`blocks config publication for a legacy carry manifest with retained directories (${flags.join(' ') || 'default'})`, async () => {
+    saved();
+    const { moves } = await planned();
+    const manifests = killCarry(moves, 'target-publication', { direct: true });
+    assert.equal(manifests[0].createdDirectories.length, 2);
+    const before = snapshot();
+    const preview = await setup();
+    assert.match(preview.output, /Outstanding transaction/);
+    assert.deepEqual(snapshot(), before);
+    const { report } = await setup(['--yes', ...flags]);
+    assert.equal(report.failed.length, 1);
+    assert.match(report.failed[0].description, /Pre-config transaction recovery failed.*doctor --transactions --apply/s);
+    assert.ok(!has('runlist.config.mjs'));
+    assert.ok(has(`.runlist/transactions/${manifests[0].id}/manifest.json`));
+    assert.equal((await resolveConfig(repo)).configFound, false);
+  });
+
+  it('blocks config publication for failed-manual carry evidence until doctor resolves it', async () => {
+    saved();
+    const { config, moves } = await planned();
+    const failed = applySetupCarry(moves, config, { testHooks: { afterTransactionPhase(phase) {
+      if (phase === 'backup-deletion') throw new Error('Synthetic post-commit failure');
+    } } });
+    assert.match(failed.error, /Synthetic post-commit failure/);
+    const { report } = await setup(['--yes']);
+    assert.equal(report.failed.length, 1);
+    assert.match(report.failed[0].description, /doctor --transactions --apply/);
+    assert.equal(report.checks.project, null);
+    assert.ok(!has('runlist.config.mjs'));
+    okCli(['doctor', '--transactions', '--apply']);
+    assertNoTransactions();
+    okCli(['setup', '--yes']);
+    okCli(['use', 'resume-fresh'], 'carry-b');
+    assertNoTransactions();
+  });
+
+  it('requests a fresh preview when recovery rolls back a partially published handoff', async () => {
+    saved();
+    put('.runlist/handoffs/sample.json', JSON.stringify({ prompt: 'prompts/resume-fresh.md' }));
+    const { moves } = await planned();
+    killCarry(moves, 'target-publication');
+    const { report } = await setup(['--yes']);
+    assert.equal(report.failed.length, 1);
+    assert.match(report.failed[0].description, /recovery changed.*rerun setup/);
+    assert.ok(!has('runlist.config.mjs'));
+    assert.ok(has('prompts/resume-fresh.md'));
+    assertNoTransactions();
+    okCli(['setup', '--yes']);
+    okCli(['use', 'resume-fresh'], 'carry-b');
+    assertNoTransactions();
+  });
+
+  it('recovers a killed carry transaction with an updated handoff participant before setup', async () => {
     saved();
     put('.runlist/handoffs/sample.json', JSON.stringify({ prompt: 'prompts/resume-fresh.md' }));
     const { config, moves } = await planned();
-    const script = `
-      import { resolveConfig } from ${JSON.stringify(pathToFileURL(path.resolve(import.meta.dirname, '../src/config.mjs')).href)};
-      import { applySetupCarry } from ${JSON.stringify(pathToFileURL(path.resolve(import.meta.dirname, '../src/setup-carry.mjs')).href)};
-      const config = await resolveConfig(process.argv[1]);
-      applySetupCarry(JSON.parse(process.argv[2]), config, { testHooks: { afterMovePublish() { process.kill(process.pid, 'SIGKILL'); } } });
-    `;
-    const killed = spawnSync(process.execPath, ['--input-type=module', '-e', script, repo, JSON.stringify(moves)], { cwd: repo, encoding: 'utf8', timeout: 10000 });
-    assert.notEqual(killed.status, 0, killed.stdout + killed.stderr);
+    killCarry(moves, 'canonical-commit');
     const recovered = recoverAbandonedTransactions(repo, { config });
     assert.equal(recovered.length, 1);
     assert.equal(recovered[0].result, 'rolled-forward');
+    assert.deepEqual(recovered[0].retainedDirectories, []);
+    assertNoTransactions();
     assert.ok(has('docs/prompts/resume-fresh.md'));
     assert.equal(JSON.parse(read('.runlist/handoffs/sample.json')).prompt, 'docs/prompts/resume-fresh.md');
     const { report } = await setup(['--yes']);
     assert.equal(report.status, 'completed', JSON.stringify(report.failed));
+    okCli(['use', 'resume-fresh'], 'carry-b');
+    assertNoTransactions();
+  });
+
+  for (const phase of ['ownership-publication', 'canonical-commit']) it(`recovers a carried plan and its ownership after a kill at ${phase}`, async () => {
+    put('draft', '# Synthetic plan\n\nInspect the exporter.\n');
+    okCli(['new', 'plan', 'sample', '@draft']);
+    const session = availableSessionId();
+    okCli(['use', 'sample'], session);
+    const { config, moves } = await planned();
+    assert.equal(moves.length, 1);
+    const manifests = killCarry(moves, phase);
+    assert.deepEqual(manifests[0].createdDirectories, []);
+    const recovered = recoverAbandonedTransactions(repo, { config });
+    assert.equal(recovered[0].result, phase === 'canonical-commit' ? 'rolled-forward' : 'rolled-back');
+    assert.deepEqual(recovered[0].retainedDirectories, []);
+    assertNoTransactions();
+    okCli(['setup', '--yes'], session);
+    const after = await resolveConfig(repo);
+    assert.equal(readPlanOwnership('docs/plans/sample.md', after).state, 'owned');
+    okCli(['set', 'active', 'sample'], session);
+    okCli(['archive', 'sample'], session);
+    assert.ok(has('docs/archived/sample.md'));
+    assertNoTransactions();
   });
 
   it('refuses a symlinked pre-config folder before writes', async () => {

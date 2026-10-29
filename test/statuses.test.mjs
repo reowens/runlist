@@ -360,10 +360,10 @@ export const lifecycle = {
 });
 
 describe('write commands without a config', () => {
-  it('error with `runlist init` hint', () => {
+  it('error with `runlist setup` hint', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-statuses-empty-'));
     const r = run(['add', 'foo', '--type', 'plan', '--like', 'active', '--yes']);
     ok(r.status !== 0);
-    ok(r.stderr.includes('runlist init'));
+    ok(r.stderr.includes('runlist setup'));
   });
 });
