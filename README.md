@@ -32,21 +32,30 @@ instead of from a blank page. There is no setup step.
    ```
 
    Terminal sessions, Claude Desktop's **Code** tab (local sessions) and VS Code
-   read the same plugin settings, so one install covers them all. Start a new
-   session afterwards, or run `/reload-plugins` in one that is already open.
+   read the same plugin settings, so one install covers them all. It covers
+   every project because it installs at user scope, the default; a
+   `--scope project` or `--scope local` install covers only that project. Start
+   a new session afterwards, or run `/reload-plugins` in one that is already open.
 
    The `claude` command comes with the Claude Code CLI
    ([install it](https://code.claude.com/docs/en/setup)). If it is missing,
    `runlist install claude` prints these same commands and where to get it. In
    Claude Desktop, once the marketplace is registered, the **Code** tab → **+** →
-   **Add plugins** browser lists runlist too (not available in cloud or WSL
-   sessions).
+   **Add plugins** browser lists runlist too (the menu item may read
+   **Plugins** → **Browse plugins**; not available in cloud or WSL sessions).
 2. **Stop with a handoff.** In a Claude Code session in your project's Git
    repository (terminal or Desktop's Code tab), say "baton" or "save where we
    are", or type `/runlist:baton`. The first handoff in a project also writes a small
    `runlist.config.mjs` and keeps handoffs in `docs/prompts/`.
 3. **Pick it up next time.** In a new session, type `/runlist:pickup` or say "pick up
    where we left off".
+
+After the first handoff, `git status` shows `runlist.config.mjs` and
+`docs/prompts/` as untracked (just `docs/` when that folder is new). Commit the
+config so everyone gets handoffs. Leave the prompts out of commits: the config
+sets `promptTracking: 'untracked'`, which recommends that but does not ignore
+them, so stage files by name rather than with `git add -A`. The local `.runlist/`
+folder hides itself with its own `.gitignore`.
 
 Planning is optional: when you want plans, docs and an index, run `runlist
 setup` in the project (see the [beginner setup guide](GETTING_STARTED.md)). It

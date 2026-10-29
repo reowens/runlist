@@ -6,13 +6,30 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ### Fixed
 
-- Claude handoff guidance uses registered `/runlist:` command names and fresh
-  temporary draft files; pickup reads naturally without arguments.
-- Local `.runlist/` state ignores itself without changing repository ignore rules
-  or replacing an existing state ignore file.
+- Claude handoff guidance names the commands Claude Code registers,
+  `/runlist:baton` and `/runlist:pickup` (0.100.0 said `/baton` and `/pickup`);
+  Codex guidance names no slash commands. Baton drafts go to a fresh temporary
+  file rather than a fixed `/tmp` path, and pickup reads naturally without
+  arguments.
+- Local `.runlist/` state hides itself with its own `.gitignore` (`*`), written
+  when runlist creates or writes its state folder. It never changes the
+  repository's ignore rules or replaces an existing state ignore file, and its
+  search for the state folder stops at the repository top (a `.git` entry or a
+  runlist config). Writing it is best-effort: a failure never blocks the lock,
+  ownership, flag or handoff write that needed the folder. A legacy
+  `.dotmd/.gitignore` carries over intact when `.dotmd/` moves to `.runlist/`.
 - The first saved prompt asks users to commit the handoffs config, whose comment
   now covers both baton and new-prompt saves. Unlinked prompts show their age
   without an unknown target hint.
+- When a fresh `runlist setup --adopt` refuses a file outside its docs root, it
+  names the fix: run setup with `--docs-root <folder>` for the file's folder, or
+  move the file under the docs root first.
+- Help and plugin guidance no longer mention the removed `held`/`claimed`
+  prompt statuses or `prompts hold`, and no longer say `git add -A` may stage
+  `.runlist/`. The README quick path says what `git status` shows after the
+  first handoff and that a user-scope plugin install covers every project.
+
+## 0.100.0 — 2026-10-29
 
 ### Added
 
@@ -105,10 +122,7 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 - Refuse automatic handoff setup when the Git repository is also the home
   directory through a symlink alias.
 - `runlist setup --adopt` preflights missing docs roots using the same adoption
-  boundaries as existing roots, leaving root creation to setup. When a fresh
-  setup refuses a file outside its docs root, it names the fix: run setup with
-  `--docs-root <folder>` for the file's folder, or move the file under the docs
-  root first.
+  boundaries as existing roots, leaving root creation to setup.
 - `runlist new` replaces draft statuses invalid for the target type with its
   normal starting status and reports the replacement.
 

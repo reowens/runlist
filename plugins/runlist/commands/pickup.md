@@ -7,8 +7,8 @@ allowed-tools: "Bash(runlist:*), Bash(rl:*), Bash(dotmd:*)"
 Resume saved work. The user's `/runlist:pickup` is the request to consume a handoff.
 
 - With a name supplied in the command arguments, run `runlist use <name>`
-  directly, including a named held prompt: naming it is the user's explicit
-  request. Let the CLI resolve the name and report any eligibility error.
+  directly: naming it is the user's explicit request. Let the CLI resolve the
+  name and report any eligibility error.
 - Without arguments: run `runlist prompts list --status pending --all` for a
   compact survey of the full pending queue. Only pending prompts are candidates.
   With exactly one pending prompt, consume it with `runlist use <name>` using

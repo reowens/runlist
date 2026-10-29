@@ -83,8 +83,9 @@ questions. A different `--docs-root` is refused for an already configured
 project; inspect the existing layout instead of moving its files automatically.
 
 `untracked` recommends leaving saved prompts out of routine commits to reduce
-churn. **It does not ignore them: `git add -A` can still stage prompts and
-`.runlist/` runtime caches.** Stage intended files by path. `tracked` allows
+churn. **It does not ignore them: `git add -A` can still stage prompts.**
+(Runtime state in `.runlist/` hides itself with its own `.gitignore`.) Stage
+intended files by path. `tracked` allows
 prompt commits; `local` denies prompt Git operations through connected agent
 guards, but cannot intercept arbitrary manual Git. Existing configs without
 an explicit choice retain the legacy `local` policy.

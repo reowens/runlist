@@ -1350,7 +1350,7 @@ older runlist left in a root prompts/) into the new folders, fixing references
 and local handoff/ownership state. Foreign files stay put.
 Setup must finish transaction recovery before writing the first config; unresolved
 transactions stay Outstanding. Inspect them with runlist doctor --transactions.
-Untracked does not mean ignored: git add -A may include prompts and runtime state.
+Untracked does not mean ignored: git add -A may include prompts (.runlist/ hides itself).
 Setup lists a missing persistent CLI on PATH under Outstanding.
 JSON includes checks.host.persistentCliMissing only when true.
 Run \`npm install -g runlist\` before reloading.
@@ -1366,8 +1366,8 @@ inspected to pre-populate a new config; adoption hints identify untagged docs.
 New projects default to untracked prompts (recommended to reduce commit churn).
 Untracked does not mean ignored: git add -A can still include them. Existing
 configs keep their policy; use runlist config set promptTracking <value> to change it.
-No ignore files are edited by default; runtime state in .runlist/ and legacy
-.dotmd/ may also be staged by git add -A. --gitignore explicitly appends missing
+No ignore files are edited by default; .runlist/ hides itself with its own
+.gitignore, but a legacy .dotmd/ may be staged by git add -A. --gitignore appends missing
 state rules and prompt rules (unless tracked). Preview with --dry-run.
 Host integration is separate: runlist install <claude|codex|opencode>.`,
 
@@ -1477,7 +1477,7 @@ Examples:
                                        # (from related_plans, parent_plan,
                                        #  or the first body .md link)
   runlist prompts list --include-archived # all prompts including archived
-  runlist prompts list --status claimed   # already-consumed prompts
+  runlist prompts list --status archived  # already-consumed prompts
   runlist prompts --json                 # JSON output
 
   runlist prompts use resume-foo        # in a session: consume by slug
