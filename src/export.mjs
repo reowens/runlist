@@ -5,6 +5,7 @@ import { buildIndex } from './index.mjs';
 import { buildGraph } from './graph.mjs';
 import { resolveDocPath, resolveRefPath, toRepoPath, capitalize, die } from './util.mjs';
 import { allocateOutputIdentities } from './output-identity.mjs';
+import { assertInsideHandoffs } from './handoffs-scope.mjs';
 
 export function runExport(argv, config, opts = {}) {
   const positional = [];
@@ -37,6 +38,7 @@ export function runExport(argv, config, opts = {}) {
 
   if (positional[0]) {
     // Single doc + deps mode
+    assertInsideHandoffs(positional[0], config);
     const filePath = resolveDocPath(positional[0], config);
     if (!filePath) die(`File not found: ${positional[0]}`);
     const repoPath = toRepoPath(filePath, config.repoRoot);

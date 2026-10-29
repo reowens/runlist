@@ -6,6 +6,7 @@ import { collectDocFiles } from './index.mjs';
 import { updateFrontmatter } from './lifecycle.mjs';
 import { bold, green, dim } from './color.mjs';
 import { authorizeManagedSweep } from './managed-path.mjs';
+import { assertInsideHandoffs } from './handoffs-scope.mjs';
 
 export function runMigrate(argv, config, opts = {}) {
   const { dryRun } = opts;
@@ -34,6 +35,7 @@ export function runMigrate(argv, config, opts = {}) {
     const matched = [];
     const unresolved = [];
     for (const input of fileArgs) {
+      assertInsideHandoffs(input, config);
       const filePath = resolveDocPath(input, config);
       if (filePath) {
         matched.push(filePath);

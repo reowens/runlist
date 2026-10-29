@@ -5,7 +5,7 @@ import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { extractFirstHeading, extractSummary, extractStatusSnapshot, extractNextStep, extractChecklistCounts, extractBodyLinks } from './extractors.mjs';
 import { asString, normalizeStringList, normalizeBlockers, mergeUniqueStrings, toRepoPath, warn, die, resolveDocPath, suggestCandidates } from './util.mjs';
 import { findLexicalDocsRoot } from './managed-path.mjs';
-import { managesFile } from './handoffs-scope.mjs';
+import { managesFile, outsideHandoffs, outsideHandoffsLine } from './handoffs-scope.mjs';
 import { openParseCache, fileStamp, stampSize } from './parse-cache.mjs';
 import { validateDoc, validatePlanShape, validateDocShape, checkBidirectionalReferences, checkGitStaleness, checkRunlistBackPointers, checkCoordinationHubExecutionMode, checkRoadmapHubExecutionMode, computeDaysSinceUpdate, computeIsStale, computeChecklistCompletionRate, enrichRefErrorSuggestions } from './validate.mjs';
 import { checkIndex } from './index-file.mjs';
@@ -272,7 +272,11 @@ export function resolveDocArg(input, config, { dieOnMiss = true } = {}) {
 // `File not found` + the searched roots + up-to-3 did-you-mean candidates
 // matched on basename and printed as repo-relative paths. Exported so verbs
 // with their own resolution (e.g. interactive pickers) can reuse the message.
-export function docArgMissMessage(input, config, files = collectDocFiles(config)) {
+// In a handoffs-only project a file that is not one of its prompts was not
+// mistyped, so it hears that planning is off instead (src/handoffs-scope.mjs).
+export function docArgMissMessage(input, config, files) {
+  if (outsideHandoffs(input, config)) return outsideHandoffsLine(input);
+  files ??= collectDocFiles(config);
   const roots = config.docsRoots || [config.docsRoot];
   const searched = [toRepoPath(config.repoRoot, config.repoRoot) || '.', ...roots.map(r => toRepoPath(r, config.repoRoot))].join(', ');
   const slug = String(input).split('/').pop().replace(/\.md$/, '');

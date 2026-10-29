@@ -7,8 +7,9 @@ const flag = (...names) => Object.freeze({ names: Object.freeze(names), arity: 0
 const value = (...names) => Object.freeze({ names: Object.freeze(names), arity: 1 });
 const optionalValue = (...names) => Object.freeze({ names: Object.freeze(names), arity: 'optional' });
 const positionals = (min = 0, max = min) => Object.freeze({ min, max });
-const form = (syntax, { subcommands = [], args = positionals(), options = [], passthrough = false, dashPositionalsAfter = Infinity } = {}) => Object.freeze({
+const form = (syntax, { subcommands = [], args = positionals(), options = [], passthrough = false, dashPositionalsAfter = Infinity, planning } = {}) => Object.freeze({
   syntax,
+  planning,
   subcommands: Object.freeze(subcommands),
   positionals: args,
   options: Object.freeze(options),
@@ -47,7 +48,16 @@ const command = (name, policy, group, forms, extra = {}) => Object.freeze({
   forms: Object.freeze(forms),
   aliases: Object.freeze(extra.aliases ?? []),
   visibility: extra.visibility ?? 'public',
+  planning: extra.planning ?? null,
 });
+
+// `planning` marks a command (or one form of it) that only means something
+// with planning on. In a handoffs-only project (src/handoffs-mode.mjs) the
+// dispatcher stops it before it runs: a 'view' prints the planning-off line
+// and succeeds, an 'action' refuses. A new plan or doc command opts in here;
+// test/handoffs-planning-gate.test.mjs walks this registry.
+const VIEW = Object.freeze({ planning: 'view' });
+const ACTION = Object.freeze({ planning: 'action' });
 
 const definitions = [
   command('help', none, 'setup', [form('[topic]', { args: positionals(0, 1) })]),
@@ -70,34 +80,34 @@ const definitions = [
 
   command('list', none, 'read', [form('', { options: [flag('--json'), flag('--verbose')] })]),
   command('json', none, 'read', [form('')]),
-  command('coverage', none, 'read', [form('', { options: [flag('--json')] })]),
+  command('coverage', none, 'read', [form('', { options: [flag('--json')] })], VIEW),
   command('yardstick', mutates('explicit owner assessments and existing archive workflow; show is read-only'), 'mutate', [
-    form('show [plan]', { subcommands: ['show'], args: positionals(0, 1), options: [flag('--json')] }),
+    form('show [plan]', { planning: 'view', subcommands: ['show'], args: positionals(0, 1), options: [flag('--json')] }),
     form('mark <plan> serves', { subcommands: ['mark'], args: positionals(2, 2), options: [value('--reason'), flag('--json'), flag('--no-index')] }),
     form('close <plan> --reason <text>', { subcommands: ['close'], args: positionals(1, 1), options: [value('--reason'), flag('--json'), flag('--no-index')] }),
     form('fold <plan> --into <plan> --reason <text>', { subcommands: ['fold'], args: positionals(1, 1), options: [value('--into'), value('--reason'), flag('--json'), flag('--no-index')] }),
     form('clear <plan>', { subcommands: ['clear'], args: positionals(1, 1), options: [flag('--json'), flag('--no-index')] }),
-  ]),
-  command('stats', none, 'read', [form('', { options: [flag('--json')] })]),
-  command('graph', none, 'read', [form('', { options: [flag('--dot'), flag('--json'), value('--status'), value('--module'), value('--surface')] })]),
-  command('deps', none, 'read', [form('[file]', { args: positionals(0, 1), options: [flag('--json'), value('--depth')] })]),
+  ], ACTION),
+  command('stats', none, 'read', [form('', { options: [flag('--json')] })], VIEW),
+  command('graph', none, 'read', [form('', { options: [flag('--dot'), flag('--json'), value('--status'), value('--module'), value('--surface')] })], VIEW),
+  command('deps', none, 'read', [form('[file]', { args: positionals(0, 1), options: [flag('--json'), value('--depth')] })], VIEW),
   command('briefing', none, 'read', [form('', { options: [flag('--json')] })]),
   command('context', none, 'read', [form('', { options: [flag('--json'), flag('--compact'), flag('--summarize'), value('--model'), value('--sections'), value('--max-bytes')] })]),
   command('agent-context', none, 'read', [form('', { options: [flag('--json'), value('--sections'), value('--max-bytes')] })]),
   command('hud', none, 'read', [form('', { options: [flag('--json'), flag('--subagent'), flag('--prompt-submit')] })]),
-  command('focus', none, 'read', [form('[status]', { args: positionals(0, 1), options: [flag('--json')] })]),
+  command('focus', none, 'read', [form('[status]', { args: positionals(0, 1), options: [flag('--json')] })], VIEW),
   command('query', none, 'read', [form('[terms...]', { args: positionals(0, Infinity), options: QUERY_OPTIONS })]),
   command('grep', none, 'read', [form('<term> [terms...]', { args: positionals(1, Infinity), options: QUERY_OPTIONS })]),
   command('plans', none, 'read', [
     form('[terms...]', { args: positionals(0, Infinity), options: QUERY_OPTIONS }),
     form('status [terms...]', { subcommands: ['status'], args: positionals(0, Infinity), options: QUERY_OPTIONS }),
-  ]),
-  command('runlists', none, 'read', [form('', { options: [flag('--json'), value('--limit'), value('--sort')] })]),
-  command('roadmaps', none, 'read', [form('', { options: [flag('--json')] })]),
+  ], VIEW),
+  command('runlists', none, 'read', [form('', { options: [flag('--json'), value('--limit'), value('--sort')] })], VIEW),
+  command('roadmaps', none, 'read', [form('', { options: [flag('--json')] })], VIEW),
   command('diff', none, 'read', [form('[file]', { args: positionals(0, 1), options: [flag('--stat'), value('--since'), flag('--summarize'), value('--model')] })]),
   command('summary', none, 'read', [form('<file>', { args: positionals(1, 1), options: [value('--model'), value('--max-tokens'), flag('--json')] })]),
-  command('unblocks', none, 'read', [form('<file>', { args: positionals(1, 1), options: [flag('--json')] })]),
-  command('health', none, 'read', [form('', { options: [flag('--json')] })]),
+  command('unblocks', none, 'read', [form('<file>', { args: positionals(1, 1), options: [flag('--json')] })], VIEW),
+  command('health', none, 'read', [form('', { options: [flag('--json')] })], VIEW),
   command('flags', none, 'read', [form('', { options: [flag('--all'), flag('--json')] })]),
   command('flag', mutates('the flags log under the state directory'), 'mutate', [
     form('add <file[:line]> <text...>', { subcommands: ['add'], args: positionals(2, Infinity), options: [value('--severity'), value('--by')] }),
@@ -107,7 +117,7 @@ const definitions = [
     form('show <id>', { subcommands: ['show'], args: positionals(1, 1) }),
     form('sync <check-name> [findings]', { subcommands: ['sync'], args: positionals(1, 2), dashPositionalsAfter: 1 }),
   ]),
-  command('glossary', none, 'read', [form('[term]', { args: positionals(0, 1), options: [flag('--list'), flag('--json')] })]),
+  command('glossary', none, 'read', [form('[term]', { args: positionals(0, 1), options: [flag('--list'), flag('--json')] })], VIEW),
   command('model', mutates('~/.runlist/model.json and the local model server'), 'read', [
     form('', { options: [flag('--json')] }),
     form('status', { subcommands: ['status'], options: [flag('--json')] }),
@@ -121,20 +131,20 @@ const definitions = [
   command('xref', mutates('the flags log under the state directory with --check --flag; otherwise read-only'), 'read', [
     form('<file...> | --check [--flag]', { args: positionals(0, Infinity), options: [flag('--json'), flag('--check'), flag('--flag')] }),
   ]),
-  command('record', mutates('native flag or decision through the shared domain writer'), 'mutate', [form('<file> <action>', { args: positionals(2, 2), options: [value('--note'), value('--option'), value('--expected-revision'), flag('--json')] })]),
-  command('decision', mutates('selected decision source through the source editor'), 'mutate', [form('<file> <id>', { args: positionals(2, 2), options: [value('--disposition'), value('--note'), value('--choice'), value('--expected-revision'), flag('--json')] })]),
-  command('decisions', none, 'read', [form('[doc-or-id]', { args: positionals(0, 1), options: [flag('--all'), flag('--json'), flag('--check')] })]),
-  command('modules', none, 'read', [form('', { options: [value('--sort'), value('--limit'), flag('--all'), flag('--json')] })]),
-  command('module', none, 'read', [form('<name>', { args: positionals(1, 1), options: [value('--sort'), flag('--json')] })]),
-  command('surfaces', none, 'read', [form('', { options: [flag('--json')] })]),
+  command('record', mutates('native flag or decision through the shared domain writer'), 'mutate', [form('<file> <action>', { args: positionals(2, 2), options: [value('--note'), value('--option'), value('--expected-revision'), flag('--json')] })], ACTION),
+  command('decision', mutates('selected decision source through the source editor'), 'mutate', [form('<file> <id>', { args: positionals(2, 2), options: [value('--disposition'), value('--note'), value('--choice'), value('--expected-revision'), flag('--json')] })], ACTION),
+  command('decisions', none, 'read', [form('[doc-or-id]', { args: positionals(0, 1), options: [flag('--all'), flag('--json'), flag('--check')] })], VIEW),
+  command('modules', none, 'read', [form('', { options: [value('--sort'), value('--limit'), flag('--all'), flag('--json')] })], VIEW),
+  command('module', none, 'read', [form('<name>', { args: positionals(1, 1), options: [value('--sort'), flag('--json')] })], VIEW),
+  command('surfaces', none, 'read', [form('', { options: [flag('--json')] })], VIEW),
   command('journal', none, 'read', [form('', { options: [value('--tail'), flag('--errors'), value('--session'), value('--since'), flag('--by-command'), flag('--help-topics'), flag('--json')] })]),
   command('errors', none, 'read', [form('', { options: [flag('--json'), flag('--by-family'), value('--limit'), value('--tail'), value('--repo')] })]),
   command('misuse', none, 'read', [form('', { options: [flag('--json'), value('--tail'), flag('--by-rule'), value('--repo')] })]),
 
   command('roadmap', mutates('managed source when `next`; otherwise read-only'), 'workflow', [
     form('[hub]', { args: positionals(0, 1), options: [flag('--json')] }),
-    form('next [hub]', { subcommands: ['next'], args: positionals(0, 1), options: [flag('--json'), flag('--full'), flag('--no-index')] }),
-  ]),
+    form('next [hub]', { planning: 'action', subcommands: ['next'], args: positionals(0, 1), options: [flag('--json'), flag('--full'), flag('--no-index')] }),
+  ], VIEW),
   command('prompts', mutates('managed sources/destinations by subcommand'), 'workflow', [
     form('', { options: [flag('--json'), value('--status'), flag('--include-archived'), value('--sort'), value('--limit'), flag('--all')] }),
     form('list', { subcommands: ['list', 'status'], options: [flag('--json'), value('--status'), flag('--include-archived'), value('--sort'), value('--limit'), flag('--all')] }),
@@ -152,11 +162,11 @@ const definitions = [
   command('baton', mutates('managed plan/prompt sources and managed prompt destination'), 'workflow', [form('[plan|slug] <@<file>|->', { args: positionals(0, 2), options: [value('--status'), value('--note'), value('--body', '--message'), value('--parent'), flag('--template'), flag('--force'), flag('--replace'), flag('--done'), value('--next-step'), value('--current-state'), flag('--subagent'), flag('--json')] })]),
   command('runlist', mutates('managed hubs/children and managed scaffold destinations'), 'workflow', [
     form('<hub>', { args: positionals(1, 1), options: [flag('--json')] }),
-    form('next <hub>', { subcommands: ['next'], args: positionals(1, 1), options: [flag('--json'), flag('--full'), flag('--no-index'), flag('--show-files')] }),
-    form('add <hub> <child...>', { subcommands: ['add'], args: positionals(2, Infinity), options: [flag('--json')] }),
-    form('remove <hub> <child...>', { subcommands: ['remove'], args: positionals(2, Infinity), options: [flag('--json'), flag('--clear-parent')] }),
-    form('reorder <hub> <child...>', { subcommands: ['reorder'], args: positionals(2, Infinity), options: [flag('--json'), value('--before'), value('--after')] }),
-  ]),
+    form('next <hub>', { planning: 'action', subcommands: ['next'], args: positionals(1, 1), options: [flag('--json'), flag('--full'), flag('--no-index'), flag('--show-files')] }),
+    form('add <hub> <child...>', { planning: 'action', subcommands: ['add'], args: positionals(2, Infinity), options: [flag('--json')] }),
+    form('remove <hub> <child...>', { planning: 'action', subcommands: ['remove'], args: positionals(2, Infinity), options: [flag('--json'), flag('--clear-parent')] }),
+    form('reorder <hub> <child...>', { planning: 'action', subcommands: ['reorder'], args: positionals(2, Infinity), options: [flag('--json'), value('--before'), value('--after')] }),
+  ], VIEW),
 
   command('export', mutates('external output path intentionally unrestricted'), 'mutate', [form('[file]', { args: positionals(0, 1), options: [value('--format'), value('--output'), value('--status'), value('--module'), value('--root'), value('--type')] })]),
   command('guard', mutates('global misuse log; no managed document writes'), 'mutate', [form('')]),
@@ -172,7 +182,7 @@ const definitions = [
     form('archive <files...>', { subcommands: ['archive'], args: positionals(1, Infinity), options: [flag('--json'), flag('--no-index'), flag('--show-files')] }),
     form('tag [files...]', { subcommands: ['tag'], args: positionals(0, Infinity), options: [value('--type'), value('--status'), flag('--json')] }),
   ]),
-  command('bulk-tag', mutates('managed source sweep'), 'mutate', [form('[files...]', { args: positionals(0, Infinity), options: [value('--type'), value('--status'), flag('--json')] })]),
+  command('bulk-tag', mutates('managed source sweep'), 'mutate', [form('[files...]', { args: positionals(0, Infinity), options: [value('--type'), value('--status'), flag('--json')] })], ACTION),
   command('touch', mutates('managed source or managed source sweep'), 'mutate', [form('[file...]', { args: positionals(0, Infinity), options: [flag('--git')] })]),
   command('new', mutates('managed document destination; external body input unrestricted'), 'mutate', [form('[type] <name> [body...]', {
     args: positionals(0, Infinity),
@@ -187,8 +197,8 @@ const definitions = [
     form('repair', { subcommands: ['repair'], options: [flag('--fix'), flag('--strings')] }),
     form('<old> <new>', { args: positionals(2, 2), options: [flag('--fix'), flag('--strings')] }),
   ]),
-  command('fix-membership', mutates('managed source sweep'), 'mutate', [form('[hubs...]', { args: positionals(0, Infinity), options: [flag('--json')] })]),
-  command('sync-status', mutates('managed source sweep'), 'mutate', [form('[hubs...]', { args: positionals(0, Infinity), options: [flag('--adopt'), flag('--json')] })]),
+  command('fix-membership', mutates('managed source sweep'), 'mutate', [form('[hubs...]', { args: positionals(0, Infinity), options: [flag('--json')] })], ACTION),
+  command('sync-status', mutates('managed source sweep'), 'mutate', [form('[hubs...]', { args: positionals(0, Infinity), options: [flag('--adopt'), flag('--json')] })], ACTION),
   command('doctor', mutates('managed sweeps and maintenance by mode; --hosts reports read-only or applies explicitly selected host repairs'), 'mutate', [form('[path]', { args: positionals(0, 1), options: [flag('--apply', '--yes'), flag('--statuses'), optionalValue('--migrate-template'), flag('--migrate-prompts'), flag('--frontmatter-fix'), flag('--project'), flag('--prompts'), flag('--transactions'), flag('--claims'), flag('--session'), flag('--hosts'), value('--repair'), value('--claude-config'), value('--claude-bin'), value('--older-than'), flag('--json'), flag('--include-archived')] })]),
   command('statuses', mutates('project config path; document scan is read-only'), 'mutate', [
     form('list', { subcommands: ['list'], options: [value('--type'), flag('--json')] }),
@@ -208,8 +218,8 @@ const definitions = [
   command('finish', none, 'removed', [form('[args...]', { args: positionals(0, Infinity) })], { visibility: 'removed' }),
   command('handoff', none, 'removed', [form('[args...]', { args: positionals(0, Infinity) })], { visibility: 'removed' }),
 
-  command('stale', none, 'preset', [form('[terms...]', { args: positionals(0, Infinity), options: QUERY_OPTIONS })]),
-  command('actionable', none, 'preset', [form('[terms...]', { args: positionals(0, Infinity), options: QUERY_OPTIONS })]),
+  command('stale', none, 'preset', [form('[terms...]', { args: positionals(0, Infinity), options: QUERY_OPTIONS })], VIEW),
+  command('actionable', none, 'preset', [form('[terms...]', { args: positionals(0, Infinity), options: QUERY_OPTIONS })], VIEW),
 ];
 
 function schemaErrors(schema) {
@@ -221,6 +231,9 @@ function schemaErrors(schema) {
     names.add(entry.name);
     if (!entry.group) errors.push(`${entry.name}: missing help group`);
     if (!entry.forms.length) errors.push(`${entry.name}: missing forms`);
+    for (const planning of [entry.planning, ...entry.forms.map(commandForm => commandForm.planning)]) {
+      if (planning != null && planning !== 'view' && planning !== 'action') errors.push(`${entry.name}: planning must be 'view' or 'action'`);
+    }
     for (const alias of entry.aliases) {
       if (!alias || names.has(alias) || aliases.has(alias)) errors.push(`${entry.name}: duplicate alias ${alias}`);
       aliases.add(alias);
@@ -349,6 +362,21 @@ export function commandHelpContext(name, argv) {
   const positional = scanArgs(definition.name, argv, options);
   const selected = definition.forms.find(entry => entry.subcommands.includes(positional[0]));
   return { positional, subcommand: selected?.subcommands[0] ?? null };
+}
+
+// Whether a command, in the form these arguments select, needs planning on:
+// `{ requirement: 'view' | 'action', subcommand }`, or null (see VIEW/ACTION
+// above). Read before argument validation, so a planning command missing its
+// arguments still hears that planning is off rather than its usage.
+export function commandPlanning(name, argv) {
+  const definition = commandDefinition(name);
+  if (!definition) return null;
+  let subcommand = null;
+  try { subcommand = commandHelpContext(definition.name, normalizeCommandArgs(definition.name, argv)).subcommand; } catch { /* unknown flag: the command's own form */ }
+  const selected = definition.forms.find(entry => entry.subcommands.includes(subcommand))
+    ?? definition.forms.find(entry => entry.subcommands.length === 0);
+  const requirement = selected?.planning ?? definition.planning;
+  return requirement ? { requirement, subcommand } : null;
 }
 
 export function normalizeCommandArgs(name, argv) {

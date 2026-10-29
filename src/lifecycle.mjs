@@ -33,6 +33,7 @@ import {
   updateOwnershipOperation,
   validatedClaimOperation,
 } from './pickup.mjs';
+import { assertInsideHandoffs } from './handoffs-scope.mjs';
 
 export function renderLifecycleMutation(raw, updates, historyEntry, { createSection = false, bodyTransform = null } = {}) {
   raw = normalizeEol(raw);
@@ -1119,6 +1120,7 @@ export function runBulkArchive(argv, config, opts = {}) {
   const matched = [];
 
   for (const input of inputs) {
+    assertInsideHandoffs(input, config);
     const filePath = resolveDocPath(input, config);
     if (filePath) {
       matched.push(filePath);

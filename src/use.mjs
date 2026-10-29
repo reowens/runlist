@@ -5,6 +5,7 @@ import { asString, die, resolveDocPath, toRepoPath } from './util.mjs';
 import { consumePrompt, pendingPromptsOldestFirst, resolvePromptInput } from './prompts.mjs';
 import { startPlan } from './lifecycle.mjs';
 import { resolveDocArg } from './index.mjs';
+import { managesFile } from './handoffs-scope.mjs';
 import { LIMITS } from './brief.mjs';
 import { runShow } from './show.mjs';
 
@@ -33,8 +34,9 @@ export async function runUse(argv, config, opts = {}) {
   // collision — consuming a prompt is the more common intent), then the
   // shared resolver for plan/doc slugs, which dies with did-you-mean on miss.
   const cwdPath = path.resolve(process.cwd(), positional);
-  const filePath = resolveDocPath(positional, config)
-    ?? (existsSync(cwdPath) ? cwdPath : null)
+  const managed = file => (file && managesFile(file, config) ? file : null);
+  const filePath = managed(resolveDocPath(positional, config))
+    ?? (existsSync(cwdPath) ? managed(cwdPath) : null)
     ?? resolvePromptInput(positional, config, { dieOnMiss: false })
     ?? resolveDocArg(positional, config);
 

@@ -227,6 +227,13 @@ export async function runSetup(argv, config, options = {}) {
     const carryMoves = plan.carry.moves;
     if (plan.upgrade) report.actions.push({ id: 'upgrade', description: `Turn planning on: rewrite mode and root in the handoffs config (prompts stay in ${plan.upgrade.promptRoot}/)`, path: configPath,
       preview: `Config before:\n${plan.upgrade.source}Config after:\n${plan.upgrade.content}` });
+    if (plan.upgrade?.newlyListed?.count) {
+      const { count, roots } = plan.upgrade.newlyListed;
+      const files = count === 1
+        ? '1 existing Markdown file there will be checked, and listed as untagged if it has no runlist frontmatter; adopt it with `--adopt <path>` or leave it'
+        : `${count} existing Markdown files there will be checked, and any without runlist frontmatter listed as untagged; adopt them with \`--adopt <path>\` or leave them`;
+      report.actions.push({ id: 'upgrade-info', description: `Planning brings ${roots.join(' and ')} under runlist: ${files}`, count });
+    }
     report.actions.push({ id: 'init', description: 'Initialize missing scaffolding; preserve configured roots, JavaScript and hooks', path: configPath || path.join(cwd, 'runlist.config.mjs'), preview: prepared.output, ...plan.layout });
     for (const move of carryMoves) report.actions.push({ id: `carry:${move.from}`, description: `move ${move.from} → ${move.to}`, from: move.from, to: move.to, type: move.type });
     report.outstanding.push(...plan.carry.outstanding);

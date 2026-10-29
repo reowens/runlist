@@ -25,7 +25,9 @@ import { die } from './util.mjs';
 // `publishHandoffsConfig` writes the folder and the config.
 
 export const HANDOFFS_CONFIG_FILE = 'runlist.config.mjs';
-export const PLANNING_OFF = 'Planning is off in this project; `runlist setup` turns it on (your prompts stay where they are).';
+// The planning-off wording and the gate that prints it live with the scope
+// rules (src/handoffs-scope.mjs), which the resolver and dispatcher import.
+export { outsideHandoffsLine, PLANNING_OFF, planningRefusal, requirePlanning } from './handoffs-scope.mjs';
 
 export function isHandoffsMode(config) {
   return config?.mode === 'handoffs';

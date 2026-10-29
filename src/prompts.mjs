@@ -8,6 +8,7 @@ import { completePlanClaim, regenIndex, renderLifecycleMutation, runArchive } fr
 import { runNew } from './new.mjs';
 import { green, dim, yellow } from './color.mjs';
 import { authorizeManagedSource } from './managed-path.mjs';
+import { managesFile, outsideHandoffs, outsideHandoffsLine } from './handoffs-scope.mjs';
 import {
   authoritativeSessionId,
   classifyPlanPickup,
@@ -305,12 +306,17 @@ async function runPromptsNext(argv, config, opts = {}) {
 // helpful message (no match / ambiguous match).
 export function resolvePromptInput(input, config, options = {}) {
   const dieOnMiss = options.dieOnMiss !== false;
+  // A handoffs-only project's other Markdown is never a prompt to resolve.
+  if (outsideHandoffs(input, config)) {
+    if (dieOnMiss) die(outsideHandoffsLine(input));
+    return null;
+  }
   const direct = resolveDocPath(input, config);
-  if (direct) return direct;
+  if (direct && managesFile(direct, config)) return direct;
 
   if (!input.endsWith('.md')) {
     const withExt = resolveDocPath(input + '.md', config);
-    if (withExt) return withExt;
+    if (withExt && managesFile(withExt, config)) return withExt;
   }
 
   const index = buildIndex(config, { fast: true, invokeHooks: false });

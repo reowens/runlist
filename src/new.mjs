@@ -12,7 +12,7 @@ import { regenIndex } from './lifecycle.mjs';
 import { extractFrontmatter, parseSimpleFrontmatter, normalizeEol } from './frontmatter.mjs';
 import { authorizeManagedDestination } from './managed-path.mjs';
 import { createFileExclusive, mutateFileSet, MutationConflictError } from './atomic-mutation.mjs';
-import { assertPublishedPromptFolder, isHandoffsMode, planHandoffsConfig, PLANNING_OFF, publishHandoffsConfig } from './handoffs-mode.mjs';
+import { assertPublishedPromptFolder, isHandoffsMode, planHandoffsConfig, planningRefusal, publishHandoffsConfig } from './handoffs-mode.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
@@ -434,10 +434,6 @@ export function unconfiguredPromptHint(config) {
   return config.configFound ? '' : 'No runlist config here yet — run `runlist setup`; it carries this prompt over.\n';
 }
 
-export function planningOffRefusal(what) {
-  return `${what} needs planning. ${PLANNING_OFF}`;
-}
-
 function userNameDirIn(name) {
   return Boolean(name && (name.includes('/') || name.includes(path.sep)));
 }
@@ -694,7 +690,7 @@ export async function runNew(argv, config, opts = {}) {
   const { dryRun } = opts;
 
   if (argv.find(a => !a.startsWith('-')) === 'decision') {
-    if (isHandoffsMode(config)) die(planningOffRefusal('`runlist new decision`'));
+    if (isHandoffsMode(config)) die(planningRefusal('`runlist new decision`'));
     return runNewDecisionArgs(argv, config, opts);
   }
 
@@ -786,7 +782,7 @@ export async function runNew(argv, config, opts = {}) {
   }
   // A handoffs-only project scans its prompt folder alone; anything else
   // created there would land among the prompts and outside every listing.
-  if (isHandoffsMode(config) && typeName !== 'prompt') die(planningOffRefusal(`\`runlist new ${typeName}\``));
+  if (isHandoffsMode(config) && typeName !== 'prompt') die(planningRefusal(`\`runlist new ${typeName}\``));
 
   if (!name) {
     if (isInteractive()) {

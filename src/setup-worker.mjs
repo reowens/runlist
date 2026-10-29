@@ -188,6 +188,17 @@ export async function setupWorker(request) {
     // existing config. The narrow setter owns that separate apply stage.
     await runInit(config.repoRoot, config, { argv: initArgv, dryRun: true, guidance: false, samplePlan: false, carryMoves: carry.moves, ...(!existing ? { docsRoot: choices.docsRoot } : {}) });
     const untagged = inventory(config);
+    // What turning planning on brings into view: Markdown under the new roots
+    // that the handoffs config did not manage. A walk, not a read: outside the
+    // prompt folder nothing is opened (inside it, files are read for their
+    // type, as every handoffs-mode command does).
+    let newlyListed = null;
+    if (upgrade) {
+      const managed = new Set(collectDocFiles(before));
+      const files = collectDocFiles(config).filter(file => !managed.has(file));
+      const roots = (config.docsRoots ?? [config.docsRoot]).filter(root => files.some(file => !path.relative(root, file).startsWith('..')));
+      newlyListed = { count: files.length, roots: roots.map(root => `${path.relative(config.repoRoot, root).split(path.sep).join('/')}/`) };
+    }
     const adoptions = [];
     for (const selected of choices.adopt) {
       const file = path.resolve(config.repoRoot, selected);
@@ -198,7 +209,7 @@ export async function setupWorker(request) {
     if (plan && carry.moves.some(move => move.target === plan.path)) throw new Error(`First plan collides with a pre-setup plan being carried over: ${plan.path}`);
     const transactions = existing ? [] : inspectTransactions(before.repoRoot, { config: before });
     return { layout, policy, adoptions, firstPlan: plan, untagged, carry, transactions,
-      upgrade: upgrade ? { source: upgrade.source, content: upgrade.content, promptRoot: upgrade.promptRoot } : null, skippedValidationHooks: ['validate', 'transformDoc'].filter(name => typeof config.hooks?.[name] === 'function') };
+      upgrade: upgrade ? { source: upgrade.source, content: upgrade.content, promptRoot: upgrade.promptRoot, newlyListed } : null, skippedValidationHooks: ['validate', 'transformDoc'].filter(name => typeof config.hooks?.[name] === 'function') };
   }
   if (operation === 'init') {
     // Check again after carry, including when there were no moves. Never let

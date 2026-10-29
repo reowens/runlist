@@ -14,6 +14,7 @@ import {
   KNOWN_COMMANDS,
   canonicalCommand,
   commandOwnsOption,
+  commandPlanning,
   commandPolicy,
   commandUsage,
   validateCommandArgs,
@@ -2238,6 +2239,28 @@ async function main() {
   // present in the centralized command policy registry.
   if (!config.presets[command]) requireCommandPolicy(command, dispatchPolicy);
 
+  // Handoffs-only projects (src/handoffs-mode.mjs) have no plans or docs. A
+  // command the registry marks as needing planning, or any read filtered to a
+  // type other than prompts, says planning is off and names the command that
+  // turns it on. This runs before argument validation so `runlist runlist`
+  // with no hub gets the same answer. A user preset of the same name is the
+  // user's command and runs.
+  if (config.mode === 'handoffs' && !config.configuredPresetNames.has(command)) {
+    const { requirePlanning } = await import('../src/handoffs-scope.mjs');
+    const json = restArgs.includes('--json');
+    const ownTypeAt = commandOwnsOption(command, '--type') ? restArgs.indexOf('--type') : -1;
+    const typeFilter = typeArg ?? (ownTypeAt !== -1 ? restArgs[ownTypeAt + 1] : null);
+    const types = typeFilter ? typeFilter.split(',').map(t => t.trim()).filter(Boolean) : [];
+    const planning = commandPlanning(command, restArgs);
+    const typed = !planning && types.length > 0 && !types.includes('prompt');
+    const requirement = planning?.requirement ?? (typed ? (commandPolicy(command)?.mutation === 'none' ? 'view' : 'action') : null);
+    if (requirement) {
+      for (const w of config.configWarnings ?? []) warn(w);
+      const what = `\`runlist ${[command, planning?.subcommand].filter(Boolean).join(' ')}${typed ? ` --type ${typeFilter}` : ''}\``;
+      if (requirePlanning(config, what, requirement, { json })) return;
+    }
+  }
+
   try {
     restArgs = validateCommandArgs(command, restArgs, { preset: Boolean(config.presets[command]) });
   } catch (err) {
@@ -2286,15 +2309,6 @@ async function main() {
     for (const w of config.configWarnings) {
       warn(w);
     }
-  }
-
-  // Handoffs-only projects (src/handoffs-mode.mjs) have no plans; plan views
-  // say planning is off and name the command that turns it on.
-  const PLAN_VIEWS = new Set(['plans', 'health', 'runlists', 'roadmaps', 'roadmap', 'runlist', 'modules', 'module']);
-  if (config.mode === 'handoffs' && PLAN_VIEWS.has(command) && !config.configuredPresetNames.has(command)) {
-    const { PLANNING_OFF } = await import('../src/handoffs-mode.mjs');
-    process.stdout.write(restArgs.includes('--json') ? `${JSON.stringify({ planning: false, message: PLANNING_OFF }, null, 2)}\n` : `${PLANNING_OFF}\n`);
-    return;
   }
 
   if (verbose) {
