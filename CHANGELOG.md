@@ -15,9 +15,10 @@ All notable changes to `runlist` are documented here. Older releases predate thi
   There is no index, and `plans`, `health`, hub and module views say planning
   is off; `new plan` and `new doc` refuse.
 - One prompt location: runlist writes prompts to `docs/prompts/` in every mode,
-  including a repository with no config (the unconfigured saves that remain:
-  beside plans saved before setup, and outside Git where earlier handoffs keep
-  working). Nothing creates a root `prompts/` any more. Prompts an older runlist
+  including a repository with no config (the unconfigured save that remains
+  is outside Git, where earlier handoffs keep working). Nothing new creates,
+  writes to or archives into a root `prompts/`; configured planning projects
+  keep the prompt folder they chose. Prompts an older runlist
   saved there before any config are carried into `docs/prompts/` by the first
   baton or `new prompt`, with setup's transactional carry: runlist-typed prompts
   only, archive-status ones into `docs/prompts/archived/`, references and
@@ -34,11 +35,10 @@ All notable changes to `runlist` are documented here. Older releases predate thi
   of configuring the outer folder. It refuses outside Git (unless the folder
   already holds handoffs or plans saved without a config, which keep working as
   before) and in a home directory that is a repository; existing configs work
-  outside Git as before. Runlist documents saved before any config that the new
-  config would hide (plans anywhere in the repository, prompts outside
-  `docs/prompts/` that cannot be carried there), or a scan that could not read
-  every folder, keep the old
-  unconfigured behaviour and point at `runlist setup` instead. Every check that
+  outside Git as before. Plans and other runlist documents saved before any
+  config do not stop it: they stay where they are, and the planning-off line
+  says how many `runlist setup` will bring in ("2 runlist documents saved
+  before setup are waiting for it."). Every check that
   can refuse the save runs before the config is written, so a refused baton
   leaves nothing behind and `--dry-run` refuses where apply would; baton
   `--json` gains `handoffsSetup`. The config is created exclusively, never
@@ -90,9 +90,8 @@ All notable changes to `runlist` are documented here. Older releases predate thi
   (`held`, `shelved`, `claimed`) count. A save is checked against
   `docs/prompts/` as the carry will leave it before anything moves: a duplicate
   refuses with nothing carried, and `--replace` dry-run reports the same
-  replacement apply makes. The unconfigured saves that remain (beside plans
-  saved before setup, outside Git) carry the same way and save to
-  `docs/prompts/` at the Git toplevel, never below the working folder. Before
+  replacement apply makes. An unconfigured save carries the same way and saves
+  to `docs/prompts/` at the Git toplevel, never below the working folder. Before
   any config, a command that changes documents (`use`, `next`, `prompts use|
   next|archive`, `archive`, `set`, …) carries those prompts first; dry-run
   lists the move and stops. Nothing creates a file in a root `prompts/` before
@@ -100,10 +99,8 @@ All notable changes to `runlist` are documented here. Older releases predate thi
   `docs/prompts/` refuses, and `setup --docs-root prompts` or `.` refuses. Links
   to a carried prompt from Markdown runlist does not manage (no frontmatter, a
   README say) are listed for the user to update, never edited.
-- Planning is created by `runlist setup` and nothing else. Before any config,
-  `new plan`, `new doc`, `new hub` and `new decision` refuse with the
-  planning-off line (earlier plans stay visible); in a handoffs-only project
-  `init`, `bulk tag`, `xref` and `migrate type <x> <non-prompt>` meet the gate.
+- In a handoffs-only project `init`, `bulk tag`, `xref` and
+  `migrate type <x> <non-prompt>` meet the planning gate.
   The gate reads arguments as the command runs them: a preset's own `--type`,
   repeated `--type` and comma lists count, and a preset no longer skips it. The
   registry walk now fails for a command that is neither marked nor listed as
@@ -115,6 +112,45 @@ All notable changes to `runlist` are documented here. Older releases predate thi
   child-handoff footer speak of prompts only. The setup preview reports foreign
   files in the root `prompts/` as left untouched and never suggests it as a
   root.
+- Baton-only mode, third review.
+  - The first baton sets up handoffs even when the repository holds plans or
+    prompts an older runlist saved before any config. They stay where they
+    are, and the planning-off line counts the ones `runlist setup` brings in,
+    using setup's own carry planner (never on a hook path). Setup turning
+    planning on now carries plans saved in `plans/` (and any prompts in the
+    root `prompts/`) into `docs/`, as a fresh setup does, before it rewrites
+    the config.
+  - Planning is blocked only where it is off. A repository with no config
+    starts planning as before: `new plan`, `new doc`, `new hub`,
+    `new decision`, an implicit doc and the full `new --list-types` work
+    again there. In a handoffs-only project they still refuse, and so do
+    `statuses migrate <type>` and `migrate type <old> <new>` when the type is
+    not prompt (a positional type now meets the gate like `--type`). The local
+    app's creation API offers and creates nothing but a prompt there.
+  - Nothing new writes into the root `prompts/` before any config or where
+    planning is off: `setup --docs-root` refuses `prompts/` and anything below
+    it before scaffolding, `export --output` refuses files and folders there,
+    a prompt renamed before any config stays in the toplevel `docs/prompts/`,
+    and a `docs/` that is a symlink into `prompts/` refuses the first save
+    before anything is carried or written (paths are checked physically as
+    well as by name).
+  - Where planning is off, `runlist help <cmd>` and `runlist <cmd> --help` come
+    from one renderer and print the same text: the planning-off line for a
+    planning command, and prompt-only help for `new`, `baton`, `set`,
+    `status`, `statuses`, `prompts`, `archive`, `briefing` and `hud`.
+    `prompts hold`, the deprecated `status` notice and the `/docs` command
+    speak of prompts; text `context` ends with the planning-off line, as
+    `briefing` does.
+  - A dry-run after a carry killed part-way says the unfinished move comes
+    first and stops, instead of reporting a collision apply would not hit.
+    Setup plans the carry again after recovering such a move, so one rerun
+    completes, with no stale notes.
+  - A prompt carried before a change is found when the command runs from a
+    subfolder. The guard treats only prompts in the prompt folder as saved
+    prompts where planning is off. Prompts carried with a status older builds
+    wrote (`held`, `shelved`, `claimed`) keep it, and `check` warns with the
+    verb that settles it instead of failing. Setup's refusal of another
+    `--docs-root` when turning planning on says why.
 - `runlist setup --docs-root` with `$&` or `$'` in the folder name wrote the
   pattern's expansion into a fresh config; the name is now written as given.
 

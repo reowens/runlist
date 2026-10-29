@@ -49,10 +49,10 @@ and counts the existing Markdown under `docs/` that planning will start
 checking.
 
 Prompts and plans that an older runlist saved before any config existed are
-carried into the new folders when setup writes the first config, with their
-references and local handoff/ownership state fixed. Foreign files stay put.
-Preview lists each move, and `--no-carry-prompts` leaves these artifacts in
-place instead.
+carried into the new folders when setup writes the first config, or turns
+planning on in a project that saved handoffs, with their references and local
+handoff/ownership state fixed. Foreign files stay put. Preview lists each move,
+and `--no-carry-prompts` leaves these artifacts in place instead.
 
 Run this inside the intended project folder:
 

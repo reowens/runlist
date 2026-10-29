@@ -37,6 +37,7 @@ export async function runPrompts(argv, config, opts = {}) {
   const sub = argv[0];
 
   if (sub && REMOVED_SUBCOMMANDS.has(sub)) {
+    if (isHandoffsMode(config)) die(`\`runlist prompts ${sub}\` was removed — a prompt is pending or archived, and nothing else.\nTo set one aside, \`runlist prompts archive <file>\`.`);
     die(`\`runlist prompts ${sub}\` was removed — a prompt is pending or archived, and nothing else.\n`
       + 'A prompt directs work, so parking one instead of archiving it leaves work state outside the\n'
       + 'plan that owns it. Lift its content into that plan, then `runlist prompts archive <file>`.');

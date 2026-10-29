@@ -11,6 +11,9 @@ import { availableSessionId, prepareOwnershipMigration } from './pickup.mjs';
 import { moveFileAtomic } from './atomic-mutation.mjs';
 import { configuredReferenceFields, createReferenceIdentitySet, planReferenceMove, rewriteDocumentReferences } from './reference-planner.mjs';
 import { reportMovedCodeRefs } from './code-refs.mjs';
+import { isHandoffsMode, readsAsPrompt } from './handoffs-scope.mjs';
+import { promptDirectory } from './new.mjs';
+import { PROMPT_DIR } from './naming.mjs';
 
 export async function runRename(argv, config, opts = {}) {
   const { dryRun } = opts;
@@ -34,6 +37,16 @@ export async function runRename(argv, config, opts = {}) {
     newPath = path.resolve(config.repoRoot, newInput.endsWith('.md') ? newInput : `${newInput}.md`);
   } else {
     newPath = path.join(path.dirname(oldPath), newInput.endsWith('.md') ? newInput : `${newInput}.md`);
+  }
+  // One prompt location (src/naming.mjs): before any config and where
+  // planning is off, a prompt moves within the prompt folder at the project's
+  // top and nowhere else, so a rename never starts a second docs/prompts/.
+  if ((!config.configFound || isHandoffsMode(config)) && readsAsPrompt(oldPath)) {
+    const folder = config.configFound ? promptDirectory(config) : path.join(config.repoRoot, ...PROMPT_DIR.split('/'));
+    const relative = path.relative(folder, newPath);
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+      die(`Nothing renamed: prompts live in ${toRepoPath(folder, config.repoRoot)}/, and ${toRepoPath(newPath, config.repoRoot)} is outside it. Choose a name inside ${toRepoPath(folder, config.repoRoot)}/.`);
+    }
   }
   if (existsSync(newPath)) die(`Target already exists: ${toRepoPath(newPath, config.repoRoot)}`);
   newPath = authorizeManagedDestination(newPath, config, { root: sourceAuthorization.root, kind: 'Rename destination' }).path;

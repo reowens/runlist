@@ -6,6 +6,7 @@ import { createInterface } from 'node:readline';
 import { transactionResolutionAdvice } from './atomic-mutation.mjs';
 import { which } from './util.mjs';
 import { LEGACY_PROMPT_DIR, PROMPT_DIR } from './naming.mjs';
+import { inLegacyPromptFolder, legacyPromptFolderPlace } from './managed-path.mjs';
 import { persistentCliOnPath, PERSISTENT_CLI_WARNING } from './installation.mjs';
 
 const workerUrl = new URL('./setup-worker.mjs', import.meta.url).href;
@@ -47,7 +48,7 @@ function parse(argv, config) {
 // preserved: setup rewrites that config's mode and root lines, widening the
 // root from docs/prompts to docs so the prompts keep their folder
 // (src/handoffs-mode.mjs).
-function validate(choices, config, existing, upgrade = false) {
+function validate(choices, config, existing, upgrade = false, cwd = config.repoRoot) {
   if (!policies.includes(choices.promptTracking)) throw new Error('--prompt-tracking must be untracked, tracked, or local.');
   if (!hosts.includes(choices.host)) throw new Error('--host must be none, claude, codex, or opencode.');
   if (choices.docsRoot !== null) {
@@ -59,14 +60,18 @@ function validate(choices, config, existing, upgrade = false) {
     }
   }
   if (upgrade && choices.docsRoot !== null && path.posix.normalize(choices.docsRoot).replace(/\/$/, '') !== 'docs') {
-    throw new Error(`Turning planning on in this project makes docs/ the docs root, the folder that holds its prompts (docs/prompts/), so --docs-root cannot choose another. Rerun setup without --docs-root.`);
+    throw new Error(`This project's prompts are in ${PROMPT_DIR}/ and stay there when planning is turned on, so the docs root becomes docs/, the folder that holds them; --docs-root ${choices.docsRoot} would leave them outside it. Rerun setup without --docs-root.`);
   }
   if (!existing || upgrade) choices.docsRoot ??= 'docs';
-  // Prompts are saved in <docs root>/prompts/, or in the docs root itself when
-  // it is named prompts. Neither may be the root prompts/ (one prompt location,
-  // src/naming.mjs).
-  if (!existing && ['.', LEGACY_PROMPT_DIR].includes(path.posix.normalize(choices.docsRoot).replace(/\/$/, ''))) {
-    throw new Error(`--docs-root ${choices.docsRoot} would save prompts in ${LEGACY_PROMPT_DIR}/ at the project root, where runlist no longer writes. Choose another docs folder (the default, docs, keeps prompts in ${PROMPT_DIR}/).`);
+  // A new docs root saves prompts in <docs root>/prompts/, which may not be
+  // in the root prompts/, by path or through a symlinked folder (one prompt
+  // location, src/naming.mjs): `.`, `prompts` and anything below it refuse
+  // before anything is scaffolded.
+  const promptFolder = existing ? null : path.join(path.resolve(cwd, choices.docsRoot), 'prompts');
+  if (promptFolder && inLegacyPromptFolder(promptFolder, cwd)) {
+    const relative = path.relative(cwd, promptFolder).split(path.sep).join('/');
+    const where = relative === LEGACY_PROMPT_DIR ? `${LEGACY_PROMPT_DIR}/ at the project root` : `${relative}/, which ${legacyPromptFolderPlace(promptFolder, cwd)}`;
+    throw new Error(`--docs-root ${choices.docsRoot} would save prompts in ${where}; runlist no longer writes there. Choose another docs folder (the default, docs, keeps prompts in ${PROMPT_DIR}/).`);
   }
   if (choices.adopt.length > 100) throw new Error('Setup accepts at most 100 explicitly selected adoption files per run.');
   choices.adopt = [...new Set(choices.adopt)];
@@ -220,7 +225,7 @@ export async function runSetup(argv, config, options = {}) {
       session = options.ask ? { ask: options.ask, close() {} } : terminal(input, prompts);
       await collect(choices, seen, existing, session.ask);
     }
-    validate(choices, config, existing, upgrade);
+    validate(choices, config, existing, upgrade, cwd);
     const configPath = existing ? config.configPath : null;
     const request = { cwd, configPath, choices };
     const configSnapshot = existing ? readFileSync(configPath, 'utf8') : null;
@@ -228,7 +233,7 @@ export async function runSetup(argv, config, options = {}) {
     const plan = prepared.data;
     if (plan.skippedValidationHooks.length) report.outstanding.push({ description: `Custom ${plan.skippedValidationHooks.join('/')} hooks were not executed by setup validation; run runlist check to execute the project's custom checks` });
     const adoptionSnapshots = plan.adoptions.map(item => [item.path, readFileSync(item.path, 'utf8')]);
-    const carryMoves = plan.carry.moves;
+    let carryMoves = plan.carry.moves;
     if (plan.upgrade) report.actions.push({ id: 'upgrade', description: `Turn planning on: rewrite mode and root in the handoffs config (prompts stay in ${plan.upgrade.promptRoot}/)`, path: configPath,
       preview: `Config before:\n${plan.upgrade.source}Config after:\n${plan.upgrade.content}` });
     if (plan.upgrade?.newlyListed?.count) {
@@ -245,13 +250,18 @@ export async function runSetup(argv, config, options = {}) {
     const carryNotice = () => `notice: files remain outside the configured roots${!choices.carryPrompts ? `; carry-over was disabled.${report.mode === 'preview' ? ' Before applying, rerun runlist setup without --no-carry-prompts to carry them.' : ''} After a config is written, rerunning setup does not carry these files; include their folders in the config root export to keep using them without moving files` : '; include their folders in the root export to keep using them without moving files'}`;
     // The root prompts/ older builds saved prompts in is never a root to add
     // (one prompt location, src/naming.mjs): what stays there is left alone.
-    const remainingPaths = plan.carry.remaining.map(file => path.relative(cwd, file).split(path.sep).join('/'));
-    const inLegacyFolder = file => file.startsWith(`${LEGACY_PROMPT_DIR}/`);
-    const remainingNotice = remainingPaths.some(file => !inLegacyFolder(file)) ? { description: carryNotice(), paths: remainingPaths.filter(file => !inLegacyFolder(file)) } : null;
-    if (remainingNotice) report.notes.push(remainingNotice);
     const legacyNotice = () => `notice: left untouched in ${LEGACY_PROMPT_DIR}/, which runlist does not read or write once set up (prompts live in ${PROMPT_DIR}/)${!choices.carryPrompts ? `; carry-over was disabled.${report.mode === 'preview' ? ' Before applying, rerun runlist setup without --no-carry-prompts to carry them.' : ''} After a config is written, rerunning setup does not carry these files` : ''}`;
-    const legacyRemaining = remainingPaths.some(inLegacyFolder) ? { description: legacyNotice(), paths: remainingPaths.filter(inLegacyFolder) } : null;
-    if (legacyRemaining) report.notes.push(legacyRemaining);
+    let remainingNotice = null;
+    let legacyRemaining = null;
+    const noteRemaining = carry => {
+      report.notes = report.notes.filter(item => item !== remainingNotice && item !== legacyRemaining);
+      const remainingPaths = carry.remaining.map(file => path.relative(cwd, file).split(path.sep).join('/'));
+      const inLegacyFolder = file => file.startsWith(`${LEGACY_PROMPT_DIR}/`);
+      remainingNotice = remainingPaths.some(file => !inLegacyFolder(file)) ? { description: carryNotice(), paths: remainingPaths.filter(file => !inLegacyFolder(file)) } : null;
+      legacyRemaining = remainingPaths.some(inLegacyFolder) ? { description: legacyNotice(), paths: remainingPaths.filter(inLegacyFolder) } : null;
+      report.notes.unshift(...[remainingNotice, legacyRemaining].filter(Boolean));
+    };
+    noteRemaining(plan.carry);
     if (plan.layout.sample) report.notes.push({ description: 'An existing example sample is preserved unchanged; archive or edit it explicitly when ready', path: plan.layout.sample });
     if (plan.policy) report.actions.push({ id: 'policy', description: `Set promptTracking to ${choices.promptTracking} using the narrow config setter`, path: configPath });
     else report.actions.push({ id: 'policy-info', description: `Prompt tracking: ${choices.promptTracking}${existing ? (config.promptTrackingSource === 'legacy-default' ? ' (legacy compatibility default preserved; choose --prompt-tracking explicitly)' : ' (preserve existing choice)') : ' (new project default/selection)'}` });
@@ -272,8 +282,14 @@ export async function runSetup(argv, config, options = {}) {
       if (host.status !== 0) report.outstanding.push({ description: `Host preview reported exit ${host.status}; installation may be unavailable or refused` });
       if (!host.available) report.outstanding.push({ description: `${choices.host} CLI is unavailable; install/activation cannot be verified` });
     } else report.actions.push({ id: 'host-info', description: 'Host integration: none' });
-    const untouched = plan.untagged.filter(file => !plan.adoptions.some(item => item.path === file));
-    if (untouched.length) report.outstanding.push({ description: `${untouched.length} pre-existing untagged Markdown file(s) remain untouched; select exact paths with --adopt`, paths: untouched });
+    let untaggedItem = null;
+    const noteUntagged = untagged => {
+      report.outstanding = report.outstanding.filter(item => item !== untaggedItem);
+      const untouched = untagged.filter(file => !plan.adoptions.some(item => item.path === file));
+      untaggedItem = untouched.length ? { description: `${untouched.length} pre-existing untagged Markdown file(s) remain untouched; select exact paths with --adopt`, paths: untouched } : null;
+      if (untaggedItem) report.outstanding.push(untaggedItem);
+    };
+    noteUntagged(plan.untagged);
     if (choices.promptTracking === 'untracked') report.notes.push({ description: 'Leave pending prompts untracked to reduce commit churn; git add -A can still stage prompts that are not ignored' });
     if (plan.layout.files.includes(config.indexPath) || !existing || plan.upgrade) report.actions.push({ id: 'index', description: 'Regenerate the configured generated index after selected changes', path: plan.layout.files.find(file => file === config.indexPath) || path.join(cwd, choices.docsRoot, 'docs.md') });
     if (dryRun || (!flags.yes && !session)) {
@@ -305,15 +321,30 @@ export async function runSetup(argv, config, options = {}) {
     // sequence of honest operations, not an advertised multi-stage transaction.
     const steps = [ ...(plan.upgrade ? ['upgrade'] : []), ...(plan.policy ? ['policy'] : []), 'init', ...plan.adoptions.filter(item => item.candidate).map(item => item.path), ...(plan.firstPlan ? ['plan'] : []), ...(report.actions.some(action => action.id === 'index') ? ['index'] : []) ];
     if (carryMoves.length) steps.unshift('carry');
-    if (!existing) steps.unshift('recover');
+    if (!existing || plan.upgrade) steps.unshift('recover');
     for (const [stepIndex, step] of steps.entries()) {
       const adoption = plan.adoptions.find(item => item.path === step);
       try {
-        const result = runWorker({ ...request, operation: adoption ? 'adopt' : step, ...(step === 'carry' ? { moves: carryMoves } : {}), ...(step === 'upgrade' ? { expectedSource: plan.upgrade.source } : {}), ...(adoption ? { path: step, expectedSource: adoptionSnapshots.find(([file]) => file === step)[1] } : {}) });
+        const result = runWorker({ ...request, operation: adoption ? 'adopt' : step, ...(step === 'carry' ? { moves: carryMoves, expectedSource: plan.upgrade?.source } : {}), ...(step === 'upgrade' ? { expectedSource: plan.upgrade.source } : {}), ...(adoption ? { path: step, expectedSource: adoptionSnapshots.find(([file]) => file === step)[1] } : {}) });
         if (step === 'recover') {
           report.outstanding = report.outstanding.filter(item => !item.id?.startsWith('transaction:'));
+          // A move an earlier command left unfinished is finished or undone
+          // now, so the carry is planned again from the files as recovery
+          // left them, within this run.
           const refreshed = runWorker({ ...request, operation: 'prepare' });
-          if (JSON.stringify(refreshed.data.carry) !== JSON.stringify(plan.carry)) throw new Error('Transaction recovery changed the carry-over sources; rerun setup to review a fresh preview. No config was written.');
+          if (JSON.stringify(refreshed.data.carry) !== JSON.stringify(plan.carry)) {
+            report.outstanding = report.outstanding.filter(item => !plan.carry.outstanding.includes(item));
+            report.actions = report.actions.filter(item => !item.id.startsWith('carry:'));
+            plan.carry = refreshed.data.carry;
+            carryMoves = plan.carry.moves;
+            report.outstanding.push(...plan.carry.outstanding);
+            for (const move of carryMoves) report.actions.push({ id: `carry:${move.from}`, description: `move ${move.from} → ${move.to}`, from: move.from, to: move.to, type: move.type });
+            noteRemaining(plan.carry);
+            noteUntagged(refreshed.data.untagged);
+            const carryAt = steps.indexOf('carry');
+            if (carryMoves.length && carryAt === -1) steps.splice(stepIndex + 1, 0, 'carry');
+            else if (!carryMoves.length && carryAt !== -1) steps.splice(carryAt, 1);
+          }
           continue;
         }
         if (step === 'carry') {

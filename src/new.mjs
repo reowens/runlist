@@ -435,8 +435,9 @@ export function planDirectory(config, template = resolveTemplate('plan', config)
   return routed || path.join(catchAllRoot(config), template.dir || '');
 }
 
-// Only reached where no handoffs config could be created for the prompt: a
-// repository holding plans saved before setup, which setup carries over.
+// Only reached where no handoffs config is created for the prompt: a plan
+// handed off before setup, or a save outside Git in a folder an older runlist
+// saved handoffs or plans in.
 export function unconfiguredPromptHint(config) {
   return config.configFound ? '' : 'No runlist config here yet — run `runlist setup`; it carries this prompt over.\n';
 }
@@ -797,11 +798,16 @@ function assertPromptFolder(target, name, config) {
   die(`Nothing saved: prompts are saved in ${where}/, and \`${name}\` is outside it. Use a plain name (runlist new prompt ${path.basename(name, '.md')} …) or a path inside ${where}/.`);
 }
 
+async function waitingForSetup(config) {
+  const { documentsWaitingForSetup } = await import('./setup-waiting.mjs');
+  return documentsWaitingForSetup(config);
+}
+
 export async function runNew(argv, config, opts = {}) {
   const { dryRun } = opts;
 
   if (argv.find(a => !a.startsWith('-')) === 'decision') {
-    if (isHandoffsMode(config) || !config.configFound) die(planningRefusal('`runlist new decision`'));
+    if (isHandoffsMode(config)) die(planningRefusal('`runlist new decision`', await waitingForSetup(config)));
     return runNewDecisionArgs(argv, config, opts);
   }
 
@@ -892,10 +898,8 @@ export async function runNew(argv, config, opts = {}) {
     if (runlistArg === null && !roadmap) coordination = true;
   }
   // A handoffs-only project scans its prompt folder alone; anything else
-  // created there would land among the prompts and outside every listing. With
-  // no config at all there is no planning yet either: `runlist setup` is the
-  // one way to turn it on, so nothing but a prompt is created before it.
-  if ((isHandoffsMode(config) || !config.configFound) && typeName !== 'prompt') die(planningRefusal(`\`runlist new ${typeName}\``));
+  // created there would land among the prompts and outside every listing.
+  if (isHandoffsMode(config) && typeName !== 'prompt') die(planningRefusal(`\`runlist new ${typeName}\``, await waitingForSetup(config)));
 
   if (!name) {
     if (isInteractive()) {
@@ -1048,6 +1052,7 @@ export async function runNew(argv, config, opts = {}) {
   let handoffsLine = null;
   if (typeName === 'prompt' && !config.configFound && !opts.handoffsPlanned) {
     const setup = await planHandoffsConfig(process.cwd(), config, { dryRun, out: process.stdout });
+    if (setup.previewStopped) return;
     config = setup.config;
     const target = resolveNewTarget(name, typeName, resolveTemplate('prompt', config), config, rootName, { explainRoots: false });
     assertPromptFolder(target, name, config);
@@ -1345,9 +1350,9 @@ function listTemplates(config) {
     all[k] = v;
   }
 
-  // Before setup and where planning is off, a prompt is the one thing `new`
-  // creates, so it is the one type listed.
-  const promptsOnly = !config.configFound || isHandoffsMode(config);
+  // Where planning is off, a prompt is the one thing `new` creates, so it is
+  // the one type listed.
+  const promptsOnly = isHandoffsMode(config);
   process.stdout.write(bold('Available types') + '\n\n');
   for (const [name, tmpl] of Object.entries(all)) {
     if (promptsOnly && name !== 'prompt') continue;

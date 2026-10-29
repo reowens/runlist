@@ -332,6 +332,13 @@ export async function runBaton(argv, config, opts = {}) {
   if (!planPath && !config.configFound) {
     const quiet = { write() {} };
     const setup = await planHandoffsConfig(process.cwd(), config, { dryRun, out: json ? quiet : process.stderr });
+    if (setup.previewStopped) {
+      const result = { operation: 'baton', parentPrompt, dryRun: true, disposition: 'would-change', wouldChange: true, mode: 'slug', status: null,
+        repositoryFiles: [], sessionFiles: [], generatedFiles: [], deferredGeneratedFiles: [], prompt: null, plan: null, planMovement: null,
+        replacement: null, claimRelease: null, handoffDone: true, savedPrompt: null, handoffsSetup: null, pendingRecovery: true };
+      if (json) process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+      return result;
+    }
     config = setup.config;
     resolvePending(setup);
     await carryLegacyPrompts(setup, { dryRun, out: json ? quiet : process.stderr });

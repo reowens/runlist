@@ -11,6 +11,7 @@ import {SourceEditError, assertPrivateEditorStorage, sourceRevision} from './sou
 import {stateDir} from './naming.mjs';
 import {parseNativeRecord} from './native-record.mjs';
 import {recordSettings,recordSettingsPath,recordSettingsText,renderNewRecord,assertRecordTrackable} from './record-create.mjs';
+import {isHandoffsMode,PLANNING_OFF} from './handoffs-scope.mjs';
 
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 const fail=(code,message)=>{throw new SourceEditError(code,message);};
@@ -66,13 +67,17 @@ export function createAppDocuments({config,actor,library}) {
   const guards=()=>{const current=config.configPath?hash(readFileSync(config.configPath)):null;if(current!==initialConfig)fail('creation-review-stale','Configuration changed. Reopen the checkout before creating a document.');return {templates:readTemplateStore(config).revision,config:current};};
   async function options(){
     const catalog=appDocumentTemplates(config),roots=(config.docsRoots??[config.docsRoot]).map(root=>path.relative(config.repoRoot,root).split(path.sep).join('/'));
-    const templates=catalog.templates.filter(t=>config.validTypes.has(t.type)).map(t=>{
+    // Where planning is off (a handoffs-only project) only prompts are
+    // created, and the record folders belong to plans.
+    const handoffs=isHandoffsMode(config);
+    const templates=catalog.templates.filter(t=>config.validTypes.has(t.type)&&(!handoffs||t.type==='prompt')).map(t=>{
       const target=t.type==='plan'?(config.docsRoots??[config.docsRoot]).find(r=>path.basename(r)==='plans'):null;
       const folder=target??(t.type==='plan'?path.join(catchAllRoot(config),'plans'):catchAllRoot(config));
       const statuses=[...(config.typeStatuses?.get(t.type)??config.validStatuses)].filter(s=>s!=='in-session'&&!config.lifecycle.archiveStatuses.has(s));
       return {...t,folder:path.relative(config.repoRoot,folder).split(path.sep).join('/'),statuses,defaultStatus:statuses.includes(t.defaultStatus)?t.defaultStatus:statuses[0]};
     });
     let records=null,recordError=null;
+    if(handoffs)return {...catalog,roots,templates,records,recordError:PLANNING_OFF};
     try{
       records=recordSettings(config,safe,destination);
       if(records.needsSetup){const existing=(await library?.all()??[]).flatMap(row=>row.recordRepositoryId?[row.recordRepositoryId]:[]);records=recordSettings(config,safe,destination,existing);}
@@ -83,6 +88,10 @@ export function createAppDocuments({config,actor,library}) {
   function publicReview(value){const parsed=value.native?parseNativeRecord(value.source):null;return {operationId:value.id,state:value.state,path:value.path,source:value.source,revision:value.revision,diagnostics:value.diagnostics,...(parsed?{record:parsed.record,setup:value.setup??null}:{})};}
   async function preview(context,request) {
     const who=actor(context);if(who.kind!=='human'||!who.id)fail('forbidden','Document creation requires a local human.');
+    if(isHandoffsMode(config)){
+      const known=appDocumentTemplates(config).templates.find(t=>t.name===request.template);
+      if(['flag','decision'].includes(request.template)||(known&&known.type!=='prompt'))fail('planning-off',PLANNING_OFF);
+    }
     const catalog=await options(),template=catalog.templates.find(t=>t.name===request.template);
     if(!template)fail('invalid-template',catalog.recordError??'Choose an available document or record template.');
     if(typeof request.title!=='string'||!request.title.trim()||request.title.length>200||/[\r\n\0]/.test(request.title))fail('invalid-request','Give the document a single-line title, up to 200 characters.');
@@ -123,6 +132,7 @@ export function createAppDocuments({config,actor,library}) {
   }
   function commit(context,{operationId}) {
     const prior=read(operationId);if(!prior)fail('operation-missing','Review the document before creating it.');own(context,prior);
+    if(isHandoffsMode(config)&&prior.state!=='committed'&&(prior.native||parseSimpleFrontmatter(extractFrontmatter(prior.source).frontmatter).type!=='prompt'))fail('planning-off',PLANNING_OFF);
     return withPathLocks([location(operationId),destination(prior.path),...(prior.native?[safe(recordSettingsPath(config))]:[])],{repoRoot:config.repoRoot},()=>{
       const value=read(operationId);own(context,value);const file=destination(value.path);
       if(value.state==='discarded')fail('creation-discarded','This review was discarded. Prepare a new document.');

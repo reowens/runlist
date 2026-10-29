@@ -6,6 +6,7 @@ import { buildGraph } from './graph.mjs';
 import { resolveDocPath, resolveRefPath, toRepoPath, capitalize, die } from './util.mjs';
 import { allocateOutputIdentities } from './output-identity.mjs';
 import { assertInsideHandoffs } from './handoffs-scope.mjs';
+import { assertOutsideLegacyPromptFolder } from './managed-path.mjs';
 
 export function runExport(argv, config, opts = {}) {
   const positional = [];
@@ -27,6 +28,14 @@ export function runExport(argv, config, opts = {}) {
     if (argv[i] === '--config') { i++; continue; }
     if (argv[i].startsWith('-')) continue;
     positional.push(argv[i]);
+  }
+
+  // Before any config and where planning is off, nothing is written into the
+  // root prompts/ (src/naming.mjs), an export file or folder included.
+  const destination = output ?? (format === 'html' ? (existsSync('dotmd-export') ? 'dotmd-export' : 'runlist-export') : null);
+  if (destination) {
+    try { assertOutsideLegacyPromptFolder(destination, config, 'Export output'); }
+    catch (err) { die(err.message); }
   }
 
   if (!['md', 'html', 'json'].includes(format)) {

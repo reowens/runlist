@@ -20,19 +20,27 @@ prompt folder itself, created with `docs/` when missing. The scan never reaches
 the project's docs, so `check` stays quiet and there is no index. Prompts go to
 `docs/prompts/` in every mode, before any config too (`PROMPT_DIR` in
 `src/naming.mjs`), anchored at the Git toplevel; nothing creates a file in a
-root `prompts/` before setup or in handoffs mode (`authorizeManagedDestination`
-refuses it). Prompts an older runlist saved there, at any depth, are carried
+root `prompts/` before setup or in handoffs mode, by its path or through a
+symlinked folder (`inLegacyPromptFolder` in `src/managed-path.mjs`, checked by
+`authorizeManagedDestination`, export outputs, setup's `--docs-root` and the
+first save). Configured planning projects keep the prompt folder they chose
+(`root: '.'` keeps `prompts/`). Prompts an older runlist saved there, at any depth, are carried
 into `docs/prompts/` with their folders by the first save, by setup, and before
 any document-changing command in a repo with no config (`carryBeforeChange`,
 called from the dispatcher), with setup's transactional carry
 (`src/setup-carry.mjs`). `config.planning` is false there: plan views print the
 planning-off line, plan verbs refuse, and hook wording drops plan talk.
 `runlist setup` upgrades the config in place (rewrites `mode`, widens `root` to
-`docs`, adds the index) and keeps prompts put. It is the only way planning is
-created: before any config, `new` makes prompts and nothing else.
-Plan-mode baton, and repositories holding plans saved before any config, keep
-the old pre-setup behaviour (no config written) so setup's carry-over still
-owns those plans.
+`docs`, adds the index) and keeps prompts put. Planning is blocked only in
+handoffs mode: a repository with no config still starts planning as it always
+did (`init`, `setup`, `new plan`, …). Plans and other runlist documents saved
+before any config do not stop the first save from writing the config; they
+stay where they are, and the planning-off line counts the ones setup brings in
+(`documentsWaitingForSetup` in `src/setup-waiting.mjs`, setup's own carry
+planner, never on a hook path). Setup's upgrade carries them (`plans/`, the
+root `prompts/`) under the pre-config roots (`preConfigView`) before it
+rewrites the config. Plan-mode baton (a plan handed off before setup) keeps
+the old pre-setup behaviour (no config written).
 
 The rules that keep it safe, and where each one lives:
 - **The prompt folder is often the user's.** In handoffs mode runlist manages
@@ -44,14 +52,10 @@ The rules that keep it safe, and where each one lives:
 - **Git decides where the config goes.** The `.git` walk is only a hint; the
   writing path asks `git rev-parse` and refuses unless its worktree top and git
   dir match the nearest `.git` entry. Hooks keep to stat calls.
-- **Absence needs a complete scan.** Whether pre-config plans or prompts would
-  be hidden comes from the recursive document scan of the Git top (skipping
-  `.git` and `node_modules`), on the save path only. An unreadable folder means
-  "unknown", which keeps the unconfigured behaviour.
 - **Finish, plan, check, carry, then publish.** `planHandoffsConfig` first
   finishes moves an earlier command left unfinished, under the unconfigured
-  roots that authorized them (a config written over one strands it), then
-  decides without writing; the caller runs every refusing check against
+  roots that authorized them (a config written over one strands it; a dry-run
+  says so and stops there), then decides without writing; the caller runs every refusing check against
   `docs/prompts/` as the carry will leave it (`existsAfterCarry`,
   `carriedOnto`); only then does the carry run and `publishHandoffsConfig`
   write. A config every command imports must never

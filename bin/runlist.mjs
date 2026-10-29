@@ -14,6 +14,7 @@ import { focusedCommandHelp, unsupportedCommandHelp } from '../src/help.mjs';
 import {
   KNOWN_COMMANDS,
   canonicalCommand,
+  commandDefinition,
   commandOwnsOption,
   commandPlanning,
   commandPolicy,
@@ -1512,8 +1513,9 @@ refuses the save and writes no config. Other files in prompts/ stay put.
 Only type: prompt files in docs/prompts/ are runlist's: plan views and reads
 filtered to another --type say planning is off; plan actions and files outside
 that folder refuse with the same line. Outside a Git working tree
-baton refuses; plans or prompts saved before any config that the new config
-would hide keep the unconfigured behaviour (run \`runlist setup\`).
+baton refuses. Plans and prompts saved before any config elsewhere in the
+repository stay where they are; the planning-off line counts the ones
+\`runlist setup\` brings in.
 
 The resume (10–20 lines): the next concrete decision plus any gotchas, and the
 paths of the plans/docs it concerns — not a recap of the plan body.
@@ -2053,6 +2055,23 @@ function optionValues(args, option) {
   return values;
 }
 
+// Where planning is off, the briefing views end with the planning-off line.
+async function writePlanningOffLine(config) {
+  const { planningOffLine } = await import('../src/handoffs-scope.mjs');
+  const { documentsWaitingForSetup } = await import('../src/setup-waiting.mjs');
+  process.stdout.write(`${planningOffLine(await documentsWaitingForSetup(config))}\n`);
+}
+
+// A type a command takes as a positional argument rather than --type, which
+// the planning gate reads like one: `statuses migrate <type>` and the new
+// value of `migrate type <old> <new>`.
+function positionalTypeSelector(command, args) {
+  const positional = args.filter(arg => !arg.startsWith('-'));
+  if (command === 'statuses' && positional[0] === 'migrate' && positional[1]) return { type: positional[1], spelling: `statuses migrate ${positional[1]}` };
+  if (command === 'migrate' && positional[0] === 'type' && positional[2]) return { type: positional[2], spelling: `migrate type ${positional[1]} ${positional[2]}` };
+  return null;
+}
+
 // The verbs that can change a document, for the carry that runs before them
 // in a repository with no config (src/handoffs-mode.mjs carryBeforeChange).
 const DOCUMENT_CHANGES = new Set(['use', 'next', 'archive', 'set', 'status', 'bulk', 'bulk-tag', 'touch', 'rename', 'migrate', 'fix-refs', 'sync-status', 'fix-membership', 'record', 'decision']);
@@ -2136,9 +2155,40 @@ async function main() {
     }
   }
 
+  // One help renderer for `runlist help <cmd>` and `runlist <cmd> --help`, so
+  // both spellings say the same thing, including where planning is off.
+  const renderCommandHelp = async (name, helpArgs) => {
+    if (_resolvedConfig?.mode === 'handoffs') {
+      if (commandPlanning(name, helpArgs)) {
+        const { planningOffLine } = await import('../src/handoffs-scope.mjs');
+        const { documentsWaitingForSetup } = await import('../src/setup-waiting.mjs');
+        return `${planningOffLine(await documentsWaitingForSetup(_resolvedConfig))}\n`;
+      }
+      const { handoffsCommandHelp } = await import('../src/handoffs-help.mjs');
+      const text = handoffsCommandHelp(name);
+      if (text) return `${text}\n`;
+    }
+    const focused = focusedCommandHelp(name, helpArgs);
+    let text = focused?.fallback ? `No focused help for this request; showing complete \`runlist ${name} --help\`.\n\n` : '';
+    text += `${focused?.text ?? HELP[name] ?? commandUsage(name)}\n`;
+    if (name === 'new' && !focused?.text) {
+      // Best effort: outside a runlist repo, or with a broken config, the
+      // static help above is the whole answer.
+      try {
+        const repoConfig = _resolvedConfig;
+        if (repoConfig?.configFound !== false) {
+          const { newHelpForRepo } = await import('../src/new.mjs');
+          text += `\n${newHelpForRepo(repoConfig)}\n`;
+        }
+      } catch { /* static help already printed */ }
+    }
+    return text;
+  };
+
   if (command === 'help' || command === '--help' || command === '-h') {
     const topic = restArgs[0];
-    await captureHelpConfig(topic ? (HELP[topic] || HELP[`help:${topic}`] ? topic : '(unknown)') : '_main');
+    const topicCommand = topic && commandDefinition(topic) && !HELP[`help:${topic}`] ? commandDefinition(topic).name : null;
+    await captureHelpConfig(topic ? (HELP[topic] || HELP[`help:${topic}`] || topicCommand ? topic : '(unknown)') : '_main');
     if (_resolvedConfig?.mode === 'handoffs' && (!topic || topic === 'all' || topic === 'statuses')) {
       process.stdout.write(`${topic === 'statuses' ? HANDOFFS_STATUS_HELP : HANDOFFS_HELP}\n`);
       return;
@@ -2146,6 +2196,7 @@ async function main() {
     if (topic) {
       const key = `help:${topic}`;
       if (HELP[key]) { process.stdout.write(`${HELP[key]}\n`); return; }
+      if (topicCommand) { process.stdout.write(await renderCommandHelp(topicCommand, [])); return; }
       if (HELP[topic]) { process.stdout.write(`${HELP[topic]}\n`); return; }
       process.stderr.write(`Unknown help topic: ${topic}\n\nAvailable topics: all, statuses\nPer-command help: runlist <cmd> --help\n`);
       process.exitCode = 1;
@@ -2180,26 +2231,8 @@ async function main() {
   if (args.includes('--help') || args.includes('-h')) {
     requireCommandPolicy(command, dispatchPolicy);
     if (!hostDiagnostics && !updateInspection) await captureHelpConfig(command);
-    // A planning command's help, where planning is off, is that line.
-    if (_resolvedConfig?.mode === 'handoffs' && commandPlanning(command, restArgs.filter(arg => arg !== '--help' && arg !== '-h'))) {
-      const { PLANNING_OFF } = await import('../src/handoffs-scope.mjs');
-      process.stdout.write(`${PLANNING_OFF}\n`);
-      return;
-    }
-    const focused = focusedCommandHelp(command, restArgs);
-    if (focused?.fallback) process.stdout.write(`No focused help for this request; showing complete \`runlist ${command} --help\`.\n\n`);
-    process.stdout.write(`${focused?.text ?? HELP[command] ?? commandUsage(command)}\n`);
-    if (command === 'new' && !focused?.text) {
-      // Best effort: outside a runlist repo, or with a broken config, the
-      // static help above is the whole answer.
-      try {
-        const repoConfig = _resolvedConfig;
-        if (repoConfig?.configFound !== false) {
-          const { newHelpForRepo } = await import('../src/new.mjs');
-          process.stdout.write(`\n${newHelpForRepo(repoConfig)}\n`);
-        }
-      } catch { /* static help already printed */ }
-    }
+    const helpArgs = restArgs.filter(arg => arg !== '--help' && arg !== '-h');
+    process.stdout.write(await renderCommandHelp(command, _resolvedConfig?.mode === 'handoffs' ? helpArgs : restArgs));
     return;
   }
 
@@ -2317,8 +2350,10 @@ async function main() {
   // arguments ask for a type other than prompts, says planning is off and
   // names the command that turns it on. The arguments are read as the command
   // will run them: a preset's own arguments included, every --type counted
-  // (repeated, comma-separated, or --type=x). This runs before argument
-  // validation so `runlist runlist` with no hub gets the same answer.
+  // (repeated, comma-separated, or --type=x), and the positional type a
+  // command takes (`statuses migrate <type>`, `migrate type <old> <new>`).
+  // This runs before argument validation so `runlist runlist` with no hub
+  // gets the same answer.
   if (config.mode === 'handoffs') {
     const { requirePlanning } = await import('../src/handoffs-scope.mjs');
     const preset = config.presets[command];
@@ -2326,13 +2361,17 @@ async function main() {
     const json = effective.includes('--json');
     const types = [...typeArgs, ...optionValues(effective, '--type')].flatMap(value => value.split(',')).map(type => type.trim()).filter(Boolean);
     const others = types.filter(type => type !== 'prompt');
+    const positionalType = preset ? null : positionalTypeSelector(command, restArgs);
     const planning = commandPlanning(command, restArgs);
     const typed = !planning && others.length > 0;
-    const requirement = planning?.requirement ?? (typed ? (preset || commandPolicy(command)?.mutation === 'none' ? 'view' : 'action') : null);
+    const selected = !planning && !typed && positionalType && positionalType.type !== 'prompt';
+    const requirement = planning?.requirement ?? (typed ? (preset || commandPolicy(command)?.mutation === 'none' ? 'view' : 'action') : selected ? 'action' : null);
     if (requirement) {
       for (const w of config.configWarnings ?? []) warn(w);
-      const what = `\`runlist ${[command, planning?.subcommand].filter(Boolean).join(' ')}${typed ? ` --type ${others.join(',')}` : ''}\``;
-      if (requirePlanning(config, what, requirement, { json })) return;
+      const what = selected ? `\`runlist ${positionalType.spelling}\``
+        : `\`runlist ${[command, planning?.subcommand].filter(Boolean).join(' ')}${typed ? ` --type ${others.join(',')}` : ''}\``;
+      const { documentsWaitingForSetup } = await import('../src/setup-waiting.mjs');
+      if (requirePlanning(config, what, requirement, { json, waiting: await documentsWaitingForSetup(config) })) return;
     }
   }
 
@@ -2358,6 +2397,15 @@ async function main() {
         const move = carried.moves.find(item => [process.cwd(), config.repoRoot].some(base => path.resolve(base, arg) === item.source));
         return move ? move.target : arg;
       });
+      // Run from a subfolder, the docs root is that subfolder, and the moved
+      // prompts are in docs/prompts/ at the project's top: the command reads
+      // them there.
+      if (path.resolve(config.docsRoot) !== path.resolve(config.repoRoot)) {
+        const execution = config._execution;
+        config = await resolveConfig(config.repoRoot);
+        Object.defineProperty(config, '_execution', { value: execution, enumerable: false });
+        _resolvedConfig = config;
+      }
     }
   }
 
@@ -2925,10 +2973,7 @@ async function main() {
       }, null, 2) + '\n');
     } else {
       process.stdout.write(renderBriefing(index, config));
-      if (config.mode === 'handoffs') {
-        const { PLANNING_OFF } = await import('../src/handoffs-mode.mjs');
-        process.stdout.write(`${PLANNING_OFF}\n`);
-      }
+      if (config.mode === 'handoffs') await writePlanningOffLine(config);
     }
     return;
   }
@@ -3000,6 +3045,7 @@ async function main() {
       return;
     }
     process.stdout.write(renderContext(index, config, { summarize, model }));
+    if (config.mode === 'handoffs') await writePlanningOffLine(config);
     return;
   }
 

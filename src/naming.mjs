@@ -29,6 +29,11 @@ export const CONFIG_FILENAMES = [
 export const PROMPT_DIR = 'docs/prompts';
 export const LEGACY_PROMPT_DIR = 'prompts';
 
+// Prompt statuses older builds wrote and later dropped: a prompt saved with
+// one is still one runlist saved (carried like any other), and `check` names
+// the verb that settles it rather than calling the status unknown.
+export const RETIRED_PROMPT_STATUSES = new Set(['held', 'shelved', 'claimed']);
+
 // Before any config the docs root is the working folder itself, so prompts sit
 // two levels down in it. A layout projected for a config about to be written
 // (init, setup) has a docs root of its own and keeps the usual prompts/ in it.

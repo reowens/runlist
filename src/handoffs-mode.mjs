@@ -5,8 +5,7 @@ import path from 'node:path';
 import { locateConfig, resolveConfig } from './config.mjs';
 import { createFileExclusive, inspectTransactions, MutationConflictError, recoverAbandonedTransactions, withPathLocks } from './atomic-mutation.mjs';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
-import { collectDocFiles } from './index.mjs';
-import { authorizeRepoGeneratedPath } from './managed-path.mjs';
+import { authorizeRepoGeneratedPath, inLegacyPromptFolder, legacyPromptFolderPlace } from './managed-path.mjs';
 import { CONFIG_FILENAMES, LEGACY_PROMPT_DIR, PROMPT_DIR } from './naming.mjs';
 import { dim } from './color.mjs';
 import { die } from './util.mjs';
@@ -116,37 +115,6 @@ function isDirectory(file) {
   try { return lstatSync(file).isDirectory(); } catch { return false; }
 }
 
-function inside(directory, file) {
-  const rel = path.relative(directory, file);
-  return Boolean(rel) && !rel.startsWith('..') && !path.isAbsolute(rel);
-}
-
-// Everything runlist saved before there was a config, found the way the
-// unconfigured commands find it (the recursive document scan), rooted at every
-// folder the new config could hide. Dependency and Git folders are skipped:
-// nothing there is the project's handoff. Only the explicit save path calls
-// this; hooks never do. A scan that could not read a folder or file proves
-// nothing about absence, so it reports itself incomplete.
-function surveyPreConfig(config, bases) {
-  let complete = true;
-  const files = new Set();
-  for (const base of new Set(bases)) {
-    const scan = { ...config, mode: 'plans', docsRoot: base, docsRoots: [base], indexPath: null,
-      excludeDirs: new Set([...(config.excludeDirs ?? []), '.git', 'node_modules']) };
-    for (const file of collectDocFiles(scan, { onError: () => { complete = false; } })) files.add(file);
-  }
-  const plans = [];
-  const prompts = [];
-  for (const file of files) {
-    let type;
-    try { type = parseSimpleFrontmatter(extractFrontmatter(readFileSync(file, 'utf8')).frontmatter ?? '').type; }
-    catch (err) { if (err.code !== 'ENOENT') complete = false; continue; }
-    if (type === 'plan') plans.push(file);
-    else if (type === 'prompt') prompts.push(file);
-  }
-  return { complete, files: [...files], plans, prompts };
-}
-
 // The unconfigured default folders only (and their archives), one level deep,
 // plus the root prompts/ older builds saved in, at any depth: cheap enough for
 // any working directory, including a home folder. That root prompts/ counts as
@@ -199,18 +167,20 @@ function setupLine(created, dryRun) {
  * repository with no config gets one. Returns null when a config exists.
  * Otherwise the plan: `config` is the layout the save is checked against and
  * `carry` moves the prompts an older version saved in the root prompts/ into
- * docs/prompts/. `legacy` marks a save that goes ahead unconfigured, as it did
- * before handoffs mode (runlist documents saved before setup that a new config
- * would hide, or a scan that could not prove there are none); it still saves
- * and carries at the project's top, never below the working folder. Dies when
- * there is no project to anchor a config to, when such a prompt cannot be
+ * docs/prompts/. Plans and other runlist documents saved before setup do not
+ * stop it: they stay where they are, and the planning-off line counts the ones
+ * `runlist setup` brings in. `legacy` marks a save outside Git, where no config
+ * is created; a folder an older version saved handoffs or plans in keeps
+ * working as it did. Dies when there is no project to anchor a config to, when
+ * docs/prompts/ leads into the root prompts/, when such a prompt cannot be
  * carried (a file of the same name is already in docs/prompts/), or when a
  * move an earlier command left unfinished cannot be completed.
  *
  * That last step is the one write: a carry killed part-way leaves a
  * transaction recorded under the unconfigured roots, and it is finished or
- * undone under those same roots (as setup does) before anything is surveyed,
- * so no config is ever written over it. Dry-run only reports it.
+ * undone under those same roots (as setup does) before anything else, so no
+ * config is ever written over it. Dry-run reports it and stops there
+ * (`previewStopped`): what the save would then do depends on that move.
  */
 export async function planHandoffsConfig(cwd, config, { home, dryRun = false, out = process.stderr } = {}) {
   if (config.configFound) return null;
@@ -225,27 +195,31 @@ export async function planHandoffsConfig(cwd, config, { home, dryRun = false, ou
   const verified = verifyGitWorktree(cwd, top);
   if (verified.refusal) die(verified.refusal);
   const before = withScanExclusions(path.resolve(config.docsRoot) === path.resolve(top) ? config : await resolveConfig(top));
-  await finishPreConfigMoves(before, { dryRun, out });
-  const survey = surveyPreConfig(before, [top]);
-  if (!survey.complete || survey.plans.length) return legacySave(before, { dryRun, out });
+  if (await finishPreConfigMoves(before, { dryRun, out })) return { previewStopped: true };
   const configPath = path.join(top, HANDOFFS_CONFIG_FILE);
   const promptDir = path.join(top, ...PROMPT_DIR.split('/'));
+  assertPromptFolderOutsideLegacy(promptDir, top);
   const guardConfig = { repoRoot: top };
   authorizeRepoGeneratedPath(promptDir, guardConfig, { kind: 'Handoffs prompt folder' });
   authorizeRepoGeneratedPath(configPath, guardConfig, { kind: 'Handoffs config' });
   const proposed = await resolveConfig(cwd, configPath, { exports: { mode: 'handoffs', root: PROMPT_DIR, promptTracking: 'untracked' } });
   proposed.configWarnings = [];
   // The root prompts/ older builds saved in, at any depth: its prompts are
-  // carried with setup's transactional carry. Prompts anywhere else would be
-  // hidden, so the save stays unconfigured, as it did before handoffs mode.
+  // carried with setup's transactional carry. Anything else saved before
+  // setup stays put for `runlist setup`.
   const carry = await planCarry(before, proposed);
-  const accounted = new Set([...carry.moves.map(move => move.source), ...carry.outstanding.map(item => item.path)]);
-  if (survey.prompts.some(file => !inside(promptDir, file) && !accounted.has(file))) return legacySave(before, { dryRun, out });
   if (carry.outstanding.length) die(carryRefusal(carry.outstanding));
   const moved = carry.moves.map(({ from, to }) => ({ from, to }));
   const created = { config: HANDOFFS_CONFIG_FILE, promptDirectory: PROMPT_DIR, moved, created: false };
   return { top, cwd, promptRoot: PROMPT_DIR, promptDir, configPath, source: handoffsConfigSource(), config: proposed,
     carry, created, promptDirExists: isDirectory(promptDir), dryRunLine: setupLine(created, true) };
+}
+
+// docs/prompts/ must not lead into the root prompts/ (a docs/ symlinked
+// there, say): checked before anything is carried, published or created.
+function assertPromptFolderOutsideLegacy(promptDir, top) {
+  if (!inLegacyPromptFolder(promptDir, top)) return;
+  die(`Nothing saved: ${PROMPT_DIR}/ here ${legacyPromptFolderPlace(promptDir, top)}, and runlist no longer writes prompts there. Change the link that leads there, then rerun.`);
 }
 
 function withScanExclusions(config) {
@@ -258,15 +232,15 @@ async function planCarry(before, after) {
   return { before, moves: carry.moves, outstanding: carry.outstanding, references: unmanagedCarryReferences(before, carry.moves) };
 }
 
-// The unconfigured save: prompts go to docs/prompts/ at the project's top
-// (the Git toplevel, or outside Git the working folder), never below the
+// The unconfigured save outside Git: prompts go to docs/prompts/ in the
 // working folder, and the root prompts/ is carried there first like any save.
 async function legacySave(before, { dryRun, out }) {
-  await finishPreConfigMoves(before, { dryRun, out });
-  const carry = await planCarry(before, before);
-  if (carry.outstanding.length) die(carryRefusal(carry.outstanding));
+  if (await finishPreConfigMoves(before, { dryRun, out })) return { previewStopped: true };
   const { promptDirectory } = await import('./new.mjs');
   const promptDir = promptDirectory(before);
+  assertPromptFolderOutsideLegacy(promptDir, before.repoRoot);
+  const carry = await planCarry(before, before);
+  if (carry.outstanding.length) die(carryRefusal(carry.outstanding));
   return { legacy: true, top: before.repoRoot, promptRoot: path.relative(before.repoRoot, promptDir).split(path.sep).join('/'), promptDir,
     config: before, carry, created: null, promptDirExists: isDirectory(promptDir), dryRunLine: null };
 }
@@ -280,10 +254,10 @@ async function legacySave(before, { dryRun, out }) {
 // stops the command, as it would stop any change.
 export async function finishPreConfigMoves(before, { dryRun = false, out = process.stderr, nothing = 'Nothing saved', strict = true } = {}) {
   const pending = inspectTransactions(before.repoRoot, { config: before });
-  if (!pending.length) return;
+  if (!pending.length) return false;
   if (dryRun) {
-    out.write(`${dim('[dry-run]')} Would first finish ${pending.length === 1 ? 'a move' : `${pending.length} moves`} an earlier runlist command left unfinished.\n`);
-    return;
+    out.write(`${dim('[dry-run]')} Would first finish ${pending.length === 1 ? 'a move' : `${pending.length} moves`} an earlier runlist command left unfinished; nothing else is previewed until ${pending.length === 1 ? 'it is' : 'they are'} finished. Run the command without --dry-run to finish ${pending.length === 1 ? 'it' : 'them'} first.\n`);
+    return true;
   }
   const sources = pending.flatMap(item => {
     try { return JSON.parse(readFileSync(item.manifestPath, 'utf8')).participants.filter(participant => participant.label === 'source').map(participant => participant.path); }
@@ -301,6 +275,7 @@ export async function finishPreConfigMoves(before, { dryRun = false, out = proce
   // would, so emptied folders go the same way.
   const { cleanupSetupSourceDirectories } = await import('./setup-carry.mjs');
   cleanupSetupSourceDirectories(before, sources.filter(source => !existsSync(source)));
+  return false;
 }
 
 // The carried prompt that would land on `file`, if any: the save there is a
@@ -348,7 +323,7 @@ export async function carryBeforeChange(config, { dryRun = false, out = process.
   const legacy = path.join(config.repoRoot, ...LEGACY_PROMPT_DIR.split('/'));
   if (!holdsMarkdown(legacy)) return null;
   const before = withScanExclusions(path.resolve(config.docsRoot) === path.resolve(config.repoRoot) ? config : await resolveConfig(config.repoRoot));
-  await finishPreConfigMoves(before, { dryRun, out, nothing: 'Nothing changed', strict: false });
+  if (await finishPreConfigMoves(before, { dryRun, out, nothing: 'Nothing changed', strict: false })) return { moves: [], preview: true };
   const carry = await planCarry(before, before);
   if (carry.outstanding.length) die(carryRefusal(carry.outstanding, 'Nothing changed'));
   if (!carry.moves.length) return null;

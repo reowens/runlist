@@ -11,8 +11,8 @@ import { availableSessionId, prepareOwnershipMigration } from './pickup.mjs';
 import { listPendingHandoffs } from './handoff-record.mjs';
 import { captureGitIndexGeneration, isTracked } from './git.mjs';
 import { toRepoPath } from './util.mjs';
-import { locateConfig } from './config.mjs';
-import { CONFIG_FILENAMES, LEGACY_PROMPT_DIR, rootIsWorkingFolder } from './naming.mjs';
+import { locateConfig, resolveConfig } from './config.mjs';
+import { CONFIG_FILENAMES, LEGACY_PROMPT_DIR, RETIRED_PROMPT_STATUSES, rootIsWorkingFolder } from './naming.mjs';
 import { statusMetadataFor } from './status-metadata.mjs';
 
 function markdownFiles(directory, config) {
@@ -57,12 +57,17 @@ function legacyMarkdownFiles(root, config) {
   return files;
 }
 
-// Prompt statuses older builds wrote and later dropped (see the prompt type
-// in src/config.mjs): a prompt saved with one is still one runlist saved.
-const RETIRED_PROMPT_STATUSES = new Set(['held', 'shelved', 'claimed']);
-
 function carryKey(target) {
   return target.normalize('NFC').toLowerCase().normalize('NFC');
+}
+
+// The project as it read before any config: the docs root is the project's
+// top, so the folders an older runlist saved plans and prompts in are the
+// carry's sources. Setup turning planning on in a handoffs-only project
+// carries from here too, under the same roots a fresh setup uses.
+export async function preConfigView(top) {
+  const view = await resolveConfig(top, path.join(top, `${CONFIG_FILENAMES[0]}.pre-config`));
+  return { ...view, configFound: false, configPath: null, mode: 'plans', planning: true };
 }
 
 // Only the resolver's pre-config locations qualify. An unrelated prompts
@@ -182,13 +187,23 @@ export function cleanupSetupSourceDirectories(config, movedSources) {
 // Carry before publishing the first config, so a retained move transaction is
 // recoverable under the same (unconfigured) roots that authorized its source.
 // Each move is transactional; setup itself remains a sequence of stages.
-export function applySetupCarry(moves, config, { testHooks } = {}) {
+// `expectedConfig` ({ path, content }) is the handoffs-only config setup is
+// about to upgrade: it must stay exactly as previewed, and no other config may
+// appear, for the whole carry.
+export function applySetupCarry(moves, config, { testHooks, expectedConfig = null } = {}) {
   const completed = [];
   const createdDirectories = [];
   const expectedSources = new Map(moves.map(move => [move.source, move.expectedSource]));
+  const configUnchanged = () => {
+    if (!expectedConfig) return !config.configFound && !locateConfig(config.configDir).configPath;
+    try { return locateConfig(config.configDir).configPath === expectedConfig.path && readFileSync(expectedConfig.path, 'utf8') === expectedConfig.content; }
+    catch { return false; }
+  };
+  const configGuards = CONFIG_FILENAMES.map(name => path.join(config.configDir, name)).map(file =>
+    expectedConfig && path.resolve(file) === path.resolve(expectedConfig.path) ? { path: file, expectedContent: expectedConfig.content } : { path: file, absent: true });
   try {
     const checkConfig = () => {
-      if (config.configFound || locateConfig(config.configDir).configPath) throw new Error('A config appeared after the carry-over preview; rerun setup.');
+      if (!configUnchanged()) throw new Error(expectedConfig ? 'The config changed after the carry-over preview; rerun setup.' : 'A config appeared after the carry-over preview; rerun setup.');
     };
     checkConfig();
     for (const move of moves) {
@@ -230,7 +245,7 @@ export function applySetupCarry(moves, config, { testHooks } = {}) {
         updates: [...references.updates, ...handoffs],
         creations: ownership ? [{ path: ownership.newRecordPath, content: ownership.newContent, label: 'ownership' }] : [],
         deletions: ownership ? [{ path: ownership.oldRecordPath, expectedContent: ownership.oldContent, label: 'ownership' }] : [],
-        guards: CONFIG_FILENAMES.map(name => ({ path: path.join(config.configDir, name), absent: true })),
+        guards: configGuards,
         gitMove: tracked, gitIndex: tracked ? captureGitIndexGeneration(config.repoRoot) : null,
         operation: 'move', sessionId: availableSessionId(), testHooks: { ...testHooks, beforeMoveSnapshot(info) {
           testHooks?.beforeMoveSnapshot?.(info);
@@ -243,7 +258,7 @@ export function applySetupCarry(moves, config, { testHooks } = {}) {
     }
     return { completed };
   } catch (error) {
-    if (!locateConfig(config.configDir).configPath) {
+    if (configUnchanged()) {
       for (const entry of createdDirectories.reverse()) {
         try {
           const stat = lstatSync(entry.path);

@@ -6,6 +6,7 @@ import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { recordGuardEvent } from './journal.mjs';
 import { readEnv } from './naming.mjs';
 import { promptDirectory, promptRouting } from './new.mjs';
+import { isHandoffsMode, managesFile } from './handoffs-scope.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
@@ -49,6 +50,10 @@ function isPromptPath(p, config) {
   if (typeof s !== 'string' || !s.endsWith('.md')) return false;
   const archiveDir = toSlash(config?.archiveDir || 'archived').replace(/^\/+|\/+$/g, '');
   if (archiveDir && s.split('/').includes(archiveDir)) return false;
+  // Where planning is off, a saved prompt is a `type: prompt` file in the
+  // prompt folder and nothing else (src/handoffs-scope.mjs): the user's own
+  // Markdown there is not one.
+  if (isHandoffsMode(config)) return managesFile(path.resolve(config.repoRoot, s), config);
   if (/(^|\/)prompts\//.test(s)) return true;
   // Respect a configured prompt location too. When prompts share a whole doc
   // root, inspect the file's type rather than treating every Markdown doc as a
@@ -73,6 +78,9 @@ function isPromptPath(p, config) {
 function isManagedDoc(p, config) {
   const s = toSlash(p);
   if (typeof s !== 'string' || !s.endsWith('.md')) return false;
+  // Where planning is off, runlist manages the prompts in the prompt folder
+  // alone, so only their status edits go through `runlist set`.
+  if (isHandoffsMode(config)) return managesFile(path.resolve(config.repoRoot, s), config);
   const roots = config?.docsRoots || (config?.docsRoot ? [config.docsRoot] : ['docs']);
   return roots.some(r => {
     const rNorm = toSlash(r).replace(/\/+$/, '');

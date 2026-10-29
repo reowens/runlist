@@ -68,13 +68,14 @@ Use `runlist setup` rather than rebuilding onboarding from unrelated verbs:
   do not replace the config or move docs to force success.
 - Adopt only user-selected files with repeatable `--adopt <path>`, previewing
   their frontmatter changes before apply. Never blanket-tag existing docs.
-- Fresh setup carries runlist prompts and plans saved before configuration,
-  including archives, into the new folders by default. This finishes the
+- Fresh setup, and setup turning planning on in a handoffs-only project,
+  carries runlist prompts and plans saved before configuration, including
+  archives, into the new folders by default. This finishes the
   scaffold rather than tagging existing documents: only valid runlist
   type/status files in the pre-config output folders qualify. Review each move;
   references and local handoff/ownership state move with it. Foreign files and
   destination collisions stay put and are reported. `--no-carry-prompts` opts
-  out for both prompts and plans. Existing configured projects never carry over.
+  out for both prompts and plans. Other existing configured projects never carry over.
 - Create a first plan only when requested: `--first-plan <slug>` requires
   meaningful, user-supplied `--current-state <text>` (cap 1,500 characters) and
   `--next-step <text>` (cap 800). Ask for missing facts; never invent progress,

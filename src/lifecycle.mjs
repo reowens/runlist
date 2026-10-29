@@ -384,7 +384,9 @@ export async function runStatus(argv, config, opts = {}) {
   let newStatus = argv[1];
 
   if (!opts.suppressDeprecation) {
-    process.stderr.write(dim('`runlist status <file> <status>` is deprecated; prefer `runlist set <status> [<file>]` (note: <status> first; <file> optional when a plan is in-session). Removed in a future major.\n'));
+    process.stderr.write(dim(config.mode === 'handoffs'
+      ? '`runlist status <file> <status>` is deprecated; prefer `runlist set <status> <prompt>` (note: <status> first). Removed in a future major.\n'
+      : '`runlist status <file> <status>` is deprecated; prefer `runlist set <status> [<file>]` (note: <status> first; <file> optional when a plan is in-session). Removed in a future major.\n'));
   }
 
   if (!input) { die('Usage: runlist status <file> <new-status>'); }

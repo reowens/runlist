@@ -91,10 +91,16 @@ turns it on`):
 Other Markdown in the prompt folder is never listed, checked, searched or
 changed. `runlist flag add` still accepts any file in the repository.
 
+Plans an older runlist saved before there was a config don't stop the first
+handoff from setting this up: they stay where they are, and the planning-off
+line says how many `runlist setup` will bring in ("2 runlist documents saved
+before setup are waiting for it.").
+
 To turn planning on, run `runlist setup` in the project. It widens the
 config's root from `docs/prompts` to `docs` and previews first: the config
 before and after, and how many existing Markdown files under `docs/` planning
-will start checking. Your saved handoffs stay where they are.
+will start checking. Your saved handoffs stay where they are, and plans saved
+before setup in `plans/` move to `docs/plans/`.
 
 If a session hook says it found neither `runlist` nor `dotmd` on its PATH, either
 runlist is not installed yet or the app is searching a different PATH than your

@@ -1,6 +1,6 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -61,31 +61,33 @@ const WORKS_WITHOUT_PLANNING = new Map(Object.entries({
   // Setup, help and host plumbing.
   help: 'answers for handoffs where planning is off', completions: 'shell completion', setup: 'turns planning on',
   config: 'config inspection', 'config show': 'config inspection', 'config get': 'config inspection', 'config set': 'promptTracking only', watch: 'proxy: the child command meets the gate',
-  desktop: 'launch only', 'desktop install': 'installs the app', app: 'editor; documents come from the scan, prompts only here',
-  guard: 'hook', hud: 'hook, worded for handoffs', update: 'host refresh', install: 'host install', ship: 'release tooling',
+  desktop: 'launch only', 'desktop install': 'installs the app', app: 'editor over the prompts; its creation API refuses anything but a prompt here',
+  guard: 'hook; where planning is off, only prompts in the prompt folder are saved prompts', hud: 'hook, worded for handoffs', update: 'host refresh', install: 'host install', ship: 'release tooling',
   model: 'local model', 'model status': 'local model', 'model start': 'local model', 'model stop': 'local model',
   'model measure': 'local model', 'model use': 'local model', 'model cap': 'local model', 'self-check': 'internal',
   journal: 'own invocations', errors: 'own errors', misuse: 'own misuse log',
   pickup: 'removed, worded for handoffs', unpickup: 'removed, worded for handoffs', release: 'removed, worded for handoffs',
   finish: 'removed, worded for handoffs', handoff: 'removed, worded for handoffs',
   // The handoff verbs.
-  baton: 'saves a handoff', use: 'resumes a prompt; any other file is outside the handoffs', next: 'resumes the oldest prompt',
-  prompts: 'lists prompts', 'prompts list': 'lists prompts', 'prompts next': 'resumes a prompt', 'prompts use': 'resumes a prompt',
+  baton: 'saves a handoff; help worded for handoffs', use: 'resumes a prompt; any other file is outside the handoffs', next: 'resumes the oldest prompt',
+  prompts: 'lists prompts; help worded for handoffs', 'prompts list': 'lists prompts', 'prompts next': 'resumes a prompt', 'prompts use': 'resumes a prompt',
   'prompts show': 'reads prompts', 'prompts archive': 'archives a prompt', 'prompts link': 'links child handoffs',
-  'prompts new': 'saves a prompt', 'prompts hold': 'prompt status', 'prompts unhold': 'prompt status',
+  'prompts new': 'saves a prompt', 'prompts hold': 'removed, worded for handoffs', 'prompts unhold': 'removed, worded for handoffs',
   // Reads and changes over the documents the scan finds, which here are the
   // prompts alone; a --type other than prompt meets the gate in the dispatcher.
-  list: 'prompts only', json: 'prompts only', briefing: 'worded for handoffs', context: 'worded for handoffs',
+  list: 'prompts only', json: 'prompts only', briefing: 'ends with the planning-off line', context: 'ends with the planning-off line',
   'agent-context': 'worded for handoffs', query: 'prompts only', grep: 'prompts only', show: 'prompts only',
   diff: 'prompts only', summary: 'prompts only', flags: 'flags log', flag: 'flags log', 'flag add': 'flags log',
   'flag accept': 'flags log', 'flag reject': 'flags log', 'flag resolve': 'flags log', 'flag show': 'flags log', 'flag sync': 'flags log',
-  export: 'prompts only', status: 'prompt status', set: 'prompt status', archive: 'archives a prompt', bulk: 'prompts only',
-  'bulk archive': 'archives prompts', touch: 'prompts only', new: 'prompts only; other types refuse in runNew',
-  lint: 'prompts only', rename: 'prompts only', migrate: 'prompts only; a type other than prompt refuses in runMigrate',
+  export: 'prompts only; never writes into the root prompts/', status: 'deprecated prompt status, worded for handoffs', set: 'prompt status, worded for handoffs',
+  archive: 'archives a prompt, worded for handoffs', bulk: 'prompts only', 'bulk archive': 'archives prompts', touch: 'prompts only',
+  new: 'prompts only; other types refuse in runNew; help worded for handoffs',
+  lint: 'prompts only', rename: 'prompts only; a prompt stays in the prompt folder', migrate: 'prompts only; a positional type other than prompt meets the gate',
   'fix-refs': 'prompts only', refs: 'code roots, none in a handoffs config', 'refs repair': 'code roots, none in a handoffs config',
-  doctor: 'maintenance over the prompts', statuses: 'prompt statuses', 'statuses list': 'prompt statuses',
-  'statuses add': 'edits the types block', 'statuses set': 'edits the types block', 'statuses remove': 'edits the types block',
-  'statuses migrate': 'edits the types block', check: 'checks the prompts', index: 'says there is no index here',
+  doctor: 'maintenance over the prompts', statuses: 'prompt statuses, worded for handoffs', 'statuses list': 'prompt statuses',
+  'statuses add': 'edits the types block; --type other than prompt meets the gate', 'statuses set': 'edits the types block; --type other than prompt meets the gate',
+  'statuses remove': 'edits the types block; --type other than prompt meets the gate', 'statuses migrate': 'edits the types block; a positional type other than prompt meets the gate',
+  check: 'checks the prompts', index: 'says there is no index here',
 }));
 
 describe('the planning gate walks the command registry', () => {
@@ -157,6 +159,52 @@ describe('reads filtered to a type other than prompts, and files outside the pro
       assert.equal(result.status, 1, args.join(' '));
       assert.match(result.stderr, /`docs\/plans\/sample\.md` is outside this project's handoffs: planning is off in this project; `runlist setup` turns it on/, args.join(' '));
     }
+  });
+
+  it('a positional type other than prompt meets the gate before anything changes', () => {
+    const configPath = path.join(handoffs, 'runlist.config.mjs');
+    const source = readFileSync(configPath, 'utf8');
+    writeFileSync(configPath, `${source}\nexport const types = { plan: { statuses: ['planned', 'active', 'archived'] } };\n`);
+    try {
+      const before = readFileSync(configPath, 'utf8');
+      for (const [args, what] of [[['statuses', 'migrate', 'plan', '--yes'], 'statuses migrate plan'], [['migrate', 'type', 'prompt', 'plan'], 'migrate type prompt plan']]) {
+        const result = cli(handoffs, args);
+        assert.equal(result.status, 1, args.join(' '));
+        assert.equal(result.stdout, '');
+        assert.match(result.stderr, new RegExp(`\`runlist ${what}\` needs planning\. Planning is off in this project`));
+      }
+      assert.equal(readFileSync(configPath, 'utf8'), before);
+      assert.match(cli(handoffs, ['prompts']).stdout, /resume-exporter/);
+    } finally { writeFileSync(configPath, source); }
+  });
+
+  it('both help spellings print the same text, the planning-off line for a planning command', () => {
+    // `help statuses` is its own topic (the status vocabulary), as in every mode.
+    for (const name of ['plans', 'init', 'runlist', 'health', 'new', 'baton', 'set', 'status', 'prompts', 'archive', 'briefing', 'hud', 'use', 'check']) {
+      const spelled = cli(handoffs, ['help', name]);
+      const flagged = cli(handoffs, [name, '--help']);
+      assert.equal(spelled.status, 0, name);
+      assert.equal(spelled.stdout, flagged.stdout, name);
+    }
+    assert.equal(cli(handoffs, ['help', 'plans']).stdout, `${PLANNING_OFF}\n`);
+    for (const name of ['new', 'baton', 'statuses', 'set', 'status', 'prompts', 'archive', 'briefing', 'hud']) {
+      const text = cli(handoffs, [name, '--help']).stdout;
+      assert.match(text, /planning is off in this project/, name);
+      assert.doesNotMatch(text.replace(/(Plans and docs|Plan and doc statuses|Plan statuses|Plan pipelines|Handing off a plan) comes?\s+with\s+planning/g, ''), /\bplans?\b|in-session|\bhub\b|--done/i, name);
+    }
+    for (const name of ['plans', 'new', 'baton']) assert.equal(cli(planning, ['help', name]).stdout, cli(planning, [name, '--help']).stdout, name);
+  });
+
+  it('removed prompt verbs, the deprecated status verb and the briefing views speak of prompts', () => {
+    const hold = cli(handoffs, ['prompts', 'hold', 'resume-exporter']);
+    assert.equal(hold.status, 1);
+    assert.match(hold.stderr, /was removed — a prompt is pending or archived, and nothing else\.\nTo set one aside, `runlist prompts archive <file>`\./);
+    assert.doesNotMatch(hold.stderr, /plan/i);
+    const status = cli(handoffs, ['status', 'resume-exporter', 'pending', '--dry-run']);
+    assert.match(status.stderr, /prefer `runlist set <status> <prompt>`/);
+    assert.doesNotMatch(status.stderr, /plan/i);
+    assert.ok(cli(handoffs, ['context']).stdout.endsWith(`${PLANNING_OFF}\n`));
+    assert.ok(cli(handoffs, ['briefing']).stdout.endsWith(`${PLANNING_OFF}\n`));
   });
 
   it('flag add still accepts any repository path', () => {

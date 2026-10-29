@@ -6,6 +6,7 @@ import { detectMarker, isPhaseHeading, phaseMarkerConflict, walkSections } from 
 import { resolveBodyLinkTarget } from './body-link.mjs';
 import { getStageDefinitions, readPlanStage } from './stages.mjs';
 import { assessmentIssues } from './yardstick.mjs';
+import { RETIRED_PROMPT_STATUSES } from './naming.mjs';
 
 const NOW = new Date();
 
@@ -98,6 +99,12 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
 
   if (!doc.status) {
     doc.errors.push({ path: doc.path, level: 'error', message: 'Missing frontmatter `status`.' });
+  } else if (doc.type === 'prompt' && RETIRED_PROMPT_STATUSES.has(doc.status) && !isValidStatus(doc.status, doc.root, config, doc.type)) {
+    // Saved by an older build, carried with its status unchanged.
+    const remedy = doc.status === 'claimed'
+      ? `\`runlist prompts archive ${doc.path}\` sets it aside`
+      : `\`runlist set pending ${doc.path}\` makes it pending again, or \`runlist prompts archive ${doc.path}\` sets it aside`;
+    doc.warnings.push({ path: doc.path, level: 'warning', message: `Retired prompt status \`${doc.status}\`, from an older runlist: ${remedy}.` });
   } else if (!isValidStatus(doc.status, doc.root, config, doc.type)) {
     const typeSet = doc.type && config.typeStatuses?.get(doc.type);
     const rootSet = config.rootValidStatuses?.get(doc.root);

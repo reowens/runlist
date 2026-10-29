@@ -13,7 +13,7 @@ import { authorizeManagedSource, authorizeRepoGeneratedPath } from './managed-pa
 import { readTemplateStore } from './template-store.mjs';
 import { regenIndex, renderLifecycleMutation } from './lifecycle.mjs';
 import { snapshotFile, replaceSnapshot, inspectTransactions, recoverAbandonedTransactions, transactionResolutionAdvice } from './atomic-mutation.mjs';
-import { planSetupCarry, applySetupCarry, cleanupSetupSourceDirectories } from './setup-carry.mjs';
+import { planSetupCarry, applySetupCarry, cleanupSetupSourceDirectories, preConfigView } from './setup-carry.mjs';
 import { planHandoffsUpgrade } from './handoffs-mode.mjs';
 
 function regularOrMissing(file, directory = false) {
@@ -137,29 +137,33 @@ export async function setupWorker(request) {
   const { operation, cwd, configPath, choices } = request;
   let config = await resolveConfig(cwd, configPath || undefined);
   const before = config;
-  if (operation === 'carry') return applySetupCarry(request.moves, before);
+  const existing = Boolean(config.configPath && existsSync(config.configPath));
+  // Handoffs-only config: every stage before the rewrite sees the upgraded
+  // layout through overrides, so the preview is what applying will do. Its
+  // prompts are already under the config's root; plans and prompts an older
+  // runlist saved before any config (plans/, the root prompts/) are carried
+  // as a fresh setup carries them, under the roots the project had before any
+  // config, and before the config is rewritten.
+  const upgrade = existing && config.mode === 'handoffs' ? planHandoffsUpgrade(config) : null;
+  const carryFrom = upgrade ? await preConfigView(config.repoRoot) : before;
+  if (operation === 'carry') return applySetupCarry(request.moves, carryFrom, upgrade ? { expectedConfig: { path: config.configPath, content: request.expectedSource } } : {});
   if (operation === 'recover') {
     let recoveryError;
-    const pending = inspectTransactions(before.repoRoot, { config: before });
+    const pending = inspectTransactions(carryFrom.repoRoot, { config: carryFrom });
     let recovered = [];
-    try { recovered = recoverAbandonedTransactions(before.repoRoot, { config: before }); }
+    try { recovered = recoverAbandonedTransactions(carryFrom.repoRoot, { config: carryFrom }); }
     catch (error) { recoveryError = error; }
-    const remaining = inspectTransactions(before.repoRoot, { config: before });
+    const remaining = inspectTransactions(carryFrom.repoRoot, { config: carryFrom });
     if (remaining.length || recoveryError) {
       const advice = remaining.map(item => `${item.id}: ${transactionResolutionAdvice(item)}`).join('\n');
-      throw new Error(`Pre-config transaction recovery failed: ${advice || recoveryError.message}. No config was written.`);
+      throw new Error(`Pre-config transaction recovery failed: ${advice || recoveryError.message}. ${upgrade ? 'The config was not changed.' : 'No config was written.'}`);
     }
     const movedSources = recovered.filter(item => item.result === 'rolled-forward').flatMap(item =>
       pending.find(transaction => transaction.id === item.id)?.participants?.filter(participant =>
         participant.label === 'source' && !existsSync(participant.path)).map(participant => participant.path) ?? []);
-    cleanupSetupSourceDirectories(before, movedSources);
+    cleanupSetupSourceDirectories(carryFrom, movedSources);
     return null;
   }
-  const existing = Boolean(config.configPath && existsSync(config.configPath));
-  // Handoffs-only config: every stage before the rewrite sees the upgraded
-  // layout through overrides, so the preview is what applying will do. Its
-  // prompts are already under the config's root, so nothing is carried.
-  const upgrade = existing && config.mode === 'handoffs' ? planHandoffsUpgrade(config) : null;
   if (operation === 'upgrade') {
     if (!upgrade) throw new Error('The config is no longer a handoffs-only config; rerun setup.');
     const snapshot = snapshotFile(config.configPath);
@@ -177,7 +181,7 @@ export async function setupWorker(request) {
   config._execution = { ...config._execution, suppressSideEffects: true, gitStaleness: false };
   const initArgv = [ ...(choices.gitignore ? ['--gitignore'] : []), ...(!existing ? ['--prompt-tracking', choices.promptTracking] : []) ];
   if (operation === 'prepare') {
-    const carry = planSetupCarry(before, config, choices.carryPrompts);
+    const carry = planSetupCarry(carryFrom, config, choices.carryPrompts);
     const layout = scaffolding(config, existing, choices, carry.moves);
     let policy = null;
     if (existing && choices.selectPromptTracking) {
@@ -206,7 +210,7 @@ export async function setupWorker(request) {
     }
     const plan = firstPlan(config, choices);
     if (plan && carry.moves.some(move => move.target === plan.path)) throw new Error(`First plan collides with a pre-setup plan being carried over: ${plan.path}`);
-    const transactions = existing ? [] : inspectTransactions(before.repoRoot, { config: before });
+    const transactions = existing && !upgrade ? [] : inspectTransactions(carryFrom.repoRoot, { config: carryFrom });
     return { layout, policy, adoptions, firstPlan: plan, untagged, carry, transactions,
       upgrade: upgrade ? { source: upgrade.source, content: upgrade.content, promptRoot: upgrade.promptRoot, newlyListed } : null, skippedValidationHooks: ['validate', 'transformDoc'].filter(name => typeof config.hooks?.[name] === 'function') };
   }

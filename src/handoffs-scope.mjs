@@ -37,8 +37,16 @@ function canonical(directory) {
   try { return realpathSync(directory); } catch { return directory; }
 }
 
-export function planningRefusal(what) {
-  return `${what} needs planning. ${PLANNING_OFF}`;
+// The planning-off line, with the documents saved before setup that
+// `runlist setup` brings in (`documentsWaitingForSetup` in
+// src/setup-waiting.mjs counts them; never on a hook path).
+export function planningOffLine(waiting = 0) {
+  if (!waiting) return PLANNING_OFF;
+  return `${PLANNING_OFF} ${waiting === 1 ? '1 runlist document saved before setup is' : `${waiting} runlist documents saved before setup are`} waiting for it.`;
+}
+
+export function planningRefusal(what, waiting = 0) {
+  return `${what} needs planning. ${planningOffLine(waiting)}`;
 }
 
 export function outsideHandoffsLine(input) {
@@ -50,10 +58,11 @@ export function outsideHandoffsLine(input) {
 // succeeds, as an empty dashboard would; an action refuses, so a script never
 // mistakes a skipped change for a made one. Returns true when the caller must
 // stop. Planning projects pass straight through.
-export function requirePlanning(config, what, requirement, { json = false, out = process.stdout } = {}) {
+export function requirePlanning(config, what, requirement, { json = false, out = process.stdout, waiting = 0 } = {}) {
   if (config?.mode !== 'handoffs' || !requirement) return false;
-  if (requirement === 'action') die(planningRefusal(what));
-  out.write(json ? `${JSON.stringify({ planning: false, message: PLANNING_OFF }, null, 2)}\n` : `${PLANNING_OFF}\n`);
+  if (requirement === 'action') die(planningRefusal(what, waiting));
+  const message = planningOffLine(waiting);
+  out.write(json ? `${JSON.stringify({ planning: false, message, ...(waiting ? { waitingForSetup: waiting } : {}) }, null, 2)}\n` : `${message}\n`);
   return true;
 }
 

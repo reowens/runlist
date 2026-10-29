@@ -717,20 +717,32 @@ describe('carry-over transaction safety', () => {
     assertNoTransactions();
   });
 
-  it('requests a fresh preview when recovery rolls back a partially published handoff', async () => {
+  it('plans the carry again after recovery rolls back a partially published handoff, in the same run', async () => {
     saved();
     put('.runlist/handoffs/sample.json', JSON.stringify({ prompt: 'prompts/resume-fresh.md' }));
     const { moves } = await planned();
     killCarry(moves, 'target-publication');
     const { report } = await setup(['--yes']);
-    assert.equal(report.failed.length, 1);
-    assert.match(report.failed[0].description, /recovery changed.*rerun setup/);
-    assert.ok(!has('runlist.config.mjs'));
-    assert.ok(has('prompts/resume-fresh.md'));
+    assert.equal(report.failed.length, 0, JSON.stringify(report.failed));
+    assert.ok(report.completed.some(item => item.id === 'carry:prompts/resume-fresh.md'));
+    assert.ok(has('runlist.config.mjs') && has('docs/prompts/resume-fresh.md') && !has('prompts/resume-fresh.md'));
+    assert.equal(JSON.parse(read('.runlist/handoffs/sample.json')).prompt, 'docs/prompts/resume-fresh.md');
     assertNoTransactions();
-    okCli(['setup', '--yes']);
     okCli(['use', 'resume-fresh'], 'carry-b');
     assertNoTransactions();
+  });
+
+  for (const phase of ['reservation', 'source-move']) it(`finishes in one run after a carry killed at ${phase}, with no stale notes`, async () => {
+    saved();
+    const { moves } = await planned();
+    killCarry(moves, phase);
+    const { report } = await setup(['--yes']);
+    assert.equal(report.failed.length, 0, JSON.stringify(report.failed));
+    assert.ok(has('runlist.config.mjs') && has('docs/prompts/resume-fresh.md') && !has('prompts/resume-fresh.md'));
+    assert.ok(!report.outstanding.some(item => /untagged/.test(item.description)), JSON.stringify(report.outstanding));
+    assert.ok(!report.notes.some(item => /left untouched/.test(item.description)), JSON.stringify(report.notes));
+    assertNoTransactions();
+    okCli(['use', 'resume-fresh'], 'carry-b');
   });
 
   it('recovers a killed carry transaction with an updated handoff participant before setup', async () => {
