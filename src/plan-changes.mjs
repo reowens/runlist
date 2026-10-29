@@ -11,6 +11,55 @@ import { isGitIgnored } from './git.mjs';
 
 const SHOWN_COMMITS = 10;
 
+// List-time hints share one bounded Git window. Consume-time detail below
+// keeps its existing next_step comparison and commit messages.
+export function summarizePlanChanges(requests, config, { runGit = spawnSync, stat = statSync } = {}) {
+  const maxTargets = 64, maxCommits = 256;
+  const targets = new Map();
+  for (const { plan } of requests) {
+    if (!plan || targets.has(plan) || targets.size >= maxTargets || path.isAbsolute(plan)
+      || plan.split(/[\\/]/).includes('..') || /[\0\r\n]/.test(plan)) continue;
+    try { targets.set(plan, stat(path.resolve(config.repoRoot, plan))); }
+    catch { targets.set(plan, null); }
+  }
+  const paths = [...targets].filter(([, stamp]) => stamp?.isFile()).map(([file]) => file);
+  const query = args => {
+    if (!paths.length) return null;
+    try {
+      const result = runGit('git', args, { cwd: config.repoRoot, encoding: 'utf8', timeout: 750, maxBuffer: 256 * 1024 });
+      return !result.error && result.status === 0 ? result.stdout : null;
+    } catch { return null; }
+  };
+  const pathspecs = paths.map(file => `:(top,literal)${file}`);
+  const trackedOutput = query(['ls-files', '-z', '--', ...pathspecs]);
+  const tracked = new Set((trackedOutput ?? '').split('\0'));
+  const trackedPaths = paths.filter(file => tracked.has(file));
+  const validTimes = requests.map(({ since }) => since ? new Date(since).getTime() : NaN).filter(Number.isFinite);
+  const earliest = validTimes.length ? new Date(Math.min(...validTimes)).toISOString() : null;
+  const log = trackedPaths.length && earliest
+    ? query(['log', `--max-count=${maxCommits + 1}`, `--since=${earliest}`, '--format=%x00runlist:change:%ct%x00', '--name-only', '-z', '--', ...trackedPaths.map(file => `:(top,literal)${file}`)]) : null;
+  const dirtyOutput = trackedPaths.length ? query(['diff', '--name-only', '-z', 'HEAD', '--', ...trackedPaths.map(file => `:(top,literal)${file}`)]) : null;
+  const dirty = new Set((dirtyOutput ?? '').split('\0'));
+  const latest = new Map();
+  let date = null, commits = 0;
+  for (const field of (log ?? '').split('\0')) {
+    const marker = /^runlist:change:(\d+)$/.exec(field);
+    if (marker) { date = Number(marker[1]) * 1000; commits++; continue; }
+    const file = field.replace(/^\n/, '');
+    if (date !== null && tracked.has(file)) latest.set(file, Math.max(latest.get(file) ?? 0, date));
+  }
+  return requests.map(({ plan, since }) => {
+    const when = since ? new Date(since).getTime() : NaN;
+    const stamp = targets.get(plan);
+    if (!Number.isFinite(when) || !stamp?.isFile() || trackedOutput === null) return 'unknown';
+    if (!tracked.has(plan)) return stamp.mtimeMs > when ? 'edited since save (file clock)' : 'no edits since save (file clock)';
+    if ((latest.get(plan) ?? 0) > when) return 'changed since save';
+    if (dirty.has(plan)) return 'working changes (time unknown)';
+    if (log === null || dirtyOutput === null || commits > maxCommits) return 'unknown';
+    return 'no commits since save';
+  });
+}
+
 function git(args, repoRoot) {
   const result = spawnSync('git', args, { cwd: repoRoot, encoding: 'utf8' });
   if (result.error || result.status !== 0) return null;

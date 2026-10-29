@@ -6,6 +6,8 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ### Added
 
+- `runlist prompts` shows prompt age and bounded target-plan change hints,
+  keeps child handoffs grouped, and leaves prompt selection explicit.
 - The Codex plugin registers a `SubagentStart` hook (`plugins/runlist-codex/bin/subagent-start.mjs`)
   that gives a Codex child the same HUD primer a Claude child gets, and says nothing when the
   primer is absent or fails within its time limit.

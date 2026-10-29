@@ -1,8 +1,8 @@
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, openSync, readSync, closeSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { agentSessionSource, asString, toRepoPath, die, resolveDocPath, resolveRefPath, isArchivedPath } from './util.mjs';
-import { buildIndex, resolveDocArg } from './index.mjs';
+import { buildIndex, collectDocFiles, parseDocFile, resolveDocArg } from './index.mjs';
 import { runQuery } from './query.mjs';
 import { completePlanClaim, regenIndex, renderLifecycleMutation, runArchive } from './lifecycle.mjs';
 import { runNew } from './new.mjs';
@@ -18,7 +18,7 @@ import {
 } from './pickup.mjs';
 import { actionablePromptStatuses, comparePromptDocs } from './status-metadata.mjs';
 import { LEGACY_STATE_DIR, STATE_DIR } from './naming.mjs';
-import { formatPlanChanges, planChangesSince } from './plan-changes.mjs';
+import { formatPlanChanges, planChangesSince, summarizePlanChanges } from './plan-changes.mjs';
 import { groupPrompts, parentPromptName } from './prompt-handoff.mjs';
 import { mutateFileSet } from './atomic-mutation.mjs';
 
@@ -126,26 +126,57 @@ function childHandoffs(repoPath, config, index = null) {
   return { paths: children.map(doc => doc.path), notice: `\n\n## Saved child handoffs\n\n${children.length} child handoff(s) remain pending:\n\n${names}\n\nInspect a child with \`rl prompts show <name>\`. Review its current state and authorization before resuming its lane. ${isHandoffsMode(config) ? 'Fold completed results into the parent\'s work' : 'Fold completed results into the owning plan'}, then archive the completed handoff explicitly.\n\nPass \`--parent ${parent}\` when saving another child, or pass \`RUNLIST_PARENT_PROMPT=${parent}\` into its environment.\n` };
 }
 
+function readPromptHeader(file) {
+  let fd;
+  try {
+    fd = openSync(file, 'r');
+    const byte = Buffer.alloc(1), bytes = [];
+    let line = '', lines = 0;
+    while (bytes.length < 16 * 1024 && readSync(fd, byte, 0, 1, null)) {
+      bytes.push(byte[0]);
+      line += String.fromCharCode(byte[0]);
+      if (byte[0] !== 10) continue;
+      const marker = line.trimEnd() === '---';
+      if (lines++ === 0 && !marker) return '';
+      if (lines > 1 && marker) return Buffer.from(bytes).toString('utf8');
+      line = '';
+    }
+  } catch { /* an unreadable or disappearing header cannot supply metadata */ }
+  finally { if (fd !== undefined) closeSync(fd); }
+  return '';
+}
+
+function promptListIndex(config) {
+  const docs = [];
+  // Discovery stays inside the configured roots. Type filtering happens on
+  // the header below, including in handoffs mode, without its whole-file read.
+  for (const file of collectDocFiles({ ...config, mode: 'planning' })) {
+    const source = readPromptHeader(file);
+    const fm = parseSimpleFrontmatter(extractFrontmatter(source).frontmatter);
+    if (asString(fm.type) === 'prompt') {
+      docs.push({ ...parseDocFile(file, config, { fast: true, source }), plan: asString(fm.plan) });
+    }
+  }
+  return { docs };
+}
+
 function runPromptsList(argv, config, opts = {}) {
-  // Listing prompts renders slug / status / updated / target — nothing any
-  // validating pass produces, and `runQuery` never reads warnings either. A
-  // full `buildIndex` here parsed every body in the repo through the ref,
-  // git-staleness and hub passes just to print a small prompt list,
-  // and then `pendingPromptsOldestFirst` scanned the tree a second time. One
-  // fast index, shared, on the same terms hud reads on.
-  const index = buildIndex(config, { fast: true, invokeHooks: false });
   const hasStatusFlag = argv.includes('--status');
   const includeArchived = argv.includes('--include-archived');
   const sub = argv[0];
   const json = argv.includes('--json');
+
+  const hasPositionalFilter = argv.some(a => !a.startsWith('-') && a !== 'list');
+  const defaultList = !json && !hasStatusFlag && !includeArchived && !hasPositionalFilter && sub !== 'status'
+    && !argv.some(a => a.startsWith('--sort') || a.startsWith('--limit') || a === '--all');
+  const index = defaultList && !opts.verbose ? promptListIndex(config) : buildIndex(config, { fast: true, invokeHooks: false });
 
   if (opts.verbose && !json) {
     renderPromptsVerbose(index, config, { hasStatusFlag, includeArchived });
     return;
   }
 
-  const hasPositionalFilter = argv.some(a => !a.startsWith('-') && a !== 'list');
-  if (!json && !hasStatusFlag && !includeArchived && !hasPositionalFilter && sub !== 'status' && !argv.some(a => a.startsWith('--sort') || a.startsWith('--limit') || a === '--all')) {
+  if (defaultList) {
     renderPromptQueueList(index, config);
     return;
   }
@@ -182,37 +213,67 @@ function renderPromptQueueList(index, config) {
   process.stdout.write(dim(`${prompts.length} prompts · ${summary}`) + '\n\n');
 
   const groups = groupPrompts(prompts);
+  const freshness = promptFreshness(prompts, config);
   const isAgentHandoff = doc => !path.basename(doc.path).startsWith('resume-')
     && (doc.parentPrompt || /^(?:subagent|agent|session)-/.test(path.basename(doc.path)));
   const standalone = groups.filter(group => isAgentHandoff(group.doc));
   const visible = groups.filter(group => !isAgentHandoff(group.doc));
   const maxSlug = Math.min(36, Math.max(0, ...visible.map(({ doc }) => path.basename(doc.path, '.md').length)));
-  const nextPath = queue[0]?.doc.path;
   const childCount = children => `[+${children.length} subagent]`;
+  const childFreshness = children => {
+    const states = new Map();
+    for (const child of children) {
+      const state = freshness.get(child).change;
+      states.set(state, (states.get(state) ?? 0) + 1);
+    }
+    const ages = children.map(child => freshness.get(child).age).filter(Number.isFinite);
+    const age = ages.length === children.length ? `${Math.min(...ages)}-${Math.max(...ages)}d old` : 'age unknown';
+    return `${age}; targets: ${[...states].map(([state, count]) => `${count} ${state}`).join(', ')}`;
+  };
   for (const { doc: p, children } of visible) {
     const slug = path.basename(p.path, '.md').padEnd(maxSlug);
-    const marker = p.path === nextPath ? green('[NEXT]') : '      ';
     const status = `[${(p.status ?? 'unknown').toUpperCase()}]`;
-    const childMarker = children.some(doc => doc.path === nextPath) ? `${green('[NEXT]')} ` : '';
-    const badge = children.length ? ` ${childMarker}${dim(childCount(children))}` : '';
-    process.stdout.write(`  ${marker} ${slug} ${status}${badge}\n`);
+    const badge = children.length ? ` ${dim(childCount(children))}` : '';
+    process.stdout.write(`  ${slug} ${status}${badge} · ${freshness.get(p).text}\n`);
+    if (children.length) process.stdout.write(dim(`    children: ${childFreshness(children)}\n`));
   }
   if (standalone.length) {
     const children = standalone.map(group => group.doc);
-    const marker = children.some(doc => doc.path === nextPath) ? green('[NEXT]') : '      ';
-    process.stdout.write(`  ${marker} ${childCount(children)}\n`);
+    process.stdout.write(`  ${childCount(children)} · ${childFreshness(children)}\n`);
   }
   if (standalone.length || visible.some(group => group.children.length)) {
     process.stdout.write(dim('\nUse `rl prompts --verbose` to expand subagent prompts.\n'));
   }
 }
 
-// Resolve a prompt's "target plan" for `prompts list --verbose`. Order:
-//   1. frontmatter `related_plans:` (first entry — assumed plan slug)
-//   2. frontmatter `parent_plan:`
-//   3. first body markdown link to a .md file
+function promptFreshness(prompts, config) {
+  const resolved = new Map();
+  const targets = prompts.map(doc => {
+    if (!doc.plan) return findPromptTarget(doc, config);
+    const key = `${path.dirname(doc.path)}\0${doc.plan}`;
+    if (!resolved.has(key)) resolved.set(key, findPromptTarget(doc, config));
+    return resolved.get(key);
+  });
+  const changes = summarizePlanChanges(prompts.map((doc, i) => ({ plan: targets[i], since: doc.created })), config);
+  const now = Date.now();
+  return new Map(prompts.map((doc, i) => {
+    const time = doc.created ? new Date(doc.created).getTime() : NaN;
+    const age = Number.isFinite(time) && time <= now ? Math.floor((now - time) / 86_400_000) : null;
+    const target = targets[i]?.replace(/\s/g, ' ');
+    return [doc, { age, change: changes[i], text: `${age === null ? 'age unknown' : `${age}d old`} · ${target ?? 'target unknown'}: ${changes[i]}` }];
+  }));
+}
+
+// Explicit baton links win, then related_plans and parent_plan. Verbose
+// listings also retain the first body link fallback from the full index.
 // Returns a repo-relative display path or null.
 function findPromptTarget(promptDoc, config) {
+  if (promptDoc.plan) {
+    const promptPath = path.resolve(config.repoRoot, promptDoc.path);
+    const fallbackRoot = promptDoc.plan.startsWith(config.docsRootPrefix || 'docs/') ? config.repoRoot : path.dirname(promptPath);
+    return linkedPlanRepoPath(promptDoc.plan, promptPath, config)
+      ?? toRepoPath(path.resolve(fallbackRoot, promptDoc.plan), config.repoRoot);
+  }
   const refs = promptDoc.refFields ?? {};
   const fmTargets = [...(refs.related_plans ?? []), ...(refs.parent_plan ?? [])];
   for (const t of fmTargets) {
@@ -247,6 +308,11 @@ function renderPromptsVerbose(index, config, { hasStatusFlag, includeArchived })
   if (!hasStatusFlag && !includeArchived) {
     prompts = prompts.filter(d => d.status !== 'archived');
   }
+  prompts = prompts.map(doc => {
+    const header = readPromptHeader(path.resolve(config.repoRoot, doc.path));
+    const fm = parseSimpleFrontmatter(extractFrontmatter(header).frontmatter);
+    return { ...doc, plan: asString(fm.plan) };
+  });
   if (prompts.length === 0) {
     process.stdout.write('No prompts.\n');
     return;
@@ -258,6 +324,7 @@ function renderPromptsVerbose(index, config, { hasStatusFlag, includeArchived })
   for (const p of prompts) counts[p.status ?? 'unknown'] = (counts[p.status ?? 'unknown'] ?? 0) + 1;
   const summary = Object.entries(counts).map(([s, n]) => `${n} ${s}`).join(' · ');
   process.stdout.write(`${prompts.length} prompt${prompts.length === 1 ? '' : 's'} · ${summary}\n\n`);
+  const freshness = promptFreshness(prompts, config);
 
   const render = (p, child) => {
     const slug = path.basename(p.path, '.md');
@@ -265,7 +332,7 @@ function renderPromptsVerbose(index, config, { hasStatusFlag, includeArchived })
     const status = (p.status ?? 'unknown').toUpperCase();
     const arrow = target ? `  ${dim('→')} ${target}` : `  ${dim('→ (no target plan)')}`;
     const indent = child ? '    - ' : '  ';
-    process.stdout.write(`${indent}${green(slug)}  [${status}]\n${child ? '    ' : ''}${arrow}\n`);
+    process.stdout.write(`${indent}${green(slug)}  [${status}] · ${freshness.get(p).text}\n${child ? '    ' : ''}${arrow}\n`);
   };
   for (const {doc,children} of groupPrompts(prompts)) {
     render(doc, false);

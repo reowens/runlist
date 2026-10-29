@@ -1,6 +1,8 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import { ok, strictEqual, match, rejects } from 'node:assert';
-import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync, rmSync, chmodSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync, rmSync, chmodSync, utimesSync } from 'node:fs';
+import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -75,7 +77,7 @@ describe('runlist prompts list', () => {
     ok(r.stdout.includes('foo-prompt'), `expected listing to include foo-prompt:\n${r.stdout}`);
   });
 
-  it('`prompts list` puts the next consumed pending prompt first and marks it', () => {
+  it('`prompts list` keeps age order without suggesting a prompt to consume', () => {
     writePrompt('newer', { created: '2025-06-01' });
     writePrompt('older', { created: '2025-01-01' });
     const r = run(['prompts', 'list']);
@@ -84,7 +86,8 @@ describe('runlist prompts list', () => {
     const newerIdx = r.stdout.indexOf('newer');
     ok(olderIdx > -1 && newerIdx > -1, `expected both prompts:\n${r.stdout}`);
     ok(olderIdx < newerIdx, `oldest pending should be first:\n${r.stdout}`);
-    match(r.stdout, /\[NEXT\].*older/);
+    ok(!r.stdout.includes('[NEXT]'), r.stdout);
+    match(r.stdout, /older[^\n]*\d+d old[^\n]*target unknown: unknown/);
   });
 
   it('shows explicit children on their parent line without changing the next consumed prompt', () => {
@@ -93,7 +96,8 @@ describe('runlist prompts list', () => {
     writePrompt('resume-session', { created: '2025-03-01' });
     const r = run(['prompts']);
     strictEqual(r.status, 0, r.stderr);
-    match(r.stdout, /resume-session[^\n]*\[PENDING\] \[NEXT\] \[\+1 subagent\]/);
+    match(r.stdout, /resume-session[^\n]*\[PENDING\] \[\+1 subagent\]/);
+    match(r.stdout, /children: \d+-\d+d old; targets: 1 unknown/);
     ok(!r.stdout.includes('subagent-review'), r.stdout);
     ok(r.stdout.indexOf('[+1 subagent]') < r.stdout.indexOf('unrelated'), r.stdout);
     const json = run(['prompts', '--json']);
@@ -133,11 +137,12 @@ describe('runlist prompts list', () => {
     ok(!expanded.stdout.includes('- subagent-session-review'), 'missing explicit parent must not attach to a different one');
   });
 
-  it('shows a compact next marker when only subagent prompts are pending', () => {
+  it('shows compact freshness when only subagent prompts are pending', () => {
     for (let i = 0; i < 5; i++) writePrompt(`subagent-review-${i}`);
     const r = run(['prompts']);
     strictEqual(r.status, 0, r.stderr);
-    match(r.stdout, /\[NEXT\]\s+\[\+5 subagent\]/);
+    match(r.stdout, /\[\+5 subagent\] · \d+-\d+d old; targets: 5 unknown/);
+    ok(!r.stdout.includes('[NEXT]'), r.stdout);
     ok(!r.stdout.includes('subagent-review-'), r.stdout);
     match(r.stdout, /rl prompts --verbose/);
   });
@@ -180,6 +185,91 @@ describe('runlist prompts list', () => {
     const r = run(['prompts', 'list', '--verbose']);
     strictEqual(r.status, 0, r.stderr);
     ok(r.stdout.includes('no target plan'), `expected no-target marker, got:\n${r.stdout}`);
+  });
+
+  it('shows frontmatter targets, missing targets and unknown ages without changing prompts', () => {
+    mkdirSync(path.join(docsDir, 'plans'));
+    const target = path.join(docsDir, 'plans', 'widget.md');
+    writeFileSync(target, '---\ntype: plan\nstatus: archived\n---\nWidget\n');
+    utimesSync(target, new Date('2025-01-01'), new Date('2025-01-01'));
+    writeFileSync(path.join(tmpDir, '.gitignore'), 'docs/plans/\n');
+    const contents = [
+      ['resume-widget', 'created: 2025-02-01\nplan: ../plans/widget.md'],
+      ['missing', 'created: 2025-02-01\nrelated_plans: [missing]'],
+      ['undated', 'created: invalid\nparent_plan: widget'],
+    ].map(([name, fields]) => {
+      const file = path.join(promptsDir, `${name}.md`);
+      const body = `---\ntype: prompt\nstatus: pending\n${fields}\n---\nBODY MUST STAY PRIVATE\n`;
+      writeFileSync(file, body);
+      return [file, body];
+    });
+    const result = run(['prompts']);
+    strictEqual(result.status, 0, result.stderr);
+    match(result.stdout, /resume-widget[^\n]*docs\/plans\/widget.md: no edits since save \(file clock\)/);
+    match(result.stdout, /missing[^\n]*docs\/plans\/missing.md: unknown/);
+    match(result.stdout, /undated[^\n]*age unknown[^\n]*docs\/plans\/widget.md: unknown/);
+    ok(!result.stdout.includes('BODY MUST'), result.stdout);
+    for (const [file, body] of contents) strictEqual(readFileSync(file, 'utf8'), body);
+    match(readFileSync(target, 'utf8'), /status: archived/);
+  });
+
+  it('reads only capped headers for the default list, including in handoffs mode', async () => {
+    writeFileSync(configPath, `export const mode = 'handoffs';\nexport const root = 'docs/prompts';\n`);
+    const file = path.join(promptsDir, 'resume-widget.md');
+    const header = '---\ntype: prompt\nstatus: pending\ncreated: 2025-01-01\n---\n';
+    writeFileSync(file, header + 'private body\n'.repeat(10000));
+    writeFileSync(path.join(promptsDir, 'oversized.md'), '---\n' + 'x'.repeat(20 * 1024));
+    const config = await resolveConfig(tmpDir, configPath);
+    const originalRead = fs.readFileSync, originalOpen = fs.openSync, originalReadBytes = fs.readSync;
+    const fds = new Map(), bytes = new Map();
+    const originalWrite = process.stdout.write;
+    let output = '';
+    fs.readFileSync = (candidate, ...args) => {
+      if (String(candidate).startsWith(promptsDir)) throw new Error('whole prompt read');
+      return originalRead(candidate, ...args);
+    };
+    fs.openSync = (candidate, ...args) => {
+      const fd = originalOpen(candidate, ...args);
+      if (String(candidate).startsWith(promptsDir)) fds.set(fd, String(candidate));
+      return fd;
+    };
+    fs.readSync = (fd, ...args) => {
+      const count = originalReadBytes(fd, ...args);
+      if (fds.has(fd)) bytes.set(fds.get(fd), (bytes.get(fds.get(fd)) ?? 0) + count);
+      return count;
+    };
+    process.stdout.write = chunk => { output += chunk; return true; };
+    syncBuiltinESMExports();
+    try { await runPrompts([], config); }
+    finally {
+      fs.readFileSync = originalRead; fs.openSync = originalOpen; fs.readSync = originalReadBytes;
+      process.stdout.write = originalWrite;
+      syncBuiltinESMExports();
+    }
+    match(output, /resume-widget[^\n]*target unknown: unknown/);
+    strictEqual(bytes.get(file), Buffer.byteLength(header));
+    strictEqual(bytes.get(path.join(promptsDir, 'oversized.md')), 16 * 1024);
+  });
+
+  it('shows tracked changes and expands each grouped child freshness without selecting it', () => {
+    mkdirSync(path.join(docsDir, 'plans'));
+    const target = path.join(docsDir, 'plans', 'widget.md');
+    writeFileSync(target, '---\ntype: plan\nstatus: active\n---\nWidget\n');
+    spawnSync('git', ['add', target], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-qm', 'add widget'], { cwd: tmpDir });
+    writePrompt('resume-widget');
+    const child = writePrompt('subagent-widget', { parent: 'resume-widget' });
+    writeFileSync(child, readFileSync(child, 'utf8').replace('related_plans: []', 'plan: ../plans/widget.md'));
+    const listed = run(['prompts']);
+    strictEqual(listed.status, 0, listed.stderr);
+    match(listed.stdout, /children: \d+-\d+d old; targets: 1 changed since save/);
+    ok(!listed.stdout.includes('subagent-widget'), listed.stdout);
+    ok(!listed.stdout.includes('[NEXT]'), listed.stdout);
+    const verbose = run(['prompts', '--verbose']);
+    strictEqual(verbose.status, 0, verbose.stderr);
+    match(verbose.stdout, /subagent-widget[^\n]*docs\/plans\/widget.md: changed since save/);
+    ok(existsSync(child), 'listing leaves the child pending');
+    ok(listed.stdout.split('\n').length <= 9, 'grouped freshness stays bounded to 1 extra line per prompt');
   });
 });
 
