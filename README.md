@@ -60,6 +60,38 @@ A project that already has a runlist config works outside Git as before. In a
 handoffs-only project runlist manages only the prompts it saved in that
 folder: any other Markdown in `prompts/` or `docs/prompts/` is left alone.
 
+### What baton-only mode does and doesn't do
+
+Until you run `runlist setup`, a project whose config the first handoff wrote
+uses runlist for handoffs only (its config says `mode: 'handoffs'`).
+
+What works:
+
+- Saving: say "baton" or "save where we are", or type `/baton`.
+- Picking up: `/pickup`, or `runlist use [<name>]` in a session, consumes a
+  handoff (archives it and prints it).
+- `runlist prompts` lists the saved handoffs; `runlist prompts show <name>`
+  reads one without consuming it.
+- `runlist check` checks the saved handoffs.
+
+What says planning is off (`Planning is off in this project; runlist setup
+turns it on`):
+
+- Plan views such as `runlist plans`, `health`, `runlists`, `roadmap`,
+  `modules` and `stale` print that line and exit successfully, as an empty
+  dashboard would. With `--json` they print `{ "planning": false, … }`.
+- Plan actions such as `runlist new plan`, `new doc`, `runlist runlist next`,
+  `roadmap next`, `sync-status` and `bulk-tag` refuse with it.
+- So does a command filtered to a type other than prompts (`--type plan`), and
+  a file argument outside the prompt folder (`runlist show docs/plans/x.md`).
+
+Other Markdown in the prompt folder is never listed, checked, searched or
+changed. `runlist flag add` still accepts any file in the repository.
+
+To turn planning on, run `runlist setup` in the project. It previews first:
+the config before and after, and how many existing Markdown files planning
+will start checking. Your saved handoffs stay where they are.
+
 If a session hook says it found neither `runlist` nor `dotmd` on its PATH, either
 runlist is not installed yet or the app is searching a different PATH than your
 terminal. In a terminal, compare `command -v runlist` and `echo $PATH` with the

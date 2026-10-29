@@ -564,3 +564,23 @@ describe('handoffs-only wording beyond the hook', () => {
     assert.doesNotMatch(child.stderr, /stays in-session/);
   });
 });
+
+describe('the setup preview counts what planning brings into view', () => {
+  it('names docs/ and the number of Markdown files the handoffs config did not manage', () => {
+    put('docs/design.md', '# Design notes\n');
+    put('docs/guide/notes.md', '# Notes\n');
+    ok(['baton', 'exporter', draft()]);
+    put('docs/prompts/library.md', '# A prompt library\n');
+    const preview = ok(['setup']).stdout;
+    assert.match(preview, /Planning brings docs\/ under runlist: 3 existing Markdown files there will be checked, and any without runlist frontmatter listed as untagged; adopt them with `--adopt <path>` or leave them/);
+    const json = JSON.parse(ok(['setup', '--json']).stdout);
+    assert.equal(json.actions.find(action => action.id === 'upgrade-info').count, 3);
+  });
+
+  it('uses the singular for one file and says nothing when there is none', () => {
+    ok(['baton', 'exporter', draft()]);
+    assert.doesNotMatch(ok(['setup']).stdout, /Planning brings/);
+    put('docs/design.md', '# Design notes\n');
+    assert.match(ok(['setup']).stdout, /Planning brings docs\/ under runlist: 1 existing Markdown file there will be checked, and listed as untagged if it has no runlist frontmatter; adopt it with `--adopt <path>` or leave it/);
+  });
+});

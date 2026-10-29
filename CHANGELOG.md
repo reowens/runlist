@@ -31,6 +31,19 @@ All notable changes to `runlist` are documented here. Older releases predate thi
   shadows a parent folder's config that appears meanwhile, and on a filesystem
   without hard links baton refuses and prints the config to create by hand,
   rather than risk leaving a half-written config that stops every command.
+- In a handoffs-only project, every command that only means something with
+  planning on goes through one gate, driven by a `planning` mark on the
+  command registry: a view (`plans`, `health`, `stats`, `graph`, `glossary`,
+  `stale`, hub and module views, …) prints the planning-off line and exits 0
+  (`{ "planning": false }` with `--json`); an action (`runlist runlist next|add|
+  remove|reorder`, `roadmap next`, `bulk-tag`, `sync-status`, `fix-membership`,
+  `record`, `decision`, `yardstick` changes) refuses with it. A command filtered
+  to a type other than prompts (`--type plan`) is gated the same way, and a
+  file argument outside the prompt folder says it is outside this project's
+  handoffs rather than "not found". `flag add` still takes any repository path.
+  The setup preview for turning planning on counts the existing Markdown it
+  will start checking. The README has a "What baton-only mode does and doesn't
+  do" section.
 - The save hint answers an explicit save request ("baton", "save where we
   are") in an unconfigured Git repository; SessionStart stays silent there.
   Handoffs-mode hints, the subagent primer and baton's missing-name error say

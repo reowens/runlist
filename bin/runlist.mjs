@@ -1474,7 +1474,9 @@ No setup needed: in a Git repository with no runlist config, the first saved
 prompt also creates a handoffs-only runlist.config.mjs at the worktree root
 (prompts in docs/prompts/ when docs/ exists, else prompts/; earlier runlist
 prompts in either folder are adopted; planning stays off until \`runlist setup\`).
-Only type: prompt files in that folder are runlist's. Outside a Git working tree
+Only type: prompt files in that folder are runlist's: plan views and reads
+filtered to another --type say planning is off; plan actions and files outside
+that folder refuse with the same line. Outside a Git working tree
 baton refuses; plans or prompts saved before any config that the new config
 would hide keep the unconfigured behaviour (run \`runlist setup\`).
 
