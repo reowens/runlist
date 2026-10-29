@@ -11,6 +11,12 @@
         "hooks": [{ "type": "command", "command": "sh \"${PLUGIN_ROOT}/bin/runlist-hook\" --hint hud", "timeout": 5 }]
       }
     ],
+    "SubagentStart": [
+      {
+        "matcher": "*",
+        "hooks": [{ "type": "command", "command": "node \"${PLUGIN_ROOT}/bin/subagent-start.mjs\"", "timeout": 5 }]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Bash|apply_patch|mcp__.*__(read_file|read_text_file|read_media_file|read_multiple_files)",

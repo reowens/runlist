@@ -6,6 +6,9 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ### Added
 
+- The Codex plugin registers a `SubagentStart` hook (`plugins/runlist-codex/bin/subagent-start.mjs`)
+  that gives a Codex child the same HUD primer a Claude child gets, and says nothing when the
+  primer is absent or fails within its time limit.
 - Handoffs need no setup. In a Git repository with no runlist config, the first
   `runlist baton <slug>` (or `runlist new prompt`) also writes a handoffs-only
   `runlist.config.mjs` at the top of the Git worktree: `mode: 'handoffs'` and a
