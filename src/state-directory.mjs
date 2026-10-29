@@ -24,6 +24,9 @@ export function mkdirStateSync(directory, options) {
     if (parent === state || isRepoTop(state)) return mkdirSync(directory, options);
     state = parent;
   }
+  // Only a project's own state folder sits at its top. Any other folder
+  // with this name is not ours to hide, and without Git an ignore does nothing.
+  if (!isRepoTop(path.dirname(state))) return mkdirSync(directory, options);
   // Establish the ignore before creating a lock directory, so a failed
   // publication cannot leave an ownerless lock behind.
   let present = false;
@@ -49,12 +52,16 @@ export function ensureStateIgnored(state) {
   catch (error) { if (error.code !== 'ENOENT') return; }
   try { publishByLink(state, ignore); return; }
   catch (error) { if (error.code === 'EEXIST') return; }
+  let fd;
+  try { fd = openSync(ignore, 'wx', 0o600); } catch { return; }
   try {
-    const fd = openSync(ignore, 'wx', 0o600);
     try { writeFileSync(fd, '*\n'); fsyncSync(fd); }
     finally { closeSync(fd); }
     syncDirectory(state);
-  } catch {}
+  } catch {
+    // A partial file would hide nothing and never be repaired; this one is ours.
+    try { unlinkSync(ignore); } catch {}
+  }
 }
 
 function publishByLink(state, ignore) {

@@ -51,6 +51,39 @@ describe('mkdirStateSync', () => {
     assert.ok(existsSync(path.join(repo, 'docs', 'plans', 'archived')));
     assert.equal(existsSync(path.join(outer, '.runlist', '.gitignore')), false);
   });
+
+  it('leaves a folder named like the state folder alone when it is not at a project top', () => {
+    const outer = tmp();
+    const project = path.join(outer, '.runlist', 'proj');
+    mkdirSync(project, { recursive: true });
+    mkdirStateSync(path.join(project, 'plans', 'archived'), { recursive: true });
+    mkdirStateSync(path.join(project, '.runlist', 'locks'), { recursive: true });
+    assert.ok(existsSync(path.join(project, 'plans', 'archived')));
+    assert.equal(existsSync(path.join(outer, '.runlist', '.gitignore')), false);
+    assert.equal(existsSync(path.join(project, '.runlist', '.gitignore')), false);
+  });
+
+  it('removes its own ignore file when writing it fails partway', () => {
+    const repo = tmp();
+    mkdirSync(path.join(repo, '.git'));
+    const original = { linkSync: fs.linkSync, writeFileSync: fs.writeFileSync };
+    fs.linkSync = () => { throw Object.assign(new Error('operation not permitted'), { code: 'EPERM' }); };
+    fs.writeFileSync = (target, ...rest) => {
+      if (typeof target === 'number') throw Object.assign(new Error('no space left on device'), { code: 'ENOSPC' });
+      return original.writeFileSync(target, ...rest);
+    };
+    syncBuiltinESMExports();
+    try {
+      mkdirStateSync(path.join(repo, '.runlist', 'locks'), { recursive: true });
+    } finally {
+      Object.assign(fs, original);
+      syncBuiltinESMExports();
+    }
+    assert.ok(existsSync(path.join(repo, '.runlist', 'locks')));
+    assert.equal(existsSync(path.join(repo, '.runlist', '.gitignore')), false);
+    mkdirStateSync(path.join(repo, '.runlist', 'handoffs'), { recursive: true });
+    assert.equal(readFileSync(path.join(repo, '.runlist', '.gitignore'), 'utf8'), '*\n');
+  });
 });
 
 describe('state migration and the ignore file', () => {

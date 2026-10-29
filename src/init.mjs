@@ -591,7 +591,7 @@ export async function runInit(cwd, config, opts = {}) {
     process.stdout.write('  `git add -A` can still stage any pending prompts that are not ignored.\n');
   }
   if (!argv.includes('--gitignore')) {
-    process.stdout.write('  Ignore files unchanged: runtime state in .runlist/ (and legacy .dotmd/) may also be staged by git add -A.\n');
+    process.stdout.write('  Ignore files unchanged: .runlist/ hides itself; a legacy .dotmd/ may still be staged by git add -A.\n');
     process.stdout.write('  Review selected files, or preview explicit ignore rules with `runlist init --gitignore --dry-run`.\n');
   }
   if (opts.guidance !== false) {

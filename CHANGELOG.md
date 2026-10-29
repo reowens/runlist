@@ -2,7 +2,7 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
-## 0.100.0 — 2026-10-29
+## Unreleased
 
 ### Fixed
 
@@ -15,7 +15,7 @@ All notable changes to `runlist` are documented here. Older releases predate thi
   when runlist creates or writes its state folder. It never changes the
   repository's ignore rules or replaces an existing state ignore file, and its
   search for the state folder stops at the repository top (a `.git` entry or a
-  runlist config). Writing it is best-effort: a failure never blocks the lock,
+  runlist config); a folder of that name anywhere else is left alone. Writing it is best-effort: a failure never blocks the lock,
   ownership, flag or handoff write that needed the folder. A legacy
   `.dotmd/.gitignore` carries over intact when `.dotmd/` moves to `.runlist/`.
 - The first saved prompt asks users to commit the handoffs config, whose comment
