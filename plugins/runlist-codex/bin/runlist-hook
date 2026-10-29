@@ -16,8 +16,14 @@
 # When the CLI is missing we always exit 0 with no further output: hooks must
 # stay non-blocking, and the PreToolUse guard in particular must never deny a
 # tool just because the optional CLI isn't installed.
+# Keep the published hook command stable for hosts caching its definition.
+if [ "${1:-}" = "--hint" ] && [ "${2:-}" = "hud" ]; then
+  exec node "$(dirname "$0")/session-start.mjs"
+fi
+
 hint=0
-if [ "$1" = "--hint" ]; then
+# --hint-text is the JSON adapter's internal call back into this wrapper.
+if [ "$1" = "--hint" ] || [ "$1" = "--hint-text" ]; then
   hint=1
   shift
 fi
