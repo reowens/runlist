@@ -4,9 +4,15 @@
 // to the operator's live misuse and error logs. Setting it once here covers
 // every test process — the runner's children inherit the environment — and a
 // test that needs its own directory still overrides it explicitly.
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+
+// Fixture paths must match the physical cwd used by child processes. macOS
+// and managed hosts can expose their temporary directory through a symlink.
+const temporaryRoot = realpathSync(os.tmpdir());
+if (process.platform === 'win32') { process.env.TEMP = temporaryRoot; process.env.TMP = temporaryRoot; }
+else process.env.TMPDIR = temporaryRoot;
 
 const OWNER_FLAG = 'RUNLIST_TEST_LOG_DIR_OWNER';
 

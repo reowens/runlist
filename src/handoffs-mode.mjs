@@ -70,7 +70,7 @@ export function gitToplevel(cwd) {
 export function handoffsAnchor(cwd, { home = os.homedir() } = {}) {
   const top = gitToplevel(cwd);
   if (!top) return { refusal: 'Not in a Git repository, so there is no project to save a handoff in. Run this inside your project (`git init` first if it has none), or run `runlist setup` to configure this folder.' };
-  if (home && path.resolve(top) === path.resolve(home)) {
+  if (home && (path.resolve(top) === path.resolve(home) || samePath(top, home))) {
     return { refusal: 'Your home directory is a Git repository; runlist will not set up handoffs there. Run this inside a project, or create runlist.config.mjs yourself.' };
   }
   return { top };

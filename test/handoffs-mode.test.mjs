@@ -153,6 +153,14 @@ describe('zero-setup handoffs: the first baton configures the repository', () =>
     assert.equal(homeRepo.status, 1);
     assert.match(homeRepo.stderr, /home directory is a Git repository/);
     assert.deepEqual(snapshot(), before);
+    if (process.platform !== 'win32') {
+      const alias = path.join(home, 'project-home');
+      symlinkSync(repo, alias);
+      const aliasHome = cli(['baton', 'exporter', draft()], { extra: { HOME: alias, USERPROFILE: alias } });
+      assert.equal(aliasHome.status, 1);
+      assert.match(aliasHome.stderr, /home directory is a Git repository/);
+      assert.deepEqual(snapshot(), before);
+    }
   });
 
   it('never overwrites an existing config: setup first, then baton uses the configured folders', () => {
