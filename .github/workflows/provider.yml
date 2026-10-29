@@ -27,7 +27,7 @@ jobs:
         node: ['22.12.0', '26.13.0']
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38  # v6.5.0
         with:
           node-version: ${{ matrix.node }}
       - name: Require an explicit immutable provider selection

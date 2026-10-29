@@ -210,6 +210,9 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ### Changed
 
+- Updated all five CI workflow pins for `actions/setup-node` from 6.3.0 to
+  6.5.0, including upstream cache dependency and security updates.
+
 - Updated Cargo patches: `rustix` 1.1.6, `tauri-plugin` 2.7.2,
   `tauri-winres` 0.3.7, `tao` 0.37.2 and `wry` 0.57.1. These include upstream
   Linux display/window and macOS drag/drop, focus and memory fixes.
