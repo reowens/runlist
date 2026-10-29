@@ -1150,7 +1150,7 @@ backticks and dollar signs and trips hooks that scan commands; use @path.
 filename; a name with a \`/\` is read relative to the repo (or to --root).
 
 Examples:
-  runlist new plan auth-revamp @/tmp/auth-revamp.md
+  runlist new plan auth-revamp @<draft-file>
   runlist new prompt resume-foo @<draft-file>
   runlist new plan full-spec - <<'EOF'
   ---
@@ -1543,15 +1543,15 @@ Repo-specific commit hint (runlist.config.mjs):
 The function returns argv; baton shell-quotes each argument before printing.
 
 Examples:
-  runlist baton --template > /tmp/resume.md
+  runlist baton --template > <draft-file>
   runlist baton @<draft-file>
   runlist baton checkout-fixes @<draft-file>
   runlist baton --subagent totals-review @<draft-file>
   runlist baton --subagent totals-review --parent resume-session-name @<draft-file>
-  runlist baton --subagent --template --parent resume-session-name > /tmp/child.md
+  runlist baton --subagent --template --parent resume-session-name > <child-draft-file>
   runlist baton docs/plans/auth.md @<draft-file>
-  runlist baton docs/plans/auth.md @/tmp/new-draft.md --replace
-  runlist baton --status paused --note "blocked on review" @/tmp/d.md
+  runlist baton docs/plans/auth.md @<new-draft-file> --replace
+  runlist baton --status paused --note "blocked on review" @<draft-file>
   runlist baton --done --next-step "wire the retry path" --current-state "parser merged"
   cat <draft-file> | runlist baton
 

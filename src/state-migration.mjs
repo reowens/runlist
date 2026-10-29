@@ -1,6 +1,7 @@
-import { mkdirStateSync as mkdirSync } from './state-directory.mjs';
+import { ensureStateIgnored } from './state-directory.mjs';
 import {
   existsSync,
+  mkdirSync,
   readFileSync,
   readdirSync,
   renameSync,
@@ -114,6 +115,8 @@ export function migrateStateDirectory(repoRoot, options = {}) {
     moveEntry(path.join(from, entry), path.join(to, entry));
   }
   try { if (readdirSync(from).length === 0) rmdirSync(from); } catch {}
+  // After the move, so a legacy .dotmd/.gitignore carries over intact.
+  ensureStateIgnored(to);
 
   writeFileSync(
     path.join(to, MIGRATION_MARKER),

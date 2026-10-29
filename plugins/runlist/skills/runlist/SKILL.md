@@ -96,7 +96,7 @@ Valid statuses are type-aware and project-specific: `runlist statuses list --typ
 
 ## Decisions
 
-`runlist new decision <plan> --question "What must be decided?" @/tmp/decision.md` adds one decision to the owning plan. Write the record file first: situation, current behavior, and the consequence of each answer. Repos with `decisions.register` require `--answers "Yes: … No: …"` too; include it on the first call. Read pending decisions with `runlist decisions [<plan>]`, and validate the record with `runlist decisions --check`.
+`runlist new decision <plan> --question "What must be decided?" @<record-file>` adds one decision to the owning plan. Write the record file first: situation, current behavior, and the consequence of each answer. Repos with `decisions.register` require `--answers "Yes: … No: …"` too; include it on the first call. Read pending decisions with `runlist decisions [<plan>]`, and validate the record with `runlist decisions --check`.
 
 ## Guardrails (the guard hook enforces these)
 

@@ -1081,18 +1081,18 @@ For unfinished session work, save the handoff and release the owned plan in one
 operation:
 
 ```bash
-runlist baton @/tmp/resume.md
+runlist baton @<draft-file>
 ```
 
 Parent handoffs use `resume-<name>`. Delegated agents explicitly use
-`runlist baton --subagent <task-slug> @/tmp/resume.md` for `subagent-<task-slug>`.
+`runlist baton --subagent <task-slug> @<draft-file>` for `subagent-<task-slug>`.
 Under a parent-owned plan, use a distinct task slug that does not resolve to a
 plan. A child owning a dedicated plan can pass that plan with `--subagent`.
 Existing prompts keep their names. See `runlist baton --help` for prefix and
 replacement checks.
 
 To associate a child handoff with its parent, use
-`runlist baton --subagent review --parent resume-session-name @/tmp/review.md`.
+`runlist baton --subagent review --parent resume-session-name @<review-draft-file>`.
 This saves `parent_prompt: resume-session-name`; the parent can be saved later.
 `rl prompts` collapses children into a `[+N subagent]` count on
 the matching `resume-*` prompt's line. Use `rl prompts --verbose` to expand their names
@@ -1104,10 +1104,10 @@ Grouping preserves consumption order and the `[NEXT]` marker; JSON stays flat.
 Handoffs have editable draft outlines:
 
 ```bash
-rl baton --template > /tmp/resume.md
-rl baton --subagent --template --parent resume-session-name > /tmp/review.md
+rl baton --template > <draft-file>
+rl baton --subagent --template --parent resume-session-name > <review-draft-file>
 # Fill Task, State, Next, Evidence, and Boundaries, then save:
-rl baton --subagent review @/tmp/review.md
+rl baton --subagent review @<review-draft-file>
 ```
 
 The parent travels in the draft's frontmatter, so it need not be repeated on

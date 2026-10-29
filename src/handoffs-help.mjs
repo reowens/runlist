@@ -31,10 +31,10 @@ Options:
   --dry-run, -n          Preview without writing
 
 Examples:
-  runlist baton --template > /tmp/resume.md
+  runlist baton --template > <draft-file>
   runlist baton checkout-fixes @<draft-file>
-  runlist baton checkout-fixes @/tmp/new-draft.md --replace
-  runlist baton --subagent totals-review --parent resume-checkout-fixes @/tmp/child.md
+  runlist baton checkout-fixes @<new-draft-file> --replace
+  runlist baton --subagent totals-review --parent resume-checkout-fixes @<child-draft-file>
 
 Handing off a plan comes with planning; ${SETUP}`,
 
