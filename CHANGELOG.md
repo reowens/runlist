@@ -74,22 +74,30 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 - Setup skills preserve requested first-plan facts and prompt policy, and use
   the shell-selected CLI without treating duplicate installations as a blocker.
 - The README opens with a "Handoffs in 3 steps" quick path (install the CLI and
-  plugin, say "baton" or type `/baton`, then `/pickup`), with the Claude Desktop
-  Code-tab route and a PATH caveat. Checkout review and `dotmd-cli` migration
+  plugin and set up the project, say "baton" or type `/baton`, then `/pickup`),
+  led by the terminal commands, with a PATH note and a statement of where it
+  runs (Claude Code on your machine). Checkout review and `dotmd-cli` migration
   notes moved below it, and the Claude Code route now leads the list of
   assistants that can run setup. The beginner guide gained a handoff section.
-- `/baton` has a user-facing description, uses `baton --done --next-step`
-  instead of a hand edit, and keeps the subagent parent/child rules in a closing
-  section. `/plans`, `/docs` and `/prompts` descriptions read as plain
-  summaries, and the skill description drops "(formerly dotmd)".
+- `/baton` has a user-facing description, runs `baton --done --next-step` only
+  when baton reports `Handoff not done yet` (it fails when nothing is pending),
+  treats other touched plans as ordinary `runlist set` edits, and keeps the
+  subagent parent/child rules in a closing section. `/baton`, `/pickup`,
+  `/plans`, `/docs` and `/prompts` keep short user-facing descriptions and carry
+  their activation phrases in `when_to_use`, which Claude Code appends to the
+  description it shows the model. The skill description drops "(formerly dotmd)".
 - The baton template-editor note now says "the Runlist desktop app's Templates
   editor" so Claude Desktop users do not look for it in Claude Desktop.
-- `runlist install claude` without the `claude` command also prints the Claude
-  Desktop route (Code tab, **+**, **Add plugins**), noting that adding a
-  third-party marketplace from inside the app is unconfirmed.
-- The hook wrappers' no-CLI hint says runlist is not on this app's PATH, shows
-  the PATH searched (truncated), and gives the fix for both "not installed"
-  (`npm install -g runlist`) and "installed but invisible to a GUI-launched app".
+- `runlist install claude` without the `claude` command prints the documented
+  terminal commands (`claude plugin marketplace add reowens/runlist`,
+  `claude plugin install runlist@runlist`) and where to install the Claude Code
+  CLI, then the in-session `/plugin` forms. It names Claude Desktop's Code tab
+  only as where runlist appears once the marketplace is registered.
+- The hook wrappers' no-CLI hint says neither `runlist` nor `dotmd` was found on
+  the PATH the app sees, shows that PATH (truncated), and suggests comparing it
+  with `command -v runlist` / `echo $PATH` in a terminal, then fully quitting and
+  reopening the app after fixing the shell profile. It prints with `printf`, so
+  a backslash sequence in PATH no longer truncates the output.
 - Setup reports informational advice (prompt tracking, a preserved example
   sample) under a separate `notes` list, so a clean `setup --yes` shows
   `Outstanding: 0`.

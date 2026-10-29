@@ -1,5 +1,6 @@
 ---
 description: "Save where you are so the next session can pick it up (a “baton”). /pickup is the other half."
+when_to_use: "Use when the user says baton (“baton this”, “baton now”, “baton those items”), save where we are, save a resume, hand off, wrap up, or pick it up next time, or when context is getting tight."
 allowed-tools: "Bash(runlist:*), Bash(rl:*), Bash(dotmd:*), Bash(git commit:*), Write, Edit"
 ---
 
@@ -24,13 +25,15 @@ Start with `runlist baton --template` if useful. Resume and subagent outlines ca
 
    Always pass the draft (`@<file>`). A bare `runlist baton` saves nothing: it prints these same forms and exits. If a handoff may already be pending, inspect it with `runlist prompts show <resume-slug>` first. Keep it if current; if stale, pass `--replace` with the new draft. Baton archives the prior text and refreshes exactly one pending handoff with the plan release. Never consume a prompt merely to replace it. If baton refuses, it names the pending prompt to inspect.
 
-3. **Bring the plans up to date, after the prompt is saved.** Update the owning plan's body first. Then finish its handoff with the verb, never by editing frontmatter:
+3. **Finish the handoff only if baton asks.** Read baton's output. If it says `Handoff not done yet` (it released an in-session plan that has a `next_step`), update that plan's body, then run:
 
    ```bash
    runlist baton --done --next-step "<next move>" [--current-state "<where it stands>"]
    ```
 
-   Add `<plan-file>` after `--done` when running from another session. When baton released an in-session plan that has a `next_step`, it prints `Handoff not done yet` until this runs. The command writes the fields (creating a missing key) and refuses a `next_step` that still reads as it did when the prompt was saved. Each value is one line; `--dry-run` previews the write. The prompt is saved first, so a stop between the two steps loses nothing. Then bring every other plan this session touched up to date the same way.
+   Add `<plan-file>` after `--done` when running from another session. The command writes the fields (creating a missing key) and refuses a `next_step` that still reads as it did when the prompt was saved. Each value is one line; `--dry-run` previews the write. If baton did not say that (slug mode, or no `next_step`), skip `--done`: it has nothing to confirm and exits with an error. The prompt is saved first, so a stop between the steps loses nothing.
+
+   Any other plan this session touched is a separate, ordinary update: edit its body and change its status with `runlist set <status> <plan-file>` (`--note "why"` records the reason). `--done` applies only to the plan baton just released.
 
 4. **Commit and report.** If baton printed a commit command, run it once the plans are updated, with the other plans you updated named too. Tell the user the prompt name baton printed; it is the last line of the output. Do not pipe baton through `tail`, `head` or `grep`.
 

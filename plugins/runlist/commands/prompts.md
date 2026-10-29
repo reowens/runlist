@@ -1,5 +1,6 @@
 ---
 description: "See saved handoffs and prompts waiting for a later session, load one, or queue a new one"
+when_to_use: "Use when the user asks what handoffs or saved prompts are waiting, wants to look at one without loading it, or wants to queue a reminder for a later session."
 allowed-tools: "Bash(runlist:*), Bash(rl:*), Bash(dotmd:*), Read"
 ---
 

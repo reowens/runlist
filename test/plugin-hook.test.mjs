@@ -34,14 +34,31 @@ describe('plugin hook wrapper (missing dotmd binary)', { skip: process.platform 
     try {
       const r = runHook(['--hint', 'hud'], emptyDir);
       strictEqual(r.status, 0, `expected exit 0; stderr: ${r.stderr}`);
-      match(r.stdout, /not on this app's PATH/, `expected PATH-aware hint; got: ${r.stdout}`);
+      match(r.stdout, /neither runlist nor dotmd was found on the PATH this app sees/, `expected PATH-aware hint; got: ${r.stdout}`);
       ok(r.stdout.includes(`PATH searched: ${emptyDir}`), 'shows the PATH it searched');
-      match(r.stdout, /Not installed yet: run `npm install -g runlist`/);
-      match(r.stdout, /Already installed: restart the app from a terminal.*login profile/);
+      match(r.stdout, /Not installed yet\? Run `npm install -g runlist`, then fully quit and reopen the app/);
+      match(r.stdout, /Installed already\? In a terminal compare `command -v runlist` and `echo \$PATH` with the PATH above/);
+      match(r.stdout, /add it to your shell profile, then fully quit and reopen the app/);
+      ok(!/doctor --session/.test(r.stdout), 'doctor --session reports session identity, not PATH');
+      ok(!/restart the app from a terminal/.test(r.stdout), 'no unsupported terminal-restart advice');
       ok(!/npm i -g/.test(r.stdout), 'one spelling of the install command');
       strictEqual(r.stdout.trim().split('\n').length, 2, 'hint is two lines: what is wrong, then the fix');
     } finally {
       rmSync(emptyDir, { recursive: true, force: true });
+    }
+  });
+
+  it('prints a PATH containing backslash sequences verbatim', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-nopath-'));
+    try {
+      // A literal \c would end output early under an echo that interprets escapes.
+      const odd = `${dir}/a\\cb\\n`;
+      const r = runHook(['--hint', 'hud'], `${odd}:${dir}`);
+      strictEqual(r.status, 0);
+      ok(r.stdout.includes(`PATH searched: ${odd}:${dir}`), `PATH printed verbatim; got: ${r.stdout}`);
+      match(r.stdout, /Not installed yet\?/, 'second line still printed');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 

@@ -1,5 +1,6 @@
 ---
 description: "Pick up where you left off — load a saved handoff from an earlier session"
+when_to_use: "Use when the user says pick up where we left off, where were we, resume my handoff, load my last handoff, or continue from the last session."
 allowed-tools: "Bash(runlist:*), Bash(rl:*), Bash(dotmd:*)"
 ---
 

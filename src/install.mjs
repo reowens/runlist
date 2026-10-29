@@ -15,6 +15,7 @@ import { codexStatus, installCodexPlugin, installedCodexStatus } from './codex-i
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
 
+const CLAUDE_CODE_SETUP_URL = 'https://code.claude.com/docs/en/setup';
 const HOSTS = ['claude', 'codex', 'opencode'];
 const ALIASES = { 'claude-code': 'claude', claudecode: 'claude' };
 
@@ -144,13 +145,19 @@ function installClaude(argv, dryRun, json, opts = {}, prerequisites = {}) {
       continue;
     }
     if (step.kind === 'manual') {
+      if (step.lines.some(line => line.startsWith('/plugin install'))) {
+        // Newcomers mostly land here from Claude Desktop with no `claude` command, so lead with
+        // the documented terminal form. Desktop's plugin browser only lists marketplaces that are
+        // already registered, so it is where to find runlist afterwards, not where to add it.
+        process.stdout.write(`${step.reason ? `${step.reason}. ` : ''}${yellow('The claude CLI is not on PATH.')} Install the Claude Code CLI (${CLAUDE_CODE_SETUP_URL}), then run in a terminal:\n`);
+        for (const line of step.lines) process.stdout.write(`  ${bold(line.replace(/^\/plugin /, 'claude plugin '))}\n`);
+        process.stdout.write('Or run these from inside a Claude Code session:\n');
+        for (const line of step.lines) process.stdout.write(`  ${bold(line)}\n`);
+        process.stdout.write(dim('Claude Desktop\'s Code tab reads the same plugin settings as the terminal. Once the marketplace is added, runlist appears under Code tab → + → Add plugins.\n'));
+        continue;
+      }
       process.stdout.write(`${yellow(step.reason ?? 'claude CLI not on PATH')} — run these from a Claude Code session:\n`);
       for (const line of step.lines) process.stdout.write(`  ${bold(line)}\n`);
-      // Desktop's Code tab is where many newcomers live and it has no `/plugin` prompt of its own.
-      if (step.lines.some(line => line.startsWith('/plugin install'))) {
-        process.stdout.write(`In Claude Desktop instead: Code tab → + → Add plugins, add the marketplace ${bold(CLAUDE_MARKETPLACE)}, then install ${bold('runlist')}.\n`);
-        process.stdout.write(dim('(Adding a third-party marketplace from inside the app is unconfirmed. If it is not offered, install the Claude Code CLI and run `claude plugin marketplace add` / `claude plugin install` in a terminal; Desktop Code sessions share those settings.)\n'));
-      }
       continue;
     }
     if (step.reason) process.stdout.write(`${step.reason}\n`);

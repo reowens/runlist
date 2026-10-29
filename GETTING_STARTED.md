@@ -6,7 +6,7 @@ The CLI works without a GUI. **Runlist desktop** is an optional document app;
 
 This guide tracks the repository source. npm installs the latest published
 release, which may lag development. If your installed CLI lacks `setup` or
-`config`, use the [source-review instructions](README.md#install) to try the
+`config`, use the [source-review instructions](README.md#checkout-review-and-migration) to try the
 current source, or wait for the next release. A matching version number alone
 is not proof that an installed copy contains unreleased changes.
 

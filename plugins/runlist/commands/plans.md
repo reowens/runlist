@@ -1,5 +1,6 @@
 ---
 description: "See your plans: what is active, what to pick up next, and how to start or close one"
+when_to_use: "Use when the user asks what is on the plate, what plans are active, what to work on next, or to start, pause or close a plan."
 allowed-tools: "Bash(runlist:*), Bash(rl:*), Bash(dotmd:*), Read"
 ---
 

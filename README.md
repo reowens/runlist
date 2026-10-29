@@ -23,36 +23,50 @@ a later session.** A saved handoff (runlist calls it a *baton*) is a short
 resume note kept in your project, so the next Claude session starts oriented
 instead of from a blank page.
 
-1. **Install the CLI and the Claude Code plugin** (once, in a terminal):
+1. **Install, then set up your project** (once, in a terminal):
 
    ```bash
    npm install -g runlist
    claude plugin marketplace add reowens/runlist
    claude plugin install runlist@runlist
+   cd /path/to/your/project
+   runlist setup
    ```
 
-   Terminal sessions, Claude Desktop's **Code** tab (local sessions) and VS Code
-   read the same plugin settings, so this installs it for all of them. Prefer
-   clicking? In Claude Desktop use the Code tab → **+** → **Add plugins**
-   (not available in cloud or WSL sessions). Whether Desktop's browser can add a
-   third-party marketplace like `reowens/runlist` is untested, so try the terminal
-   commands first. Without the `claude` command, `runlist install claude`
-   prints the steps for your setup. Restart Claude Desktop afterwards.
+   `runlist setup` shows what it will create (a `runlist.config.mjs` and a
+   `docs/` folder) and asks before writing; add `--yes` to accept those defaults
+   without questions. Do this before your first handoff: saving a handoff in a
+   project with no config puts it where a later setup will not look. Terminal
+   sessions, Claude Desktop's **Code** tab (local sessions) and VS Code read the
+   same plugin settings, so one install covers them all. Start a new session
+   afterwards, or run `/reload-plugins` in one that is already open.
+
+   The `claude` command comes with the Claude Code CLI
+   ([install it](https://code.claude.com/docs/en/setup)). If it is missing,
+   `runlist install claude` prints these same commands and where to get it. In
+   Claude Desktop, once the marketplace is registered, the **Code** tab → **+** →
+   **Add plugins** browser lists runlist too (not available in cloud or WSL
+   sessions). Setup can also be done by asking Claude in the project, once the
+   plugin is loaded; see the [beginner setup guide](GETTING_STARTED.md).
 2. **Stop with a handoff.** In a Claude Code session (terminal or Desktop's Code
    tab), say "baton" or "save where we are", or type `/baton`.
 3. **Pick it up next time.** In a new session, type `/pickup` or say "pick up
    where we left off".
 
-If a hook says runlist is "not on this app's PATH", the app started without your
-shell's `PATH`: restart it from a terminal, or add the npm global bin directory
-(`npm prefix -g`, plus `/bin`) to your login profile, then restart. Run
-`runlist doctor --session` inside a session to check; "command not found" means
-the app still cannot see the CLI. Setting up a project (config, first plan,
-ignore rules) is covered in the [beginner setup guide](GETTING_STARTED.md).
+If a session hook says it found neither `runlist` nor `dotmd` on its PATH, either
+runlist is not installed yet or the app is searching a different PATH than your
+terminal. In a terminal, compare `command -v runlist` and `echo $PATH` with the
+PATH the hook printed. If runlist is installed but its folder (`npm prefix -g`
+plus `/bin`) is missing from the hook's PATH, add that folder to your shell
+profile, then fully quit and reopen Claude Desktop (see Anthropic's
+[Desktop troubleshooting](https://code.claude.com/docs/en/desktop#session-not-finding-installed-tools)).
 
-Claude Desktop's **Chat** and **Cowork** tabs have no shell, so runlist cannot run
-there; use the Code tab. The separate Runlist desktop app is optional and comes
-after this path: `runlist desktop install` on a supported Mac.
+This quick path uses Claude Code (the Code tab in Claude Desktop, or a terminal)
+running on your own machine, because that is where the plugin's hooks and the
+local `runlist` command live. For what Chat, Cowork, Codex and remote sessions
+can run, see [Which assistant can run setup?](#which-assistant-can-run-setup).
+The separate Runlist desktop app is optional and comes after this path:
+`runlist desktop install` on a supported Mac.
 
 ## Install
 
@@ -276,7 +290,7 @@ execution environments:
   use a terminal session, with the intended checkout selected. A local Code
   session reads the same plugin settings as the terminal, and hooks fire there.
   Install the plugin with the [three-step quick path](#handoffs-in-3-steps) and
-  restart the app. Desktop Code also supports cloud and SSH environments; those
+  start a new session. Desktop Code also supports cloud and SSH environments; those
   execute elsewhere. See
   [Claude Code desktop environments](https://code.claude.com/docs/en/desktop).
   Install and verify the plugin in that environment; follow the host's

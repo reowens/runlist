@@ -1,5 +1,6 @@
 ---
 description: "Browse and manage your reference docs: list, create, search, check, archive"
+when_to_use: "Use when the user asks about reference docs, ADRs, RFCs or design docs: finding, creating, checking or archiving one."
 allowed-tools: "Bash(runlist:*), Bash(rl:*), Bash(dotmd:*), Read"
 ---
 

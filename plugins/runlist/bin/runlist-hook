@@ -28,12 +28,13 @@ elif command -v dotmd >/dev/null 2>&1; then
   CLI=dotmd
 else
   if [ "$hint" = "1" ]; then
-    # Pure shell on purpose (this is the no-CLI path). A GUI-launched app may not
-    # inherit the shell PATH that has runlist, so say which PATH was searched.
+    # Pure shell on purpose (this is the no-CLI path). Say which PATH was searched so the
+    # reader can compare it with their terminal's. printf, not echo: some shells' echo
+    # interprets backslash sequences in $PATH.
     searched=$(printf '%.200s' "$PATH")
     [ "${#PATH}" -gt 200 ] && searched="$searched..."
-    echo "runlist plugin: the runlist CLI is not on this app's PATH, so its hooks are doing nothing here. PATH searched: $searched"
-    echo "Not installed yet: run \`npm install -g runlist\`, then restart this app. Already installed: restart the app from a terminal, or add the npm global bin directory (\`npm prefix -g\` + /bin) to your login profile, then restart. \`runlist doctor --session\` shows what a session sees."
+    printf '%s\n' "runlist plugin: neither runlist nor dotmd was found on the PATH this app sees, so its hooks are doing nothing here. PATH searched: $searched"
+    printf '%s\n' 'Not installed yet? Run `npm install -g runlist`, then fully quit and reopen the app. Installed already? In a terminal compare `command -v runlist` and `echo $PATH` with the PATH above. If the folder holding runlist (`npm prefix -g` plus /bin) is missing here, add it to your shell profile, then fully quit and reopen the app.'
   fi
   exit 0
 fi
