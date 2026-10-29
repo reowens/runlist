@@ -408,8 +408,8 @@ possible path introduced by a linker or another build tool.
 Current development builds pin Node 26.13.0 LTS (Lithium) from the official
 [release metadata](https://nodejs.org/dist/index.json) and
 [archive checksums](https://nodejs.org/dist/v26.13.0/SHASUMS256.txt) for all six
-OS/architecture targets. This is an unreleased runtime change; the versioned
-validation records above describe the older runtime in published artifacts.
+OS/architecture targets. Versioned validation records describe the runtime
+and source snapshot checked for each artifact.
 
 Node's [versioned platform requirements](https://github.com/nodejs/node/blob/v26.13.0/BUILDING.md#platform-list)
 retain a macOS 13.5 binary minimum for ARM64/x64. Linux ARM64/x64 binaries need
@@ -420,8 +420,8 @@ ARM64. Upstream platform/vendor support restrictions also apply.
 
 These upstream requirements do not qualify another Runlist platform or establish
 minimum-host behavior. The CLI's existing Node >=20 minimum is unchanged.
-Native Mac/Windows, Linux ARM64 and fresh-host execution of this runtime still
-need their own evidence.
+Native platform and fresh-host qualification requires evidence for the selected
+runtime and source snapshot.
 
 ## Windows/Linux builds in development
 
