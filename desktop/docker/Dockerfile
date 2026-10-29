@@ -4,7 +4,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl git openssh-client build-essential pkg-config python3 \
     libwebkit2gtk-4.1-dev libssl-dev libxdo-dev \
-    libayatana-appindicator3-dev librsvg2-dev patchelf file \
+    libayatana-appindicator3-dev librsvg2-dev patchelf file libatomic1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Use the same checksum-pinned Node runtime as the Linux desktop payload.

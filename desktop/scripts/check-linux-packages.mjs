@@ -33,6 +33,7 @@ for(const input of inputs){
   const engine=path.dirname(manifests[0]),prepared=path.join(desktop,'src-tauri/resources');
   const manifest=JSON.parse(readFileSync(manifests[0],'utf8'));
   assert.equal(manifest.platform,'linux');assert.equal(manifest.architecture,process.arch);
+  if(file.endsWith('.deb')&&Number(manifest.runtime.replace(/^v/,'').split('.')[0])>=25)assert.match(metadata.Depends,/(?:^|[,\s])libatomic1(?:[,\s(]|$)/,'Node 25+ Debian packages must declare libatomic1.');
   assert.deepEqual(manifest,JSON.parse(readFileSync(path.join(prepared,'bundle-manifest.json'),'utf8')));
   assert.equal(digest(path.join(engine,'runtime',manifest.executable)),digest(path.join(prepared,'runtime',manifest.executable)));
   const engineFiles=inventory(engine);assert.deepEqual(engineFiles,inventory(prepared),'Installer engine must exactly match the prepared payload.');
@@ -40,11 +41,12 @@ for(const input of inputs){
   assert.equal(executables.length,1,'Installer must contain one native Runlist ELF.');
   const elf=readFileSync(executables[0]);assert.equal(elf[4],2);assert.equal(elf[5],1);assert.equal(elf.readUInt16LE(18),process.arch==='arm64'?183:62);
   const dependencies=execFileSync('ldd',[executables[0]],{encoding:'utf8'});assert.doesNotMatch(dependencies,/not found/);
+  const runtimeDependencies=execFileSync('ldd',[path.join(engine,'runtime',manifest.executable)],{encoding:'utf8'});assert.doesNotMatch(runtimeDependencies,/not found/,'Bundled Node runtime dependencies must resolve.');
   if(!nativeOnly){const result=spawnSync(process.execPath,[path.join(desktop,'scripts/check-bundle.mjs'),engine],{cwd:desktop,stdio:'inherit',env:process.env});
    if(result.error)throw result.error;assert.equal(result.status,0,'Extracted installer engine checks failed.');}
   const nativeTest=process.env.RUNLIST_NATIVE_TEST_BIN;
   if(nativeTest){const native=spawnSync(path.resolve(nativeTest),[],{stdio:'inherit',env:{...process.env,RUNLIST_TEST_ENGINE:engine}});if(native.error)throw native.error;assert.equal(native.status,0,'Native controller checks against extracted engine failed.');}
-  records.push({engineTests:!nativeOnly,nativeTests:Boolean(nativeTest),engineFiles,file,bytes:statSync(file).size,sha256:digest(file),metadata,engineRelative:path.relative(extracted,engine),nativeSha256:digest(executables[0]),runtimeSha256:digest(path.join(engine,'runtime',manifest.executable)),dependencies});
+  records.push({engineTests:!nativeOnly,nativeTests:Boolean(nativeTest),engineFiles,file,bytes:statSync(file).size,sha256:digest(file),metadata,engineRelative:path.relative(extracted,engine),nativeSha256:digest(executables[0]),runtimeSha256:digest(path.join(engine,'runtime',manifest.executable)),dependencies,runtimeDependencies});
  }finally{rmSync(root,{recursive:true,force:true});}
 }
 const report=JSON.stringify({platform:process.platform,architecture:process.arch,installers:records},null,2)+'\n';

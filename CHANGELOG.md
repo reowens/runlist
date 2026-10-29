@@ -210,6 +210,10 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ### Changed
 
+- Updated the bundled desktop runtime to Node 26.13.0 LTS (Lithium), with all
+  six archives pinned to official SHA-256 values. Linux packages declare the new
+  libatomic runtime dependency; CI covers Node 26 while CLI Node 20 support stays.
+
 - `runlist baton --done` takes `--next-step "…"` and `--current-state "…"` and
   writes them into the plan's frontmatter before confirming the handoff, so
   finishing a handoff no longer needs a hand edit. A next step equal to the one

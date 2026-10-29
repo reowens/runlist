@@ -22,10 +22,10 @@ jobs:
       matrix:
         include: >-
           ${{ fromJSON(
-            inputs.platform == 'windows' && '[{"os":"windows-latest","node":22},{"os":"windows-latest","node":24}]' ||
-            inputs.platform == 'macos' && '[{"os":"macos-latest","node":24}]' ||
+            inputs.platform == 'windows' && '[{"os":"windows-latest","node":22},{"os":"windows-latest","node":24},{"os":"windows-latest","node":26}]' ||
+            inputs.platform == 'macos' && '[{"os":"macos-latest","node":24},{"os":"macos-latest","node":26}]' ||
             inputs.platform == 'linux' && '[{"os":"ubuntu-latest","node":20}]' ||
-            inputs.platform == 'all' && '[{"os":"ubuntu-latest","node":20},{"os":"macos-latest","node":24},{"os":"windows-latest","node":22},{"os":"windows-latest","node":24}]' || '[]'
+            inputs.platform == 'all' && '[{"os":"ubuntu-latest","node":20},{"os":"macos-latest","node":24},{"os":"macos-latest","node":26},{"os":"windows-latest","node":22},{"os":"windows-latest","node":24},{"os":"windows-latest","node":26}]' || '[]'
           ) }}
     runs-on: ${{ matrix.os }}
     defaults:

@@ -1,19 +1,35 @@
 {
-  "version": "v24.22.1",
-  "platforms": {"darwin": {"arm64": {
-    "file": "node-v24.22.1-darwin-arm64.tar.gz",
-    "sha256": "89c682593d76cd44233fa53b1563264e7de9cbb189cad169135c5b4fadfbc0a7"
-  },
-  "x64": {
-    "file": "node-v24.22.1-darwin-x64.tar.gz",
-    "sha256": "d132557e7ee2b85af08b0c8c34338e65c6430f2238d01f727728ef42dc83b035"
-  }},
-  "win32": {
-    "arm64": {"file":"node-v24.22.1-win-arm64.zip","sha256":"a0c807319fede24c4a0d8f84564c82a619bd313b16b10c007c383c2609e99171"},
-    "x64": {"file":"node-v24.22.1-win-x64.zip","sha256":"d2046d28c2c3dcd211ac5145c0bf30e2047ef9dfb306693c8c6e2eccd8b95fa5"}
-  },
-  "linux": {
-    "arm64": {"file":"node-v24.22.1-linux-arm64.tar.gz","sha256":"33c37be234ba8bee041961047b19160f4d7d0f164e8e246f78bdd10feff148b3"},
-    "x64": {"file":"node-v24.22.1-linux-x64.tar.gz","sha256":"eb6728e77c576a35162c122c45ccadf224d89ff00abc8dae46cc2897c6002d7c"}
-  }}
+  "version": "v26.13.0",
+  "platforms": {
+    "darwin": {
+      "arm64": {
+        "file": "node-v26.13.0-darwin-arm64.tar.gz",
+        "sha256": "d38bd5e5a2ddce6bbb5ce45e46e208337da4d51fffe611e567fd32073d6439f6"
+      },
+      "x64": {
+        "file": "node-v26.13.0-darwin-x64.tar.gz",
+        "sha256": "525c9b29bb0263d687de60a4cec0e2a6db876a8eb032369e5795eca71e7c358e"
+      }
+    },
+    "win32": {
+      "arm64": {
+        "file": "node-v26.13.0-win-arm64.zip",
+        "sha256": "a9427139595156ef484e1fb08957676e09d4232368dd1743a2a9f93f3d241b14"
+      },
+      "x64": {
+        "file": "node-v26.13.0-win-x64.zip",
+        "sha256": "dcc60d59a0746999f99064a01c020445d54d84228c691cdbf25b49ac3b59150a"
+      }
+    },
+    "linux": {
+      "arm64": {
+        "file": "node-v26.13.0-linux-arm64.tar.gz",
+        "sha256": "439e9c438acdf6a6ffe47418da709153d66c4bed812e30a473faacb107dd2791"
+      },
+      "x64": {
+        "file": "node-v26.13.0-linux-x64.tar.gz",
+        "sha256": "5848553868b402d3fabb5b09270649977780a390f832155721025a08b5104455"
+      }
+    }
+  }
 }

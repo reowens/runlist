@@ -83,7 +83,7 @@ to make a runner pass.
 
 ## Hosted source and compatibility checks
 
-Routine pushes to `main` and pull requests run one Linux/Node24 source job.
+Routine pushes to `main` and pull requests run one Linux/Node26 source job.
 Superseded routine runs are cancelled. Manual runs are not cancelled by that rule.
 The source workflow also accepts manual dispatch using GitHub's branch/tag
 selection, for example:
@@ -96,8 +96,8 @@ Record the resulting run URL and tested SHA. A PR run can test a synthetic merge
 commit and is not a desktop source prerequisite.
 
 CLI compatibility is manual and platform-selectable. The default `windows`
-selection runs Windows on Node22 and Node24; `linux` runs Node20, `macos` runs
-Node24, and `all` runs all four combinations. Select a full lowercase
+selection runs Windows on Node22, Node24 and Node26; `linux` runs Node20, `macos`
+runs Node24 and Node26, and `all` runs all six combinations. Select a full lowercase
 40-character commit SHA, for example:
 
 ```sh
@@ -132,7 +132,9 @@ checkout, Git metadata, credentials or private planning corpus into the containe
 Only the Dockerfile, container script and runtime lock enter the image context.
 
 The Ubuntu 22.04/x64 image pins its base digest, Rust 1.95.0 and the desktop's
-checksum-pinned Node runtime, read directly from `desktop/runtime-lock.json`.
+checksum-pinned Node 26 LTS runtime, read directly from `desktop/runtime-lock.json`.
+Linux build images install `libatomic1`, and Debian packages declare that runtime
+dependency. Extracted-package checks also verify the bundled Node linker dependencies.
 Ubuntu package repositories and Tauri's downloaded packaging tools are not
 snapshot-pinned, so this is a repeatable build environment, not a byte-reproducible
 installer claim.

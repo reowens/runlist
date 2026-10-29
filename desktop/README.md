@@ -403,6 +403,26 @@ to neutral paths, including panic locations. Existing `RUSTFLAGS` or
 the packaged JavaScript before signing; compiler remapping does not cover every
 possible path introduced by a linker or another build tool.
 
+## Development runtime
+
+Current development builds pin Node 26.13.0 LTS (Lithium) from the official
+[release metadata](https://nodejs.org/dist/index.json) and
+[archive checksums](https://nodejs.org/dist/v26.13.0/SHASUMS256.txt) for all six
+OS/architecture targets. This is an unreleased runtime change; the versioned
+validation records above describe the older runtime in published artifacts.
+
+Node's [versioned platform requirements](https://github.com/nodejs/node/blob/v26.13.0/BUILDING.md#platform-list)
+retain a macOS 13.5 binary minimum for ARM64/x64. Linux ARM64/x64 binaries need
+kernel 4.18+, glibc 2.28+, libstdc++ with GLIBCXX_3.4.25 and available libatomic.
+The Debian installer declares `libatomic1`; build images install it explicitly.
+Windows binary minimums are Windows 10/Server 2016 for x64 and Windows 10 for
+ARM64. Upstream platform/vendor support restrictions also apply.
+
+These upstream requirements do not qualify another Runlist platform or establish
+minimum-host behavior. The CLI's existing Node >=20 minimum is unchanged.
+Native Mac/Windows, Linux ARM64 and fresh-host execution of this runtime still
+need their own evidence.
+
 ## Windows/Linux builds in development
 
 Build on the target host with Rust 1.95+, Cargo, Node, and Tauri's
