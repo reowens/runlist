@@ -95,7 +95,10 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 - Refuse automatic handoff setup when the Git repository is also the home
   directory through a symlink alias.
 - `runlist setup --adopt` preflights missing docs roots using the same adoption
-  boundaries as existing roots, leaving root creation to setup.
+  boundaries as existing roots, leaving root creation to setup. When a fresh
+  setup refuses a file outside its docs root, it names the fix: run setup with
+  `--docs-root <folder>` for the file's folder, or move the file under the docs
+  root first.
 - `runlist new` replaces draft statuses invalid for the target type with its
   normal starting status and reports the replacement.
 

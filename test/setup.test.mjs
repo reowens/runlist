@@ -72,6 +72,12 @@ describe('guided setup previews and apply', () => {
     assert.equal(missing.stdout, existing.stdout);
     assert.equal(missing.stderr, existing.stderr);
     assert.match(missing.stdout, /Setup adoption source resolves outside configured docs roots:/);
+    assert.match(missing.stdout, /To adopt it, run setup with `--docs-root notes`, or move it under docs\/ first\./);
+    put('top.md', '# Top\n\nSynthetic content.\n');
+    const top = cli(['setup', '--adopt', 'top.md', '--yes']);
+    assert.equal(top.status, 1);
+    assert.match(top.stdout, /To adopt it, move it under docs\/ first\./);
+    assert.doesNotMatch(top.stdout, /--docs-root/);
     const accepted = cli(['setup', '--adopt', 'notes/widget.md', '--docs-root', 'notes', '--yes']);
     assert.equal(accepted.status, 0, accepted.stdout + accepted.stderr);
     assert.match(readFileSync(path.join(repo, 'notes/widget.md'), 'utf8'), /type: doc\nstatus: draft/);

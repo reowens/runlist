@@ -9,7 +9,7 @@ import { runBulkTag } from './bulk-tag.mjs';
 import { runNew, catchAllRoot, promptDirectory, titleize } from './new.mjs';
 import { collectDocFiles, buildIndex, parseDocFile } from './index.mjs';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
-import { authorizeManagedSource, authorizeRepoGeneratedPath } from './managed-path.mjs';
+import { authorizeManagedSource, authorizeRepoGeneratedPath, inLegacyPromptFolder } from './managed-path.mjs';
 import { readTemplateStore } from './template-store.mjs';
 import { regenIndex, renderLifecycleMutation } from './lifecycle.mjs';
 import { snapshotFile, replaceSnapshot, inspectTransactions, recoverAbandonedTransactions, transactionResolutionAdvice } from './atomic-mutation.mjs';
@@ -85,6 +85,16 @@ function scaffolding(config, existing, choices, moves = []) {
   }
   const existingSample = path.join(plansDir, 'example-plan.md');
   return { folders: [...new Set(dirs)], files, sample: existsSync(existingSample) ? existingSample : null, gitignore: choices.gitignore ? path.join(config.repoRoot, '.gitignore') : null };
+}
+
+// A fresh setup can still choose its docs root, so say which choice would
+// manage the file. A folder setup refuses as a root (the repository top, the
+// legacy prompts/) is never suggested.
+function adoptionRootHint(config, file, docsRoot) {
+  const folder = path.relative(config.repoRoot, path.dirname(file)).split(path.sep).join('/');
+  const move = `move it under ${docsRoot}/ first`;
+  if (!folder || folder.startsWith('..') || path.isAbsolute(folder) || inLegacyPromptFolder(path.dirname(file), config.repoRoot)) return `To adopt it, ${move}.`;
+  return `To adopt it, run setup with \`--docs-root ${folder}\`, or ${move}.`;
 }
 
 function adoption(config, file, { allowMissingRoots = false } = {}) {
@@ -210,7 +220,14 @@ export async function setupWorker(request) {
     const adoptions = [];
     for (const selected of choices.adopt) {
       const file = path.resolve(config.repoRoot, selected);
-      const { source, content, ...preview } = adoption(config, file, { allowMissingRoots: true });
+      let proposed;
+      try {
+        proposed = adoption(config, file, { allowMissingRoots: true });
+      } catch (err) {
+        if (existing || !/resolves outside configured docs roots/.test(err.message)) throw err;
+        throw new Error(`${err.message}\n${adoptionRootHint(config, file, choices.docsRoot || 'docs')}`);
+      }
+      const { source, content, ...preview } = proposed;
       adoptions.push(preview);
     }
     const plan = firstPlan(config, choices);
