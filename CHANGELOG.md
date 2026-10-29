@@ -219,6 +219,9 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ### Changed
 
+- Updated all five CI workflow pins for `actions/checkout` from 6.0.2 to
+  6.1.0, including upstream protections against unsafe fork pull-request checkouts.
+
 - Updated all five CI workflow pins for `actions/setup-node` from 6.3.0 to
   6.5.0, including upstream cache dependency and security updates.
 
