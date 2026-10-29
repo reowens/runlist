@@ -1,10 +1,12 @@
 ---
 name: runlist
-description: Manage this repo's plans, docs, and prompts with the runlist CLI. Use when the user asks what's on the plate, references a plan/doc/prompt (or a slug under docs/), queues work, or wants to start, transition, or close one. Covers the order of operations (briefing → use → set → archive) and the rules for handling saved prompts.
+description: Manage this repo's plans, docs, and prompts with the runlist CLI. Use for explicit consume requests for saved prompts, when the user asks what's on the plate, references a plan/doc/prompt (or a slug under docs/), queues work, or wants to start, transition, or close one. Covers the order of operations (briefing → use → set → archive) and the rules for handling saved prompts.
 allowed-tools: "Bash(runlist:*), Bash(rl:*), Bash(dotmd:*), Read"
 ---
 
 # runlist workflow
+
+For an explicit `consume <prompt>` request, run `runlist use <prompt>` before file discovery or other task commands. If the native request hook already supplied the consumed handoff, continue from that output without consuming it again. Report a consumption failure before starting the handoff's work.
 
 For installing or onboarding Runlist, including a project with no config yet,
 use the **runlist-setup** skill. This skill covers ongoing document work.

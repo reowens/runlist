@@ -73,8 +73,8 @@ if [ "$1" = "guard" ]; then
   exit 0
 fi
 
-# UserPromptSubmit fast path: Claude Code runs this on every user message;
-# Codex retains the wrapper but registers no prompt hook. Only a handoff or
+# UserPromptSubmit hints: Claude Code runs this on every user message;
+# Codex handles explicit consumption in consume-prompt.mjs. Only a handoff or
 # pickup request gets an answer. The glob is strictly weaker
 # than the Node-side match, so a skipped payload could never have matched.
 if [ "$1" = "hud" ] && [ "$2" = "--prompt-submit" ]; then

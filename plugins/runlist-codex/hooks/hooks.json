@@ -1,9 +1,14 @@
 {
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [{ "type": "command", "command": "node \"${PLUGIN_ROOT}/bin/consume-prompt.mjs\"", "timeout": 15 }]
+      }
+    ],
     "SessionStart": [
       {
         "matcher": "startup|resume|clear|compact",
-        "hooks": [{ "type": "command", "command": "sh \"${PLUGIN_ROOT}/bin/runlist-hook\" --hint hud", "timeout": 5 }]
+        "hooks": [{ "type": "command", "command": "node \"${PLUGIN_ROOT}/bin/session-start.mjs\"", "timeout": 5 }]
       }
     ],
     "PreToolUse": [

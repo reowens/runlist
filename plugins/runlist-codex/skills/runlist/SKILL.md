@@ -1,9 +1,11 @@
 ---
 name: runlist
-description: Manage a repository's plans, docs, decisions, and saved prompts with the runlist CLI. Use when starting or closing plan work, checking the plan queue, or creating or consuming a handoff.
+description: Manage a repository's plans, docs, decisions, and saved prompts with the runlist CLI. Use for explicit consume requests for saved prompts, starting or closing plan work, checking the plan queue, or creating or consuming a handoff.
 ---
 
 # Runlist workflow
+
+For an explicit `consume <prompt>` request, run `runlist use <prompt>` before file discovery or other task commands. If the native request hook already supplied the consumed handoff, continue from that output without consuming it again. Report a consumption failure before starting the handoff's work.
 
 For installing or onboarding Runlist, including a project with no config yet,
 use the **runlist-setup** skill. This skill covers ongoing document work.
