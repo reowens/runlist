@@ -1163,3 +1163,84 @@ describe('init ignore preflight before scaffolding', () => {
     });
   }
 });
+
+describe('a new project started by init writes nothing new into the root prompts/', () => {
+  const PROMPT = '---\ntype: prompt\nstatus: pending\ncreated: 2026-10-01\nupdated: 2026-10-01\n---\n# Resume\n\nInspect the synthetic exporter.\n';
+  function put(file, content) {
+    mkdirSync(path.dirname(path.join(tmpDir, file)), { recursive: true });
+    writeFileSync(path.join(tmpDir, file), content);
+  }
+
+  for (const [link, target] of [['docs', 'prompts'], ['docs/plans', '../prompts']]) it(`refuses a ${link}/ that leads into prompts/ before writing anything`, () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+    mkdirSync(path.join(tmpDir, 'prompts'));
+    mkdirSync(path.dirname(path.join(tmpDir, link)), { recursive: true });
+    symlinkSync(target, path.join(tmpDir, link));
+    const before = snapshot();
+    for (const args of [['init', '--dry-run'], ['init']]) {
+      const result = run(args);
+      strictEqual(result.status, 1, result.stdout + result.stderr);
+      ok(result.stderr.includes(`Nothing initialized: ${link}/ leads into prompts/ at the project root through a symlinked folder`), result.stderr);
+      deepStrictEqual(snapshot(), before);
+    }
+    deepStrictEqual(readdirSync(path.join(tmpDir, 'prompts')), []);
+  });
+
+  it('carries the prompts an older runlist saved there, at any depth, before writing its config', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+    put('prompts/older.md', PROMPT);
+    put('prompts/team/deep.md', PROMPT);
+    put('prompts/library.md', '# A prompt library\n');
+    const before = snapshot();
+    const preview = run(['init', '--dry-run']);
+    strictEqual(preview.status, 0, preview.stderr);
+    ok(preview.stdout.includes('Would move 2 prompts an older runlist saved in prompts/ to docs/prompts/:\n  prompts/older.md → docs/prompts/older.md\n  prompts/team/deep.md → docs/prompts/team/deep.md'), preview.stdout);
+    deepStrictEqual(snapshot(), before);
+
+    const result = run(['init']);
+    strictEqual(result.status, 0, result.stderr);
+    ok(result.stdout.includes('Moved 2 prompts an older runlist saved in prompts/ to docs/prompts/.'), result.stdout);
+    ok(result.stdout.includes('prompts/ (1 .md file) is left untouched: runlist keeps prompts in docs/prompts/'), result.stdout);
+    strictEqual(readFileSync(path.join(tmpDir, 'docs/prompts/older.md'), 'utf8'), PROMPT);
+    strictEqual(readFileSync(path.join(tmpDir, 'docs/prompts/team/deep.md'), 'utf8'), PROMPT);
+    deepStrictEqual(readdirSync(path.join(tmpDir, 'prompts')), ['library.md']);
+    const queue = run(['prompts']);
+    ok(queue.stdout.includes('older') && queue.stdout.includes('deep'), queue.stdout);
+  });
+
+  it('refuses a carry collision with no config written, on dry-run and apply', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+    put('prompts/older.md', PROMPT);
+    put('docs/prompts/older.md', PROMPT.replace('synthetic', 'other'));
+    const before = snapshot();
+    for (const args of [['init', '--dry-run'], ['init']]) {
+      const result = run(args);
+      strictEqual(result.status, 1, result.stdout + result.stderr);
+      ok(result.stderr.includes('Nothing initialized:') && result.stderr.includes('prompts/older.md → docs/prompts/older.md; destination exists'), result.stderr);
+      deepStrictEqual(snapshot(), before);
+    }
+  });
+
+  it('leaves an existing planning config exactly as it was: no carry, prompts/ offered as a root', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+    writeFileSync(path.join(tmpDir, 'runlist.config.mjs'), "export const root = 'notes';\n");
+    mkdirSync(path.join(tmpDir, 'notes'));
+    put('prompts/older.md', PROMPT);
+    const result = run(['init']);
+    strictEqual(result.status, 0, result.stderr);
+    ok(result.stdout.includes('skip    notes/prompts/ (root-level ./prompts/ already holds content)'), result.stdout);
+    ok(result.stdout.includes('found at repo root: prompts/ (1 .md file)'), result.stdout);
+    ok(result.stdout.includes('export const root = ["notes","prompts"];'), result.stdout);
+    ok(!result.stdout.includes('docs/prompts') && !result.stdout.includes('left untouched'), result.stdout);
+    ok(!existsSync(path.join(tmpDir, 'notes/prompts')));
+    strictEqual(readFileSync(path.join(tmpDir, 'prompts/older.md'), 'utf8'), PROMPT);
+  });
+
+  it('lists a root that is also a type folder once, as before', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+    writeFileSync(path.join(tmpDir, 'runlist.config.mjs'), "export const root = ['notes', 'queue/prompts'];\n");
+    const result = run(['init', '--dry-run']);
+    strictEqual(result.status, 0, result.stderr);
+    strictEqual(result.stdout.split('\n').filter(line => line.endsWith(' queue/prompts/')).length, 1, result.stdout);
+  });
+});

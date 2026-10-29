@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { resolveConfig } from '../src/config.mjs';
 import { checkUpgradedConfig, handoffsConfigSource, jsLiteral, planHandoffsConfig, planHandoffsUpgrade, publishHandoffsConfig } from '../src/handoffs-mode.mjs';
 import { createFileExclusive } from '../src/atomic-mutation.mjs';
+import { SETUP_PROMPT_ROUTING } from '../src/naming.mjs';
 
 const bin = path.resolve(import.meta.dirname, '../bin/runlist.mjs');
 const pluginRoot = path.resolve(import.meta.dirname, '../plugins/runlist');
@@ -1099,5 +1100,55 @@ describe('setup never offers the root prompts/ back', () => {
     assert.doesNotMatch(upgrade, /export const root = \[[^\]]*"prompts"/);
     ok(['setup', '--yes']);
     assert.equal(read('prompts/library.md'), '# A prompt library\n');
+  });
+});
+
+describe('a fresh setup keeps prompts in <docs root>/prompts/ whatever the root is called', () => {
+  for (const root of ['review-prompts', 'notes/prompts', 'notes']) it(`routes new and archived prompts under ${root}/prompts/`, async () => {
+    const preview = ok(['setup', '--docs-root', root]);
+    assert.match(preview.stdout, new RegExp(`create {2}${root}/prompts/`));
+    ok(['setup', '--yes', '--docs-root', root]);
+    const config = await resolveConfig(repo);
+    assert.deepEqual({ ...config.raw.templates.prompt }, { ...SETUP_PROMPT_ROUTING });
+    assert.equal(ok(['new', 'prompt', 'after', draft()]).stdout.split('\n')[0], `Created: ${root}/prompts/after.md (prompt)`);
+    assert.ok(!has(`${root}/after.md`));
+    ok(['prompts', 'archive', 'after']);
+    ok(['check']);
+  });
+
+  it('leaves a configured root whose name ends in prompts routed as it was', () => {
+    put('runlist.config.mjs', "export const root = 'review-prompts';\n");
+    mkdirSync(at('review-prompts'));
+    assert.equal(ok(['new', 'prompt', 'after', draft()]).stdout.split('\n')[0], 'Created: review-prompts/after.md (prompt)');
+  });
+});
+
+describe('an interrupted setup upgrade names the command that finishes it', () => {
+  it('points a refused mutation at runlist setup --yes, which then finishes the move', () => {
+    ok(['baton', 'exporter', draft()]);
+    put('plans/old.md', PLAN);
+    const script = `
+      import { readFileSync } from 'node:fs';
+      import { resolveConfig } from ${JSON.stringify(pathToFileURL(path.resolve(import.meta.dirname, '../src/config.mjs')).href)};
+      import { planHandoffsUpgrade } from ${JSON.stringify(pathToFileURL(path.resolve(import.meta.dirname, '../src/handoffs-mode.mjs')).href)};
+      import { applySetupCarry, planSetupCarry, preConfigView } from ${JSON.stringify(pathToFileURL(path.resolve(import.meta.dirname, '../src/setup-carry.mjs')).href)};
+      const repo = process.argv[1];
+      const config = await resolveConfig(repo);
+      const upgrade = planHandoffsUpgrade(config);
+      const before = await preConfigView(repo);
+      const { moves } = planSetupCarry(before, await resolveConfig(repo, undefined, { overrides: upgrade.overrides }));
+      applySetupCarry(moves, before, { expectedConfig: { path: config.configPath, content: readFileSync(config.configPath, 'utf8') },
+        testHooks: { afterTransactionPhase(phase) { if (phase === 'target-publication') process.kill(process.pid, 'SIGKILL'); } } });
+    `;
+    const killed = spawnSync(process.execPath, ['--input-type=module', '-e', script, repo], { cwd: repo, encoding: 'utf8', timeout: 20000 });
+    assert.notEqual(killed.status, 0, killed.stdout + killed.stderr);
+    const refused = cli(['prompts', 'archive', 'resume-exporter']);
+    assert.equal(refused.status, 1, refused.stdout + refused.stderr);
+    assert.match(refused.stderr, /plans\/old\.md/);
+    assert.match(refused.stderr, /`runlist setup` stopped part-way through turning planning on here; run `runlist setup --yes` to finish the upgrade\./);
+    ok(['setup', '--yes']);
+    assert.equal(read('docs/plans/old.md'), PLAN);
+    assert.ok(!has('plans/old.md'));
+    ok(['prompts', 'archive', 'resume-exporter']);
   });
 });

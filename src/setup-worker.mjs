@@ -15,6 +15,7 @@ import { regenIndex, renderLifecycleMutation } from './lifecycle.mjs';
 import { snapshotFile, replaceSnapshot, inspectTransactions, recoverAbandonedTransactions, transactionResolutionAdvice } from './atomic-mutation.mjs';
 import { planSetupCarry, applySetupCarry, cleanupSetupSourceDirectories, preConfigView } from './setup-carry.mjs';
 import { planHandoffsUpgrade } from './handoffs-mode.mjs';
+import { SETUP_PROMPT_ROUTING } from './naming.mjs';
 
 function regularOrMissing(file, directory = false) {
   let stat;
@@ -176,7 +177,8 @@ export async function setupWorker(request) {
     const root = path.resolve(cwd, choices.docsRoot || 'docs');
     config = { ...config, repoRoot: cwd, configDir: cwd, configPath: path.join(cwd, 'runlist.config.mjs'), configFound: false,
       docsRoot: root, docsRoots: [root], indexPath: path.join(root, 'docs.md'), docsRootPrefix: path.relative(cwd, root),
-      raw: { ...config.raw, root: choices.docsRoot || 'docs', promptTracking: choices.promptTracking }, promptTracking: choices.promptTracking };
+      raw: { ...config.raw, root: choices.docsRoot || 'docs', promptTracking: choices.promptTracking,
+        templates: { ...config.raw.templates, prompt: { ...config.raw.templates?.prompt, ...SETUP_PROMPT_ROUTING } } }, promptTracking: choices.promptTracking };
   }
   config._execution = { ...config._execution, suppressSideEffects: true, gitStaleness: false };
   const initArgv = [ ...(choices.gitignore ? ['--gitignore'] : []), ...(!existing ? ['--prompt-tracking', choices.promptTracking] : []) ];
@@ -190,7 +192,7 @@ export async function setupWorker(request) {
     }
     // Init sees the proposed policy for ignore planning, but never edits the
     // existing config. The narrow setter owns that separate apply stage.
-    await runInit(config.repoRoot, config, { argv: initArgv, dryRun: true, guidance: false, samplePlan: false, carryMoves: carry.moves, ...(!existing ? { docsRoot: choices.docsRoot } : {}) });
+    await runInit(config.repoRoot, config, { argv: initArgv, dryRun: true, guidance: false, samplePlan: false, carryMoves: carry.moves, handoffsUpgrade: Boolean(upgrade), ...(!existing ? { docsRoot: choices.docsRoot } : {}) });
     const untagged = inventory(config);
     // What turning planning on brings into view: Markdown under docs/ that the
     // handoffs config did not manage. A walk, not a read: outside the
@@ -219,7 +221,8 @@ export async function setupWorker(request) {
     // a retained, live, deferred or failed-manual manifest cross the root change.
     if (!existing) await setupWorker({ ...request, operation: 'recover' });
     // A policy change is applied first; this new process now resolves it.
-    await runInit(config.repoRoot, config, { argv: initArgv, guidance: false, samplePlan: false, ...(!existing ? { docsRoot: choices.docsRoot } : {}) });
+    // Setup's own carry has run (or was turned off), so init carries nothing.
+    await runInit(config.repoRoot, config, { argv: initArgv, guidance: false, samplePlan: false, carryMoves: [], handoffsUpgrade: Boolean(upgrade), ...(!existing ? { docsRoot: choices.docsRoot } : {}) });
   } else if (operation === 'policy') {
     return runConfig(['set', 'promptTracking', choices.promptTracking], config);
   } else if (operation === 'adopt') {

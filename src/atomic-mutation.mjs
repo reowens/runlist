@@ -295,8 +295,16 @@ function validateParticipantPath(participant, repoRoot, options, label) {
     throw new MutationConflictError(`Transaction participant targets transaction/lock state: ${participant.path}`);
   }
   if (participant.policy === 'managed' && options.config) {
-    if (existsSync(participant.path)) authorizeManagedSource(participant.path, options.config, { kind: 'Transaction participant' });
-    else authorizeManagedDestination(participant.path, options.config, { kind: 'Transaction participant', recovery: true });
+    try {
+      if (existsSync(participant.path)) authorizeManagedSource(participant.path, options.config, { kind: 'Transaction participant' });
+      else authorizeManagedDestination(participant.path, options.config, { kind: 'Transaction participant', recovery: true });
+    } catch (err) {
+      // A handoffs-only project manages its prompt folder alone, so a move
+      // reaching past it is the carry `runlist setup` makes when it turns
+      // planning on, stopped part-way; setup finishes it under its own roots.
+      if (options.config.mode === 'handoffs') err.message += '\n`runlist setup` stopped part-way through turning planning on here; run `runlist setup --yes` to finish the upgrade.';
+      throw err;
+    }
   } else {
     const authorized = safeGeneratedPath(participant.path, repoRoot, options, 'Transaction generated participant');
     if (options.config) {

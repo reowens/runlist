@@ -14,11 +14,18 @@ All notable changes to `runlist` are documented here. Older releases predate thi
   other Markdown there is never indexed, checked, searched, repaired or moved.
   There is no index, and `plans`, `health`, hub and module views say planning
   is off; `new plan` and `new doc` refuse.
-- One prompt location: runlist writes prompts to `docs/prompts/` in every mode,
-  including a repository with no config (the unconfigured save that remains
-  is outside Git, where earlier handoffs keep working). Nothing new creates,
-  writes to or archives into a root `prompts/`; configured planning projects
-  keep the prompt folder they chose. Prompts an older runlist
+- One prompt location for new and baton-only projects: runlist writes prompts
+  to `docs/prompts/` in a repository with no config (the unconfigured save that
+  remains is outside Git, where earlier handoffs keep working), in a
+  handoffs-only project, and in a project a fresh `runlist init` starts. A
+  fresh `runlist setup --docs-root <x>` writes `<x>/prompts/` into its config as
+  the prompt folder, so a root named like `review-prompts` or `notes/prompts`
+  no longer takes prompts directly. Nothing new creates, writes to or archives
+  into a root `prompts/`, including a fresh `init` whose `docs/` leads there
+  through a symlink; configured planning projects keep the prompt folder they
+  chose, and `init` on an existing planning config is unchanged. A fresh `init` carries
+  prompts saved in a root `prompts/` into `docs/prompts/` before writing its
+  config, as setup does. Prompts an older runlist
   saved there before any config are carried into `docs/prompts/` by the first
   baton or `new prompt`, with setup's transactional carry: runlist-typed prompts
   only, archive-status ones into `docs/prompts/archived/`, references and
@@ -120,6 +127,8 @@ All notable changes to `runlist` are documented here. Older releases predate thi
     planning on now carries plans saved in `plans/` (and any prompts in the
     root `prompts/`) into `docs/`, as a fresh setup does, before it rewrites
     the config.
+    A command refused because such a carry was interrupted says that
+    `runlist setup --yes` finishes the upgrade.
   - Planning is blocked only where it is off. A repository with no config
     starts planning as before: `new plan`, `new doc`, `new hub`,
     `new decision`, an implicit doc and the full `new --list-types` work

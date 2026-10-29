@@ -17,18 +17,24 @@ config, the first saved prompt (`runlist baton <slug>`, `runlist new prompt`)
 writes a handoffs-only `runlist.config.mjs` at the Git toplevel
 (`src/handoffs-mode.mjs`): `mode: 'handoffs'` plus `root: 'docs/prompts'`, the
 prompt folder itself, created with `docs/` when missing. The scan never reaches
-the project's docs, so `check` stays quiet and there is no index. Prompts go to
-`docs/prompts/` in every mode, before any config too (`PROMPT_DIR` in
-`src/naming.mjs`), anchored at the Git toplevel; nothing creates a file in a
-root `prompts/` before setup or in handoffs mode, by its path or through a
-symlinked folder (`inLegacyPromptFolder` in `src/managed-path.mjs`, checked by
-`authorizeManagedDestination`, export outputs, setup's `--docs-root` and the
-first save). Configured planning projects keep the prompt folder they chose
-(`root: '.'` keeps `prompts/`). Prompts an older runlist saved there, at any depth, are carried
-into `docs/prompts/` with their folders by the first save, by setup, and before
-any document-changing command in a repo with no config (`carryBeforeChange`,
-called from the dispatcher), with setup's transactional carry
-(`src/setup-carry.mjs`). `config.planning` is false there: plan views print the
+the project's docs, so `check` stays quiet and there is no index. New and
+baton-only projects keep prompts in `docs/prompts/` at the Git toplevel:
+before any config, in handoffs mode, and in a project a fresh `runlist init`
+starts (`PROMPT_DIR` in `src/naming.mjs`). A fresh `runlist setup --docs-root
+<x>` puts them in `<x>/prompts/`, spelled out in the config it writes
+(`SETUP_PROMPT_ROUTING`), so a root named like `review-prompts` or
+`notes/prompts` is not read as the prompt folder itself. Configured planning
+projects keep the prompt folder they chose (`root: '.'` keeps `prompts/`), and
+`init` on an existing planning config behaves as it always did. Apart from a configured
+project that chose it, nothing creates, writes to or archives into a root
+`prompts/`, by its path or through a symlinked folder (`inLegacyPromptFolder`
+in `src/managed-path.mjs`, checked by `authorizeManagedDestination`, export
+outputs, setup's `--docs-root`, a fresh `init`'s folders and the first save).
+Prompts an older runlist saved there, at any depth, are carried into the new
+prompt folder with their folders by the first save, by setup, by a fresh
+`init`, and before any document-changing command in a repo with no config
+(`carryBeforeChange`, called from the dispatcher), with setup's transactional
+carry (`src/setup-carry.mjs`). `config.planning` is false there: plan views print the
 planning-off line, plan verbs refuse, and hook wording drops plan talk.
 `runlist setup` upgrades the config in place (rewrites `mode`, widens `root` to
 `docs`, adds the index) and keeps prompts put. Planning is blocked only in

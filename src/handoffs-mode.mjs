@@ -232,6 +232,19 @@ async function planCarry(before, after) {
   return { before, moves: carry.moves, outstanding: carry.outstanding, references: unmanagedCarryReferences(before, carry.moves) };
 }
 
+// A new project `runlist init` starts at `top`: the prompts an older runlist
+// saved in the root prompts/ move into `after`'s prompt folder before its
+// config is written, with the first save's steps (finish, plan, refuse on a
+// collision with nothing written) under the roots the project had before.
+// `carryLegacyPrompts` then makes the moves, or lists them on a dry-run.
+export async function planInitCarry(top, config, after, { dryRun = false, out = process.stdout } = {}) {
+  const before = withScanExclusions(path.resolve(config.docsRoot) === path.resolve(top) ? config : await resolveConfig(top));
+  if (await finishPreConfigMoves(before, { dryRun, out, nothing: 'Nothing initialized' })) return { previewStopped: true };
+  const carry = await planCarry(before, after);
+  if (carry.outstanding.length) die(carryRefusal(carry.outstanding, 'Nothing initialized'));
+  return { carry };
+}
+
 // The unconfigured save outside Git: prompts go to docs/prompts/ in the
 // working folder, and the root prompts/ is carried there first like any save.
 async function legacySave(before, { dryRun, out }) {

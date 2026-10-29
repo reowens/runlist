@@ -22,10 +22,11 @@ export const CONFIG_FILENAMES = [
   'dotmd.config.js',
 ];
 
-// Where runlist writes prompts in every mode, including before any config
-// exists. Builds before that saved them in a root prompts/ when there was no
-// config; that folder is now only a source to carry them from
-// (src/setup-carry.mjs), never a place anything is written.
+// Where runlist writes prompts before any config, in a handoffs-only project
+// and in a project `runlist init` starts. Builds before that saved them in a
+// root prompts/ when there was no config; that folder is now only a source to
+// carry them from (src/setup-carry.mjs), never a place anything new is
+// written. A configured planning project keeps the prompt folder it chose.
 export const PROMPT_DIR = 'docs/prompts';
 export const LEGACY_PROMPT_DIR = 'prompts';
 
@@ -33,6 +34,12 @@ export const LEGACY_PROMPT_DIR = 'prompts';
 // one is still one runlist saved (carried like any other), and `check` names
 // the verb that settles it rather than calling the status unknown.
 export const RETIRED_PROMPT_STATUSES = new Set(['held', 'shelved', 'claimed']);
+
+// The prompt routing a config written by `runlist setup` spells out, so its
+// prompts go to <docs root>/prompts/ whatever the root is called. Without it
+// the built-in routing reads a root whose name ends in "prompts" (notes/prompts,
+// review-prompts) as the prompt folder itself, as configured projects rely on.
+export const SETUP_PROMPT_ROUTING = Object.freeze({ dir: 'prompts', targetRoot: null });
 
 // Before any config the docs root is the working folder itself, so prompts sit
 // two levels down in it. A layout projected for a config about to be written

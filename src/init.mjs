@@ -6,8 +6,8 @@ import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { green, dim, yellow } from './color.mjs';
 import { die, warn } from './util.mjs';
 import { catchAllRoot, promptDirectory } from './new.mjs';
-import { authorizeRepoGeneratedPath } from './managed-path.mjs';
-import { LEGACY_PROMPT_DIR, PROMPT_DIR } from './naming.mjs';
+import { authorizeRepoGeneratedPath, inLegacyPromptFolder, legacyPromptFolderPlace } from './managed-path.mjs';
+import { LEGACY_PROMPT_DIR } from './naming.mjs';
 
 // Subdirectories scaffolded under docsRoot and tracked separately during scans.
 // Each maps to a builtin type (plan, prompt). New types added here should also
@@ -118,6 +118,16 @@ against the type, and runs the lifecycle hooks.
 - Scaffolded by \`runlist init\`.
 `;
 
+// A config `runlist setup` writes spells out its prompt routing
+// (SETUP_PROMPT_ROUTING in src/naming.mjs), so a root such as review-prompts/
+// keeps its prompts in review-prompts/prompts/.
+const SETUP_PROMPT_ROUTING_SOURCE = `
+// Prompts are saved in the prompts/ folder inside the docs root.
+export const templates = {
+  prompt: { dir: 'prompts', targetRoot: null },
+};
+`;
+
 const STARTER_INDEX = `# Docs
 
 <!-- GENERATED:runlist:start -->
@@ -217,7 +227,7 @@ const KNOWN_STALE_DAYS = {
   scoping: 30, paused: 3, awaiting: 14, draft: 30, review: 14, pending: 30,
 };
 
-function generateDetectedConfig(scan, rootPath, promptTracking) {
+function generateDetectedConfig(scan, rootPath, promptTracking, setupRouting = false) {
   const lines = [`// runlist.config.mjs — auto-detected from ${scan.docCount} existing docs`, ''];
   lines.push(`export const root = ${rootPath === 'docs' ? "'docs'" : JSON.stringify(rootPath)};`);
   lines.push(`export const promptTracking = '${promptTracking}';`);
@@ -276,7 +286,7 @@ function generateDetectedConfig(scan, rootPath, promptTracking) {
   lines.push('};');
   lines.push('');
 
-  return lines.join('\n');
+  return lines.join('\n') + (setupRouting ? SETUP_PROMPT_ROUTING_SOURCE : '');
 }
 
 export async function runInit(cwd, config, opts = {}) {
@@ -291,6 +301,10 @@ export async function runInit(cwd, config, opts = {}) {
     }
   }
   const existingConfig = Boolean(config.configPath && existsSync(config.configPath));
+  // An existing planning config gets init as it always was. A new project, and
+  // a handoffs-only one setup is turning planning on in (`handoffsUpgrade`,
+  // internal), keep prompts out of the root prompts/ (src/naming.mjs).
+  const planningConfig = existingConfig && !opts.handoffsUpgrade;
   // Internal setup input; the public init argv contract stays unchanged.
   const selectedRoot = opts.docsRoot ?? 'docs';
   if (typeof selectedRoot !== 'string' || !selectedRoot.trim() || path.isAbsolute(selectedRoot)
@@ -326,6 +340,16 @@ export async function runInit(cwd, config, opts = {}) {
   const promptsDir = promptDirectory(layout);
   const typeDirs = new Map([['plans', plansDir], ['prompts', promptsDir]]);
 
+  // A new project's folders never lead into the root prompts/ older builds
+  // saved prompts in (a docs/ symlinked there, say): nothing new is written
+  // there (src/naming.mjs). Checked before anything is carried or written.
+  if (!existingConfig) {
+    for (const destination of [...docsRoots, ...typeDirs.values()]) {
+      if (!inLegacyPromptFolder(destination, projectRoot)) continue;
+      die(`Nothing initialized: ${label(destination)}/ ${legacyPromptFolderPlace(destination, projectRoot)}, and runlist no longer writes there. Change the link that leads there, then rerun.`);
+    }
+  }
+
   // Preflight opt-in ignore writes before ANY scaffolding. Refuse unsafe
   // destinations and ambiguous patterns rather than appending a misleading or
   // broader rule. Never follow a .gitignore symlink, including a dangling one.
@@ -355,41 +379,65 @@ export async function runInit(cwd, config, opts = {}) {
   }
   const scan = scanExistingDocs(docsRoots, indexPath, config.excludeDirs);
 
+  // Setup plans and runs its own carry and passes its moves. A new project
+  // started by init carries the prompts an older runlist saved in the root
+  // prompts/ into its prompt folder itself, with setup's transactional carry,
+  // before its config is written: refused on a collision with nothing
+  // written, and listed by --dry-run (src/handoffs-mode.mjs).
+  let initCarry = null;
+  if (!existingConfig && opts.carryMoves === undefined) {
+    const { planInitCarry } = await import('./handoffs-mode.mjs');
+    initCarry = await planInitCarry(projectRoot, config, layout, { dryRun, out: process.stdout });
+    if (initCarry.previewStopped) return;
+  }
+  const carryMoves = opts.carryMoves ?? initCarry?.carry.moves ?? [];
+
   // Detect content outside the selected roots before creating parallel type
   // directories. Offer a config choice; never move or delete anyone's files.
   const siblingsWithContent = [];
   for (const sub of TYPE_SUBDIRS) {
     const siblingPath = path.join(projectRoot, sub);
     if (docsRoots.some(root => siblingPath === root || siblingPath.startsWith(root + path.sep))) continue;
-    const counts = countMarkdownFiles(siblingPath, new Set((opts.carryMoves ?? []).map(move => move.source)));
+    const counts = countMarkdownFiles(siblingPath, new Set(carryMoves.map(move => move.source)));
     const total = counts.withFrontmatter + counts.withoutFrontmatter;
     if (total > 0) siblingsWithContent.push({ sub, total });
   }
   const siblingSet = new Set(siblingsWithContent.map(s => s.sub));
+
+  if (initCarry) {
+    const { carryLegacyPrompts } = await import('./handoffs-mode.mjs');
+    await carryLegacyPrompts(initCarry, { dryRun, out: process.stdout, nothing: 'Nothing initialized' });
+  }
 
   process.stdout.write('\n');
   if (existingConfig) {
     process.stdout.write(`  ${dryTag}${dim('exists')}  ${label(configPath)}\n`);
   } else {
     const body = scan.docCount > 0
-      ? generateDetectedConfig(scan, selectedRoot, promptTracking)
+      ? generateDetectedConfig(scan, selectedRoot, promptTracking, opts.docsRoot !== undefined)
       // Replacement callbacks: a `$&` or `$'` in a chosen folder name is text, not a pattern.
       : STARTER_CONFIG.replace("root = 'docs'", () => `root = ${opts.docsRoot === undefined ? "'docs'" : JSON.stringify(selectedRoot)}`)
         .replace("path: 'docs/docs.md'", () => `path: ${opts.docsRoot === undefined ? "'docs/docs.md'" : JSON.stringify(path.posix.join(selectedRoot, 'docs.md'))}`)
-        .replace("promptTracking = 'untracked'", () => `promptTracking = '${promptTracking}'`);
+        .replace("promptTracking = 'untracked'", () => `promptTracking = '${promptTracking}'`)
+        + (opts.docsRoot === undefined ? '' : SETUP_PROMPT_ROUTING_SOURCE);
     if (!dryRun) writeFileSync(configPath, body, 'utf8');
     const detail = scan.docCount > 0 ? ` (detected ${scan.docCount} docs)` : '';
     process.stdout.write(`  ${dryTag}${green('create')}  runlist.config.mjs${detail}\n`);
   }
 
-  for (const dir of docsRoots) {
+  // A root that is also a type folder (a handoffs project's prompts/ kept as a
+  // second root) is listed once, below, with its document counts.
+  const typePaths = new Set(typeDirs.values());
+  for (const dir of docsRoots.filter(root => !typePaths.has(root))) {
     const exists = existsSync(dir);
     if (!exists && !dryRun) mkdirSync(dir, { recursive: true });
     process.stdout.write(`  ${dryTag}${exists ? dim('exists') : green('create')}  ${label(dir)}/\n`);
   }
 
   for (const [sub, subPath] of typeDirs) {
-    if (siblingSet.has(sub) && sub !== LEGACY_PROMPT_DIR && !existsSync(subPath) && !opts.carryMoves?.some(move => path.dirname(move.target) === subPath)) {
+    // Prompts never go to the root prompts/ outside an existing planning
+    // config, so the prompt folder is made whatever is left there.
+    if (siblingSet.has(sub) && (planningConfig || sub !== LEGACY_PROMPT_DIR) && !existsSync(subPath) && !carryMoves.some(move => path.dirname(move.target) === subPath)) {
       process.stdout.write(`  ${dryTag}${yellow('skip')}    ${label(subPath)}/ (root-level ./${sub}/ already holds content)\n`);
       continue;
     }
@@ -404,7 +452,7 @@ export async function runInit(cwd, config, opts = {}) {
       ? { file: SAMPLE_PLAN_NAME, body: samplePlan(new Date().toISOString().slice(0, 10), label(path.join(subPath, SAMPLE_PLAN_NAME))) }
       : { file: '.gitkeep', body: '' };
     const keeperPath = path.join(subPath, keeper.file);
-    const dirIsEmpty = (!existsSync(subPath) || readdirSync(subPath).length === 0) && !opts.carryMoves?.some(move => move.target.startsWith(subPath + path.sep));
+    const dirIsEmpty = (!existsSync(subPath) || readdirSync(subPath).length === 0) && !carryMoves.some(move => move.target.startsWith(subPath + path.sep));
     if (existsSync(keeperPath)) {
       process.stdout.write(`  ${dryTag}${dim('exists')}  ${label(keeperPath)}\n`);
     } else if (dirIsEmpty) {
@@ -429,12 +477,13 @@ export async function runInit(cwd, config, opts = {}) {
   }
 
   // The root prompts/ older builds saved prompts in is never suggested as a
-  // root (one prompt location, src/naming.mjs); its prompts are carried and
-  // whatever else is there is the user's.
+  // root outside an existing planning config (src/naming.mjs): its prompts
+  // were carried and whatever else is there is the user's. An existing
+  // planning config is told, as before, how to include it.
   const sibling = ({ sub, total }) => `${sub}/ (${total} .md file${total === 1 ? '' : 's'})`;
-  const legacySibling = siblingsWithContent.find(({ sub }) => sub === LEGACY_PROMPT_DIR);
-  if (legacySibling) process.stdout.write(`\n  ${yellow('notice')}  ${sibling(legacySibling)} is left untouched: runlist keeps prompts in ${PROMPT_DIR}/ and does not read or write ${LEGACY_PROMPT_DIR}/.\n`);
-  const otherSiblings = siblingsWithContent.filter(({ sub }) => sub !== LEGACY_PROMPT_DIR);
+  const legacySibling = planningConfig ? null : siblingsWithContent.find(({ sub }) => sub === LEGACY_PROMPT_DIR);
+  if (legacySibling) process.stdout.write(`\n  ${yellow('notice')}  ${sibling(legacySibling)} is left untouched: runlist keeps prompts in ${label(promptsDir)}/ and does not read or write ${LEGACY_PROMPT_DIR}/.\n`);
+  const otherSiblings = siblingsWithContent.filter(item => item !== legacySibling);
   if (otherSiblings.length > 0) {
     const list = otherSiblings.map(sibling).join(', ');
     const roots = [...new Set([...docsRoots.map(label), ...otherSiblings.map(s => s.sub)])];
