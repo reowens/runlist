@@ -1,5 +1,5 @@
 ---
-description: "runlist docs briefing — list, scaffold, query, validate, archive reference docs/ADRs/RFCs"
+description: "Browse and manage your reference docs: list, create, search, check, archive"
 allowed-tools: "Bash(runlist:*), Bash(rl:*), Bash(dotmd:*), Read"
 ---
 

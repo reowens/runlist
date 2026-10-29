@@ -536,7 +536,9 @@ export async function runBaton(argv, config, opts = {}) {
       process.stderr.write(dim('No repository files to commit — no commit needed.\n'));
     }
   }
-  if (operationResult.deferredGeneratedFiles.length) process.stderr.write(dim(`Generated index deferred: ${operationResult.deferredGeneratedFiles.join(', ')}\n`));
+  // Baton leaves the shared index alone so a handoff never conflicts with other work; nothing
+  // here needs the user, so it stays out of the normal output (--json always carries it).
+  if (opts.verbose && operationResult.deferredGeneratedFiles.length) process.stderr.write(dim(`Index not refreshed by baton: ${operationResult.deferredGeneratedFiles.join(', ')} (the next runlist command that rebuilds it picks up the change)\n`));
   if (pendingHandoff) process.stderr.write(yellow(handoffNotDoneLine(pendingHandoff, explicitPlanDone(planArg, pendingHandoff))) + '\n');
   // The name again, last, so a piped `| tail` still shows what was saved.
   process.stderr.write(`${prefix}Saved prompt: ${createdSlug}\n`);

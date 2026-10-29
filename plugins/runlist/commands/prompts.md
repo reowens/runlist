@@ -1,5 +1,5 @@
 ---
-description: "runlist saved-prompt queue — see pending prompts, consume one, or queue a new resume prompt"
+description: "See saved handoffs and prompts waiting for a later session, load one, or queue a new one"
 allowed-tools: "Bash(runlist:*), Bash(rl:*), Bash(dotmd:*), Read"
 ---
 

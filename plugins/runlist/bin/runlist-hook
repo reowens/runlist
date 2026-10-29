@@ -3,13 +3,13 @@
 #
 # The plugin's hooks drive the whole workflow through the PATH `runlist` binary
 # (`runlist hud`, `runlist guard`), falling back to the legacy `runlist` alias. If a user enables the plugin but hasn't run
-# `npm i -g runlist`, the binary is missing, the hook errors `command not
+# `npm install -g runlist`, the binary is missing, the hook errors `command not
 # found`, and the session is primed with *silent nothing* — no signal that the
 # whole workflow is one install away. runlist can't warn about its own absence
 # (it's the thing that's missing), so the check lives here, outside the binary.
 #
 # Usage: runlist-hook [--hint] <runlist-subcommand> [args...]
-#   --hint  emit a one-line install hint to stdout when no CLI is on PATH.
+#   --hint  emit a short install hint to stdout when no CLI is on PATH.
 #           Only SessionStart passes this, so the hint surfaces once per hook
 #           invocation (stdout becomes session context), never on a tool call.
 #
@@ -28,7 +28,12 @@ elif command -v dotmd >/dev/null 2>&1; then
   CLI=dotmd
 else
   if [ "$hint" = "1" ]; then
-    echo "runlist plugin: neither \`runlist\` nor \`dotmd\` is on PATH, so its hooks are no-ops. Enable the workflow with: npm i -g runlist"
+    # Pure shell on purpose (this is the no-CLI path). A GUI-launched app may not
+    # inherit the shell PATH that has runlist, so say which PATH was searched.
+    searched=$(printf '%.200s' "$PATH")
+    [ "${#PATH}" -gt 200 ] && searched="$searched..."
+    echo "runlist plugin: the runlist CLI is not on this app's PATH, so its hooks are doing nothing here. PATH searched: $searched"
+    echo "Not installed yet: run \`npm install -g runlist\`, then restart this app. Already installed: restart the app from a terminal, or add the npm global bin directory (\`npm prefix -g\` + /bin) to your login profile, then restart. \`runlist doctor --session\` shows what a session sees."
   fi
   exit 0
 fi

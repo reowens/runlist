@@ -140,7 +140,7 @@ describe('Codex hook payloads', () => {
       : 'sh';
     const absent = spawnSync(shell, [hook, '--hint', 'hud'], { cwd: h, env: { PATH: '/usr/bin:/bin' }, encoding: 'utf8' });
     strictEqual(absent.status, 0);
-    match(absent.stdout, /npm i -g runlist/);
+    match(absent.stdout, /not on this app's PATH.*\n.*npm install -g runlist/);
   });
 });
 

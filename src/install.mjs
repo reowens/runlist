@@ -146,6 +146,11 @@ function installClaude(argv, dryRun, json, opts = {}, prerequisites = {}) {
     if (step.kind === 'manual') {
       process.stdout.write(`${yellow(step.reason ?? 'claude CLI not on PATH')} — run these from a Claude Code session:\n`);
       for (const line of step.lines) process.stdout.write(`  ${bold(line)}\n`);
+      // Desktop's Code tab is where many newcomers live and it has no `/plugin` prompt of its own.
+      if (step.lines.some(line => line.startsWith('/plugin install'))) {
+        process.stdout.write(`In Claude Desktop instead: Code tab → + → Add plugins, add the marketplace ${bold(CLAUDE_MARKETPLACE)}, then install ${bold('runlist')}.\n`);
+        process.stdout.write(dim('(Adding a third-party marketplace from inside the app is unconfirmed. If it is not offered, install the Claude Code CLI and run `claude plugin marketplace add` / `claude plugin install` in a terminal; Desktop Code sessions share those settings.)\n'));
+      }
       continue;
     }
     if (step.reason) process.stdout.write(`${step.reason}\n`);

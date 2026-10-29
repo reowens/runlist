@@ -96,7 +96,9 @@ then rerun with `--yes` to apply. Other docs are not adopted. Setup also preview
 missing scaffold directories. Preview success does not mean the whole project
 passes checks: apply runs a whole-project check and can return `attention`
 (exit 1) after selected changes succeed because other documents still need work.
-Read **completed**, **outstanding**, and **failed** before retrying.
+Read **completed**, **outstanding**, and **failed** before retrying. A **notes**
+section, when present, is information (for example, why prompts stay untracked),
+not work left to do.
 
 ### Ask your assistant instead
 
@@ -142,6 +144,14 @@ the intended project and execution environment; it can use a remote machine.
 A successful npm install in a remote shell changes that remote environment,
 not your laptop. See [Claude Code on desktop](https://code.claude.com/docs/en/desktop)
 and the [host routes](README.md#which-assistant-can-run-setup).
+
+### Save where you are, pick it up later
+
+With the Claude Code plugin installed, stopping and resuming takes two phrases.
+When you are done for now, say "baton" or "save where we are" (or type `/baton`);
+the assistant writes a short resume note, called a *baton*, into your project.
+In the next session, type `/pickup` or say "pick up where we left off". The
+[three-step quick path](README.md#handoffs-in-3-steps) has the install commands.
 
 ## 5. Inspect settings and verify what finished
 

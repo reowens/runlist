@@ -1,5 +1,5 @@
 ---
-description: "runlist plan briefing — what's on the plate, what to pick up, how to start/close a plan"
+description: "See your plans: what is active, what to pick up next, and how to start or close one"
 allowed-tools: "Bash(runlist:*), Bash(rl:*), Bash(dotmd:*), Read"
 ---
 

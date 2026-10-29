@@ -2386,7 +2386,7 @@ async function main() {
   // src/baton.mjs for why this is a single verb and not a skill choreography.
   if (command === 'baton') {
     const { runBaton } = await import('../src/baton.mjs');
-    await runBaton(restArgs, config, { dryRun });
+    await runBaton(restArgs, config, { dryRun, verbose });
     return;
   }
   // `runlist next` is a top-level alias for `runlist use` with no arg — consume

@@ -171,7 +171,17 @@ describe('guided setup previews and apply', () => {
     const { report } = await setup(['--yes', ...authored]);
     assert.equal(report.status, 'completed', JSON.stringify(report.failed));
     assert.equal(readFileSync(path.join(repo, 'docs/plans/example-plan.md'), 'utf8'), sample);
-    assert.ok(report.outstanding.some(item => /existing example sample is preserved unchanged/.test(item.description)));
+    assert.ok(report.notes.some(item => /existing example sample is preserved unchanged/.test(item.description)));
+    assert.ok(!report.outstanding.some(item => /example sample/.test(item.description)));
+  });
+
+  it('reports the prompt-tracking advice as a note, not as outstanding work', async () => {
+    const { report, output } = await setup(['--yes', '--prompt-tracking', 'untracked']);
+    assert.equal(report.status, 'completed', JSON.stringify(report.failed));
+    assert.deepEqual(report.outstanding, []);
+    assert.ok(report.notes.some(item => /Leave pending prompts untracked/.test(item.description)));
+    assert.match(output, /\nOutstanding: 0\n/);
+    assert.match(output, /\nNotes: 1\n\s+Leave pending prompts untracked/);
   });
 
   it('human apply output describes completed actions without replaying preview text', async () => {

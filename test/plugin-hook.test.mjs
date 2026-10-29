@@ -34,10 +34,27 @@ describe('plugin hook wrapper (missing dotmd binary)', { skip: process.platform 
     try {
       const r = runHook(['--hint', 'hud'], emptyDir);
       strictEqual(r.status, 0, `expected exit 0; stderr: ${r.stderr}`);
-      match(r.stdout, /npm i -g runlist/, `expected install hint; got: ${r.stdout}`);
-      strictEqual(r.stdout.trim().split('\n').length, 1, 'hint is a single line');
+      match(r.stdout, /not on this app's PATH/, `expected PATH-aware hint; got: ${r.stdout}`);
+      ok(r.stdout.includes(`PATH searched: ${emptyDir}`), 'shows the PATH it searched');
+      match(r.stdout, /Not installed yet: run `npm install -g runlist`/);
+      match(r.stdout, /Already installed: restart the app from a terminal.*login profile/);
+      ok(!/npm i -g/.test(r.stdout), 'one spelling of the install command');
+      strictEqual(r.stdout.trim().split('\n').length, 2, 'hint is two lines: what is wrong, then the fix');
     } finally {
       rmSync(emptyDir, { recursive: true, force: true });
+    }
+  });
+
+  it('truncates a long PATH in the hint', () => {
+    const longDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-nopath-'));
+    try {
+      const r = runHook(['--hint', 'hud'], `${longDir}:${'/nonexistent/segment:'.repeat(30)}`);
+      strictEqual(r.status, 0);
+      const line = r.stdout.split('\n')[0];
+      match(line, /PATH searched: .*\.\.\.$/);
+      ok(line.length < 400, `hint line stays short; got ${line.length} chars`);
+    } finally {
+      rmSync(longDir, { recursive: true, force: true });
     }
   });
 
@@ -78,7 +95,7 @@ describe('plugin hook wrapper (dotmd present)', { skip: process.platform === 'wi
       strictEqual(r.status, 0, `expected exit 0; stderr: ${r.stderr}`);
       match(r.stdout, /FAKE-DOTMD: hud/, `expected real binary to run with hud; got: ${r.stdout}`);
       ok(!r.stdout.includes('--hint'), '--hint is consumed by the wrapper, not forwarded');
-      ok(!r.stdout.includes('npm i -g'), 'no install hint when the binary is present');
+      ok(!r.stdout.includes('npm install -g'), 'no install hint when the binary is present');
     } finally {
       rmSync(binDir, { recursive: true, force: true });
     }

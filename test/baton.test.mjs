@@ -1320,6 +1320,35 @@ syncBuiltinESMExports();
   });
 });
 
+describe('baton success output', () => {
+  beforeEach(() => setupProject());
+  afterEach(() => rmSync(tmpDir, { recursive: true, force: true }));
+
+  function withIndex() {
+    writeFileSync(configPath, `
+      export const root = 'docs';
+      export const index = { path: 'docs/docs.md', startMarker: '<!-- START -->', endMarker: '<!-- END -->' };
+    `);
+    writeFileSync(path.join(docsDir, 'docs.md'), '# Index\n\n<!-- START -->\nkeep\n<!-- END -->\n');
+  }
+
+  it('does not narrate the deferred index in normal output', () => {
+    withIndex();
+    const result = run(['baton', 'quiet', '--message', 'continue quiet']);
+    strictEqual(result.status, 0, result.stderr);
+    ok(!/index deferred|Generated index|Index not refreshed/i.test(result.stderr + result.stdout), result.stderr);
+    match(result.stderr, /Saved prompt: resume-quiet/);
+  });
+
+  it('says it in plain words under --verbose', () => {
+    withIndex();
+    const result = run(['baton', 'loud', '--verbose', '--message', 'continue loud']);
+    strictEqual(result.status, 0, result.stderr);
+    match(result.stderr, /Index not refreshed by baton: docs\/docs\.md/);
+    ok(!/deferred/.test(result.stderr));
+  });
+});
+
 describe('runlist hud --json owned', () => {
   beforeEach(() => setupProject());
 

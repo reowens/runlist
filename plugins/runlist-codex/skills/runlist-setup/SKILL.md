@@ -78,7 +78,8 @@ Use `runlist setup` rather than rebuilding onboarding from unrelated verbs:
   `runlist desktop install`, then `runlist desktop`; respect the execution location.
 
 Report **completed**, **outstanding**, and **failed** separately, with paths and
-concrete next actions. Keep pre-existing untagged docs, unavailable tools, and
+concrete next actions. Setup's **notes** are information, not remaining work;
+mention them without counting them as outstanding. Keep pre-existing untagged docs, unavailable tools, and
 host activation/trust/reload steps visible. Use `runlist check` and read-only
 `runlist doctor` findings as follow-up evidence; do not silently run broad
 repairs. CLI/plugin files present do not prove hooks or skills loaded in a

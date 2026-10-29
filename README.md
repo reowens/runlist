@@ -16,6 +16,44 @@ safe to mutate.
 It covers the terminal, asking an assistant to set up a project, agent plugins,
 and the optional Runlist desktop app.
 
+## Handoffs in 3 steps
+
+The quickest way to get value from runlist: **save where you are, pick it up in
+a later session.** A saved handoff (runlist calls it a *baton*) is a short
+resume note kept in your project, so the next Claude session starts oriented
+instead of from a blank page.
+
+1. **Install the CLI and the Claude Code plugin** (once, in a terminal):
+
+   ```bash
+   npm install -g runlist
+   claude plugin marketplace add reowens/runlist
+   claude plugin install runlist@runlist
+   ```
+
+   Terminal sessions, Claude Desktop's **Code** tab (local sessions) and VS Code
+   read the same plugin settings, so this installs it for all of them. Prefer
+   clicking? In Claude Desktop use the Code tab → **+** → **Add plugins**
+   (not available in cloud or WSL sessions). Whether Desktop's browser can add a
+   third-party marketplace like `reowens/runlist` is untested, so try the terminal
+   commands first. Without the `claude` command, `runlist install claude`
+   prints the steps for your setup. Restart Claude Desktop afterwards.
+2. **Stop with a handoff.** In a Claude Code session (terminal or Desktop's Code
+   tab), say "baton" or "save where we are", or type `/baton`.
+3. **Pick it up next time.** In a new session, type `/pickup` or say "pick up
+   where we left off".
+
+If a hook says runlist is "not on this app's PATH", the app started without your
+shell's `PATH`: restart it from a terminal, or add the npm global bin directory
+(`npm prefix -g`, plus `/bin`) to your login profile, then restart. Run
+`runlist doctor --session` inside a session to check; "command not found" means
+the app still cannot see the CLI. Setting up a project (config, first plan,
+ignore rules) is covered in the [beginner setup guide](GETTING_STARTED.md).
+
+Claude Desktop's **Chat** and **Cowork** tabs have no shell, so runlist cannot run
+there; use the Code tab. The separate Runlist desktop app is optional and comes
+after this path: `runlist desktop install` on a supported Mac.
+
 ## Install
 
 ```bash
@@ -30,37 +68,8 @@ same CLI. The npm package is `runlist`; existing `dotmd-cli` installs should be
 replaced with `runlist`. The Claude Code plugin is `runlist@runlist`. Legacy
 `dotmd.config.*` files, `DOTMD_*` variables and `.dotmd/` state keep working.
 
-For local CLI review, run this from the source checkout:
-
-```bash
-npm link --ignore-scripts
-npm ls -g --depth=0 runlist   # shows the checkout path when linked
-```
-
-Now `rl`, `runlist`, and `dotmd` run directly from that checkout wherever this
-Node installation is selected; source edits take effect immediately. npm globals
-and links belong to each Node installation. If entering a repo switches Node
-through NVM, link the checkout using that Node's npm too. Check
-`command -v rl` and `npm ls -g --depth=0 runlist` inside the target repo.
-A normal `npm install -g runlist` instead
-installs a separate copy of the published package. Merely editing or pulling the
-checkout does not update that copy. The version number alone cannot distinguish
-an unreleased checkout from an installed release.
-
-To leave local review and restore a released CLI, run
-`npm install -g runlist@<version>` (replace `<version>` with the release wanted).
-`rl update` also installs the published CLI, replacing the local link. Project
-dependencies installed with `npm install -D` are separate again: project scripts
-and `npx` can resolve those before the global CLI. Linking the CLI does not
-rebuild the desktop app or refresh an agent plugin's installed files.
-
-If you installed the old package globally, remove it before installing the new
-one because both packages provide the same executable names:
-
-```bash
-npm uninstall -g dotmd-cli
-npm install -g runlist
-```
+Running from a source checkout, or replacing an old `dotmd-cli` install? See
+[Checkout review and migration](#checkout-review-and-migration).
 
 The optional desktop app is a separate download with the same Markdown engine; see
 [desktop setup and validation](desktop/README.md). The delivered app includes
@@ -196,6 +205,40 @@ Replacement keeps the previous app as a rollback copy. Add `--dry-run` to previe
 an install or launch without network access, file changes or opening the app.
 Use `runlist desktop --app /path/to/application` for a custom installation path.
 
+### Checkout review and migration
+
+For local CLI review, run this from the source checkout:
+
+```bash
+npm link --ignore-scripts
+npm ls -g --depth=0 runlist   # shows the checkout path when linked
+```
+
+Now `rl`, `runlist`, and `dotmd` run directly from that checkout wherever this
+Node installation is selected; source edits take effect immediately. npm globals
+and links belong to each Node installation. If entering a repo switches Node
+through NVM, link the checkout using that Node's npm too. Check
+`command -v rl` and `npm ls -g --depth=0 runlist` inside the target repo.
+A normal `npm install -g runlist` instead
+installs a separate copy of the published package. Merely editing or pulling the
+checkout does not update that copy. The version number alone cannot distinguish
+an unreleased checkout from an installed release.
+
+To leave local review and restore a released CLI, run
+`npm install -g runlist@<version>` (replace `<version>` with the release wanted).
+`rl update` also installs the published CLI, replacing the local link. Project
+dependencies installed with `npm install -D` are separate again: project scripts
+and `npx` can resolve those before the global CLI. Linking the CLI does not
+rebuild the desktop app or refresh an agent plugin's installed files.
+
+If you installed the old package globally, remove it before installing the new
+one because both packages provide the same executable names:
+
+```bash
+npm uninstall -g dotmd-cli
+npm install -g runlist
+```
+
 ### Agent host setup
 
 For project onboarding, start with [`runlist setup`](#quick-start). It preserves
@@ -229,6 +272,15 @@ ephemeral `npx` run alone does not provide it.
 Use a shell in the checkout you want to configure. These surfaces have different
 execution environments:
 
+- **Claude Code (the working path in Claude Desktop):** open the **Code** tab, or
+  use a terminal session, with the intended checkout selected. A local Code
+  session reads the same plugin settings as the terminal, and hooks fire there.
+  Install the plugin with the [three-step quick path](#handoffs-in-3-steps) and
+  restart the app. Desktop Code also supports cloud and SSH environments; those
+  execute elsewhere. See
+  [Claude Code desktop environments](https://code.claude.com/docs/en/desktop).
+  Install and verify the plugin in that environment; follow the host's
+  [plugin activation or reload result](https://code.claude.com/docs/en/discover-plugins).
 - **Claude Desktop Chat:** a conversation alone does not provide Runlist's CLI
   or the Runlist Claude Code plugin. An assistant without a suitable shell can
   give you the terminal commands below, but cannot report them as executed.
@@ -240,12 +292,6 @@ execution environments:
   an isolated VM. Connected local-folder access does not establish that shell
   commands run on your Mac or PC. See the official
   [Cowork architecture](https://support.claude.com/en/articles/14479288-claude-cowork-architecture-overview).
-- **Claude Code:** use a local terminal session or a local Code session in the
-  desktop app with the intended checkout selected. Desktop Code also supports
-  cloud and SSH environments; those execute elsewhere. See
-  [Claude Code desktop environments](https://code.claude.com/docs/en/desktop).
-  Install and verify the plugin in that environment; follow the host's
-  [plugin activation or reload result](https://code.claude.com/docs/en/discover-plugins).
 - **Codex:** Local and Worktree sessions use your computer; Cloud uses a remote
   workspace. Choose the intended project and execution mode before setup. See
   the official [Codex environments documentation](https://learn.chatgpt.com/docs/environments/modes).
@@ -487,7 +533,8 @@ Optional choices can be combined in the same preview/apply pair:
     --dry-run
   ```
 
-Read setup's **completed**, **outstanding**, and **failed** results separately.
+Read setup's **completed**, **outstanding**, and **failed** results separately;
+**notes** (JSON `notes`) is information, not remaining work.
 Configuration written successfully does not mean every document passed checks
 or that a running host loaded its plugin. Unselected untagged documents,
 unavailable host tools, and required host reloads must remain visible. Address

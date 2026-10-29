@@ -202,6 +202,15 @@ just a pointer to its line range.
     ok(/## Phases\s+\(3:/.test(r.stdout), 'outline includes phase summary');
   });
 
+  it('points at the section reader, not raw offset/limit reads', () => {
+    const docsDir = setupProject();
+    const planPath = writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', `# Plan\n\n## Phases\n\n### Phase 1 — active 🟡\n\ntext\n`);
+    const r = runCli(['use', planPath]);
+    strictEqual(r.status, 0, r.stderr);
+    ok(/runlist show \S+ --section "<heading>"/.test(r.stdout), r.stdout);
+    ok(!/offset\/limit|Read the file/.test(r.stdout), r.stdout);
+  });
+
   it('--full opts into the full body', () => {
     const docsDir = setupProject();
     const planPath = writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', `# Plan\n\n## Phases\n\n### Phase 1 — active 🟡\n\nFULL_BODY_CONTENT_MARKER\n`);

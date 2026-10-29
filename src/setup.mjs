@@ -168,7 +168,10 @@ function render(report, out, json) {
     out.write(`\n${action.description}${action.path ? `: ${action.path}` : ''}\n`);
     if (action.preview) out.write(action.preview.endsWith('\n') ? action.preview : `${action.preview}\n`);
   }
-  for (const category of ['completed', 'outstanding', 'failed']) {
+  // Notes are information, not work left to do: shown after the counted sections and
+  // only when there are any, so a clean setup never reads as unfinished.
+  for (const category of ['completed', 'outstanding', 'failed', 'notes']) {
+    if (category === 'notes' && !report.notes.length) continue;
     out.write(`\n${category[0].toUpperCase() + category.slice(1)}: ${report[category].length}\n`);
     for (const item of report[category]) {
       out.write(`  ${item.description}${item.path ? `: ${item.path}` : ''}\n`);
@@ -181,7 +184,7 @@ function render(report, out, json) {
 /** Guided, bounded setup. Extra IO/runner options are for isolated integration tests. */
 export async function runSetup(argv, config, options = {}) {
   const { dryRun = false, input = process.stdin, out = process.stdout, prompts = process.stderr, hostRunner = runHost } = options;
-  const report = { mode: argv.includes('--yes') && !dryRun ? 'apply' : 'preview', status: 'preview', choices: null, actions: [], checks: { firstPlan: null, project: null, host: null }, completed: [], outstanding: [], failed: [] };
+  const report = { mode: argv.includes('--yes') && !dryRun ? 'apply' : 'preview', status: 'preview', choices: null, actions: [], checks: { firstPlan: null, project: null, host: null }, completed: [], outstanding: [], notes: [], failed: [] };
   let json = argv.includes('--json');
   let session;
   let applying = false;
@@ -207,7 +210,7 @@ export async function runSetup(argv, config, options = {}) {
     if (plan.skippedValidationHooks.length) report.outstanding.push({ description: `Custom ${plan.skippedValidationHooks.join('/')} hooks were not executed by setup validation; run runlist check to execute the project's custom checks` });
     const adoptionSnapshots = plan.adoptions.map(item => [item.path, readFileSync(item.path, 'utf8')]);
     report.actions.push({ id: 'init', description: 'Initialize missing scaffolding; preserve configured roots, JavaScript and hooks', path: configPath || path.join(cwd, 'runlist.config.mjs'), preview: prepared.output, ...plan.layout });
-    if (plan.layout.sample) report.outstanding.push({ description: 'An existing example sample is preserved unchanged; archive or edit it explicitly when ready', path: plan.layout.sample });
+    if (plan.layout.sample) report.notes.push({ description: 'An existing example sample is preserved unchanged; archive or edit it explicitly when ready', path: plan.layout.sample });
     if (plan.policy) report.actions.push({ id: 'policy', description: `Set promptTracking to ${choices.promptTracking} using the narrow config setter`, path: configPath });
     else report.actions.push({ id: 'policy-info', description: `Prompt tracking: ${choices.promptTracking}${existing ? (config.promptTrackingSource === 'legacy-default' ? ' (legacy compatibility default preserved; choose --prompt-tracking explicitly)' : ' (preserve existing choice)') : ' (new project default/selection)'}` });
     report.actions.push({ id: 'ignore-info', description: choices.gitignore ? 'Apply only the .gitignore additions listed in the scaffold preview' : 'Leave ignore files unchanged' });
@@ -229,7 +232,7 @@ export async function runSetup(argv, config, options = {}) {
     } else report.actions.push({ id: 'host-info', description: 'Host integration: none' });
     const untouched = plan.untagged.filter(file => !plan.adoptions.some(item => item.path === file));
     if (untouched.length) report.outstanding.push({ description: `${untouched.length} pre-existing untagged Markdown file(s) remain untouched; select exact paths with --adopt`, paths: untouched });
-    if (choices.promptTracking === 'untracked') report.outstanding.push({ description: 'Leave pending prompts untracked to reduce commit churn; git add -A can still stage prompts that are not ignored' });
+    if (choices.promptTracking === 'untracked') report.notes.push({ description: 'Leave pending prompts untracked to reduce commit churn; git add -A can still stage prompts that are not ignored' });
     if (plan.layout.files.includes(config.indexPath) || !existing) report.actions.push({ id: 'index', description: 'Regenerate the configured generated index after selected changes', path: plan.layout.files.find(file => file === config.indexPath) || path.join(cwd, choices.docsRoot, 'docs.md') });
     if (dryRun || (!flags.yes && !session)) {
       report.outstanding.push({ description: 'Preview only; rerun with --yes and the selected flags to apply' });
