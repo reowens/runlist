@@ -7,22 +7,26 @@ import { createFileExclusive, MutationConflictError, withPathLocks } from './ato
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { collectDocFiles } from './index.mjs';
 import { authorizeRepoGeneratedPath } from './managed-path.mjs';
-import { CONFIG_FILENAMES } from './naming.mjs';
+import { CONFIG_FILENAMES, LEGACY_PROMPT_DIR, PROMPT_DIR } from './naming.mjs';
+import { dim } from './color.mjs';
 import { die } from './util.mjs';
 
 // Handoffs-only mode: most people who try runlist want "save where we are" and
 // "pick up where we left off", not a planning system. So the first prompt saved
 // in a repository with no config creates the smallest config that makes every
-// existing verb work — a root that IS the prompt folder (the scan never sees the
-// project's own docs, no generated index, no plan vocabulary to nag about) and
-// `mode: 'handoffs'` so wording and plan verbs know planning is off. Inside that
-// folder runlist manages only `type: prompt` files (src/handoffs-scope.mjs).
-// `runlist setup` later rewrites those two lines to turn planning on.
+// existing verb work — a root that IS the prompt folder, docs/prompts/ (the
+// scan never sees the project's own docs, no generated index, no plan
+// vocabulary to nag about) and `mode: 'handoffs'` so wording and plan verbs
+// know planning is off. Inside that folder runlist manages only `type: prompt`
+// files (src/handoffs-scope.mjs). `runlist setup` later rewrites those two
+// lines to turn planning on, widening the root to docs/.
 //
 // Creating the config is split in two so a refused save leaves nothing behind:
 // `planHandoffsConfig` decides everything and writes nothing (the caller runs
 // its own checks against the proposed layout, and dry-run stops there), then
-// `publishHandoffsConfig` writes the folder and the config.
+// `publishHandoffsConfig` writes the folder and the config. Prompts an older
+// build saved in a root prompts/ are carried into docs/prompts/ between the two
+// (`carryLegacyPrompts`), so the new config hides none of them.
 
 export const HANDOFFS_CONFIG_FILE = 'runlist.config.mjs';
 // The planning-off wording and the gate that prints it live with the scope
@@ -43,12 +47,12 @@ export function readsAsHandoffsOnly(located) {
   catch { return false; }
 }
 
-export function handoffsConfigSource(promptRoot, promptTracking = 'untracked') {
+export function handoffsConfigSource(promptTracking = 'untracked') {
   return `// runlist.config.mjs — created by the first \`runlist baton\` here, for session handoffs.
-// Planning is off: runlist only manages the prompts in ${promptRoot}/.
+// Planning is off: runlist only manages the prompts in ${PROMPT_DIR}/.
 // \`runlist setup\` turns planning on (adds plans and an index; prompts stay put).
 export const mode = 'handoffs';
-export const root = '${promptRoot}';
+export const root = '${PROMPT_DIR}';
 export const promptTracking = '${promptTracking}';
 `;
 }
@@ -147,9 +151,11 @@ function surveyPreConfig(config, bases) {
 }
 
 // The unconfigured default folders only (and their archives), one level deep:
-// cheap enough for any working directory, including a home folder.
+// cheap enough for any working directory, including a home folder. The root
+// prompts/ older builds saved in counts as evidence of earlier handoffs, not
+// as a place to write.
 function hasDefaultFolderDocuments(config) {
-  const folders = ['plans', 'prompts', 'docs/plans', 'docs/prompts'].flatMap(folder => {
+  const folders = ['plans', LEGACY_PROMPT_DIR, 'docs/plans', PROMPT_DIR].flatMap(folder => {
     const directory = path.join(config.docsRoot, ...folder.split('/'));
     return [directory, path.join(directory, config.archiveDir)];
   });
@@ -167,29 +173,17 @@ function readsType(file) {
   catch { return null; }
 }
 
-// Prompts live in docs/prompts/ when the project has a docs/ folder, else in
-// prompts/. Runlist prompts an older version saved before any config are
-// adopted where they are (all under prompts/ or all under docs/prompts/, at any
-// depth); prompts anywhere else return null, so the caller keeps the
-// unconfigured behaviour rather than hide them. A prompts/ folder holding only
-// someone else's Markdown is left to them: new handoffs go to docs/prompts/.
-export function choosePromptRoot(top, survey) {
-  const rootPrompts = path.join(top, 'prompts');
-  const docsPrompts = path.join(top, 'docs', 'prompts');
-  if (survey.prompts.length) {
-    if (survey.prompts.every(file => inside(rootPrompts, file))) return 'prompts';
-    if (survey.prompts.every(file => inside(docsPrompts, file))) return 'docs/prompts';
-    return null;
-  }
-  if (isDirectory(path.join(top, 'docs'))) return 'docs/prompts';
-  return survey.files.some(file => inside(rootPrompts, file)) ? 'docs/prompts' : 'prompts';
-}
-
 // Whether the next prompt saved from `cwd` would create a handoffs config, for
 // the hook's wording only: stat calls, no reads. Baton itself decides.
 export function wouldCreateHandoffsConfig(cwd, config) {
   return !config.configFound && !handoffsAnchor(cwd).refusal;
 }
+
+function carryRefusal(outstanding) {
+  return `Nothing saved: runlist keeps prompts in ${PROMPT_DIR}/, and moves the ones an older version saved in ${LEGACY_PROMPT_DIR}/ there before setting up handoffs, but cannot move these:\n${outstanding.map(item => `  ${item.description}`).join('\n')}\nRename or remove one file of each pair, then rerun.`;
+}
+
+const promptCount = n => `${n} prompt${n === 1 ? '' : 's'}`;
 
 function setupLine(created, dryRun) {
   const where = `${created.config}, prompts in ${created.promptDirectory}/`;
@@ -204,8 +198,10 @@ function setupLine(created, dryRun) {
  * `{ legacy }` when the save should go ahead unconfigured, as it did before
  * handoffs mode (runlist documents saved before setup that the new config would
  * hide, or a scan that could not prove there are none); otherwise the plan,
- * whose `config` is the proposed one for the caller's checks. Dies when there
- * is no project to anchor a config to.
+ * whose `config` is the proposed one for the caller's checks and whose
+ * `carry` moves prompts from the root prompts/ an older version saved in. Dies
+ * when there is no project to anchor a config to, or when such a prompt cannot
+ * be carried (a file of the same name is already in docs/prompts/).
  */
 export async function planHandoffsConfig(cwd, config, { home } = {}) {
   if (config.configFound) return null;
@@ -221,18 +217,55 @@ export async function planHandoffsConfig(cwd, config, { home } = {}) {
   if (verified.refusal) die(verified.refusal);
   const survey = surveyPreConfig(config, [top]);
   if (!survey.complete || survey.plans.length) return { legacy: true };
-  const promptRoot = choosePromptRoot(top, survey);
-  if (!promptRoot) return { legacy: true };
   const configPath = path.join(top, HANDOFFS_CONFIG_FILE);
-  const promptDir = path.join(top, ...promptRoot.split('/'));
+  const promptDir = path.join(top, ...PROMPT_DIR.split('/'));
   const guardConfig = { repoRoot: top };
   authorizeRepoGeneratedPath(promptDir, guardConfig, { kind: 'Handoffs prompt folder' });
   authorizeRepoGeneratedPath(configPath, guardConfig, { kind: 'Handoffs config' });
-  const proposed = await resolveConfig(cwd, configPath, { exports: { mode: 'handoffs', root: promptRoot, promptTracking: 'untracked' } });
+  const proposed = await resolveConfig(cwd, configPath, { exports: { mode: 'handoffs', root: PROMPT_DIR, promptTracking: 'untracked' } });
   proposed.configWarnings = [];
-  const created = { config: HANDOFFS_CONFIG_FILE, promptDirectory: promptRoot, created: false };
-  return { top, cwd, promptRoot, promptDir, configPath, source: handoffsConfigSource(promptRoot), config: proposed,
-    created, promptDirExists: isDirectory(promptDir), dryRunLine: setupLine(created, true) };
+  // The root prompts/ older builds saved in: its prompts and their archive are
+  // carried with setup's transactional carry. Prompts anywhere else (nested
+  // folders, another directory's prompts/) would be hidden, so the save stays
+  // unconfigured, as it did before handoffs mode.
+  const unconfigured = config.docsRoot === top ? config : await resolveConfig(top);
+  const before = { ...unconfigured, excludeDirs: new Set([...(unconfigured.excludeDirs ?? []), '.git', 'node_modules']) };
+  const { planSetupCarry } = await import('./setup-carry.mjs');
+  const carry = planSetupCarry(before, proposed, true, { types: ['prompt'] });
+  const accounted = new Set([...carry.moves.map(move => move.source), ...carry.outstanding.map(item => item.path)]);
+  if (survey.prompts.some(file => !inside(promptDir, file) && !accounted.has(file))) return { legacy: true };
+  if (carry.outstanding.length) die(carryRefusal(carry.outstanding));
+  const moved = carry.moves.map(({ from, to }) => ({ from, to }));
+  const created = { config: HANDOFFS_CONFIG_FILE, promptDirectory: PROMPT_DIR, moved, created: false };
+  return { top, cwd, promptRoot: PROMPT_DIR, promptDir, configPath, source: handoffsConfigSource(), config: proposed,
+    carry: { before, moves: carry.moves }, created, promptDirExists: isDirectory(promptDir), dryRunLine: setupLine(created, true) };
+}
+
+// The carried prompt that would land on `file`, if any: the save there is a
+// duplicate of a prompt saved before, though it has not moved yet.
+export function carriedOnto(plan, file) {
+  return plan.carry.moves.find(move => path.resolve(move.target) === path.resolve(file)) ?? null;
+}
+
+// Before the config: move the prompts planned above into docs/prompts/, one
+// transactional move each, and say so in one line (dry-run lists the moves). A
+// carry that stops leaves no config, so the next run finds what is left in
+// prompts/ and carries it.
+export async function carryLegacyPrompts(plan, { dryRun = false, out = process.stderr } = {}) {
+  const moves = plan.carry.moves;
+  if (!moves.length) return;
+  const what = `${promptCount(moves.length)} an older runlist saved in ${LEGACY_PROMPT_DIR}/ to ${PROMPT_DIR}/`;
+  if (dryRun) {
+    out.write(`${dim('[dry-run]')} Would move ${what}:\n${moves.map(move => `  ${move.from} → ${move.to}`).join('\n')}\n`);
+    return;
+  }
+  const { applySetupCarry } = await import('./setup-carry.mjs');
+  const result = applySetupCarry(moves, plan.carry.before);
+  if (result.error) {
+    die(`Nothing saved: moving ${what} stopped after ${result.completed.length} of ${moves.length} (${result.error}), so no config was written. Rerun the command to carry the rest; \`runlist doctor --transactions\` reports a move left unfinished.`);
+  }
+  plan.promptDirExists = true;
+  out.write(`Moved ${what}.\n`);
 }
 
 function parentConfig(top) {
@@ -300,18 +333,18 @@ export function assertPublishedPromptFolder(plan, published, promptFolder) {
 
 // Setup in a handoffs-only repository: the two exports to rewrite and the index
 // a planning project gets, so the preview resolves the upgraded layout without
-// writing anything first. Prompts keep their folder: a docs/prompts/ root
-// becomes its parent docs root; any other prompt folder stays a second root.
-// Values are written as JavaScript literals and the result is checked to parse
-// and to read back as the intended values before anything is replaced.
-export function planHandoffsUpgrade(config, docsRoot = 'docs') {
+// writing anything first. The root widens from docs/prompts to docs, so the
+// prompts keep their folder. Values are written as JavaScript literals and the
+// result is checked to parse and to read back as the intended values before
+// anything is replaced.
+export function planHandoffsUpgrade(config) {
   const source = readFileSync(config.configPath, 'utf8');
   const promptRoot = path.relative(config.repoRoot, config.docsRoot).split(path.sep).join('/');
-  const root = promptRoot === path.posix.join(docsRoot, 'prompts') ? docsRoot : [docsRoot, promptRoot];
-  const indexPath = path.posix.join(docsRoot, 'docs.md');
+  const root = path.posix.dirname(PROMPT_DIR);
+  const indexPath = path.posix.join(root, 'docs.md');
   const modeLine = /^export const mode = (['"])handoffs\1;?[ \t]*$/m;
-  const rootLine = /^export const root = (?:'[^'\n]*'|"[^"\n]*"|\[[^\]\n]*\]);?[ \t]*$/m;
-  if ((config.docsRoots ?? []).length !== 1 || !modeLine.test(source) || !rootLine.test(source)) {
+  const rootLine = /^export const root = (?:'[^'\n]*'|"[^"\n]*");?[ \t]*$/m;
+  if ((config.docsRoots ?? []).length !== 1 || promptRoot !== PROMPT_DIR || !modeLine.test(source) || !rootLine.test(source)) {
     throw new Error(`${config.configPath} is not the handoffs config runlist writes, so setup will not rewrite it. Set \`export const mode = 'plans'\` and a docs root yourself (see runlist.config.example.mjs), then rerun setup.`);
   }
   const rootSource = jsLiteral(root);
@@ -334,7 +367,6 @@ export function planHandoffsUpgrade(config, docsRoot = 'docs') {
 // anything else (quotes, `$`, backslashes, non-ASCII) goes through JSON, whose
 // string syntax is valid JavaScript.
 export function jsLiteral(value) {
-  if (Array.isArray(value)) return `[${value.map(jsLiteral).join(', ')}]`;
   return /^[\w./-]*$/.test(value) ? `'${value}'` : JSON.stringify(value);
 }
 
@@ -342,17 +374,6 @@ export function jsLiteral(value) {
 // the values back without executing the config.
 function readLiteral(text) {
   const trimmed = text.trim();
-  if (trimmed.startsWith('[')) {
-    const items = [];
-    let rest = trimmed.slice(1, -1).trim();
-    while (rest) {
-      const match = /^('[\w./-]*'|"(?:[^"\\]|\\.)*")\s*(?:,\s*)?/.exec(rest);
-      if (!match) throw new Error(`unreadable list ${trimmed}`);
-      items.push(readLiteral(match[1]));
-      rest = rest.slice(match[0].length);
-    }
-    return items;
-  }
   if (/^'[\w./-]*'$/.test(trimmed)) return trimmed.slice(1, -1);
   return JSON.parse(trimmed);
 }

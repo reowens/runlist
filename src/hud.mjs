@@ -438,7 +438,7 @@ const BATON_TAIL = 'Baton prints the prompt name it saved as its last line; tell
 // has no plans, so the form is always a name the session picks itself.
 export function buildHandoffsOnlyContext(config, { firstHandoff = false } = {}) {
   const command = 'Save it with `runlist baton <slug> @<file>`, choosing a short slug that names the work (it saves resume-<slug>).';
-  const first = firstHandoff ? ' There is no runlist config here yet: baton also sets one up for handoffs (runlist.config.mjs and a prompts folder) unless it finds runlist documents saved before setup, and prints one line saying which; relay that line.' : '';
+  const first = firstHandoff ? ' There is no runlist config here yet: baton also sets one up for handoffs (runlist.config.mjs, prompts in docs/prompts/) unless it finds runlist documents saved before setup, and prints what it did; relay that.' : '';
   const definition = repoBatonDefinition(config);
   if (definition) return `[runlist] Baton: ${command}${first} Where the definition below names a command, use this form. ${BATON_TAIL}\nThis repo defines baton (templates.prompt.baton in its runlist config):\n${definition}`;
   return `[runlist] Baton: ${RESUME_DRAFT} ${command}${first} ${BATON_TAIL}`;

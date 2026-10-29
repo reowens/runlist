@@ -58,7 +58,7 @@ describe('zero-setup handoffs: the first baton configures the repository', () =>
   for (const layout of ['docs', 'no-docs']) it(`saves, lists, surfaces and consumes a handoff with no setup step (${layout})`, () => {
     const userDoc = '# Design notes\n\nA user document with no frontmatter.\n';
     if (layout === 'docs') put('docs/design.md', userDoc);
-    const folder = layout === 'docs' ? 'docs/prompts' : 'prompts';
+    const folder = 'docs/prompts';
 
     const saved = ok(['baton', 'exporter', draft()]);
     const output = saved.stdout + saved.stderr;
@@ -66,8 +66,9 @@ describe('zero-setup handoffs: the first baton configures the repository', () =>
     assert.match(output, new RegExp(`Set up runlist for handoffs here \\(runlist\\.config\\.mjs, prompts in ${folder}/\\)\\. Planning is off; \`runlist setup\` turns it on\\.`));
     assert.doesNotMatch(output, /No runlist config|run `runlist setup`; it carries/);
     assert.match(output, /Saved prompt: resume-exporter\n$/);
-    assert.equal(read('runlist.config.mjs'), handoffsConfigSource(folder));
+    assert.equal(read('runlist.config.mjs'), handoffsConfigSource());
     assert.ok(has(`${folder}/resume-exporter.md`));
+    assert.ok(!has('prompts'), 'one prompt location: nothing creates a root prompts/');
     assert.ok(!has('docs/docs.md') && !has('docs/plans'), 'no index and no plan scaffolding');
     if (layout === 'docs') assert.equal(read('docs/design.md'), userDoc);
 
@@ -89,8 +90,8 @@ describe('zero-setup handoffs: the first baton configures the repository', () =>
 
   it('runlist new prompt sets up handoffs the same way', () => {
     const created = ok(['new', 'prompt', 'reminder', draft()]);
-    assert.match(created.stdout, /Set up runlist for handoffs here \(runlist\.config\.mjs, prompts in prompts\/\)/);
-    assert.ok(has('prompts/reminder.md'));
+    assert.match(created.stdout, /Set up runlist for handoffs here \(runlist\.config\.mjs, prompts in docs\/prompts\/\)/);
+    assert.ok(has('docs/prompts/reminder.md') && !has('prompts'));
     assert.match(read('runlist.config.mjs'), /^export const mode = 'handoffs';$/m);
   });
 
@@ -101,13 +102,13 @@ describe('zero-setup handoffs: the first baton configures the repository', () =>
     assert.match(preview.stderr, /\[dry-run\] Would set up runlist for handoffs here \(runlist\.config\.mjs, prompts in docs\/prompts\/\)\. Planning stays off/);
     assert.match(preview.stderr, /\[dry-run\] Would create: docs\/prompts\/resume-exporter\.md/);
     const json = JSON.parse(ok(['baton', 'exporter', draft(), '--dry-run', '--json']).stdout);
-    assert.deepEqual(json.handoffsSetup, { config: 'runlist.config.mjs', promptDirectory: 'docs/prompts', created: false });
+    assert.deepEqual(json.handoffsSetup, { config: 'runlist.config.mjs', promptDirectory: 'docs/prompts', moved: [], created: false });
     assert.equal(json.prompt, 'docs/prompts/resume-exporter.md');
     assert.match(ok(['new', 'prompt', 'reminder', draft(), '-n']).stdout, /Would create: docs\/prompts\/reminder\.md/);
     assert.deepEqual(snapshot(), before);
 
     const applied = JSON.parse(ok(['baton', 'exporter', draft(), '--json']).stdout);
-    assert.deepEqual(applied.handoffsSetup, { config: 'runlist.config.mjs', promptDirectory: 'docs/prompts', created: true });
+    assert.deepEqual(applied.handoffsSetup, { config: 'runlist.config.mjs', promptDirectory: 'docs/prompts', moved: [], created: true });
     const second = JSON.parse(ok(['baton', 'second', draft(), '--json']).stdout);
     assert.equal(second.handoffsSetup, null);
   });
@@ -115,8 +116,8 @@ describe('zero-setup handoffs: the first baton configures the repository', () =>
   it('creates the config at the Git toplevel when run from a subfolder', () => {
     put('src/app/index.js', '');
     ok(['baton', 'exporter', draft()], { cwd: at('src/app') });
-    assert.ok(has('runlist.config.mjs') && has('prompts/resume-exporter.md'));
-    assert.ok(!has('src/app/runlist.config.mjs') && !has('src/app/prompts'));
+    assert.ok(has('runlist.config.mjs') && has('docs/prompts/resume-exporter.md'));
+    assert.ok(!has('src/app/runlist.config.mjs') && !has('src/app/docs') && !has('prompts'));
   });
 
   it('leaves plans an older version saved at the toplevel to setup, even from a subfolder', () => {
@@ -174,21 +175,8 @@ describe('zero-setup handoffs: the first baton configures the repository', () =>
     const results = await Promise.all([run('first'), run('second')]);
     for (const result of results) assert.equal(result.status, 0, result.output);
     assert.equal(results.filter(result => /Set up runlist for handoffs here/.test(result.output)).length, 1, results.map(r => r.output).join('\n'));
-    assert.equal(read('runlist.config.mjs'), handoffsConfigSource('prompts'));
-    assert.ok(has('prompts/resume-first.md') && has('prompts/resume-second.md'));
-  });
-
-  it('adopts runlist prompts an older version left in prompts/ in place, even with a docs/ folder', () => {
-    const legacy = '---\ntype: prompt\nstatus: pending\ncreated: 2026-10-01\nupdated: 2026-10-01\n---\n\n# Resume\n\nOlder handoff.\n';
-    put('prompts/resume-older.md', legacy);
-    put('docs/design.md', '# Notes\n');
-    ok(['baton', 'exporter', draft()]);
-    assert.match(read('runlist.config.mjs'), /^export const root = 'prompts';$/m);
-    assert.equal(read('prompts/resume-older.md'), legacy);
-    assert.ok(has('prompts/resume-exporter.md') && !has('docs/prompts'));
-    const listed = ok(['prompts']).stdout;
-    assert.match(listed, /resume-older/);
-    assert.match(listed, /resume-exporter/);
+    assert.equal(read('runlist.config.mjs'), handoffsConfigSource());
+    assert.ok(has('docs/prompts/resume-first.md') && has('docs/prompts/resume-second.md'));
   });
 
   it('leaves a prompts/ folder of non-runlist Markdown alone and uses docs/prompts/', () => {
@@ -206,7 +194,7 @@ describe('handoffs-only hints and wording', () => {
       const text = hint(prompt);
       assert.match(text, /^\[runlist\] Baton: /, prompt);
       assert.match(text, /`runlist baton <slug> @<file>`, choosing a short slug that names the work/);
-      assert.match(text, /no runlist config here yet: baton also sets one up for handoffs \(runlist\.config\.mjs and a prompts folder\)/);
+      assert.match(text, /no runlist config here yet: baton also sets one up for handoffs \(runlist\.config\.mjs, prompts in docs\/prompts\/\)/);
       assert.doesNotMatch(text, PLAN_TALK);
     }
     for (const prompt of ['implement the handoff between services', 'pick up where we left off', 'what does baton do?']) {
@@ -226,7 +214,7 @@ describe('handoffs-only hints and wording', () => {
     assert.doesNotMatch(save, /no runlist config here yet/);
     assert.doesNotMatch(save, PLAN_TALK);
     const pickup = hint('pick up where we left off');
-    assert.match(pickup, /1 pending prompt \(prompts\/resume-exporter\.md\); `\/pickup` or `runlist use <name>` consumes one \(archives the prompt and prints it\)/);
+    assert.match(pickup, /1 pending prompt \(docs\/prompts\/resume-exporter\.md\); `\/pickup` or `runlist use <name>` consumes one \(archives the prompt and prints it\)/);
     assert.doesNotMatch(pickup, PLAN_TALK);
     const subagent = ok(['hud', '--subagent']).stdout;
     assert.match(subagent, /planning is off/);
@@ -258,7 +246,7 @@ describe('handoffs-only hints and wording', () => {
 describe('runlist setup turns planning on', () => {
   for (const layout of ['docs', 'no-docs']) it(`upgrades a handoffs-only repository in place (${layout})`, () => {
     if (layout === 'docs') put('docs/design.md', '# Design notes\n');
-    const folder = layout === 'docs' ? 'docs/prompts' : 'prompts';
+    const folder = 'docs/prompts';
     ok(['baton', 'exporter', draft()]);
 
     const before = snapshot();
@@ -277,7 +265,7 @@ describe('runlist setup turns planning on', () => {
     assert.match(applied.stdout, /Completed: 3/);
     const config = read('runlist.config.mjs');
     assert.match(config, /^export const mode = 'plans';$/m);
-    assert.match(config, layout === 'docs' ? /^export const root = 'docs';$/m : /^export const root = \['docs', 'prompts'\];$/m);
+    assert.match(config, /^export const root = 'docs';$/m);
     assert.match(config, /^export const index = \{$/m);
     assert.ok(has(`${folder}/resume-exporter.md`), 'prompts stay where they are');
     assert.ok(has('docs/plans') && has('docs/docs.md'));
@@ -347,16 +335,15 @@ describe('the first baton writes only into the Git worktree it is in', () => {
     const linked = path.join(home, 'linked');
     git(repo, 'worktree', 'add', '-q', '-b', 'scratch', linked);
     ok(['baton', 'exporter', draft()], { cwd: linked });
-    assert.ok(existsSync(path.join(linked, 'runlist.config.mjs')) && existsSync(path.join(linked, 'prompts/resume-exporter.md')));
+    assert.ok(existsSync(path.join(linked, 'runlist.config.mjs')) && existsSync(path.join(linked, 'docs/prompts/resume-exporter.md')));
     assert.ok(!has('runlist.config.mjs'));
   });
 });
 
 describe('a handoffs-only project manages only its prompts', () => {
   const foreign = '---\ntype: doc\nstatus: draft\nmodule: []\nsurface: []\nupdated: 2026-10-01\n---\n# User library\n\nUSER_SENTINEL material.\n';
-  for (const layout of ['docs/prompts', 'prompts']) it(`ignores and never changes other Markdown in ${layout}/`, () => {
-    if (layout === 'docs/prompts') put('docs/design.md', '# Notes\n');
-    else put('prompts/resume-older.md', PROMPT);
+  for (const layout of ['docs/prompts']) it(`ignores and never changes other Markdown in ${layout}/`, () => {
+    put('docs/design.md', '# Notes\n');
     put(`${layout}/library.md`, foreign);
     put(`${layout}/notes/plain.md`, '# Plain notes\n\nUSER_SENTINEL too.\n');
     ok(['baton', 'exporter', draft()]);
@@ -379,11 +366,15 @@ describe('a handoffs-only project manages only its prompts', () => {
 });
 
 describe('runlist setup writes an upgraded config that loads', () => {
-  for (const docsRoot of ["notes'public", 'notes$&', "notes$'tail", 'nötes/ünïcode']) it(`keeps --docs-root ${docsRoot} intact`, () => {
+  it('widens the root to docs/ and accepts no other docs root', () => {
     ok(['baton', 'exporter', draft()]);
-    ok(['setup', '--yes', '--docs-root', docsRoot]);
-    assert.deepEqual(JSON.parse(ok(['config', 'get', 'root', '--json']).stdout).value, [docsRoot, 'prompts']);
-    assert.equal(JSON.parse(ok(['config', 'get', 'index.path', '--json']).stdout).value, path.join(repo, ...docsRoot.split('/'), 'docs.md'));
+    const refused = cli(['setup', '--yes', '--docs-root', 'notes']);
+    assert.equal(refused.status, 1);
+    assert.match(refused.stdout + refused.stderr, /makes docs\/ the docs root, the folder that holds its prompts \(docs\/prompts\/\)/);
+    assert.equal(read('runlist.config.mjs'), handoffsConfigSource());
+    ok(['setup', '--yes', '--docs-root', 'docs']);
+    assert.equal(JSON.parse(ok(['config', 'get', 'root', '--json']).stdout).value, 'docs');
+    assert.equal(JSON.parse(ok(['config', 'get', 'index.path', '--json']).stdout).value, path.join(repo, 'docs', 'docs.md'));
     assert.match(ok(['prompts']).stdout, /resume-exporter/);
   });
 
@@ -397,26 +388,22 @@ describe('runlist setup writes an upgraded config that loads', () => {
     const refused = cli(['setup', '--yes', '--docs-root', 'notes\\public']);
     assert.notEqual(refused.status, 0);
     assert.match(refused.stdout + refused.stderr, /--docs-root must be a relative project path/);
-    assert.equal(read('runlist.config.mjs'), handoffsConfigSource('prompts'));
+    assert.equal(read('runlist.config.mjs'), handoffsConfigSource());
   });
 
-  // Prompt roots come from the config, so these never touch the filesystem.
-  for (const promptRoot of ["it's prompts", 'with$&dollar', 'back\\slash', 'ünïcode prompts']) it(`serialises a prompt root of ${JSON.stringify(promptRoot)} to the same value`, { skip: process.platform === 'win32' && promptRoot.includes('\\') }, async () => {
-    put('runlist.config.mjs', handoffsConfigSource('prompts').replace("export const root = 'prompts';", () => `export const root = ${JSON.stringify(promptRoot)};`));
-    const config = { configPath: at('runlist.config.mjs'), repoRoot: repo, docsRoot: path.join(repo, promptRoot), docsRoots: [path.join(repo, promptRoot)] };
-    const upgraded = planHandoffsUpgrade(config, 'docs');
-    const loaded = await import(`data:text/javascript,${encodeURIComponent(upgraded.content)}`);
-    assert.equal(loaded.mode, 'plans');
-    assert.deepEqual(loaded.root, ['docs', promptRoot]);
-    assert.equal(loaded.index.path, 'docs/docs.md');
+  it('refuses to upgrade a handoffs config whose root is not docs/prompts', () => {
+    put('runlist.config.mjs', handoffsConfigSource().replace("export const root = 'docs/prompts';", "export const root = 'notes/prompts';"));
+    put('notes/prompts/.gitkeep', '');
+    const config = { configPath: at('runlist.config.mjs'), repoRoot: repo, docsRoot: at('notes/prompts'), docsRoots: [at('notes/prompts')] };
+    assert.throws(() => planHandoffsUpgrade(config), /is not the handoffs config runlist writes/);
   });
 
   it('checks generated JavaScript before replacing anything', () => {
     assert.equal(jsLiteral("a'b"), JSON.stringify("a'b"));
-    assert.equal(jsLiteral(['docs', 'prompts']), "['docs', 'prompts']");
-    assert.throws(() => checkUpgradedConfig("export const root = ['notes'public'];\n", { root: ["notes'public"] }, 'cfg'), /would not load as intended/);
+    assert.equal(jsLiteral('docs'), "'docs'");
+    assert.throws(() => checkUpgradedConfig("export const root = 'notes'public';\n", { root: "notes'public" }, 'cfg'), /would not load as intended/);
     assert.throws(() => checkUpgradedConfig("export const root = 'other';\n", { root: 'docs' }, 'cfg'), /root reads back as "other"/);
-    checkUpgradedConfig("export const root = [\"notes'public\", 'prompts'];\n", { root: ["notes'public", 'prompts'] }, 'cfg');
+    checkUpgradedConfig("export const root = \"notes'public\";\n", { root: "notes'public" }, 'cfg');
   });
 });
 
@@ -429,12 +416,14 @@ describe('the first baton never hides what was saved before setup', () => {
     assert.match(ok(['plans']).stdout, /old/);
   });
 
-  it('adopts nested prompts under prompts/ in place, even with docs/', () => {
+  it('keeps the unconfigured behaviour for prompts nested below prompts/, saving to docs/prompts/', () => {
     put('docs/design.md', '# Notes\n');
     put('prompts/team/resume-old.md', PROMPT);
-    ok(['baton', 'exporter', draft()]);
-    assert.match(read('runlist.config.mjs'), /^export const root = 'prompts';$/m);
-    assert.match(ok(['prompts']).stdout, /resume-old[\s\S]*resume-exporter|resume-exporter[\s\S]*resume-old/);
+    const saved = ok(['baton', 'exporter', draft()]);
+    assert.match(saved.stdout + saved.stderr, /run `runlist setup`; it carries this prompt over/);
+    assert.ok(!has('runlist.config.mjs'));
+    assert.equal(read('prompts/team/resume-old.md'), PROMPT);
+    assert.ok(has('docs/prompts/resume-exporter.md'));
     assert.match(ok(['use', 'resume-old'], { session: 'handoffs-b' }).stdout, /Earlier synthetic work/);
   });
 
@@ -531,7 +520,7 @@ syncBuiltinESMExports();
     const testHooks = { afterHandoffsConfigPublished: () => { put('notes/.gitkeep', ''); put('dotmd.config.mjs', "export const root = 'notes';\n"); } };
     await assert.rejects(publishHandoffsConfig(plan, { testHooks }), /a runlist config appeared in a parent folder/);
     assert.ok(!existsSync(path.join(child, 'runlist.config.mjs')));
-    assert.ok(!existsSync(path.join(child, 'prompts')));
+    assert.ok(!existsSync(path.join(child, 'docs')));
   });
 });
 
@@ -562,6 +551,134 @@ describe('handoffs-only wording beyond the hook', () => {
     assert.match(saved.stderr, /This session owns docs\/plans\/renderer\.md, which stays in-session[\s\S]*`runlist baton @<draft-file>` with no slug/);
     const child = ok(['baton', '--subagent', 'renderer-task', draft()]);
     assert.doesNotMatch(child.stderr, /stays in-session/);
+  });
+});
+
+describe('prompts an older runlist saved in a root prompts/ are carried into docs/prompts/', () => {
+  const OLDER = '---\ntype: prompt\nstatus: pending\ncreated: 2026-10-01\nupdated: 2026-10-01\nplan: ../plans/old-work.md\n---\n# Resume\n\nOlder synthetic handoff.\n';
+  const DONE = '---\ntype: prompt\nstatus: archived\ncreated: 2026-09-01\nupdated: 2026-09-02\n---\n# Done\n\nConsumed earlier.\n';
+  const CLOSED = '---\ntype: prompt\nstatus: archived\ncreated: 2026-09-03\nupdated: 2026-09-04\n---\n# Closed\n\nArchived in place.\n';
+  const RECORD = '.runlist/handoffs/old-work-0123456789abcdef.json';
+  function legacy() {
+    put('prompts/resume-older.md', OLDER);
+    put('prompts/archived/resume-done.md', DONE);
+    put('prompts/resume-closed.md', CLOSED);
+    put('prompts/library.md', '# A prompt library\n\nUSER_SENTINEL material.\n');
+    put('prompts/notes/plain.md', '---\ntype: doc\nstatus: draft\n---\n# Plain\n\nUSER_SENTINEL too.\n');
+    put('notes/reference.md', '---\ntype: doc\nstatus: active\n---\n# Reference\n\nSee [the older handoff](../prompts/resume-older.md).\n');
+    put(RECORD, `${JSON.stringify({ id: 'synthetic', plan: 'plans/old-work.md', prompt: 'prompts/resume-older.md', name: 'resume-older', savedAt: '2026-10-01T00:00:00Z', nextStep: '"x"', sessionId: 'old' }, null, 2)}\n`);
+  }
+
+  it('carries pending and archived prompts with their references and handoff record, then sets up handoffs', () => {
+    legacy();
+    const saved = ok(['baton', 'exporter', draft()]);
+    const output = saved.stdout + saved.stderr;
+    assert.equal(output.match(/Moved 3 prompts an older runlist saved in prompts\/ to docs\/prompts\/\.\n/g)?.length, 1, output);
+    assert.ok(output.indexOf('Moved 3 prompts') < output.indexOf('Set up runlist for handoffs here (runlist.config.mjs, prompts in docs/prompts/)'), output);
+    assert.equal(read('runlist.config.mjs'), handoffsConfigSource());
+
+    assert.ok(has('docs/prompts/resume-older.md') && has('docs/prompts/resume-exporter.md'));
+    assert.ok(has('docs/prompts/archived/resume-done.md'), 'an archived prompt stays archived');
+    assert.ok(has('docs/prompts/archived/resume-closed.md'), 'an archive-status prompt goes to the archive');
+    assert.ok(!has('prompts/resume-older.md') && !has('prompts/resume-closed.md') && !has('prompts/archived'));
+    // Its plan is gone (a plan saved before setup would leave this save
+    // unconfigured), so the dangling link is kept as written.
+    assert.equal(read('docs/prompts/resume-older.md'), OLDER);
+    assert.equal(read('notes/reference.md'), '---\ntype: doc\nstatus: active\n---\n# Reference\n\nSee [the older handoff](../docs/prompts/resume-older.md).\n');
+    const record = JSON.parse(read(RECORD));
+    assert.equal(record.prompt, 'docs/prompts/resume-older.md');
+    assert.equal(record.plan, 'plans/old-work.md');
+
+    assert.equal(read('prompts/library.md'), '# A prompt library\n\nUSER_SENTINEL material.\n', 'foreign files stay');
+    assert.equal(read('prompts/notes/plain.md'), '---\ntype: doc\nstatus: draft\n---\n# Plain\n\nUSER_SENTINEL too.\n');
+    assert.match(ok(['grep', 'USER_SENTINEL']).stdout, /results: 0/);
+    const check = ok(['check']);
+    assert.doesNotMatch(check.stdout + check.stderr, /library|plain\.md|errors: [1-9]|warnings: [1-9]/);
+    const listed = ok(['prompts']).stdout;
+    assert.match(listed, /resume-older/);
+    assert.match(listed, /resume-exporter/);
+    assert.match(ok(['use', 'resume-older'], { session: 'handoffs-b' }).stdout, /Older synthetic handoff/);
+  });
+
+  it('dry-run lists the moves and writes nothing', () => {
+    legacy();
+    const before = snapshot();
+    const preview = ok(['baton', 'exporter', draft(), '--dry-run']);
+    assert.match(preview.stderr, /\[dry-run\] Would move 3 prompts an older runlist saved in prompts\/ to docs\/prompts\/:\n/);
+    assert.match(preview.stderr, / {2}prompts\/archived\/resume-done\.md → docs\/prompts\/archived\/resume-done\.md\n/);
+    assert.match(preview.stderr, / {2}prompts\/resume-closed\.md → docs\/prompts\/archived\/resume-closed\.md\n/);
+    assert.match(preview.stderr, / {2}prompts\/resume-older\.md → docs\/prompts\/resume-older\.md\n/);
+    assert.match(preview.stderr, /Would create: docs\/prompts\/resume-exporter\.md/);
+    const json = JSON.parse(ok(['baton', 'exporter', draft(), '--dry-run', '--json']).stdout);
+    assert.deepEqual(json.handoffsSetup.moved.map(move => move.from).sort(), ['prompts/archived/resume-done.md', 'prompts/resume-closed.md', 'prompts/resume-older.md']);
+    assert.match(ok(['new', 'prompt', 'reminder', draft(), '-n']).stdout, /Would move 3 prompts/);
+    assert.deepEqual(snapshot(), before);
+  });
+
+  it('refuses a collision with guidance, moving nothing and writing no config', () => {
+    legacy();
+    put('docs/prompts/resume-older.md', PROMPT);
+    const before = snapshot();
+    for (const args of [['baton', 'exporter', draft(), '--dry-run'], ['baton', 'exporter', draft()], ['new', 'prompt', 'reminder', draft()]]) {
+      const refused = cli(args);
+      assert.equal(refused.status, 1, args.join(' '));
+      assert.match(refused.stderr, /Nothing saved: runlist keeps prompts in docs\/prompts\/, and moves the ones an older version saved in prompts\/ there[\s\S]*Carry-over collision: prompts\/resume-older\.md → docs\/prompts\/resume-older\.md; destination exists[\s\S]*Rename or remove one file of each pair, then rerun\./);
+      assert.deepEqual(snapshot(), before);
+    }
+  });
+
+  it('runlist new prompt carries the same way', () => {
+    legacy();
+    const created = ok(['new', 'prompt', 'reminder', draft()]);
+    assert.match(created.stdout, /Moved 3 prompts an older runlist saved in prompts\/ to docs\/prompts\/\.\nSet up runlist for handoffs here/);
+    assert.ok(has('docs/prompts/reminder.md') && has('docs/prompts/resume-older.md') && !has('prompts/resume-older.md'));
+  });
+
+  it('a save under the name of a prompt about to be carried is the pending duplicate', () => {
+    legacy();
+    const before = snapshot();
+    const refused = cli(['baton', 'older', draft()]);
+    assert.equal(refused.status, 1);
+    assert.match(refused.stderr, /already pending:\n {2}prompts\/resume-older\.md/);
+    assert.deepEqual(snapshot(), before);
+  });
+
+  it('setup turns planning on with the carried prompts in docs/prompts/', () => {
+    legacy();
+    ok(['baton', 'exporter', draft()]);
+    ok(['setup', '--yes']);
+    assert.match(read('runlist.config.mjs'), /^export const root = 'docs';$/m);
+    assert.match(ok(['prompts']).stdout, /resume-older[\s\S]*resume-exporter|resume-exporter[\s\S]*resume-older/);
+    assert.equal(read('prompts/library.md'), '# A prompt library\n\nUSER_SENTINEL material.\n');
+  });
+});
+
+describe('one prompt location: nothing creates a root prompts/', () => {
+  for (const layout of ['docs', 'no-docs']) for (const args of [['baton', 'exporter'], ['new', 'prompt', 'reminder']]) it(`${args.slice(0, 2).join(' ')} in a fresh repository (${layout})`, () => {
+    if (layout === 'docs') put('docs/design.md', '# Notes\n');
+    ok([...args, draft()]);
+    assert.ok(!has('prompts'));
+    assert.ok(readdirSync(at('docs/prompts')).length === 1);
+  });
+
+  it('an unconfigured save beside plans saved before setup goes to docs/prompts/', () => {
+    put('plans/sample.md', PLAN);
+    ok(['baton', 'exporter', draft()]);
+    ok(['new', 'prompt', 'reminder', draft()]);
+    assert.ok(has('docs/prompts/resume-exporter.md') && has('docs/prompts/reminder.md') && !has('prompts'));
+    ok(['use', 'resume-exporter'], { session: 'handoffs-b' });
+    assert.ok(has('docs/prompts/archived/resume-exporter.md'));
+  });
+
+  it('a save outside Git, where earlier handoffs keep working, goes to docs/prompts/', () => {
+    const plain = mkdtempSync(path.join(os.tmpdir(), 'runlist-handoffs-plain-'));
+    try {
+      mkdirSync(path.join(plain, 'prompts'));
+      writeFileSync(path.join(plain, 'prompts', 'resume-old.md'), PROMPT);
+      ok(['baton', 'exporter', draft()], { cwd: plain });
+      assert.ok(existsSync(path.join(plain, 'docs/prompts/resume-exporter.md')));
+      assert.deepEqual(readdirSync(path.join(plain, 'prompts')), ['resume-old.md']);
+    } finally { rmSync(plain, { recursive: true, force: true }); }
   });
 });
 

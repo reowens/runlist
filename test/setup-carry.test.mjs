@@ -260,8 +260,8 @@ describe('setup carries runlist artifacts written before configuration', () => {
     okCli(['use', 'sample']);
     okCli(['baton', 'sample', '@draft']);
     const beforeConfig = await resolveConfig(repo);
-    assert.equal(listPendingHandoffs(beforeConfig)[0].prompt, 'prompts/resume-sample.md');
-    put('docs/related.md', '---\ntype: doc\nstatus: active\nupdated: 2026-10-01\nrelated_plans:\n  - plans/sample.md\n---\n# Reference\n\n[Resume](../prompts/resume-sample.md)\n');
+    assert.equal(listPendingHandoffs(beforeConfig)[0].prompt, 'docs/prompts/resume-sample.md');
+    put('docs/related.md', '---\ntype: doc\nstatus: active\nupdated: 2026-10-01\nrelated_plans:\n  - plans/sample.md\n---\n# Reference\n\n[Resume](prompts/resume-sample.md)\n');
     const { report } = await setup(['--yes']);
     assert.equal(report.status, 'completed', JSON.stringify(report.failed));
     assert.ok(has('docs/plans/sample.md'));
@@ -317,7 +317,8 @@ describe('setup carries runlist artifacts written before configuration', () => {
     assert.equal((first.stdout + first.stderr).match(/it carries this prompt over/g)?.length, 1);
     assert.doesNotMatch(first.stdout + first.stderr, /runlist init|Set up runlist for handoffs/);
     assert.match(okCli(['new', 'prompt', 'other', '@draft']).stdout, /run `runlist setup`; it carries this prompt over/);
-    assert.equal(JSON.parse(okCli(['baton', 'third', '@draft', '--json']).stdout).prompt, 'prompts/resume-third.md');
+    assert.equal(JSON.parse(okCli(['baton', 'third', '@draft', '--json']).stdout).prompt, 'docs/prompts/resume-third.md');
+    assert.ok(!has('prompts'), 'nothing creates a root prompts/');
     assert.ok(!CONFIG_FILENAMES.some(has));
     await setup(['--yes']);
     assert.ok(has('docs/prompts/resume-notes.md') && has('docs/plans/sample.md'));
@@ -544,8 +545,8 @@ describe('carry-over transaction safety', () => {
     if (referrer) assert.deepEqual(readFileSync(path.join(repo, 'reference.md')), referrer);
     if (change === 'consume') {
       assert.ok(!has('docs/prompts/resume-fresh.md'));
-      assert.ok(has('archived/resume-fresh.md'));
-      assert.match(read('archived/resume-fresh.md'), /status: archived/);
+      assert.ok(has('docs/prompts/archived/resume-fresh.md'));
+      assert.match(read('docs/prompts/archived/resume-fresh.md'), /status: archived/);
     }
   });
 

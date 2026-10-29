@@ -381,10 +381,7 @@ export async function runInit(cwd, config, opts = {}) {
     process.stdout.write(`  ${dryTag}${green('create')}  runlist.config.mjs${detail}\n`);
   }
 
-  // A root that is also a type folder (a handoffs project's prompts/ kept as a
-  // second root) is listed once, below, with its document counts.
-  const typePaths = new Set(typeDirs.values());
-  for (const dir of docsRoots.filter(root => !typePaths.has(root))) {
+  for (const dir of docsRoots) {
     const exists = existsSync(dir);
     if (!exists && !dryRun) mkdirSync(dir, { recursive: true });
     process.stdout.write(`  ${dryTag}${exists ? dim('exists') : green('create')}  ${label(dir)}/\n`);

@@ -34,6 +34,7 @@ import {
   validatedClaimOperation,
 } from './pickup.mjs';
 import { assertInsideHandoffs } from './handoffs-scope.mjs';
+import { LEGACY_PROMPT_DIR, PROMPT_DIR, rootIsWorkingFolder } from './naming.mjs';
 
 export function renderLifecycleMutation(raw, updates, historyEntry, { createSection = false, bodyTransform = null } = {}) {
   raw = normalizeEol(raw);
@@ -166,20 +167,24 @@ export function updateFrontmatterAtomic(filePath, updates, config, options = {})
   });
 }
 
-function defaultTypeDir(docType, config) {
-  if (docType === 'plan') return 'plans';
-  if (docType === 'prompt') return 'prompts';
+// Before any config the root is the working folder, so prompts sit two levels
+// down in docs/prompts/; one an older build saved in a root prompts/ still files
+// beside itself until it is carried over (src/naming.mjs).
+function defaultTypeDirs(docType, config) {
+  if (docType === 'plan') return ['plans'];
+  if (docType === 'prompt') return rootIsWorkingFolder(config) ? [PROMPT_DIR, LEGACY_PROMPT_DIR] : ['prompts'];
   const templateDir = config.raw?.templates?.[docType]?.dir;
-  return typeof templateDir === 'string' && templateDir ? templateDir : null;
+  return typeof templateDir === 'string' && templateDir ? [templateDir] : [];
 }
 
 function findFilingRoot(filePath, fileRoot, docType, config) {
-  const dirName = defaultTypeDir(docType, config);
-  if (!dirName) return fileRoot;
-  if (path.basename(fileRoot) === dirName) return fileRoot;
-
   const relSegments = path.relative(fileRoot, filePath).split(path.sep);
-  if (relSegments[0] === dirName) return path.join(fileRoot, dirName);
+  for (const dirName of defaultTypeDirs(docType, config)) {
+    // A template's own dir is one folder name, as it always was.
+    const segments = dirName === PROMPT_DIR ? dirName.split('/') : [dirName];
+    if (fileRoot.split(path.sep).slice(-segments.length).join('/') === dirName) return fileRoot;
+    if (segments.every((segment, i) => relSegments[i] === segment)) return path.join(fileRoot, ...segments);
+  }
   return fileRoot;
 }
 

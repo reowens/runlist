@@ -5,7 +5,7 @@ import { inspectGitCommandPaths } from './git.mjs';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { recordGuardEvent } from './journal.mjs';
 import { readEnv } from './naming.mjs';
-import { promptDirectory } from './new.mjs';
+import { promptDirectory, promptRouting } from './new.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
@@ -57,8 +57,7 @@ function isPromptPath(p, config) {
   try {
     // Markdown template-store overrides change content only; routing is owned
     // by the JS template config. Avoid reading that store on each hook token.
-    const template = { dir: 'prompts', targetRoot: 'prompts', ...config.raw?.templates?.prompt };
-    const directory = path.resolve(promptDirectory(config, template));
+    const directory = path.resolve(promptDirectory(config, promptRouting(config)));
     const file = path.resolve(config.repoRoot, s);
     const relative = path.relative(directory, file);
     if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return false;

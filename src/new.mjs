@@ -12,7 +12,8 @@ import { regenIndex } from './lifecycle.mjs';
 import { extractFrontmatter, parseSimpleFrontmatter, normalizeEol } from './frontmatter.mjs';
 import { authorizeManagedDestination } from './managed-path.mjs';
 import { createFileExclusive, mutateFileSet, MutationConflictError } from './atomic-mutation.mjs';
-import { assertPublishedPromptFolder, isHandoffsMode, planHandoffsConfig, planningRefusal, publishHandoffsConfig } from './handoffs-mode.mjs';
+import { assertPublishedPromptFolder, carriedOnto, carryLegacyPrompts, isHandoffsMode, planHandoffsConfig, planningRefusal, publishHandoffsConfig } from './handoffs-mode.mjs';
+import { PROMPT_DIR, rootIsWorkingFolder } from './naming.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
@@ -411,6 +412,12 @@ export function titleize(s) {
 
 // Where saved prompts are written: the prompt template's targetRoot when a
 // root matches it, else the primary root plus the template's `dir`.
+// The prompt template's routing alone, for callers that must not read the
+// Markdown template store (hooks, settings inspection).
+export function promptRouting(config) {
+  return { dir: rootIsWorkingFolder(config) ? PROMPT_DIR : 'prompts', targetRoot: 'prompts', ...config.raw?.templates?.prompt };
+}
+
 export function promptDirectory(config, template = resolveTemplate('prompt', config)) {
   let targetRoot = config.docsRoot;
   let routed = false;
@@ -947,11 +954,16 @@ export async function runNew(argv, config, opts = {}) {
       handoffsSetup = setup;
       config = setup.config;
       if (dryRun) process.stdout.write(`${dim(setup.dryRunLine)}\n`);
+      // Prompts an older version saved in the root prompts/ move to
+      // docs/prompts/ first; one that would land on this name already exists.
+      const slug = slugify(path.basename(name, '.md'));
+      if (!slug) die('Name resolves to empty slug: ' + name);
+      const carried = carriedOnto(setup, path.join(setup.promptDir, `${slug}.md`));
+      if (carried) die(`File already exists: ${carried.from} (it moves to ${carried.to} when handoffs are set up here)`);
+      await carryLegacyPrompts(setup, { dryRun, out: process.stdout });
       if (!setup.promptDirExists) {
         // A folder that does not exist yet holds nothing to collide with, and
         // the checks below cannot inspect it; only the name can still refuse.
-        const slug = slugify(path.basename(name, '.md'));
-        if (!slug) die('Name resolves to empty slug: ' + name);
         if (dryRun) {
           process.stdout.write(`${dim('[dry-run]')} Would create: ${path.posix.join(setup.promptRoot, `${slug}.md`)}\n`);
           return;
@@ -1298,7 +1310,10 @@ function resolveBaseTemplate(name, config) {
     return merged;
   }
 
-  if (builtin) return builtin;
+  // Before any config the docs root is the working folder, so the built-in
+  // prompt folder is spelled out in full: prompts go to docs/prompts/ there
+  // too, never to a root prompts/ (src/naming.mjs).
+  if (builtin) return name === 'prompt' && rootIsWorkingFolder(config) ? { ...builtin, dir: PROMPT_DIR } : builtin;
 
   const available = [...new Set([...Object.keys(BUILTIN_TEMPLATES), ...Object.keys(configTemplates)])];
   die(`Unknown type: ${name}\nAvailable: ${available.join(', ')}`);

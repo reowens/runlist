@@ -5,11 +5,11 @@ import { die, resolveDocPath } from './util.mjs';
 
 // In a handoffs-only project (src/handoffs-mode.mjs) runlist owns the prompts
 // in its prompt folder and nothing else there. That folder is often one the
-// project already had — `prompts/` holding someone's prompt library, or a
-// `docs/prompts/` of reference notes — so any other Markdown in it is the
-// user's: never indexed, checked, searched, repaired or moved. Kept apart from
-// handoffs-mode.mjs so the document collector, the file-argument resolver and
-// the mutation gate can ask without importing the config writer.
+// project already had (a `docs/prompts/` of reference notes, say), so any
+// other Markdown in it is the user's: never indexed, checked, searched,
+// repaired or moved. Kept apart from handoffs-mode.mjs so the document
+// collector, the file-argument resolver and the mutation gate can ask without
+// importing the config writer.
 
 export const PLANNING_OFF = 'Planning is off in this project; `runlist setup` turns it on (your prompts stay where they are).';
 

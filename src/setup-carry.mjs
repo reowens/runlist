@@ -12,7 +12,7 @@ import { listPendingHandoffs } from './handoff-record.mjs';
 import { captureGitIndexGeneration, isTracked } from './git.mjs';
 import { toRepoPath } from './util.mjs';
 import { locateConfig } from './config.mjs';
-import { CONFIG_FILENAMES } from './naming.mjs';
+import { CONFIG_FILENAMES, LEGACY_PROMPT_DIR, rootIsWorkingFolder } from './naming.mjs';
 import { statusMetadataFor } from './status-metadata.mjs';
 
 function markdownFiles(directory, config) {
@@ -29,20 +29,30 @@ function directories(config, type) {
   return [live, archive];
 }
 
+// Live/archive pairs to carry from: the resolver's pre-config folders, plus
+// the root prompts/ (and its archive) where older builds saved prompts before
+// any config. Nothing writes there now (src/naming.mjs).
+function sourceDirectories(config, type) {
+  const own = directories(config, type);
+  if (type !== 'prompt' || !rootIsWorkingFolder(config)) return own;
+  const legacy = path.join(config.docsRoot, ...LEGACY_PROMPT_DIR.split('/'));
+  return [...own, legacy, path.join(legacy, config.archiveDir)];
+}
+
 // Only the resolver's pre-config locations qualify. An unrelated prompts
 // library, arbitrary Markdown, and files under an existing config are not
 // adoption candidates. Status vocabularies come from the resolved defaults.
-export function planSetupCarry(before, after, enabled = true) {
+export function planSetupCarry(before, after, enabled = true, { types = ['prompt', 'plan'] } = {}) {
   const result = { moves: [], outstanding: [], remaining: [] };
   if (before.configFound) return result;
   const candidates = new Set();
   const seen = new Set();
   const targets = new Set();
-  for (const type of ['prompt', 'plan']) {
-    const oldDirs = directories(before, type);
+  for (const type of types) {
+    const oldDirs = sourceDirectories(before, type);
     const newDirs = directories(after, type);
     for (const [i, directory] of oldDirs.entries()) {
-      if (directory === newDirs[i]) continue;
+      if (directory === newDirs[i % 2]) continue;
       for (const source of markdownFiles(directory, before)) {
         candidates.add(source);
         if (seen.has(source)) continue;
@@ -54,7 +64,7 @@ export function planSetupCarry(before, after, enabled = true) {
         // location alone is no evidence that runlist archived this document.
         if (directory === path.join(before.repoRoot, before.archiveDir) && !archiveStatus) continue;
         seen.add(source);
-        const archived = i === 1 || archiveStatus;
+        const archived = i % 2 === 1 || archiveStatus;
         const target = path.join(newDirs[archived ? 1 : 0], path.basename(source));
         if (source === target) continue;
         authorizeManagedSource(source, before, { kind: 'Setup carry-over source' });
@@ -84,7 +94,7 @@ export function planSetupCarry(before, after, enabled = true) {
 // default folder alone does not establish that setup owns its cleanup.
 export function cleanupSetupSourceDirectories(config, movedSources) {
   if (config.configFound) return;
-  const sources = [...new Set(['prompt', 'plan'].flatMap(type => directories(config, type)))].filter(directory =>
+  const sources = [...new Set(['prompt', 'plan'].flatMap(type => sourceDirectories(config, type)))].filter(directory =>
     movedSources.some(source => path.dirname(source) === directory || path.dirname(source).startsWith(`${directory}${path.sep}`)));
   for (const directory of sources.sort((a, b) => b.length - a.length)) {
     if (directory === config.repoRoot) continue;

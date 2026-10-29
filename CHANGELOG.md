@@ -9,12 +9,25 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 - Handoffs need no setup. In a Git repository with no runlist config, the first
   `runlist baton <slug>` (or `runlist new prompt`) also writes a handoffs-only
   `runlist.config.mjs` at the top of the Git worktree: `mode: 'handoffs'` and a
-  root that is the prompt folder itself (`docs/prompts/` when `docs/` exists,
-  else `prompts/`; runlist prompts an older version saved under either folder,
-  at any depth, are adopted in place). Inside that folder runlist manages only
-  `type: prompt` files: other Markdown there is never indexed, checked,
-  searched, repaired or moved. There is no index, and `plans`, `health`, hub
-  and module views say planning is off; `new plan` and `new doc` refuse.
+  root that is the prompt folder itself, `docs/prompts/` (made, with `docs/`,
+  when missing). Inside that folder runlist manages only `type: prompt` files:
+  other Markdown there is never indexed, checked, searched, repaired or moved.
+  There is no index, and `plans`, `health`, hub and module views say planning
+  is off; `new plan` and `new doc` refuse.
+- One prompt location: runlist writes prompts to `docs/prompts/` in every mode,
+  including a repository with no config (the unconfigured saves that remain:
+  beside plans saved before setup, and outside Git where earlier handoffs keep
+  working). Nothing creates a root `prompts/` any more. Prompts an older runlist
+  saved there before any config are carried into `docs/prompts/` by the first
+  baton or `new prompt`, with setup's transactional carry: runlist-typed prompts
+  only, archive-status ones into `docs/prompts/archived/`, references and
+  handoff records updated. One line names the move before the config is
+  written, `--dry-run` lists the moves, and baton `--json` lists them under
+  `handoffsSetup.moved`. Foreign files in `prompts/` stay and are never read as
+  runlist documents. A name collision refuses the save with guidance and
+  writes no config, and a save under the name of a prompt about to be carried
+  is refused as the pending duplicate. `runlist setup` keeps carrying such
+  prompts (it now names the root `prompts/` as a source explicitly).
 - The first baton checks with Git that it is inside a working tree whose top
   holds the nearest `.git`, so a bare repository nested in a worktree, a stray
   `.git` file, or `GIT_DIR`/`GIT_WORK_TREE` pointing elsewhere refuse instead
@@ -22,8 +35,9 @@ All notable changes to `runlist` are documented here. Older releases predate thi
   already holds handoffs or plans saved without a config, which keep working as
   before) and in a home directory that is a repository; existing configs work
   outside Git as before. Runlist documents saved before any config that the new
-  config would hide (plans anywhere in the repository, prompts outside the two
-  prompt folders), or a scan that could not read every folder, keep the old
+  config would hide (plans anywhere in the repository, prompts outside
+  `docs/prompts/` that cannot be carried there), or a scan that could not read
+  every folder, keep the old
   unconfigured behaviour and point at `runlist setup` instead. Every check that
   can refuse the save runs before the config is written, so a refused baton
   leaves nothing behind and `--dry-run` refuses where apply would; baton
@@ -49,8 +63,9 @@ All notable changes to `runlist` are documented here. Older releases predate thi
   Handoffs-mode hints, the subagent primer and baton's missing-name error say
   nothing about plans.
 - `runlist setup` in a handoffs-only project turns planning on: it previews and
-  then rewrites the config's `mode` and `root`, adds plans and an index, and
-  leaves the saved prompts where they are. The README quick path is now install,
+  then rewrites the config's `mode`, widens its `root` from `docs/prompts` to
+  `docs`, adds plans and an index, and leaves the saved prompts where they are;
+  `--docs-root` cannot choose another folder there. The README quick path is now install,
   "baton", `/pickup`; the skills put handoffs first and mark plan sections
   conditional on planning being on. Their shared save rule says to run
   `runlist baton @<draft>` with no slug when the session owns an in-session
@@ -67,7 +82,6 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 - `runlist setup --docs-root` with `$&` or `$'` in the folder name wrote the
   pattern's expansion into a fresh config; the name is now written as given.
-  The setup preview lists a root that is also a prompt or plan folder once.
 
 - `doctor --transactions --apply` can clear a durably complete move after later
   edits, deletions or prompt consumption, with verified transaction-created

@@ -159,7 +159,7 @@ export async function setupWorker(request) {
   // Handoffs-only config: every stage before the rewrite sees the upgraded
   // layout through overrides, so the preview is what applying will do. Its
   // prompts are already under the config's root, so nothing is carried.
-  const upgrade = existing && config.mode === 'handoffs' ? planHandoffsUpgrade(config, choices.docsRoot || 'docs') : null;
+  const upgrade = existing && config.mode === 'handoffs' ? planHandoffsUpgrade(config) : null;
   if (operation === 'upgrade') {
     if (!upgrade) throw new Error('The config is no longer a handoffs-only config; rerun setup.');
     const snapshot = snapshotFile(config.configPath);
@@ -188,16 +188,15 @@ export async function setupWorker(request) {
     // existing config. The narrow setter owns that separate apply stage.
     await runInit(config.repoRoot, config, { argv: initArgv, dryRun: true, guidance: false, samplePlan: false, carryMoves: carry.moves, ...(!existing ? { docsRoot: choices.docsRoot } : {}) });
     const untagged = inventory(config);
-    // What turning planning on brings into view: Markdown under the new roots
-    // that the handoffs config did not manage. A walk, not a read: outside the
+    // What turning planning on brings into view: Markdown under docs/ that the
+    // handoffs config did not manage. A walk, not a read: outside the
     // prompt folder nothing is opened (inside it, files are read for their
     // type, as every handoffs-mode command does).
     let newlyListed = null;
     if (upgrade) {
       const managed = new Set(collectDocFiles(before));
       const files = collectDocFiles(config).filter(file => !managed.has(file));
-      const roots = (config.docsRoots ?? [config.docsRoot]).filter(root => files.some(file => !path.relative(root, file).startsWith('..')));
-      newlyListed = { count: files.length, roots: roots.map(root => `${path.relative(config.repoRoot, root).split(path.sep).join('/')}/`) };
+      newlyListed = { count: files.length, root: `${upgrade.root}/` };
     }
     const adoptions = [];
     for (const selected of choices.adopt) {

@@ -8,8 +8,9 @@ description: Set up Runlist planning in a project, including before any Runlist 
 Setup is for planning. Session handoffs need none: if the user only wants to
 save where they are and pick it up later, do not run setup; the first
 `runlist baton <slug> @<draft-file>` in a Git repository writes a handoffs-only
-`runlist.config.mjs`. In a handoffs-only project (`runlist plans` says planning
-is off), setup turns planning on: it rewrites that config's `mode` and `root`,
+`runlist.config.mjs` and keeps prompts in `docs/prompts/`. In a handoffs-only
+project (`runlist plans` says planning is off), setup turns planning on: it
+rewrites that config's `mode`, widens its `root` from `docs/prompts` to `docs`,
 adds plans and an index, and keeps the saved prompts where they are.
 
 Turn the user's requested choices into a reviewed `runlist setup` preview and
@@ -60,7 +61,8 @@ Use `runlist setup` rather than rebuilding onboarding from unrelated verbs:
   the `untracked` recommendation; use `local` for an explicit request to deny
   prompt Git operations through agent guards. Neither policy makes files ignored
   or prevents manual Git operations outside those guards.
-- A fresh project may choose `--docs-root <relative-path>`. Preserve existing
+- A fresh project may choose `--docs-root <relative-path>`; a handoffs-only
+  project's docs root is always `docs`, so setup refuses another. Preserve existing
   configured roots, JavaScript, and hooks. If a different existing root is
   requested, explain setup's refusal and the manual config/path review needed;
   do not replace the config or move docs to force success.

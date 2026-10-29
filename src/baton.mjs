@@ -13,7 +13,7 @@ import { assertPlanMutationAuthorized, authoritativeSessionId, listOwnedPlans, r
 import { builtinHandoffTemplate, parentPromptName } from './prompt-handoff.mjs';
 import { readTemplateStore, templateFile } from './template-store.mjs';
 import { isGitIgnored, gitCommitPaths, literalGitPathspec } from './git.mjs';
-import { assertPublishedPromptFolder, isHandoffsMode, planHandoffsConfig, publishHandoffsConfig, readsAsHandoffsOnly } from './handoffs-mode.mjs';
+import { assertPublishedPromptFolder, carriedOnto, carryLegacyPrompts, isHandoffsMode, planHandoffsConfig, publishHandoffsConfig, readsAsHandoffsOnly } from './handoffs-mode.mjs';
 
 // `runlist baton` is the one-command handoff: save the resume prompt AND release
 // the plan in a single atomic-ish verb. It exists because the three-step skill
@@ -318,12 +318,17 @@ export async function runBaton(argv, config, opts = {}) {
   // refuse the save runs against the proposed layout before anything is
   // written, and dry-run stops at the same point apply would refuse. Plan mode
   // is left alone: a plan saved before setup belongs to `runlist setup`.
+  // Prompts an older version saved in the root prompts/ move to docs/prompts/
+  // first; one that would land on this save's name is the pending duplicate.
   let handoffsCreated = null;
   let handoffsLine = null;
   if (!planPath && !config.configFound) {
     const setup = await planHandoffsConfig(process.cwd(), config);
     if (setup && !setup.legacy) {
       config = setup.config;
+      const carried = carriedOnto(setup, path.join(setup.promptDir, `${slugBase}.md`));
+      if (carried && !replace) refusePendingHandoff([carried.from]);
+      await carryLegacyPrompts(setup, { dryRun, out: json ? { write() {} } : process.stderr });
       // A folder that does not exist yet holds nothing to collide with.
       if (setup.promptDirExists) resolvePending();
       handoffsCreated = setup.created;

@@ -5,7 +5,7 @@ If all you want is session handoffs (save where you are, pick it up next time),
 you need no setup: install the CLI and plugin
 ([three-step quick path](README.md#handoffs-in-3-steps)) and say "baton" in a
 Claude Code session in your project's Git repository. The first handoff writes a
-handoffs-only `runlist.config.mjs` (outside Git, or in a home directory that is a
+handoffs-only `runlist.config.mjs` and keeps handoffs in `docs/prompts/` (outside Git, or in a home directory that is a
 repository, it refuses; a project with a config works outside Git as before, and
 other Markdown in the prompt folder is left alone). This guide covers setup, which turns on
 planning: plans, docs and a generated index. The CLI works without a GUI. **Runlist desktop** is an optional document app;
@@ -42,9 +42,11 @@ not provide that. npm installs neither agent integrations nor the desktop app.
 ## 2. Preview and apply project setup
 
 Setup is for planning. In a project that already saved handoffs, setup turns
-planning on: it rewrites the handoffs-only config's `mode` and `root`, adds
-`docs/plans/` and the index, and leaves the saved prompts where they are. The
-preview shows the config before and after.
+planning on: it rewrites the handoffs-only config's `mode`, widens its `root`
+from `docs/prompts` to `docs`, adds `docs/plans/` and the index, and leaves the
+saved prompts where they are. The preview shows the config before and after,
+and counts the existing Markdown under `docs/` that planning will start
+checking.
 
 Prompts and plans that an older runlist saved before any config existed are
 carried into the new folders when setup writes the first config, with their

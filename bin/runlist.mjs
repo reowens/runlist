@@ -1288,7 +1288,7 @@ Run in a terminal for choices and confirmation. Without an interactive terminal,
 setup previews only; add --yes to apply selected actions. --dry-run always
 previews without writing. The CLI works without the optional desktop app.
 
-  --docs-root <path>       Fresh or handoffs-only project docs folder (default docs); existing roots preserved
+  --docs-root <path>       Fresh project docs folder (default docs); existing roots preserved
   --prompt-tracking <p>    untracked (recommended), tracked, or local; existing choice preserved
   --gitignore             Explicitly add missing ignore rules; default leaves ignore files alone
   --host <host>           none (default), claude, codex, or opencode; explicit host install
@@ -1309,10 +1309,13 @@ Examples:
 
 Existing JavaScript hooks, configured folders and prompt locations are preserved.
 In a handoffs-only project (the config the first baton writes), setup turns
-planning on: it rewrites that config's mode and root, adds plans and an index,
-and leaves the prompts where they are (--docs-root picks the docs folder).
-Fresh setup carries runlist prompts and plans (including archives) into the new
-folders, fixing references and local handoff/ownership state. Foreign files stay put.
+planning on: it rewrites that config's mode, widens its root from docs/prompts
+to docs, adds plans and an index, and leaves the prompts where they are. The
+preview counts the existing Markdown under docs/ that planning starts checking.
+--docs-root cannot choose another folder there.
+Fresh setup carries runlist prompts and plans (including archives, and prompts an
+older runlist left in a root prompts/) into the new folders, fixing references
+and local handoff/ownership state. Foreign files stay put.
 Setup must finish transaction recovery before writing the first config; unresolved
 transactions stay Outstanding. Inspect them with runlist doctor --transactions.
 Untracked does not mean ignored: git add -A may include prompts and runtime state.
@@ -1471,10 +1474,12 @@ Usage (write the resume to a file first, then pick the form that matches):
   Baton prints the prompt name it saved, as its last line too, and, in plan mode, the git commit to run.
 
 No setup needed: in a Git repository with no runlist config, the first saved
-prompt also creates a handoffs-only runlist.config.mjs at the worktree root
-(prompts in docs/prompts/ when docs/ exists, else prompts/; earlier runlist
-prompts in either folder are adopted; planning stays off until \`runlist setup\`).
-Only type: prompt files in that folder are runlist's: plan views and reads
+prompt also creates a handoffs-only runlist.config.mjs at the worktree root,
+with prompts in docs/prompts/ (planning stays off until \`runlist setup\`).
+Prompts an older runlist saved in a root prompts/ move to docs/prompts/ first,
+in one line of output (--dry-run lists the moves); a name collision there
+refuses the save and writes no config. Other files in prompts/ stay put.
+Only type: prompt files in docs/prompts/ are runlist's: plan views and reads
 filtered to another --type say planning is off; plan actions and files outside
 that folder refuse with the same line. Outside a Git working tree
 baton refuses; plans or prompts saved before any config that the new config

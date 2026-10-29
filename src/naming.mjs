@@ -22,6 +22,20 @@ export const CONFIG_FILENAMES = [
   'dotmd.config.js',
 ];
 
+// Where runlist writes prompts in every mode, including before any config
+// exists. Builds before that saved them in a root prompts/ when there was no
+// config; that folder is now only a source to carry them from
+// (src/setup-carry.mjs), never a place anything is written.
+export const PROMPT_DIR = 'docs/prompts';
+export const LEGACY_PROMPT_DIR = 'prompts';
+
+// Before any config the docs root is the working folder itself, so prompts sit
+// two levels down in it. A layout projected for a config about to be written
+// (init, setup) has a docs root of its own and keeps the usual prompts/ in it.
+export function rootIsWorkingFolder(config) {
+  return !config.configFound && Boolean(config.configDir) && path.resolve(config.docsRoot) === path.resolve(config.configDir);
+}
+
 export const ENV_PREFIX = 'RUNLIST_';
 export const LEGACY_ENV_PREFIX = 'DOTMD_';
 

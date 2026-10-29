@@ -44,8 +44,7 @@ instead of from a blank page. There is no setup step.
 2. **Stop with a handoff.** In a Claude Code session in your project's Git
    repository (terminal or Desktop's Code tab), say "baton" or "save where we
    are", or type `/baton`. The first handoff in a project also writes a small
-   `runlist.config.mjs` and keeps handoffs in `docs/prompts/` (or `prompts/`
-   when the project has no `docs/` folder).
+   `runlist.config.mjs` and keeps handoffs in `docs/prompts/`.
 3. **Pick it up next time.** In a new session, type `/pickup` or say "pick up
    where we left off".
 
@@ -57,13 +56,17 @@ Outside a Git repository the first handoff refuses, since there is no project
 folder to put its config in (run `git init`, or `runlist setup` to configure
 the folder). It also refuses in a home directory that is itself a repository.
 A project that already has a runlist config works outside Git as before. In a
-handoffs-only project runlist manages only the prompts it saved in that
-folder: any other Markdown in `prompts/` or `docs/prompts/` is left alone.
+handoffs-only project runlist manages only the prompts in `docs/prompts/`: any
+other Markdown there is left alone. Handoffs an older runlist saved in a root
+`prompts/` folder move to `docs/prompts/` with the first handoff (it prints one
+line saying so; `--dry-run` lists the moves), and anything else in `prompts/`
+stays where it is.
 
 ### What baton-only mode does and doesn't do
 
 Until you run `runlist setup`, a project whose config the first handoff wrote
-uses runlist for handoffs only (its config says `mode: 'handoffs'`).
+uses runlist for handoffs only (its config says `mode: 'handoffs'`), and its
+handoffs live in `docs/prompts/`.
 
 What works:
 
@@ -88,8 +91,9 @@ turns it on`):
 Other Markdown in the prompt folder is never listed, checked, searched or
 changed. `runlist flag add` still accepts any file in the repository.
 
-To turn planning on, run `runlist setup` in the project. It previews first:
-the config before and after, and how many existing Markdown files planning
+To turn planning on, run `runlist setup` in the project. It widens the
+config's root from `docs/prompts` to `docs` and previews first: the config
+before and after, and how many existing Markdown files under `docs/` planning
 will start checking. Your saved handoffs stay where they are.
 
 If a session hook says it found neither `runlist` nor `dotmd` on its PATH, either

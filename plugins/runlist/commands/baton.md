@@ -16,7 +16,7 @@ Start with `runlist baton --template` if useful. Resume and subagent outlines ca
    runlist baton <slug> @/tmp/baton.md         # saves resume-<slug>, touches NOTHING else
    ```
 
-   Pick the slug yourself: a few words naming the work (`checkout-totals`); never ask the user to name it. In a Git repository with no runlist config, this first baton also writes a handoffs-only `runlist.config.mjs` and a prompts folder; relay baton's one-line note about it. The user saying "save a resume prompt for this" does NOT require a plan — slug mode exists precisely for that.
+   Pick the slug yourself: a few words naming the work (`checkout-totals`); never ask the user to name it. In a Git repository with no runlist config, this first baton also writes a handoffs-only `runlist.config.mjs` and keeps prompts in `docs/prompts/`, first moving any an older runlist saved in a root `prompts/`; relay what baton prints about that. The user saying "save a resume prompt for this" does NOT require a plan — slug mode exists precisely for that.
 
    **Only in a project that uses plans**, when this session owns an in-session plan:
 

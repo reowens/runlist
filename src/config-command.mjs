@@ -3,7 +3,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { assertSnapshotCurrent, replaceSnapshot, snapshotFile } from './atomic-mutation.mjs';
 import { renderPromptTrackingSetting } from './config-setting.mjs';
-import { promptDirectory } from './new.mjs';
+import { promptDirectory, promptRouting } from './new.mjs';
 
 const KEY = 'promptTracking';
 const VALUES = ['untracked', 'tracked', 'local'];
@@ -21,7 +21,7 @@ function inspectSettings(config) {
     archiveDir: { value: config.archiveDir, source: source('archiveDir') },
     // Markdown template overrides change content, not routing. Inspect only
     // layout so a broken content template cannot prevent settings inspection.
-    promptDirectory: { value: promptDirectory(config, { dir: 'prompts', targetRoot: 'prompts', ...config.raw?.templates?.prompt }), source: 'derived' },
+    promptDirectory: { value: promptDirectory(config, promptRouting(config)), source: 'derived' },
   };
 }
 
