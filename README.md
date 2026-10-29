@@ -1658,3 +1658,5 @@ and the explicit compatibility and desktop qualification workflows.
 ## License
 
 MIT
+
+Remaining [protective parser/global Git/Codex hook error changes](../../platform/docs/plans/assets/p3-hook-error-review-20261029/README.md) are prepared for review and remain unapplied; they preserve intentional observational behavior and the accepted filesystem profiles above. The global Git setting is shared through ROBOT's existing link to Personal, and the proposed registration edit preserves that link.
