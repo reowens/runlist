@@ -92,6 +92,11 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ### Fixed
 
+- `runlist setup --adopt` preflights missing docs roots using the same adoption
+  boundaries as existing roots, leaving root creation to setup.
+- `runlist new` replaces draft statuses invalid for the target type with its
+  normal starting status and reports the replacement.
+
 - Carrying prompts out of the root `prompts/` (the first save, `runlist setup`,
   a fresh `runlist init` and the change-time carry) no longer rewrites links in
   documents that stay there. Each such link is listed, on dry-run and apply, as

@@ -35,6 +35,29 @@ afterEach(() => {
 });
 
 describe('dotmd new — type-first CLI', () => {
+  it('replaces an adopted draft status using target-type config while keeping valid statuses', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-new-adopt-'));
+    strictEqual(spawnSync('git', ['init', '-q'], { cwd: tmpDir }).status, 0);
+    mkdirSync(path.join(tmpDir, 'notes'));
+    writeFileSync(path.join(tmpDir, 'notes/widget.md'), '# Widget\n\nSynthetic content.\n');
+    const adopted = run(['setup', '--adopt', 'notes/widget.md', '--docs-root', 'notes', '--yes']);
+    strictEqual(adopted.status, 0, adopted.stdout + adopted.stderr);
+    const created = run(['new', 'plan', 'widget-v2', '@notes/widget.md']);
+    strictEqual(created.status, 0, created.stderr);
+    ok(created.stdout.includes('status `draft` is not a plan status; using `planned`'));
+    ok(readFileSync(path.join(tmpDir, 'notes/plans/widget-v2.md'), 'utf8').includes('status: planned'));
+    strictEqual(run(['check']).status, 0);
+    const valid = run(['new', 'doc', 'widget-copy', '@notes/widget.md']);
+    strictEqual(valid.status, 0, valid.stderr);
+    ok(readFileSync(path.join(tmpDir, 'notes/widget-copy.md'), 'utf8').includes('status: draft'));
+    writeFileSync(path.join(tmpDir, 'runlist.config.mjs'), `export const root = 'notes';
+export const types = { plan: { statuses: ['ready', 'finished'] } };`);
+    const custom = run(['new', 'plan', 'widget-custom', '@notes/widget.md']);
+    strictEqual(custom.status, 0, custom.stderr);
+    ok(custom.stdout.includes('status `draft` is not a plan status; using `ready`'));
+    ok(readFileSync(path.join(tmpDir, 'notes/plans/widget-custom.md'), 'utf8').includes('status: ready'));
+  });
+
   describe('type defaults', () => {
     it('`dotmd new <name>` (no type) defaults to doc with enriched template', () => {
       const docsDir = setupProject();

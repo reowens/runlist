@@ -40,13 +40,20 @@ function lexicalRootsFor(config) {
   }));
 }
 
-function rootsFor(config) {
+function rootsFor(config, { allowMissingRoots = false } = {}) {
   return lexicalRootsFor(config).map(root => {
     const { configuredPath, lexicalPath } = root;
     let canonicalPath;
     try {
       canonicalPath = realpathSync(lexicalPath);
     } catch (err) {
+      if (allowMissingRoots && err.code === 'ENOENT') {
+        const ancestor = nearestExistingAncestor(lexicalPath, [root], 'Configured docs root');
+        let existing = lexicalPath;
+        while (!existsSync(existing)) existing = path.dirname(existing);
+        canonicalPath = path.resolve(ancestor, path.relative(existing, lexicalPath));
+        return { configuredPath, lexicalPath, canonicalPath };
+      }
       throw new Error(`Configured docs root cannot be resolved: ${lexicalPath} (${err.message})`);
     }
     return { configuredPath, lexicalPath, canonicalPath };
@@ -97,8 +104,8 @@ export function findLexicalDocsRoot(input, config) {
   return lexicalOwner(path.resolve(input), lexicalRootsFor(config))?.lexicalPath ?? null;
 }
 
-export function authorizeManagedSource(input, config, { kind = 'Managed mutation source' } = {}) {
-  const roots = rootsFor(config);
+export function authorizeManagedSource(input, config, { kind = 'Managed mutation source', allowMissingRoots = false } = {}) {
+  const roots = rootsFor(config, { allowMissingRoots });
   const lexicalPath = path.resolve(input);
   markdown(lexicalPath, kind, roots);
 

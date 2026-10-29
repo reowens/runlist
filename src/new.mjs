@@ -1002,6 +1002,10 @@ export async function runNew(argv, config, opts = {}) {
     if (split.frontmatter) {
       bodyFrontmatter = split.frontmatter;
       bodyInput = split.body;
+      if (Object.hasOwn(bodyFrontmatter, 'status') && !effective.has(bodyFrontmatter.status)) {
+        process.stdout.write(`status \`${bodyFrontmatter.status}\` is not a ${typeName} status; using \`${status}\`\n`);
+        delete bodyFrontmatter.status;
+      }
     }
   }
 

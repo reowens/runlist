@@ -1129,6 +1129,7 @@ What the draft does:
   - Draft opening with a \`---\` frontmatter block → those keys replace the
     scaffold's (status, surfaces, modules, current_state, next_step, …), so no
     frontmatter edit is needed afterwards. \`type:\` is fixed by <type>.
+    A status invalid for that type is replaced with its normal starting status.
   To change status later, use \`runlist set <status> <file>\`.
 
 The repo's own types, starting statuses and folders are listed at the end of

@@ -60,6 +60,23 @@ function cli(args, cwd = repo, extraEnv = {}) {
 }
 
 describe('guided setup previews and apply', () => {
+  it('gives the same outside-root adoption refusal with a missing or existing docs root', () => {
+    put('notes/widget.md', '# Widget\n\nSynthetic content.\n');
+    const before = snapshot();
+    const missing = cli(['setup', '--adopt', 'notes/widget.md', '--yes']);
+    assert.equal(missing.status, 1);
+    assert.deepEqual(snapshot(), before);
+    mkdirSync(path.join(repo, 'docs'));
+    const existing = cli(['setup', '--adopt', 'notes/widget.md', '--yes']);
+    assert.equal(existing.status, 1);
+    assert.equal(missing.stdout, existing.stdout);
+    assert.equal(missing.stderr, existing.stderr);
+    assert.match(missing.stdout, /Setup adoption source resolves outside configured docs roots:/);
+    const accepted = cli(['setup', '--adopt', 'notes/widget.md', '--docs-root', 'notes', '--yes']);
+    assert.equal(accepted.status, 0, accepted.stdout + accepted.stderr);
+    assert.match(readFileSync(path.join(repo, 'notes/widget.md'), 'utf8'), /type: doc\nstatus: draft/);
+  });
+
   it('previews noninteractive setup without --yes, using docs rather than resolver root dot', async () => {
     put('README.md', '# Existing repository\n');
     const before = snapshot();

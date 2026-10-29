@@ -87,9 +87,9 @@ function scaffolding(config, existing, choices, moves = []) {
   return { folders: [...new Set(dirs)], files, sample: existsSync(existingSample) ? existingSample : null, gitignore: choices.gitignore ? path.join(config.repoRoot, '.gitignore') : null };
 }
 
-function adoption(config, file) {
+function adoption(config, file, { allowMissingRoots = false } = {}) {
   if (file === config.indexPath) throw new Error(`Cannot adopt the generated index: ${file}`);
-  authorizeManagedSource(file, config, { kind: 'Setup adoption source' });
+  authorizeManagedSource(file, config, { kind: 'Setup adoption source', allowMissingRoots });
   const rel = path.relative(config.docsRoots.find(root => file.startsWith(root + path.sep)) ?? config.docsRoot, file);
   if (rel.split(path.sep).includes(config.archiveDir)) throw new Error(`Cannot adopt an archived document: ${file}`);
   let captured = '';
@@ -210,7 +210,7 @@ export async function setupWorker(request) {
     const adoptions = [];
     for (const selected of choices.adopt) {
       const file = path.resolve(config.repoRoot, selected);
-      const { source, content, ...preview } = adoption(config, file);
+      const { source, content, ...preview } = adoption(config, file, { allowMissingRoots: true });
       adoptions.push(preview);
     }
     const plan = firstPlan(config, choices);
