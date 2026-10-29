@@ -218,7 +218,9 @@ export async function runSetup(argv, config, options = {}) {
     for (const move of carryMoves) report.actions.push({ id: `carry:${move.from}`, description: `move ${move.from} → ${move.to}`, from: move.from, to: move.to, type: move.type });
     report.outstanding.push(...plan.carry.outstanding);
     report.outstanding.push(...plan.transactions.map(item => ({ id: `transaction:${item.id}`, description: `Outstanding transaction ${item.id}; setup must finish pre-config recovery before writing config. ${transactionResolutionAdvice(item)}`, path: item.manifestPath })));
-    if (plan.carry.remaining.length) report.notes.push({ description: `notice: files remain outside the configured roots${!choices.carryPrompts ? '; carry-over was disabled. Before applying, rerun runlist setup without --no-carry-prompts to carry them. After a config is written, rerunning setup does not carry these files; include their folders in the config root export to keep using them without moving files' : '; include their folders in the root export to keep using them without moving files'}`, paths: plan.carry.remaining.map(file => path.relative(cwd, file).split(path.sep).join('/')) });
+    const carryNotice = () => `notice: files remain outside the configured roots${!choices.carryPrompts ? `; carry-over was disabled.${report.mode === 'preview' ? ' Before applying, rerun runlist setup without --no-carry-prompts to carry them.' : ''} After a config is written, rerunning setup does not carry these files; include their folders in the config root export to keep using them without moving files` : '; include their folders in the root export to keep using them without moving files'}`;
+    const remainingNotice = plan.carry.remaining.length ? { description: carryNotice(), paths: plan.carry.remaining.map(file => path.relative(cwd, file).split(path.sep).join('/')) } : null;
+    if (remainingNotice) report.notes.push(remainingNotice);
     if (plan.layout.sample) report.notes.push({ description: 'An existing example sample is preserved unchanged; archive or edit it explicitly when ready', path: plan.layout.sample });
     if (plan.policy) report.actions.push({ id: 'policy', description: `Set promptTracking to ${choices.promptTracking} using the narrow config setter`, path: configPath });
     else report.actions.push({ id: 'policy-info', description: `Prompt tracking: ${choices.promptTracking}${existing ? (config.promptTrackingSource === 'legacy-default' ? ' (legacy compatibility default preserved; choose --prompt-tracking explicitly)' : ' (preserve existing choice)') : ' (new project default/selection)'}` });
@@ -266,6 +268,7 @@ export async function runSetup(argv, config, options = {}) {
     for (const [file, content] of adoptionSnapshots) if (readFileSync(file, 'utf8') !== content) throw new Error(`Adoption source changed since preview: ${file}`);
     applying = true;
     report.mode = 'apply';
+    if (remainingNotice) remainingNotice.description = carryNotice();
     // Each stage preflights again in a fresh process. This is deliberately a
     // sequence of honest operations, not an advertised multi-stage transaction.
     const steps = [ ...(plan.policy ? ['policy'] : []), 'init', ...plan.adoptions.filter(item => item.candidate).map(item => item.path), ...(plan.firstPlan ? ['plan'] : []), ...(report.actions.some(action => action.id === 'index') ? ['index'] : []) ];

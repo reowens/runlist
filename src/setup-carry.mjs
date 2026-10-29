@@ -80,11 +80,12 @@ export function planSetupCarry(before, after, enabled = true) {
   return result;
 }
 
-// Recovery can empty a pre-setup folder before this run plans any moves.
-// These are only runlist's default source locations; rmdir never removes content.
-export function cleanupSetupSourceDirectories(config) {
+// Only clean parents of sources moved by this run or its recovery. An empty
+// default folder alone does not establish that setup owns its cleanup.
+export function cleanupSetupSourceDirectories(config, movedSources) {
   if (config.configFound) return;
-  const sources = [...new Set(['prompt', 'plan'].flatMap(type => directories(config, type)))];
+  const sources = [...new Set(['prompt', 'plan'].flatMap(type => directories(config, type)))].filter(directory =>
+    movedSources.some(source => path.dirname(source) === directory || path.dirname(source).startsWith(`${directory}${path.sep}`)));
   for (const directory of sources.sort((a, b) => b.length - a.length)) {
     if (directory === config.repoRoot) continue;
     authorizeRepoGeneratedPath(directory, config, { kind: 'Setup source folder' });
@@ -153,7 +154,7 @@ export function applySetupCarry(moves, config, { testHooks } = {}) {
       });
       for (const update of references.updates) if (expectedSources.has(update.path)) expectedSources.set(update.path, update.content);
       completed.push(move);
-      cleanupSetupSourceDirectories(config);
+      cleanupSetupSourceDirectories(config, [move.source]);
     }
     return { completed };
   } catch (error) {

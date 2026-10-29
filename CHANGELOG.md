@@ -13,15 +13,16 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ### Fixed
 
-- `doctor --transactions --apply` can clear a complete move for every verb
-  when all participants match their new generation and only verified, nonempty
-  transaction-created folders remain. It preserves their content and removes
-  transaction markers and bookkeeping; ambiguous files and other retained
-  artifacts still need manual review. Setup now reports that verdict and the
-  exact manual-repair directory when doctor cannot clear it.
+- `doctor --transactions --apply` can clear a durably complete move after later
+  edits, deletions or prompt consumption, with verified transaction-created
+  folders and markers and no retained Git or unknown artifacts. It preserves
+  content, removes markers and now-empty folders, and keeps generation checks
+  for unfinished moves. Setup and doctor tell users to wait for live moves;
+  setup names the manual-repair directory for unverified evidence.
 - Setup names the prompts and plans left outside configured roots when carry
   is disabled, explains that carry is unavailable after configuration, cleans
-  empty carry scaffold/source folders after failures or recovery, and detects
+  empty carry scaffold folders and moved-source parents after failures or recovery,
+  preserves unrelated empty folders, and detects
   case/Unicode-normalized collisions between files being carried.
 
 - Fresh `runlist setup` carries prompts and plans saved before configuration,

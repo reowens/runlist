@@ -139,14 +139,19 @@ export async function setupWorker(request) {
   if (operation === 'carry') return applySetupCarry(request.moves, before);
   if (operation === 'recover') {
     let recoveryError;
-    try { recoverAbandonedTransactions(before.repoRoot, { config: before }); }
+    const pending = inspectTransactions(before.repoRoot, { config: before });
+    let recovered = [];
+    try { recovered = recoverAbandonedTransactions(before.repoRoot, { config: before }); }
     catch (error) { recoveryError = error; }
     const remaining = inspectTransactions(before.repoRoot, { config: before });
     if (remaining.length || recoveryError) {
       const advice = remaining.map(item => `${item.id}: ${transactionResolutionAdvice(item)}`).join('\n');
       throw new Error(`Pre-config transaction recovery failed: ${advice || recoveryError.message}. No config was written.`);
     }
-    cleanupSetupSourceDirectories(before);
+    const movedSources = recovered.filter(item => item.result === 'rolled-forward').flatMap(item =>
+      pending.find(transaction => transaction.id === item.id)?.participants?.filter(participant =>
+        participant.label === 'source' && !existsSync(participant.path)).map(participant => participant.path) ?? []);
+    cleanupSetupSourceDirectories(before, movedSources);
     return null;
   }
   const existing = Boolean(config.configPath && existsSync(config.configPath));

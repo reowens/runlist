@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -51,7 +51,7 @@ function saved(slug = 'fresh', flags = []) {
 function snapshot(directory = repo) {
   return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
     const file = path.join(directory, entry.name);
-    return entry.isDirectory() ? [[file, 'directory'], ...snapshot(file)] : [[file, readFileSync(file).toString('base64')]];
+    return entry.isDirectory() ? [[file, 'directory'], ...snapshot(file)] : [[file, entry.isSymbolicLink() ? `symlink:${readlinkSync(file)}` : readFileSync(file).toString('base64')]];
   }).sort(([a], [b]) => a.localeCompare(b));
 }
 const moves = report => report.actions.filter(action => action.id.startsWith('carry:'));
@@ -158,7 +158,7 @@ describe('setup carries runlist artifacts written before configuration', () => {
     const first = await setup(['--yes', '--no-carry-prompts']);
     assert.equal(first.report.status, 'completed');
     assert.match(first.output, /prompts\/resume-fresh.md/);
-    assert.match(first.output, /rerun runlist setup without --no-carry-prompts/);
+    assert.doesNotMatch(first.output, /Before applying|rerun runlist setup without --no-carry-prompts/);
     assert.match(first.output, /After a config is written, rerunning setup does not carry/);
     assert.equal(moves(first.report).length, 0);
     const rerun = await setup(['--yes']);
@@ -179,12 +179,29 @@ describe('setup carries runlist artifacts written before configuration', () => {
       assert.match(output, /outside the configured roots/);
       assert.match(output, /prompts\/resume-fresh.md/);
       assert.match(output, /plans\/sample.md/);
-      assert.match(output, /Before applying, rerun runlist setup without --no-carry-prompts/);
+      if (report.mode === 'preview') assert.match(output, /Before applying, rerun runlist setup without --no-carry-prompts/);
+      else assert.doesNotMatch(output, /Before applying|rerun runlist setup without --no-carry-prompts/);
       assert.match(output, /After a config is written, rerunning setup does not carry/);
       assert.match(output, /include their folders in the config root export/);
     }
     assert.match(okCli(['prompts']).stdout, /No prompts/);
     assert.equal(moves((await setup(['--yes'])).report).length, 0);
+  });
+
+  for (const flags of [[], ['--no-carry-prompts']]) it(`preserves pre-existing empty source folders when nothing is carried (${flags.join(' ') || 'default'})`, async () => {
+    for (const directory of ['prompts/archived', 'archived']) mkdirSync(path.join(repo, directory), { recursive: true });
+    const { report } = await setup(['--yes', ...flags]);
+    assert.equal(report.status, 'completed', JSON.stringify(report.failed));
+    for (const directory of ['prompts', 'prompts/archived', 'archived']) assert.deepEqual(readdirSync(path.join(repo, directory)), directory === 'prompts' ? ['archived'] : []);
+  });
+
+  it('cleans only moved-source parents while preserving unrelated empty folders', async () => {
+    saved();
+    for (const directory of ['prompts/archived', 'archived']) mkdirSync(path.join(repo, directory), { recursive: true });
+    const { report } = await setup(['--yes']);
+    assert.equal(report.status, 'completed', JSON.stringify(report.failed));
+    assert.deepEqual(readdirSync(path.join(repo, 'prompts')), ['archived']);
+    assert.deepEqual(readdirSync(path.join(repo, 'archived')), []);
   });
 
   it('accepts the carry opt-out through the CLI registry', () => {
@@ -306,15 +323,16 @@ describe('carry-over transaction safety', () => {
     assert.deepEqual(readdirSync(path.join(repo, '.runlist/transactions')), []);
   }
 
-  function killCarry(moves, phase, { direct = false } = {}) {
+  function killCarry(moves, phase, { direct = false, updates = [] } = {}) {
     const script = `
       import { resolveConfig } from ${JSON.stringify(pathToFileURL(path.resolve(import.meta.dirname, '../src/config.mjs')).href)};
       import { applySetupCarry } from ${JSON.stringify(pathToFileURL(path.resolve(import.meta.dirname, '../src/setup-carry.mjs')).href)};
       import { moveFileAtomic } from ${JSON.stringify(pathToFileURL(path.resolve(import.meta.dirname, '../src/atomic-mutation.mjs')).href)};
       const config = await resolveConfig(process.argv[1]);
       const moves = JSON.parse(process.argv[2]);
+      const updates = ${JSON.stringify(updates)};
       const testHooks = { afterTransactionPhase(phase) { if (phase === ${JSON.stringify(phase)}) process.kill(process.pid, 'SIGKILL'); } };
-      ${direct ? 'moveFileAtomic(moves[0].source, moves[0].target, moves[0].expectedSource, { repoRoot: config.repoRoot, config, testHooks });' : 'applySetupCarry(moves, config, { testHooks });'}
+      ${direct ? 'moveFileAtomic(moves[0].source, moves[0].target, moves[0].expectedSource, { repoRoot: config.repoRoot, config, updates, testHooks });' : 'applySetupCarry(moves, config, { testHooks });'}
     `;
     const killed = spawnSync(process.execPath, ['--input-type=module', '-e', script, repo, JSON.stringify(moves)], { cwd: repo, encoding: 'utf8', timeout: 10000 });
     assert.notEqual(killed.status, 0, killed.stdout + killed.stderr);
@@ -453,7 +471,7 @@ describe('carry-over transaction safety', () => {
     assert.ok(!existsSync(manifests[0].createdDirectories[0].marker));
     assertNoTransactions();
     okCli(['setup', '--yes', ...flags]);
-    assert.ok(!has('prompts'));
+    assert.ok(has('prompts')); // Doctor retired the source evidence before this setup run.
     assert.ok(has('runlist.config.mjs'));
   });
 
@@ -492,29 +510,104 @@ describe('carry-over transaction safety', () => {
     assertNoTransactions();
   });
 
-  for (const mismatch of ['content', 'mode', 'other-artifact', 'marker', 'failed-manual']) it(`retains complete directory evidence needing manual review (${mismatch})`, async () => {
+  for (const change of ['consume', 'edit-referrer', 'edit-target', 'delete-referrer', 'delete-target', 'mode', 'recreate-source']) it(`clears a complete move after ${change} without restoring participants`, async () => {
+    saved();
+    put('reference.md', '---\ntype: doc\nstatus: active\n---\n# Reference\n\n[Resume](prompts/resume-fresh.md)\n');
+    const { config, moves } = await planned();
+    const updates = [{ path: path.join(repo, 'reference.md'), content: read('reference.md').replace('prompts/', 'docs/prompts/') }];
+    killCarry(moves, 'referrer-publication', { direct: true, updates });
+    recoverAbandonedTransactions(repo, { config });
+    if (change === 'consume') okCli(['use', 'docs/prompts/resume-fresh.md'], 'carry-b');
+    if (change === 'edit-referrer') put('reference.md', read('reference.md') + '\r\nUser edit: café.\r\n');
+    if (change === 'edit-target') put('docs/prompts/resume-fresh.md', read('docs/prompts/resume-fresh.md') + '\nUser edit\n');
+    if (change === 'delete-referrer') rmSync(path.join(repo, 'reference.md'));
+    if (change === 'delete-target') rmSync(moves[0].target);
+    if (change === 'mode') chmodSync(moves[0].target, 0o600);
+    if (change === 'recreate-source') put('prompts/resume-fresh.md', prompt());
+    const contentBefore = snapshot().filter(([file]) => !file.includes(`${path.sep}.runlist${path.sep}`) && !path.basename(file).startsWith('.runlist-transaction-'));
+    const referrer = has('reference.md') ? readFileSync(path.join(repo, 'reference.md')) : null;
+    const doctor = JSON.parse(okCli(['doctor', '--transactions', '--apply', '--json']).stdout);
+    assert.equal(doctor.cleared.length, 1);
+    assertNoTransactions();
+    // Only now-empty transaction-created folders can disappear; every document
+    // and every later user edit must survive byte for byte.
+    assert.deepEqual(snapshot().filter(([file, content]) => content !== 'directory' && !file.includes(`${path.sep}.runlist${path.sep}`)), contentBefore.filter(([, content]) => content !== 'directory'));
+    okCli(['setup', '--yes']);
+    if (referrer) assert.deepEqual(readFileSync(path.join(repo, 'reference.md')), referrer);
+    if (change === 'consume') {
+      assert.ok(!has('docs/prompts/resume-fresh.md'));
+      assert.ok(has('archived/resume-fresh.md'));
+      assert.match(read('archived/resume-fresh.md'), /status: archived/);
+    }
+  });
+
+  for (const phase of ['source-move', 'target-publication']) it(`clears a rolled-back move and removes marker-only folders (${phase})`, async () => {
+    saved();
+    put('reference.md', '---\ntype: doc\nstatus: active\n---\n# Reference\n\n[Resume](prompts/resume-fresh.md)\n');
+    const { config, moves } = await planned();
+    const source = read('prompts/resume-fresh.md');
+    const updates = [{ path: path.join(repo, 'reference.md'), content: read('reference.md').replace('prompts/', 'docs/prompts/') }];
+    const [manifest] = killCarry(moves, phase, { direct: true, updates });
+    assert.equal(recoverAbandonedTransactions(repo, { config })[0].result, 'rolled-back');
+    const doctor = JSON.parse(okCli(['doctor', '--transactions', '--apply', '--json']).stdout);
+    assert.equal(doctor.cleared.length, 1);
+    for (const directory of manifest.createdDirectories) {
+      assert.ok(!existsSync(directory.marker));
+      assert.ok(!existsSync(directory.path));
+    }
+    assert.equal(read('prompts/resume-fresh.md'), source);
+    assertNoTransactions();
+    okCli(['setup', '--yes']);
+  });
+
+  for (const mismatch of ['other-artifact', 'artifact-directory', 'marker', 'marker-missing', 'marker-symlink', 'marker-directory', 'directory-file', 'directory-symlink', 'directory-replaced', 'target-symlink', 'git-retained', 'git-prepared', 'active', 'failed-manual', 'older-schema']) it(`retains transaction evidence needing manual review (${mismatch})`, async () => {
     saved();
     const { config, moves } = await planned();
-    const [manifest] = killCarry(moves, 'target-publication', { direct: true });
+    const [original] = killCarry(moves, 'target-publication', { direct: true });
     recoverAbandonedTransactions(repo, { config });
-    if (mismatch === 'content') put('docs/prompts/resume-fresh.md', 'Changed after recovery');
-    if (mismatch === 'mode') {
-      if (process.platform === 'win32') return; // Windows does not preserve POSIX permission bits.
-      chmodSync(moves[0].target, 0o600);
-    }
+    const manifestFile = `.runlist/transactions/${original.id}/manifest.json`;
+    const manifest = JSON.parse(read(manifestFile));
+    const directory = manifest.createdDirectories.at(-1);
     if (mismatch === 'other-artifact') put(`.runlist/transactions/${manifest.id}/unverified-index`, 'evidence');
-    if (mismatch === 'marker') writeFileSync(manifest.createdDirectories[0].marker, 'foreign marker');
-    if (mismatch === 'failed-manual') {
-      const retained = JSON.parse(read(`.runlist/transactions/${manifest.id}/manifest.json`));
-      retained.status = retained.phase = retained.result = 'failed-manual';
-      put(`.runlist/transactions/${manifest.id}/manifest.json`, JSON.stringify(retained));
+    if (mismatch === 'artifact-directory') {
+      rmSync(manifest.participants[0].old.artifact);
+      mkdirSync(manifest.participants[0].old.artifact);
     }
+    if (mismatch === 'marker') writeFileSync(directory.marker, 'foreign marker');
+    if (['marker-missing', 'marker-symlink', 'marker-directory'].includes(mismatch)) {
+      rmSync(directory.marker);
+      if (mismatch === 'marker-symlink') {
+        put('token', `${directory.token}\n`);
+        symlinkSync(path.join(repo, 'token'), directory.marker);
+      }
+      if (mismatch === 'marker-directory') mkdirSync(directory.marker);
+    }
+    if (['directory-file', 'directory-symlink', 'directory-replaced'].includes(mismatch)) {
+      renameSync(directory.path, path.join(repo, 'aside'));
+      if (mismatch === 'directory-file') writeFileSync(directory.path, 'foreign file');
+      if (mismatch === 'directory-symlink') symlinkSync(path.join(repo, 'aside'), directory.path, process.platform === 'win32' ? 'junction' : 'dir');
+      if (mismatch === 'directory-replaced') mkdirSync(directory.path);
+    }
+    if (mismatch === 'target-symlink') {
+      renameSync(moves[0].target, path.join(repo, 'docs/real.md'));
+      symlinkSync('../real.md', moves[0].target);
+    }
+    if (['git-retained', 'git-prepared'].includes(mismatch)) {
+      const file = path.join(repo, '.git/.runlist-index-unverified');
+      writeFileSync(file, 'unverified');
+      if (mismatch === 'git-retained') manifest.gitIndex.retainedPaths.push(file);
+      else manifest.gitIndex.prepared = { state: 'prepared', tempPath: file, generation: null };
+    }
+    if (['active', 'failed-manual'].includes(mismatch)) manifest.status = manifest.phase = manifest.result = mismatch;
+    if (mismatch === 'older-schema') manifest.schema = 1;
+    put(manifestFile, JSON.stringify(manifest));
     const before = snapshot();
     const doctor = JSON.parse(okCli(['doctor', '--transactions', '--apply', '--json']).stdout);
     assert.equal(doctor.transactions[0].resolvable, false);
     assert.deepEqual(doctor.cleared, []);
     assert.deepEqual(snapshot(), before);
-    assert.ok(has(`.runlist/transactions/${manifest.id}/manifest.json`));
+    assert.ok(has(manifestFile));
+    if (manifest.status === 'complete') assert.doesNotMatch((await setup()).output, /restore one complete generation/);
   });
 
   for (const invalid of [false, true]) it(`names the manual step when doctor cannot clear ${invalid ? 'an older-schema manifest' : 'failed-manual index evidence'}`, async () => {
@@ -538,19 +631,68 @@ describe('carry-over transaction safety', () => {
       assert.ok(text.includes(verdict.reason), text);
       assert.ok(text.includes(verdict.directory), text);
       assert.match(text, /Manually inspect.*restore one complete generation.*remove that transaction directory/s);
-      assert.doesNotMatch(text, /Run runlist doctor --transactions --apply/);
+      assert.doesNotMatch(text, /Run runlist doctor --transactions --apply|repair\.\./);
     }
     assert.ok(!has('runlist.config.mjs'));
     assert.ok(has(`.runlist/transactions/${manifest.id}/manifest.json`));
   });
 
+  for (const phase of ['staging', 'target-publication']) for (const unknownOwner of [false, true]) it(`waits for a live move at ${phase} (${unknownOwner ? 'lock-held owner unverifiable' : 'live owner'})`, async () => {
+    saved();
+    const { moves } = await planned();
+    const ready = path.join(repo, 'paused.ready');
+    const script = `
+      import { writeFileSync } from 'node:fs';
+      import { resolveConfig } from ${JSON.stringify(pathToFileURL(path.resolve(import.meta.dirname, '../src/config.mjs')).href)};
+      import { moveFileAtomic } from ${JSON.stringify(pathToFileURL(path.resolve(import.meta.dirname, '../src/atomic-mutation.mjs')).href)};
+      const config = await resolveConfig(process.argv[1]);
+      const move = JSON.parse(process.argv[2]);
+      moveFileAtomic(move.source, move.target, move.expectedSource, { repoRoot: config.repoRoot, config,
+        testHooks: { afterTransactionPhase(phase) { if (phase === ${JSON.stringify(phase)}) {
+          writeFileSync(process.argv[3], 'ready');
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 30000);
+        } } } });
+    `;
+    const child = spawn(process.execPath, ['--input-type=module', '-e', script, repo, JSON.stringify(moves[0]), ready], { cwd: repo, stdio: 'ignore' });
+    const exited = new Promise(resolve => child.once('close', resolve));
+    try {
+      const deadline = Date.now() + 10000;
+      while (!existsSync(ready) && Date.now() < deadline && child.exitCode === null) await new Promise(resolve => setTimeout(resolve, 10));
+      assert.ok(existsSync(ready), 'child reached the requested transaction phase');
+      const transaction = inspectTransactions(repo)[0];
+      if (unknownOwner) {
+        const manifest = JSON.parse(readFileSync(transaction.manifestPath, 'utf8'));
+        manifest.owner.hostname = 'another-host.invalid';
+        writeFileSync(transaction.manifestPath, JSON.stringify(manifest));
+      }
+      const verdict = inspectTransactions(repo)[0];
+      assert.equal(verdict.lockHeld, true);
+      assert.equal(verdict.ownerLiveness, unknownOwner ? 'unverifiable' : 'live');
+      assert.equal(verdict.resolvable, false);
+      const before = snapshot();
+      const preview = await setup();
+      const applied = await setup(['--yes']);
+      for (const text of [preview.output, applied.output]) {
+        assert.match(text, /Another runlist process is mid-move; rerun setup once it finishes/);
+        assert.doesNotMatch(text, /Run runlist doctor|Manually inspect|remove that transaction directory/);
+      }
+      const doctor = okCli(['doctor', '--transactions', '--apply']).stdout;
+      assert.match(doctor, /in progress.*rerun later/s);
+      assert.doesNotMatch(doctor, /need manual review|resolvable/);
+      assert.deepEqual(snapshot(), before);
+      assert.ok(!has('runlist.config.mjs'));
+    } finally {
+      child.kill('SIGKILL');
+      await exited;
+    }
+  });
+
   it('blocks config publication for failed-manual carry evidence until doctor resolves it', async () => {
     saved();
     const { config, moves } = await planned();
-    const failed = applySetupCarry(moves, config, { testHooks: { afterTransactionPhase(phase) {
-      if (phase === 'backup-deletion') throw new Error('Synthetic post-commit failure');
-    } } });
-    assert.match(failed.error, /Synthetic post-commit failure/);
+    const [manifest] = killCarry(moves, 'backup-deletion');
+    manifest.status = manifest.phase = manifest.result = 'failed-manual';
+    put(`.runlist/transactions/${manifest.id}/manifest.json`, JSON.stringify(manifest));
     const { report } = await setup(['--yes']);
     assert.equal(report.failed.length, 1);
     assert.match(report.failed[0].description, /doctor --transactions --apply/);
@@ -613,7 +755,7 @@ describe('carry-over transaction safety', () => {
     okCli(['setup', '--yes'], session);
     const after = await resolveConfig(repo);
     assert.equal(readPlanOwnership('docs/plans/sample.md', after).state, 'owned');
-    assert.ok(!has('plans'));
+    assert.equal(has('plans'), phase === 'canonical-commit'); // External recovery retired the source evidence in that case.
     okCli(['set', 'active', 'sample'], session);
     okCli(['archive', 'sample'], session);
     assert.ok(has('docs/archived/sample.md'));

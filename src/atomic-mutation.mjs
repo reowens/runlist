@@ -594,7 +594,7 @@ function transactionResolution(manifest, directory) {
     try { lstatSync(file); return true; }
     catch (error) { if (error.code === 'ENOENT') return false; throw error; }
   };
-  const participants = manifest.participants.map(item => ({ path: item.path, state: participantState(item) }));
+  const participants = manifest.participants.map(item => ({ path: item.path, label: item.label, state: participantState(item) }));
   const states = new Set(participants.map(item => item.state));
   const uniform = states.size === 1 && (states.has('old') || states.has('new'));
   const retainedGitPaths = [...new Set([
@@ -610,15 +610,10 @@ function transactionResolution(manifest, directory) {
     const artifact = path.join(directory, name);
     return !knownArtifacts.has(name) || !lstatSync(artifact).isFile();
   });
-  const newGeneration = manifest.participants.every(item => {
-    try {
-      if (!item.new.exists) { lstatSync(item.path); return false; }
-      const stat = lstatSync(item.path);
-      return stat.isFile() && !stat.isSymbolicLink() && (stat.mode & 0o7777) === item.new.mode
-        && contentHash(readFileSync(item.path)) === item.new.hash;
-    } catch (error) { return !item.new.exists && error.code === 'ENOENT'; }
-  });
-  const contentDirectories = retainedDirectories.length > 0 && manifest.status === 'complete' && newGeneration
+  // Completion durably records commit or rollback. Later edits, consumption,
+  // or deletion need not match the historical participants to retire evidence.
+  const complete = manifest.status === 'complete';
+  const verifiedDirectories = complete
     && manifest.createdDirectories.filter(item => retainedDirectories.includes(item.path)).every(item => {
       try {
         const stat = lstatSync(item.path);
@@ -628,20 +623,23 @@ function transactionResolution(manifest, directory) {
         if (entries.includes(path.basename(item.marker))) {
           if (!lstatSync(item.marker).isFile() || readFileSync(item.marker, 'utf8') !== `${item.token}\n`) return false;
         } else if (!['removing', 'removed'].includes(item.markerState)) return false;
-        return entries.some(name => path.join(item.path, name) !== item.marker);
+        return true;
       } catch { return false; }
     });
-  const resolvable = (uniform || contentDirectories) && retainedGitPaths.length === 0 && !otherArtifacts
-    && (retainedDirectories.length === 0 || contentDirectories);
-  return { participants, generation: contentDirectories ? 'new' : uniform ? [...states][0] : null, retainedGitPaths, retainedDirectories, resolvable,
-    reason: resolvable ? null : !uniform ? 'Canonical files do not agree on one generation' : 'Retained artifacts need manual review' };
+  const resolvable = (complete ? verifiedDirectories : uniform && retainedDirectories.length === 0)
+    && retainedGitPaths.length === 0 && !otherArtifacts;
+  return { participants, generation: uniform ? [...states][0] : null, retainedGitPaths, retainedDirectories, resolvable,
+    reason: resolvable ? null : !complete && !uniform ? 'Canonical files do not agree on one generation' : 'Retained artifacts need manual review' };
 }
 
 // Shared by setup's preview and refusal, using the doctor's verdict and reason.
 export function transactionResolutionAdvice(item) {
+  if (item.ownerLiveness === 'live' || item.lockHeld) return 'Another runlist process is mid-move; rerun setup once it finishes';
   if (item.resolvable) return 'Run runlist doctor --transactions --apply, then rerun setup';
   const retained = item.retainedGitPaths?.length ? ` Retained Git artifacts: ${item.retainedGitPaths.join(', ')}.` : '';
-  return `${item.reason ?? 'Recovery has not established a complete generation'}.${retained} Manually inspect the canonical files and recovery artifacts in ${item.directory}; restore one complete generation, preserve any unverified artifacts, then remove that transaction directory and rerun setup`;
+  const reason = (item.reason ?? 'Recovery has not established a complete generation').replace(/\.+$/, '');
+  const generation = item.status === 'complete' ? '' : 'restore one complete generation, ';
+  return `${reason}.${retained} Manually inspect the canonical files and recovery artifacts in ${item.directory}; ${generation}preserve any unverified artifacts, then remove that transaction directory and rerun setup`;
 }
 
 // Report on every transaction manifest without mutating anything, so a wedged
@@ -673,9 +671,14 @@ export function inspectTransactions(repoRoot, options = {}) {
       resolution = transactionResolution(manifest, directory);
     }
     catch (err) {
-      report.push({ id: entry.name, directory, manifestPath, readable: false, reason: err.message, resolvable: false });
+      report.push({ id: entry.name, directory, manifestPath, status: manifest?.status, readable: false, reason: err.message, resolvable: false });
       continue;
     }
+    const lockHeld = manifest.participants.some(item => {
+      const lockPath = lockPathFor(canonicalPath(item.path), repoRoot);
+      return existsSync(lockPath) && processOwnerLiveness(lockOwner(lockPath)) !== 'dead';
+    });
+    const ownerLiveness = processOwnerLiveness(manifest.owner);
     report.push({
       id: manifest.id,
       directory,
@@ -686,16 +689,18 @@ export function inspectTransactions(repoRoot, options = {}) {
       result: manifest.result,
       operation: manifest.operation,
       createdAt: manifest.createdAt,
-      ownerLiveness: processOwnerLiveness(manifest.owner),
+      ownerLiveness,
+      lockHeld,
       ...resolution,
+      ...(lockHeld || ownerLiveness === 'live' ? { resolvable: false, reason: 'Another runlist process is mid-move; rerun later once it finishes' } : {}),
     });
   }
   return report;
 }
 
 // Clear the manifests inspectTransactions marked resolvable. Touches no
-// canonical file — those already agree on one generation; this only removes the
-// bookkeeping that is wedging later mutations.
+// canonical file. Complete manifests need only verified cleanup evidence;
+// non-complete manifests still require one uniform generation.
 export function resolveTransactions(repoRoot, options = {}) {
   const cleared = [];
   for (const item of inspectTransactions(repoRoot, options)) {
@@ -713,18 +718,22 @@ export function resolveTransactions(repoRoot, options = {}) {
       } catch { return; }
       const verdict = transactionResolution(manifest, item.directory);
       if (!verdict.resolvable) return;
-      // A rollback must prove what it did or didn't publish. Here the complete
-      // transaction proves every participant reached its recorded new generation:
-      // nothing remains to roll back. Nonempty created folders are now user-visible
-      // content. Keep them and remove only their verified transaction markers.
-      for (const entry of manifest.createdDirectories) {
-        if (!verdict.retainedDirectories.includes(entry.path) || !existsSync(entry.marker)) continue;
-        entry.markerState = 'removing';
-        durableJson(item.manifestPath, manifest, options);
-        unlinkSync(entry.marker);
-        fsyncDirectory(entry.path, options, 'transaction-directory-marker-delete');
-        entry.markerState = 'removed';
-        durableJson(item.manifestPath, manifest, options);
+      // As on commit, remove verified markers deepest first, and remove only
+      // folders that become empty. A crash leaves the marker state resumable.
+      for (const entry of [...manifest.createdDirectories].sort((a, b) => b.path.length - a.path.length)) {
+        if (!verdict.retainedDirectories.includes(entry.path)) continue;
+        if (existsSync(entry.marker)) {
+          entry.markerState = 'removing';
+          durableJson(item.manifestPath, manifest, options);
+          unlinkSync(entry.marker);
+          fsyncDirectory(entry.path, options, 'transaction-directory-marker-delete');
+          entry.markerState = 'removed';
+          durableJson(item.manifestPath, manifest, options);
+        }
+        if (readdirSync(entry.path).length === 0) {
+          rmdirSync(entry.path);
+          fsyncDirectory(path.dirname(entry.path), options, 'transaction-directory-delete');
+        }
       }
       cleanupTransactionDirectory(item.directory, manifest, options);
       cleared.push({ id: item.id, generation: verdict.generation });

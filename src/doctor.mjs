@@ -85,7 +85,8 @@ function runDoctorTransactions(argv, config, opts = {}) {
     const mark = clearedIds.has(item.id) ? green('✓') : blocking ? yellow('!') : dim('·');
     const note = clearedIds.has(item.id)
       ? 'cleared'
-      : item.resolvable ? 'resolvable' : (item.reason ?? item.status);
+      : item.ownerLiveness === 'live' || item.lockHeld ? 'in progress; rerun later once it finishes'
+        : item.resolvable ? 'resolvable' : (item.reason ?? item.status);
     process.stdout.write(`  ${mark} ${item.id} [${item.status}] ${item.operation} — owner ${item.ownerLiveness}, ${note}\n`);
     for (const participant of item.participants) {
       process.stdout.write(dim(`      ${participant.state.padEnd(9)} ${toRepoPath(participant.path, config.repoRoot)}\n`));
@@ -97,13 +98,15 @@ function runDoctorTransactions(argv, config, opts = {}) {
 
   const resolvable = report.filter(item => item.resolvable && !clearedIds.has(item.id));
   if (cleared.length) {
-    process.stdout.write(green(`\n✓ Cleared ${cleared.length} transaction${cleared.length === 1 ? '' : 's'} whose files already agreed on one generation.\n`));
+    process.stdout.write(green(`\n✓ Cleared ${cleared.length} transaction${cleared.length === 1 ? '' : 's'} with verified recovery or cleanup evidence.\n`));
   }
   if (resolvable.length) {
-    process.stdout.write(`\n${resolvable.length} resolvable — the canonical files already agree on one generation.\n`);
+    process.stdout.write(`\n${resolvable.length} resolvable — recovery or cleanup evidence is verified.\n`);
     process.stdout.write(dim('Run `runlist doctor --transactions --apply` to clear them (no document content is touched).\n'));
   }
-  const stuck = report.filter(item => !item.resolvable && !clearedIds.has(item.id));
+  const inProgress = report.filter(item => item.ownerLiveness === 'live' || item.lockHeld);
+  if (inProgress.length) process.stdout.write(dim(`\n${inProgress.length} in progress — another runlist process is mid-move; rerun later once it finishes.\n`));
+  const stuck = report.filter(item => !item.resolvable && !clearedIds.has(item.id) && !inProgress.includes(item));
   if (stuck.length) {
     process.stdout.write(yellow(`\n${stuck.length} need manual review — generations or retained artifacts could not be verified.\n`));
     process.stdout.write(dim('Inspect the participant paths above against the artifacts in each transaction directory.\n'));
