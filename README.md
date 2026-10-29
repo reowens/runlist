@@ -159,8 +159,8 @@ controls are experimental; live retrieval depends on a compatible external
 provider. Local chat and push are deferred.
 
 <!-- runlist:release:start -->
-CLI and desktop release version: **0.99.2**.
-[Mac installer and release notes](https://github.com/reowens/runlist/releases/tag/desktop-v0.99.2).
+CLI and desktop release version: **0.100.0**.
+[Mac installer and release notes](https://github.com/reowens/runlist/releases/tag/desktop-v0.100.0).
 Normal product releases publish both components. Local app installation is separate from release acceptance.
 <!-- runlist:release:end -->
 
