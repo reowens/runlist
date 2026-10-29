@@ -210,6 +210,10 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ### Changed
 
+- Updated Cargo patches: `rustix` 1.1.6, `tauri-plugin` 2.7.2,
+  `tauri-winres` 0.3.7, `tao` 0.37.2 and `wry` 0.57.1. These include upstream
+  Linux display/window and macOS drag/drop, focus and memory fixes.
+
 - Updated the native file-dialog backend `rfd` from 0.16.0 to 0.16.1 within
   the existing dependency range. The patch fixes GTK3 message descriptions with
   percent characters that could display incorrectly or crash the dialog.
