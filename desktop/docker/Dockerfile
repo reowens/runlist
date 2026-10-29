@@ -16,11 +16,11 @@ RUN python3 -c 'import json; p=json.load(open("/opt/runlist/runtime-lock.json"))
     && mkdir /opt/node && tar -xzf /tmp/node.tar.gz -C /opt/node --strip-components=1 \
     && rm /tmp/node.tar.gz /tmp/node-pin
 ENV PATH=/opt/node/bin:/opt/cargo/bin:$PATH \
-    RUSTUP_HOME=/opt/rustup RUSTUP_TOOLCHAIN=1.95.0
+    RUSTUP_HOME=/opt/rustup RUSTUP_TOOLCHAIN=1.99.1
 RUN curl -fsSL https://static.rust-lang.org/rustup/archive/1.28.2/x86_64-unknown-linux-gnu/rustup-init -o /tmp/rustup-init \
     && echo '20a06e644b0d9bd2fbdbfd52d42540bdde820ea7df86e92e533c073da0cdd43c  /tmp/rustup-init' | sha256sum -c - \
     && chmod +x /tmp/rustup-init \
-    && CARGO_HOME=/opt/cargo /tmp/rustup-init -y --no-modify-path --profile minimal --default-toolchain 1.95.0 \
+    && CARGO_HOME=/opt/cargo /tmp/rustup-init -y --no-modify-path --profile minimal --default-toolchain 1.99.1 \
     && rm /tmp/rustup-init \
     && chmod -R a+rX /opt/cargo /opt/rustup
 

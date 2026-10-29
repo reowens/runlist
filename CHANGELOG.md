@@ -219,6 +219,9 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ### Changed
 
+- Updated the desktop Docker and CI build toolchains from Rust 1.95.0 to
+  1.99.1. The declared minimum Rust version remains 1.95.
+
 - Updated all five CI workflow pins for `actions/checkout` from 6.0.2 to
   6.1.0, including upstream protections against unsafe fork pull-request checkouts.
 

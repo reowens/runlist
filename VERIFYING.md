@@ -131,7 +131,7 @@ It never mounts the live
 checkout, Git metadata, credentials or private planning corpus into the container.
 Only the Dockerfile, container script and runtime lock enter the image context.
 
-The Ubuntu 22.04/x64 image pins its base digest, Rust 1.95.0 and the desktop's
+The Ubuntu 22.04/x64 image pins its base digest, Rust 1.99.1 and the desktop's
 checksum-pinned Node 26 LTS runtime, read directly from `desktop/runtime-lock.json`.
 Linux build images install `libatomic1`, and Debian packages declare that runtime
 dependency. Extracted-package checks also verify the bundled Node linker dependencies.
@@ -191,12 +191,12 @@ After a source-suite pass for the same source, run:
 npm ci --prefix desktop
 npm --prefix desktop test
 npm --prefix desktop run prepare:bundle
-cargo +1.95.0 test --locked --manifest-path desktop/src-tauri/Cargo.toml --lib
+cargo +1.99.1 test --locked --manifest-path desktop/src-tauri/Cargo.toml --lib
 npm --prefix desktop run build -- --ci
 npm --prefix desktop run test:bundle
 ```
 
-Select Rust 1.95.0 for the build command too (the workflow uses a toolchain
+Select Rust 1.99.1 for the build command too (the workflow uses a toolchain
 override). On Linux, additionally run
 `npm --prefix desktop run test:linux-packages`. Keep the source SHA/diff, tool
 versions, command output and artifact hashes with the qualification result.

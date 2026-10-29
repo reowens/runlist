@@ -41,8 +41,8 @@ jobs:
       - run: npm ci --prefix desktop --ignore-scripts
       - name: Pinned Cargo for bundle notices
         run: |
-          rustup toolchain install 1.95.0 --profile minimal
-          rustup override set 1.95.0
+          rustup toolchain install 1.99.1 --profile minimal
+          rustup override set 1.99.1
       - name: Prepare the pinned packaged engine without a window
         run: npm --prefix desktop run prepare:bundle
       - name: Fresh native consumer, required actual provider and packaged helper
