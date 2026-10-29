@@ -10,7 +10,7 @@ Start with `runlist baton --template` if useful. Resume and subagent outlines ca
 
 1. **Write the draft** to a temp file (`/tmp/baton.md`): 10–20 lines — the next concrete decision plus any gotchas, NOT a recap. Reference the relevant file paths inside the draft so the next session can orient.
 
-2. **Run the verb.** With no plan in play — the usual case, and the only one when the project has no runlist config yet or `runlist plans` says planning is off:
+2. **Run the verb.** If this session owns an in-session plan, use the plan form further down (no slug) so the plan is handed off with the prompt. Otherwise — the usual case, and the only one when the project has no runlist config yet or `runlist plans` says planning is off:
 
    ```bash
    runlist baton <slug> @/tmp/baton.md         # saves resume-<slug>, touches NOTHING else

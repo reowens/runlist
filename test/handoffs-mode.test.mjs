@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { resolveConfig } from '../src/config.mjs';
-import { ensureHandoffsConfig, handoffsConfigSource } from '../src/handoffs-mode.mjs';
+import { checkUpgradedConfig, handoffsConfigSource, jsLiteral, planHandoffsConfig, planHandoffsUpgrade, publishHandoffsConfig } from '../src/handoffs-mode.mjs';
+import { createFileExclusive } from '../src/atomic-mutation.mjs';
 
 const bin = path.resolve(import.meta.dirname, '../bin/runlist.mjs');
 const pluginRoot = path.resolve(import.meta.dirname, '../plugins/runlist');
@@ -151,11 +153,11 @@ describe('zero-setup handoffs: the first baton configures the repository', () =>
   });
 
   it('uses a config that appears after resolution instead of replacing it', async () => {
-    const unconfigured = await resolveConfig(repo);
+    const plan = await planHandoffsConfig(repo, await resolveConfig(repo), { home });
     const theirs = "export const root = 'notes';\n";
     put('notes/.gitkeep', '');
     put('runlist.config.mjs', theirs);
-    const result = await ensureHandoffsConfig(repo, unconfigured, { home });
+    const result = await publishHandoffsConfig(plan);
     assert.equal(read('runlist.config.mjs'), theirs);
     assert.equal(result.created, null);
     assert.equal(result.config.docsRoot, at('notes'));
@@ -204,7 +206,7 @@ describe('handoffs-only hints and wording', () => {
       const text = hint(prompt);
       assert.match(text, /^\[runlist\] Baton: /, prompt);
       assert.match(text, /`runlist baton <slug> @<file>`, choosing a short slug that names the work/);
-      assert.match(text, /first handoff here, so baton also creates runlist\.config\.mjs/);
+      assert.match(text, /no runlist config here yet: baton also sets one up for handoffs \(runlist\.config\.mjs and a prompts folder\)/);
       assert.doesNotMatch(text, PLAN_TALK);
     }
     for (const prompt of ['implement the handoff between services', 'pick up where we left off', 'what does baton do?']) {
@@ -221,7 +223,7 @@ describe('handoffs-only hints and wording', () => {
     ok(['baton', 'exporter', draft()]);
     const save = hint('save where we are');
     assert.match(save, /^\[runlist\] Baton: /);
-    assert.doesNotMatch(save, /first handoff here/);
+    assert.doesNotMatch(save, /no runlist config here yet/);
     assert.doesNotMatch(save, PLAN_TALK);
     const pickup = hint('pick up where we left off');
     assert.match(pickup, /1 pending prompt \(prompts\/resume-exporter\.md\); `\/pickup` or `runlist use <name>` consumes one \(archives the prompt and prints it\)/);
@@ -294,5 +296,271 @@ describe('runlist setup turns planning on', () => {
     assert.equal(refused.status, 1);
     assert.match(refused.stdout, /is not the handoffs config runlist writes/);
     assert.match(read('runlist.config.mjs'), /mode = 'handoffs'/);
+  });
+});
+
+const PROMPT = '---\ntype: prompt\nstatus: pending\ncreated: 2026-10-01\nupdated: 2026-10-01\n---\n# Resume\n\nEarlier synthetic work.\n';
+const PLAN = '---\ntype: plan\nstatus: active\ncreated: 2026-10-01\nupdated: 2026-10-01\n---\n# Synthetic\n\nNext work.\n';
+const git = (cwd, ...args) => assert.equal(spawnSync('git', args, { cwd, encoding: 'utf8' }).status, 0, args.join(' '));
+const gitCommit = cwd => git(cwd, '-c', 'user.name=Synthetic', '-c', 'user.email=synthetic@example.invalid', 'commit', '-qm', 'synthetic');
+
+describe('the first baton writes only into the Git worktree it is in', () => {
+  it('refuses inside a bare repository nested in a worktree, writing nothing anywhere', () => {
+    mkdirSync(at('backup.git'));
+    git(at('backup.git'), 'init', '-q', '--bare');
+    const before = snapshot();
+    const refused = cli(['baton', 'exporter', draft()], { cwd: at('backup.git') });
+    assert.equal(refused.status, 1);
+    assert.match(refused.stderr, /not inside a Git working tree/);
+    assert.deepEqual(snapshot(), before);
+  });
+
+  it('refuses a .git file that is not a gitlink', () => {
+    const plain = mkdtempSync(path.join(os.tmpdir(), 'runlist-handoffs-fake-'));
+    try {
+      writeFileSync(path.join(plain, '.git'), 'unrelated file\n');
+      const refused = cli(['baton', 'exporter', draft()], { cwd: plain });
+      assert.equal(refused.status, 1);
+      assert.match(refused.stderr, /not inside a Git working tree/);
+      assert.deepEqual(readdirSync(plain), ['.git']);
+    } finally { rmSync(plain, { recursive: true, force: true }); }
+  });
+
+  for (const overrides of ['GIT_DIR', 'GIT_DIR and GIT_WORK_TREE']) it(`refuses when ${overrides} points at another repository`, () => {
+    const other = mkdtempSync(path.join(os.tmpdir(), 'runlist-handoffs-other-'));
+    try {
+      git(other, 'init', '-q');
+      const extra = { GIT_DIR: path.join(other, '.git'), ...(overrides.includes('WORK') ? { GIT_WORK_TREE: other } : {}) };
+      const before = snapshot();
+      const refused = cli(['baton', 'exporter', draft()], { extra });
+      assert.equal(refused.status, 1);
+      assert.match(refused.stderr, /GIT_DIR or GIT_WORK_TREE (is set and )?may point elsewhere/);
+      assert.deepEqual(snapshot(), before);
+      assert.deepEqual(readdirSync(other), ['.git']);
+    } finally { rmSync(other, { recursive: true, force: true }); }
+  });
+
+  it('still sets up a linked worktree at its own top', () => {
+    put('seed.txt', 'seed\n');
+    git(repo, 'add', 'seed.txt');
+    gitCommit(repo);
+    const linked = path.join(home, 'linked');
+    git(repo, 'worktree', 'add', '-q', '-b', 'scratch', linked);
+    ok(['baton', 'exporter', draft()], { cwd: linked });
+    assert.ok(existsSync(path.join(linked, 'runlist.config.mjs')) && existsSync(path.join(linked, 'prompts/resume-exporter.md')));
+    assert.ok(!has('runlist.config.mjs'));
+  });
+});
+
+describe('a handoffs-only project manages only its prompts', () => {
+  const foreign = '---\ntype: doc\nstatus: draft\nmodule: []\nsurface: []\nupdated: 2026-10-01\n---\n# User library\n\nUSER_SENTINEL material.\n';
+  for (const layout of ['docs/prompts', 'prompts']) it(`ignores and never changes other Markdown in ${layout}/`, () => {
+    if (layout === 'docs/prompts') put('docs/design.md', '# Notes\n');
+    else put('prompts/resume-older.md', PROMPT);
+    put(`${layout}/library.md`, foreign);
+    put(`${layout}/notes/plain.md`, '# Plain notes\n\nUSER_SENTINEL too.\n');
+    ok(['baton', 'exporter', draft()]);
+    assert.match(read('runlist.config.mjs'), new RegExp(`^export const root = '${layout}';$`, 'm'));
+    const check = ok(['check']);
+    assert.doesNotMatch(check.stdout + check.stderr, /library|plain\.md|errors: [1-9]|warnings: [1-9]/);
+    assert.match(ok(['grep', 'USER_SENTINEL']).stdout, /results: 0/);
+    assert.match(ok(['query', '--all']).stdout, /resume-exporter/);
+    assert.doesNotMatch(ok(['query', '--all']).stdout, /library|plain/);
+    ok(['doctor', '--apply']);
+    ok(['check', '--fix']);
+    for (const args of [['show', `${layout}/library.md`], ['set', 'archived', `${layout}/library.md`], ['archive', 'library']]) {
+      const refused = cli(args);
+      assert.equal(refused.status, 1, args.join(' '));
+    }
+    assert.equal(read(`${layout}/library.md`), foreign, 'never modified');
+    assert.equal(read(`${layout}/notes/plain.md`), '# Plain notes\n\nUSER_SENTINEL too.\n');
+    assert.match(ok(['prompts']).stdout, /resume-exporter/);
+  });
+});
+
+describe('runlist setup writes an upgraded config that loads', () => {
+  for (const docsRoot of ["notes'public", 'notes$&', "notes$'tail", 'nötes/ünïcode']) it(`keeps --docs-root ${docsRoot} intact`, () => {
+    ok(['baton', 'exporter', draft()]);
+    ok(['setup', '--yes', '--docs-root', docsRoot]);
+    assert.deepEqual(JSON.parse(ok(['config', 'get', 'root', '--json']).stdout).value, [docsRoot, 'prompts']);
+    assert.equal(JSON.parse(ok(['config', 'get', 'index.path', '--json']).stdout).value, path.join(repo, ...docsRoot.split('/'), 'docs.md'));
+    assert.match(ok(['prompts']).stdout, /resume-exporter/);
+  });
+
+  it('a fresh setup keeps $& in a docs root as text', () => {
+    ok(['setup', '--yes', '--docs-root', 'notes$&']);
+    assert.equal(JSON.parse(ok(['config', 'get', 'root', '--json']).stdout).value, 'notes$&');
+  });
+
+  it('refuses a backslash in --docs-root', () => {
+    ok(['baton', 'exporter', draft()]);
+    const refused = cli(['setup', '--yes', '--docs-root', 'notes\\public']);
+    assert.notEqual(refused.status, 0);
+    assert.match(refused.stdout + refused.stderr, /--docs-root must be a relative project path/);
+    assert.equal(read('runlist.config.mjs'), handoffsConfigSource('prompts'));
+  });
+
+  // Prompt roots come from the config, so these never touch the filesystem.
+  for (const promptRoot of ["it's prompts", 'with$&dollar', 'back\\slash', 'ünïcode prompts']) it(`serialises a prompt root of ${JSON.stringify(promptRoot)} to the same value`, { skip: process.platform === 'win32' && promptRoot.includes('\\') }, async () => {
+    put('runlist.config.mjs', handoffsConfigSource('prompts').replace("export const root = 'prompts';", () => `export const root = ${JSON.stringify(promptRoot)};`));
+    const config = { configPath: at('runlist.config.mjs'), repoRoot: repo, docsRoot: path.join(repo, promptRoot), docsRoots: [path.join(repo, promptRoot)] };
+    const upgraded = planHandoffsUpgrade(config, 'docs');
+    const loaded = await import(`data:text/javascript,${encodeURIComponent(upgraded.content)}`);
+    assert.equal(loaded.mode, 'plans');
+    assert.deepEqual(loaded.root, ['docs', promptRoot]);
+    assert.equal(loaded.index.path, 'docs/docs.md');
+  });
+
+  it('checks generated JavaScript before replacing anything', () => {
+    assert.equal(jsLiteral("a'b"), JSON.stringify("a'b"));
+    assert.equal(jsLiteral(['docs', 'prompts']), "['docs', 'prompts']");
+    assert.throws(() => checkUpgradedConfig("export const root = ['notes'public'];\n", { root: ["notes'public"] }, 'cfg'), /would not load as intended/);
+    assert.throws(() => checkUpgradedConfig("export const root = 'other';\n", { root: 'docs' }, 'cfg'), /root reads back as "other"/);
+    checkUpgradedConfig("export const root = [\"notes'public\", 'prompts'];\n", { root: ["notes'public", 'prompts'] }, 'cfg');
+  });
+});
+
+describe('the first baton never hides what was saved before setup', () => {
+  it('leaves a nested pre-config plan visible and configures nothing', () => {
+    put('plans/team/old.md', PLAN);
+    const saved = ok(['baton', 'exporter', draft()]);
+    assert.match(saved.stdout + saved.stderr, /run `runlist setup`; it carries this prompt over/);
+    assert.ok(!has('runlist.config.mjs'));
+    assert.match(ok(['plans']).stdout, /old/);
+  });
+
+  it('adopts nested prompts under prompts/ in place, even with docs/', () => {
+    put('docs/design.md', '# Notes\n');
+    put('prompts/team/resume-old.md', PROMPT);
+    ok(['baton', 'exporter', draft()]);
+    assert.match(read('runlist.config.mjs'), /^export const root = 'prompts';$/m);
+    assert.match(ok(['prompts']).stdout, /resume-old[\s\S]*resume-exporter|resume-exporter[\s\S]*resume-old/);
+    assert.match(ok(['use', 'resume-old'], { session: 'handoffs-b' }).stdout, /Earlier synthetic work/);
+  });
+
+  it('keeps the unconfigured behaviour when earlier prompts sit outside both prompt folders', () => {
+    put('notes/handoffs/resume-old.md', PROMPT);
+    const saved = ok(['baton', 'exporter', draft()]);
+    assert.match(saved.stdout + saved.stderr, /run `runlist setup`; it carries this prompt over/);
+    assert.ok(!has('runlist.config.mjs'));
+    assert.match(ok(['use', 'resume-old'], { session: 'handoffs-b' }).stdout, /Earlier synthetic work/);
+  });
+
+  it('treats a scan it could not finish as proof of nothing', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, () => {
+    put('locked/inner.md', PLAN);
+    chmodSync(at('locked'), 0o000);
+    try {
+      const saved = ok(['baton', 'exporter', draft()]);
+      assert.doesNotMatch(saved.stdout + saved.stderr, /Set up runlist for handoffs/);
+      assert.ok(!has('runlist.config.mjs'));
+    } finally { chmodSync(at('locked'), 0o755); }
+  });
+});
+
+describe('a refused save leaves no setup behind, and dry-run refuses the same way', () => {
+  for (const [label, args, pattern] of [
+    ['a conflicting prefix', ['baton', '--subagent', 'resume-child'], /conflicts with --subagent/],
+    ['an empty name', ['baton', '???'], /nonempty handoff name/],
+    ['a pending duplicate', ['baton', 'exporter'], /already pending/],
+    ['a pending duplicate via new prompt', ['new', 'prompt', 'resume-exporter'], /File already exists/],
+  ]) it(`refuses ${label}`, () => {
+    if (label.includes('duplicate')) put('prompts/resume-exporter.md', PROMPT);
+    const before = snapshot();
+    for (const extra of [['--dry-run'], []]) {
+      const refused = cli([...args, draft(), ...extra]);
+      assert.equal(refused.status, 1, `${extra.join(' ')}: ${refused.stdout}${refused.stderr}`);
+      assert.match(refused.stderr, pattern);
+      assert.doesNotMatch(refused.stdout + refused.stderr, /Set up runlist for handoffs/);
+      assert.deepEqual(snapshot(), before);
+      assert.ok(!has('.runlist'));
+    }
+  });
+});
+
+describe('config publication cannot leave a broken config behind', () => {
+  it('fails closed when hard links are unsupported, even if killed at the fallback', () => {
+    const inject = path.join(home, 'inject.mjs');
+    writeFileSync(inject, `import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
+const link = fs.linkSync, rename = fs.renameSync, target = process.env.SYNTHETIC_TARGET;
+fs.linkSync = function (from, to, ...rest) {
+  if (to === target) { const error = new Error('synthetic: no hard links'); error.code = 'ENOTSUP'; throw error; }
+  return link.call(this, from, to, ...rest);
+};
+fs.renameSync = function (from, to, ...rest) { if (to === target) process.exit(86); return rename.call(this, from, to, ...rest); };
+syncBuiltinESMExports();
+`);
+    put('docs/design.md', '# Notes\n');
+    const before = snapshot();
+    const refused = cli(['baton', 'exporter', draft()], { extra: { NODE_OPTIONS: `--import=${pathToFileURL(inject).href}`, SYNTHETIC_TARGET: at('runlist.config.mjs') } });
+    assert.equal(refused.status, 1, refused.stdout + refused.stderr);
+    assert.match(refused.stderr, /cannot take a new file atomically[\s\S]*export const mode = 'handoffs';/);
+    assert.ok(!has('runlist.config.mjs'));
+    assert.ok(!has('docs/prompts'), 'the prompt folder it made is taken back');
+    assert.deepEqual(snapshot().filter(([file]) => !file.startsWith(at('.runlist'))), before);
+    ok(['doctor', '--transactions']);
+    ok(['prompts']);
+  });
+
+  it('requireAtomicPublish refuses instead of exposing a reservation', () => {
+    const target = at('runlist.config.mjs');
+    assert.throws(() => createFileExclusive(target, 'export const mode = "handoffs";\n', { repoRoot: repo, requireAtomicPublish: true, testHooks: { forceLinkUnsupported: true } }),
+      error => error.code === 'ERUNLIST_ATOMIC_PUBLISH_UNSUPPORTED');
+    assert.ok(!existsSync(target));
+    assert.deepEqual(readdirSync(repo).filter(name => name.startsWith('.runlist.config') || name.endsWith('.tmp')), []);
+  });
+
+  it('a parent config that appears before publication is used, not shadowed', async () => {
+    const child = at('child');
+    mkdirSync(child);
+    git(child, 'init', '-q');
+    const plan = await planHandoffsConfig(child, await resolveConfig(child), { home });
+    put('notes/.gitkeep', '');
+    put('dotmd.config.mjs', "export const root = 'notes';\n");
+    const published = await publishHandoffsConfig(plan);
+    assert.equal(published.created, null);
+    assert.equal(published.config.configPath, at('dotmd.config.mjs'));
+    assert.ok(!existsSync(path.join(child, 'runlist.config.mjs')));
+  });
+
+  it('a parent config that appears during publication wins, and the child config is taken back', async () => {
+    const child = at('child');
+    mkdirSync(child);
+    git(child, 'init', '-q');
+    const plan = await planHandoffsConfig(child, await resolveConfig(child), { home });
+    const testHooks = { afterHandoffsConfigPublished: () => { put('notes/.gitkeep', ''); put('dotmd.config.mjs', "export const root = 'notes';\n"); } };
+    await assert.rejects(publishHandoffsConfig(plan, { testHooks }), /a runlist config appeared in a parent folder/);
+    assert.ok(!existsSync(path.join(child, 'runlist.config.mjs')));
+    assert.ok(!existsSync(path.join(child, 'prompts')));
+  });
+});
+
+describe('handoffs-only wording beyond the hook', () => {
+  it('bare baton, --done, templates, agent-context and index say nothing about plans', () => {
+    ok(['baton', 'exporter', draft()]);
+    const bare = cli(['baton'], { input: '' });
+    assert.equal(bare.status, 1);
+    assert.match(bare.stderr, /runlist baton <slug> @\/tmp\/draft\.md/);
+    assert.doesNotMatch(bare.stderr, PLAN_TALK);
+    const done = cli(['baton', '--done']);
+    assert.equal(done.status, 1);
+    assert.match(done.stderr, /Nothing to confirm: planning is off/);
+    for (const args of [['baton', '--template'], ['baton', '--subagent', '--template', '--parent', 'resume-x']]) {
+      assert.doesNotMatch(ok(args).stdout, /\bplans?\b|shared claims/i, args.join(' '));
+    }
+    assert.deepEqual(Object.keys(JSON.parse(ok(['agent-context']).stdout).statusVocabulary), ['prompt']);
+    const index = cli(['index']);
+    assert.equal(index.status, 1);
+    assert.match(index.stderr, /planning is off in this project\. `runlist setup` turns planning on/);
+  });
+
+  it('a planning session that saves under a slug while owning a plan is told the plan stays claimed', () => {
+    ok(['setup', '--yes']);
+    ok(['new', 'plan', 'renderer', draft()]);
+    ok(['use', 'renderer']);
+    const saved = ok(['baton', 'renderer-check', draft()]);
+    assert.match(saved.stderr, /This session owns docs\/plans\/renderer\.md, which stays in-session[\s\S]*`runlist baton @<draft-file>` with no slug/);
+    const child = ok(['baton', '--subagent', 'renderer-task', draft()]);
+    assert.doesNotMatch(child.stderr, /stays in-session/);
   });
 });

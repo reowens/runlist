@@ -1470,9 +1470,12 @@ Usage (write the resume to a file first, then pick the form that matches):
   Baton prints the prompt name it saved, as its last line too, and, in plan mode, the git commit to run.
 
 No setup needed: in a Git repository with no runlist config, the first saved
-prompt also creates a handoffs-only runlist.config.mjs at the repository root
-(prompts in docs/prompts/ when docs/ exists, else prompts/; planning stays off
-until \`runlist setup\`). Outside a Git repository baton refuses.
+prompt also creates a handoffs-only runlist.config.mjs at the worktree root
+(prompts in docs/prompts/ when docs/ exists, else prompts/; earlier runlist
+prompts in either folder are adopted; planning stays off until \`runlist setup\`).
+Only type: prompt files in that folder are runlist's. Outside a Git working tree
+baton refuses; plans or prompts saved before any config that the new config
+would hide keep the unconfigured behaviour (run \`runlist setup\`).
 
 The resume (10–20 lines): the next concrete decision plus any gotchas, and the
 paths of the plans/docs it concerns — not a recap of the plan body.
@@ -2715,6 +2718,7 @@ async function main() {
 
   if (command === 'index') {
     if (!config.indexPath) {
+      if (config.mode === 'handoffs') die('There is no generated index: planning is off in this project. `runlist setup` turns planning on and adds one (your prompts stay where they are).');
       die('Index generation is not configured. Add an `index` section to your runlist.config.mjs.');
     }
     const print = args.includes('--print');

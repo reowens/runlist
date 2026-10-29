@@ -1328,6 +1328,16 @@ export function createFileExclusive(filePath, content, options) {
         options.testHooks?.afterPublicationBeforePathOpen?.('create-hardlink', filePath);
       } catch (err) {
         if (!['ENOTSUP', 'EOPNOTSUPP', 'EPERM', 'EXDEV', 'EMLINK'].includes(err?.code)) throw err;
+        // A file that is read as code (a config every command imports) must
+        // never be seen holding reservation data, not even after a crash
+        // between the reservation and the rename, so such a caller refuses
+        // instead of falling back.
+        if (options.requireAtomicPublish) {
+          const refusal = new Error(`This filesystem cannot create ${path.resolve(filePath)} atomically (hard links unsupported: ${err.code}).`);
+          refusal.code = 'ERUNLIST_ATOMIC_PUBLISH_UNSUPPORTED';
+          refusal.cause = err;
+          throw refusal;
+        }
         // Portable fallback: reserve with O_EXCL, then replace only our own
         // reservation. This may expose the reservation briefly, but can never
         // overwrite a competing creator's file.

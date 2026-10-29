@@ -140,9 +140,12 @@ export function buildAgentContext(index, config, options = {}) {
     .sort(comparePromptDocs);
 
   const vocabulary = {};
+  // A handoffs-only project manages prompts alone; plan and doc statuses would
+  // only teach an agent verbs that refuse there.
+  const knownTypes = config.planning === false ? metadata.typeOrder.filter(type => type === 'prompt') : metadata.typeOrder;
   const vocabularyTypes = options.types?.length
-    ? metadata.typeOrder.filter(type => options.types.includes(type))
-    : metadata.typeOrder;
+    ? knownTypes.filter(type => options.types.includes(type))
+    : knownTypes;
   for (const type of vocabularyTypes) {
     vocabulary[type] = boundedCollection(
       (metadata.byType[type] ?? []).map(item => ({

@@ -372,15 +372,19 @@ export async function runInit(cwd, config, opts = {}) {
   } else {
     const body = scan.docCount > 0
       ? generateDetectedConfig(scan, selectedRoot, promptTracking)
-      : STARTER_CONFIG.replace("root = 'docs'", `root = ${opts.docsRoot === undefined ? "'docs'" : JSON.stringify(selectedRoot)}`)
-        .replace("path: 'docs/docs.md'", `path: ${opts.docsRoot === undefined ? "'docs/docs.md'" : JSON.stringify(path.posix.join(selectedRoot, 'docs.md'))}`)
-        .replace("promptTracking = 'untracked'", `promptTracking = '${promptTracking}'`);
+      // Replacement callbacks: a `$&` or `$'` in a chosen folder name is text, not a pattern.
+      : STARTER_CONFIG.replace("root = 'docs'", () => `root = ${opts.docsRoot === undefined ? "'docs'" : JSON.stringify(selectedRoot)}`)
+        .replace("path: 'docs/docs.md'", () => `path: ${opts.docsRoot === undefined ? "'docs/docs.md'" : JSON.stringify(path.posix.join(selectedRoot, 'docs.md'))}`)
+        .replace("promptTracking = 'untracked'", () => `promptTracking = '${promptTracking}'`);
     if (!dryRun) writeFileSync(configPath, body, 'utf8');
     const detail = scan.docCount > 0 ? ` (detected ${scan.docCount} docs)` : '';
     process.stdout.write(`  ${dryTag}${green('create')}  runlist.config.mjs${detail}\n`);
   }
 
-  for (const dir of docsRoots) {
+  // A root that is also a type folder (a handoffs project's prompts/ kept as a
+  // second root) is listed once, below, with its document counts.
+  const typePaths = new Set(typeDirs.values());
+  for (const dir of docsRoots.filter(root => !typePaths.has(root))) {
     const exists = existsSync(dir);
     if (!exists && !dryRun) mkdirSync(dir, { recursive: true });
     process.stdout.write(`  ${dryTag}${exists ? dim('exists') : green('create')}  ${label(dir)}/\n`);

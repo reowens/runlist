@@ -53,6 +53,13 @@ Planning is optional: when you want plans, docs and an index, run `runlist
 setup` in the project (see the [beginner setup guide](GETTING_STARTED.md)). It
 previews first, and your saved handoffs stay where they are.
 
+Outside a Git repository the first handoff refuses, since there is no project
+folder to put its config in (run `git init`, or `runlist setup` to configure
+the folder). It also refuses in a home directory that is itself a repository.
+A project that already has a runlist config works outside Git as before. In a
+handoffs-only project runlist manages only the prompts it saved in that
+folder: any other Markdown in `prompts/` or `docs/prompts/` is left alone.
+
 If a session hook says it found neither `runlist` nor `dotmd` on its PATH, either
 runlist is not installed yet or the app is searching a different PATH than your
 terminal. In a terminal, compare `command -v runlist` and `echo $PATH` with the

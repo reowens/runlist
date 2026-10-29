@@ -438,7 +438,7 @@ const BATON_TAIL = 'Baton prints the prompt name it saved as its last line; tell
 // has no plans, so the form is always a name the session picks itself.
 export function buildHandoffsOnlyContext(config, { firstHandoff = false } = {}) {
   const command = 'Save it with `runlist baton <slug> @<file>`, choosing a short slug that names the work (it saves resume-<slug>).';
-  const first = firstHandoff ? ' This is the first handoff here, so baton also creates runlist.config.mjs and a prompts folder for handoffs.' : '';
+  const first = firstHandoff ? ' There is no runlist config here yet: baton also sets one up for handoffs (runlist.config.mjs and a prompts folder) unless it finds runlist documents saved before setup, and prints one line saying which; relay that line.' : '';
   const definition = repoBatonDefinition(config);
   if (definition) return `[runlist] Baton: ${command}${first} Where the definition below names a command, use this form. ${BATON_TAIL}\nThis repo defines baton (templates.prompt.baton in its runlist config):\n${definition}`;
   return `[runlist] Baton: ${RESUME_DRAFT} ${command}${first} ${BATON_TAIL}`;
@@ -486,7 +486,12 @@ export async function runPromptSubmitHud(config, { readStdin, cwd = process.cwd(
     if (raw && raw.trim()) prompt = JSON.parse(raw).prompt ?? '';
   } catch { return; }
   if (!configured) {
-    if (isExplicitSaveAsk(prompt)) process.stdout.write(buildHandoffsOnlyContext(config, { firstHandoff: wouldCreateHandoffsConfig(cwd, config) }) + '\n');
+    if (!isExplicitSaveAsk(prompt)) return;
+    // Plans claimed before any config exist only where someone planned without
+    // setup; the claim records are the cheap way to know, as in a configured repo.
+    let owns = false;
+    try { owns = listOwnedPlans(config).length > 0; } catch { /* no claims to read */ }
+    process.stdout.write((owns ? buildHandoffContext(config) : buildHandoffsOnlyContext(config, { firstHandoff: wouldCreateHandoffsConfig(cwd, config) })) + '\n');
     return;
   }
   // Saving wins when both intents are explicit: save now, resume later.

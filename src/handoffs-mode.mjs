@@ -1,9 +1,11 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmdirSync, unlinkSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
-import { resolveConfig } from './config.mjs';
-import { createFileExclusive, MutationConflictError } from './atomic-mutation.mjs';
+import { locateConfig, resolveConfig } from './config.mjs';
+import { createFileExclusive, MutationConflictError, withPathLocks } from './atomic-mutation.mjs';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
+import { collectDocFiles } from './index.mjs';
 import { authorizeRepoGeneratedPath } from './managed-path.mjs';
 import { CONFIG_FILENAMES } from './naming.mjs';
 import { die } from './util.mjs';
@@ -13,14 +15,30 @@ import { die } from './util.mjs';
 // in a repository with no config creates the smallest config that makes every
 // existing verb work — a root that IS the prompt folder (the scan never sees the
 // project's own docs, no generated index, no plan vocabulary to nag about) and
-// `mode: 'handoffs'` so wording and plan verbs know planning is off.
+// `mode: 'handoffs'` so wording and plan verbs know planning is off. Inside that
+// folder runlist manages only `type: prompt` files (src/handoffs-scope.mjs).
 // `runlist setup` later rewrites those two lines to turn planning on.
+//
+// Creating the config is split in two so a refused save leaves nothing behind:
+// `planHandoffsConfig` decides everything and writes nothing (the caller runs
+// its own checks against the proposed layout, and dry-run stops there), then
+// `publishHandoffsConfig` writes the folder and the config.
 
 export const HANDOFFS_CONFIG_FILE = 'runlist.config.mjs';
 export const PLANNING_OFF = 'Planning is off in this project; `runlist setup` turns it on (your prompts stay where they are).';
 
 export function isHandoffsMode(config) {
   return config?.mode === 'handoffs';
+}
+
+// For wording on paths that locate a config without importing it (`baton
+// --template`): the mode line as written, and no config at all reads as
+// handoffs only, since nothing there plans yet.
+export function readsAsHandoffsOnly(located) {
+  if (located?.mode) return located.mode === 'handoffs';
+  if (!located?.configPath) return true;
+  try { return /^export const mode = (['"])handoffs\1;?[ \t]*$/m.test(readFileSync(located.configPath, 'utf8')); }
+  catch { return false; }
 }
 
 export function handoffsConfigSource(promptRoot, promptTracking = 'untracked') {
@@ -34,7 +52,8 @@ export const promptTracking = '${promptTracking}';
 }
 
 // The Git toplevel, found the same way config discovery finds a repo root (a
-// `.git` entry, file or directory), without spawning git on a hook path.
+// `.git` entry, file or directory), without spawning git on a hook path. Only
+// a hint: `verifyGitWorktree` is what the writing path trusts.
 export function gitToplevel(cwd) {
   for (let dir = path.resolve(cwd); ; dir = path.dirname(dir)) {
     if (existsSync(path.join(dir, '.git'))) return dir;
@@ -55,54 +74,119 @@ export function handoffsAnchor(cwd, { home = os.homedir() } = {}) {
   return { top };
 }
 
+function samePath(a, b) {
+  try { return realpathSync(a) === realpathSync(b); } catch { return false; }
+}
+
+// Git's own answer, which the `.git` walk above can get wrong: a bare
+// repository (or a `.git` directory) nested inside a worktree, a `.git` file
+// that is not a gitlink, and GIT_DIR / GIT_WORK_TREE pointing somewhere else
+// all have a `.git` entry above them that is not the worktree Git would use.
+// Only when Git says the working directory is inside a worktree whose top is
+// that same folder does the config go there.
+export function verifyGitWorktree(cwd, top) {
+  const result = spawnSync('git', ['rev-parse', '--is-inside-work-tree', '--show-toplevel', '--absolute-git-dir'], { cwd, encoding: 'utf8' });
+  const [inside, gitTop, gitDir] = (result.stdout ?? '').split(/\r?\n/);
+  if (result.error) return { refusal: `Could not run git to confirm this is a project (${result.error.message}), so nothing was saved. Run \`runlist setup\` to configure this folder.` };
+  if (result.status !== 0 || inside !== 'true') {
+    const overridden = process.env.GIT_DIR || process.env.GIT_WORK_TREE ? ' GIT_DIR or GIT_WORK_TREE is set and may point elsewhere.' : '';
+    return { refusal: `This is not inside a Git working tree (a bare repository, a \`.git\` folder, or a broken \`.git\` file), so there is no project to save a handoff in.${overridden} Run this from your project's working tree, or run \`runlist setup\` to configure a folder.` };
+  }
+  if (!gitTop || !samePath(gitTop, top) || !gitDir || !samePath(gitDir, lexicalGitDir(top))) {
+    return { refusal: `Git here uses ${gitDir || 'an unknown repository'} with the working tree ${gitTop || 'unknown'}, not the .git in ${top} (GIT_DIR or GIT_WORK_TREE may point elsewhere), so baton will not choose where the config goes. Run it from the project itself without those overrides, or run \`runlist setup\` there.` };
+  }
+  return {};
+}
+
+// The repository the nearest `.git` names: the folder itself, or the target of
+// a gitlink file (worktrees and submodules).
+function lexicalGitDir(top) {
+  const entry = path.join(top, '.git');
+  if (isDirectory(entry)) return entry;
+  try {
+    const target = /^gitdir:\s*(.+?)\s*$/m.exec(readFileSync(entry, 'utf8'))?.[1];
+    return target ? path.resolve(top, target) : null;
+  } catch { return null; }
+}
+
 function isDirectory(file) {
   try { return lstatSync(file).isDirectory(); } catch { return false; }
 }
 
-function markdownIn(directory) {
-  if (!isDirectory(directory)) return [];
-  return readdirSync(directory, { withFileTypes: true })
-    .filter(entry => entry.isFile() && entry.name.endsWith('.md'))
-    .map(entry => path.join(directory, entry.name));
+function inside(directory, file) {
+  const rel = path.relative(directory, file);
+  return Boolean(rel) && !rel.startsWith('..') && !path.isAbsolute(rel);
 }
 
-function isRunlistPrompt(file) {
-  try {
-    const fm = parseSimpleFrontmatter(extractFrontmatter(readFileSync(file, 'utf8')).frontmatter ?? '');
-    return fm.type === 'prompt';
-  } catch { return false; }
+// Everything runlist saved before there was a config, found the way the
+// unconfigured commands find it (the recursive document scan), rooted at every
+// folder the new config could hide. Dependency and Git folders are skipped:
+// nothing there is the project's handoff. Only the explicit save path calls
+// this; hooks never do. A scan that could not read a folder or file proves
+// nothing about absence, so it reports itself incomplete.
+function surveyPreConfig(config, bases) {
+  let complete = true;
+  const files = new Set();
+  for (const base of new Set(bases)) {
+    const scan = { ...config, mode: 'plans', docsRoot: base, docsRoots: [base], indexPath: null,
+      excludeDirs: new Set([...(config.excludeDirs ?? []), '.git', 'node_modules']) };
+    for (const file of collectDocFiles(scan, { onError: () => { complete = false; } })) files.add(file);
+  }
+  const plans = [];
+  const prompts = [];
+  for (const file of files) {
+    let type;
+    try { type = parseSimpleFrontmatter(extractFrontmatter(readFileSync(file, 'utf8')).frontmatter ?? '').type; }
+    catch (err) { if (err.code !== 'ENOENT') complete = false; continue; }
+    if (type === 'plan') plans.push(file);
+    else if (type === 'prompt') prompts.push(file);
+  }
+  return { complete, files: [...files], plans, prompts };
+}
+
+// The unconfigured default folders only (and their archives), one level deep:
+// cheap enough for any working directory, including a home folder.
+function hasDefaultFolderDocuments(config) {
+  const folders = ['plans', 'prompts', 'docs/plans', 'docs/prompts'].flatMap(folder => {
+    const directory = path.join(config.docsRoot, ...folder.split('/'));
+    return [directory, path.join(directory, config.archiveDir)];
+  });
+  return folders.some(directory => {
+    if (!isDirectory(directory)) return false;
+    try {
+      return readdirSync(directory, { withFileTypes: true }).some(entry => entry.isFile() && entry.name.endsWith('.md')
+        && ['plan', 'prompt'].includes(readsType(path.join(directory, entry.name))));
+    } catch { return true; }
+  });
+}
+
+function readsType(file) {
+  try { return parseSimpleFrontmatter(extractFrontmatter(readFileSync(file, 'utf8')).frontmatter ?? '').type; }
+  catch { return null; }
 }
 
 // Prompts live in docs/prompts/ when the project has a docs/ folder, else in
-// prompts/. Two exceptions keep existing files where they are: runlist prompts
-// an older version saved in prompts/ before any config are adopted in place,
-// and a prompts/ folder of someone else's Markdown is left alone.
-export function choosePromptRoot(top) {
+// prompts/. Runlist prompts an older version saved before any config are
+// adopted where they are (all under prompts/ or all under docs/prompts/, at any
+// depth); prompts anywhere else return null, so the caller keeps the
+// unconfigured behaviour rather than hide them. A prompts/ folder holding only
+// someone else's Markdown is left to them: new handoffs go to docs/prompts/.
+export function choosePromptRoot(top, survey) {
   const rootPrompts = path.join(top, 'prompts');
-  const existing = [...markdownIn(rootPrompts), ...markdownIn(path.join(rootPrompts, 'archived'))].slice(0, 500);
-  if (existing.some(isRunlistPrompt)) return 'prompts';
+  const docsPrompts = path.join(top, 'docs', 'prompts');
+  if (survey.prompts.length) {
+    if (survey.prompts.every(file => inside(rootPrompts, file))) return 'prompts';
+    if (survey.prompts.every(file => inside(docsPrompts, file))) return 'docs/prompts';
+    return null;
+  }
   if (isDirectory(path.join(top, 'docs'))) return 'docs/prompts';
-  return existing.length ? 'docs/prompts' : 'prompts';
+  return survey.files.some(file => inside(rootPrompts, file)) ? 'docs/prompts' : 'prompts';
 }
 
-// Runlist plans an older version saved before any config: those belong to a
-// planning user, and `runlist setup` (not a handoffs config) is what carries them.
-function hasPreConfigPlans(config, top = null) {
-  const bases = [...new Set([config.docsRoot, ...(top ? [top] : [])])];
-  const roots = bases.flatMap(base => [path.join(base, 'plans'), path.join(base, config.archiveDir)]);
-  return roots.some(dir => markdownIn(dir).some(file => {
-    try { return parseSimpleFrontmatter(extractFrontmatter(readFileSync(file, 'utf8')).frontmatter ?? '').type === 'plan'; }
-    catch { return false; }
-  }));
-}
-
-// Whether the next prompt saved from `cwd` would create a handoffs config:
-// cheap enough for a hook (stat calls and a few frontmatter reads, no index).
+// Whether the next prompt saved from `cwd` would create a handoffs config, for
+// the hook's wording only: stat calls, no reads. Baton itself decides.
 export function wouldCreateHandoffsConfig(cwd, config) {
-  if (config.configFound) return false;
-  const anchor = handoffsAnchor(cwd);
-  if (anchor.refusal) return false;
-  try { return !hasPreConfigPlans(config, anchor.top); } catch { return false; }
+  return !config.configFound && !handoffsAnchor(cwd).refusal;
 }
 
 function setupLine(created, dryRun) {
@@ -113,51 +197,111 @@ function setupLine(created, dryRun) {
 }
 
 /**
- * Before a prompt is saved in a repository with no config: create the
- * handoffs config at the Git toplevel and return the config to save with.
- * Returns `{ config, created, line }`; `created` is null when nothing was (or,
- * on dry-run, would be) set up. Never overwrites a config: the file is created
- * exclusively, and one that appears concurrently is simply used.
+ * Decide, without writing anything, how a prompt saved from `cwd` in a
+ * repository with no config gets one. Returns null when a config exists;
+ * `{ legacy }` when the save should go ahead unconfigured, as it did before
+ * handoffs mode (runlist documents saved before setup that the new config would
+ * hide, or a scan that could not prove there are none); otherwise the plan,
+ * whose `config` is the proposed one for the caller's checks. Dies when there
+ * is no project to anchor a config to.
  */
-export async function ensureHandoffsConfig(cwd, config, { dryRun = false, home } = {}) {
-  if (config.configFound) return { config, created: null, line: null };
+export async function planHandoffsConfig(cwd, config, { home } = {}) {
+  if (config.configFound) return null;
   const anchor = handoffsAnchor(cwd, { home });
-  if (hasPreConfigPlans(config, anchor.top)) return { config, created: null, line: null, legacy: true };
-  if (anchor.refusal) die(anchor.refusal);
-  const top = anchor.top;
-  const promptRoot = choosePromptRoot(top);
-  const configPath = path.join(top, HANDOFFS_CONFIG_FILE);
-  const created = { config: HANDOFFS_CONFIG_FILE, promptDirectory: promptRoot, created: !dryRun };
-  const exports = { mode: 'handoffs', root: promptRoot, promptTracking: 'untracked' };
-  if (dryRun) {
-    const planned = await resolveConfig(cwd, configPath, { exports });
-    planned.configWarnings = [];
-    return { config: planned, created, line: setupLine(created, true) };
+  if (anchor.refusal) {
+    // No config is created outside Git, so nothing can be hidden; a folder an
+    // older version saved handoffs or plans in keeps working as it did.
+    if (hasDefaultFolderDocuments(config)) return { legacy: true };
+    die(anchor.refusal);
   }
-  const guardConfig = { repoRoot: top };
+  const top = anchor.top;
+  const verified = verifyGitWorktree(cwd, top);
+  if (verified.refusal) die(verified.refusal);
+  const survey = surveyPreConfig(config, [top]);
+  if (!survey.complete || survey.plans.length) return { legacy: true };
+  const promptRoot = choosePromptRoot(top, survey);
+  if (!promptRoot) return { legacy: true };
+  const configPath = path.join(top, HANDOFFS_CONFIG_FILE);
   const promptDir = path.join(top, ...promptRoot.split('/'));
+  const guardConfig = { repoRoot: top };
   authorizeRepoGeneratedPath(promptDir, guardConfig, { kind: 'Handoffs prompt folder' });
   authorizeRepoGeneratedPath(configPath, guardConfig, { kind: 'Handoffs config' });
+  const proposed = await resolveConfig(cwd, configPath, { exports: { mode: 'handoffs', root: promptRoot, promptTracking: 'untracked' } });
+  proposed.configWarnings = [];
+  const created = { config: HANDOFFS_CONFIG_FILE, promptDirectory: promptRoot, created: false };
+  return { top, cwd, promptRoot, promptDir, configPath, source: handoffsConfigSource(promptRoot), config: proposed,
+    created, promptDirExists: isDirectory(promptDir), dryRunLine: setupLine(created, true) };
+}
+
+function parentConfig(top) {
+  const parent = path.dirname(top);
+  return parent === top ? null : locateConfig(parent).configPath;
+}
+
+function manualConfig(plan) {
+  return `Nothing saved: ${plan.top} cannot take a new file atomically (its filesystem does not support hard links), and a half-written config would stop every runlist command. Create ${plan.configPath} yourself with these lines, then rerun:\n${plan.source}`;
+}
+
+/**
+ * Write the planned folder and config. Never overwrites or shadows a config:
+ * one that appeared here or in a parent folder since planning is used instead
+ * (a parent one that appears while ours is published wins, and ours is taken
+ * back). Returns `{ config, created, line }`, `created`/`line` null when
+ * another process's config is the one in effect; the caller then checks that
+ * the save still lands where it was validated.
+ */
+export async function publishHandoffsConfig(plan, { testHooks } = {}) {
+  const resolveNow = async () => ({ config: await resolveConfig(plan.cwd), created: null, line: null });
+  if (locateConfig(plan.cwd).configPath) return resolveNow();
+  const madeDirectories = [];
+  for (let next = plan.promptDir; !existsSync(next); next = path.dirname(next)) madeDirectories.unshift(next);
+  const undoDirectories = () => {
+    for (const directory of [...madeDirectories].reverse()) try { rmdirSync(directory); } catch { /* not empty, or not ours */ }
+  };
   // The folder first: a concurrent reader that finds the config finds its root.
-  mkdirSync(promptDir, { recursive: true });
-  let line = null;
-  if (CONFIG_FILENAMES.every(name => !existsSync(path.join(top, name)))) {
-    try {
-      createFileExclusive(configPath, handoffsConfigSource(promptRoot), { repoRoot: top });
-      line = setupLine(created, false);
-    } catch (err) {
-      if (!(err instanceof MutationConflictError)) throw err;
-    }
+  mkdirSync(plan.promptDir, { recursive: true });
+  let published = false;
+  try {
+    withPathLocks(CONFIG_FILENAMES.map(name => path.join(plan.top, name)), { repoRoot: plan.top }, () => {
+      if (locateConfig(plan.cwd).configPath) return;
+      try {
+        createFileExclusive(plan.configPath, plan.source, { repoRoot: plan.top, locked: true, requireAtomicPublish: true, testHooks });
+        published = true;
+      } catch (err) {
+        if (!(err instanceof MutationConflictError)) throw err;
+      }
+    });
+  } catch (err) {
+    undoDirectories();
+    if (err?.code === 'ERUNLIST_ATOMIC_PUBLISH_UNSUPPORTED') die(manualConfig(plan));
+    throw err;
   }
-  const resolved = await resolveConfig(cwd);
-  if (!resolved.configFound) throw new Error(`Could not create ${configPath}.`);
-  return { config: resolved, created: line ? created : null, line };
+  if (!published) return resolveNow();
+  testHooks?.afterHandoffsConfigPublished?.(plan.configPath);
+  if (parentConfig(plan.top)) {
+    withPathLocks([plan.configPath], { repoRoot: plan.top }, () => {
+      try { if (readFileSync(plan.configPath, 'utf8') === plan.source) unlinkSync(plan.configPath); } catch { /* already gone */ }
+    });
+    undoDirectories();
+    die(`Nothing saved: a runlist config appeared in a parent folder (${parentConfig(plan.top)}) while baton was setting up ${plan.top}, so baton left that one in charge. Rerun the command.`);
+  }
+  const created = { ...plan.created, created: true };
+  return { config: await resolveConfig(plan.cwd), created, line: setupLine(created, false) };
+}
+
+// After publishing, the save must still land where the caller validated it; a
+// config published concurrently by someone else may put prompts elsewhere.
+export function assertPublishedPromptFolder(plan, published, promptFolder) {
+  if (path.resolve(promptFolder) === path.resolve(plan.promptDir)) return;
+  die(`Nothing saved: another runlist config (${published.config.configPath}) took effect while baton was setting up handoffs. Rerun the command.`);
 }
 
 // Setup in a handoffs-only repository: the two exports to rewrite and the index
 // a planning project gets, so the preview resolves the upgraded layout without
 // writing anything first. Prompts keep their folder: a docs/prompts/ root
 // becomes its parent docs root; any other prompt folder stays a second root.
+// Values are written as JavaScript literals and the result is checked to parse
+// and to read back as the intended values before anything is replaced.
 export function planHandoffsUpgrade(config, docsRoot = 'docs') {
   const source = readFileSync(config.configPath, 'utf8');
   const promptRoot = path.relative(config.repoRoot, config.docsRoot).split(path.sep).join('/');
@@ -168,16 +312,62 @@ export function planHandoffsUpgrade(config, docsRoot = 'docs') {
   if ((config.docsRoots ?? []).length !== 1 || !modeLine.test(source) || !rootLine.test(source)) {
     throw new Error(`${config.configPath} is not the handoffs config runlist writes, so setup will not rewrite it. Set \`export const mode = 'plans'\` and a docs root yourself (see runlist.config.example.mjs), then rerun setup.`);
   }
+  const rootSource = jsLiteral(root);
   let content = source
     .replace(/^\/\/ runlist\.config\.mjs — created by the first `runlist baton` here[^\n]*\n\/\/ Planning is off[^\n]*\n\/\/ `runlist setup` turns planning on[^\n]*\n/m,
-      '// runlist.config.mjs — document management configuration (planning turned on by `runlist setup`).\n')
-    .replace(modeLine, "export const mode = 'plans';")
-    .replace(rootLine, `export const root = ${Array.isArray(root) ? `[${root.map(item => `'${item}'`).join(', ')}]` : `'${root}'`};`);
+      () => '// runlist.config.mjs — document management configuration (planning turned on by `runlist setup`).\n')
+    .replace(modeLine, () => "export const mode = 'plans';")
+    .replace(rootLine, () => `export const root = ${rootSource};`);
   const index = { path: indexPath, startMarker: '<!-- GENERATED:runlist:start -->', endMarker: '<!-- GENERATED:runlist:end -->', archivedLimit: 8 };
   const overrides = { mode: 'plans', root };
   if (!/^export const index\b/m.test(content)) {
-    content += `\nexport const index = {\n  path: '${indexPath}',\n  startMarker: '${index.startMarker}',\n  endMarker: '${index.endMarker}',\n  archivedLimit: 8,\n};\n`;
+    content += `\nexport const index = {\n  path: ${jsLiteral(indexPath)},\n  startMarker: '${index.startMarker}',\n  endMarker: '${index.endMarker}',\n  archivedLimit: 8,\n};\n`;
     overrides.index = index;
   }
+  checkUpgradedConfig(content, { root, indexPath: overrides.index ? indexPath : null }, config.configPath);
   return { source, content, overrides, root, promptRoot, indexPath };
+}
+
+// Plain path characters stay in the single quotes the rest of the file uses;
+// anything else (quotes, `$`, backslashes, non-ASCII) goes through JSON, whose
+// string syntax is valid JavaScript.
+export function jsLiteral(value) {
+  if (Array.isArray(value)) return `[${value.map(jsLiteral).join(', ')}]`;
+  return /^[\w./-]*$/.test(value) ? `'${value}'` : JSON.stringify(value);
+}
+
+// The inverse of jsLiteral for exactly what it writes, so the check below reads
+// the values back without executing the config.
+function readLiteral(text) {
+  const trimmed = text.trim();
+  if (trimmed.startsWith('[')) {
+    const items = [];
+    let rest = trimmed.slice(1, -1).trim();
+    while (rest) {
+      const match = /^('[\w./-]*'|"(?:[^"\\]|\\.)*")\s*(?:,\s*)?/.exec(rest);
+      if (!match) throw new Error(`unreadable list ${trimmed}`);
+      items.push(readLiteral(match[1]));
+      rest = rest.slice(match[0].length);
+    }
+    return items;
+  }
+  if (/^'[\w./-]*'$/.test(trimmed)) return trimmed.slice(1, -1);
+  return JSON.parse(trimmed);
+}
+
+export function checkUpgradedConfig(content, expected, configPath) {
+  const fail = detail => { throw new Error(`Setup did not change ${configPath}: the upgraded config would not load as intended (${detail}). Edit it by hand (see runlist.config.example.mjs), then rerun setup.`); };
+  const check = spawnSync(process.execPath, ['--input-type=module', '--check'], { input: content, encoding: 'utf8' });
+  if (check.error || check.status !== 0) fail((check.stderr || check.error?.message || 'syntax error').trim().split('\n').find(line => /Error/.test(line)) ?? 'syntax error');
+  const roots = [...content.matchAll(/^export const root = (.*);$/gm)];
+  if (roots.length !== 1) fail('root is not set exactly once');
+  let root;
+  try { root = readLiteral(roots[0][1]); } catch (err) { fail(err.message); }
+  if (JSON.stringify(root) !== JSON.stringify(expected.root)) fail(`root reads back as ${JSON.stringify(root)}`);
+  if (expected.indexPath) {
+    const index = /^ {2}path: (.*),$/m.exec(content.slice(content.lastIndexOf('export const index')));
+    let indexPath;
+    try { indexPath = index && readLiteral(index[1]); } catch (err) { fail(err.message); }
+    if (indexPath !== expected.indexPath) fail(`index.path reads back as ${JSON.stringify(indexPath)}`);
+  }
 }

@@ -5,7 +5,9 @@ If all you want is session handoffs (save where you are, pick it up next time),
 you need no setup: install the CLI and plugin
 ([three-step quick path](README.md#handoffs-in-3-steps)) and say "baton" in a
 Claude Code session in your project's Git repository. The first handoff writes a
-handoffs-only `runlist.config.mjs`. This guide covers setup, which turns on
+handoffs-only `runlist.config.mjs` (outside Git, or in a home directory that is a
+repository, it refuses; a project with a config works outside Git as before, and
+other Markdown in the prompt folder is left alone). This guide covers setup, which turns on
 planning: plans, docs and a generated index. The CLI works without a GUI. **Runlist desktop** is an optional document app;
 **Claude Desktop** is a separate product that may host your assistant.
 

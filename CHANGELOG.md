@@ -8,15 +8,29 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 - Handoffs need no setup. In a Git repository with no runlist config, the first
   `runlist baton <slug>` (or `runlist new prompt`) also writes a handoffs-only
-  `runlist.config.mjs` at the repository root: `mode: 'handoffs'` and a root
-  that is the prompt folder itself (`docs/prompts/` when `docs/` exists, else
-  `prompts/`; runlist prompts an older version left in `prompts/` are adopted
-  in place). The scan never reaches the project's own docs, there is no index,
-  and `plans`, `health`, hub and module views say planning is off; `new plan`
-  and `new doc` refuse. The config is created exclusively and never overwrites
-  one that appears concurrently. Baton refuses outside a Git repository and in
-  a home directory that is a repository. `--dry-run` writes nothing; baton
-  `--json` gains `handoffsSetup`.
+  `runlist.config.mjs` at the top of the Git worktree: `mode: 'handoffs'` and a
+  root that is the prompt folder itself (`docs/prompts/` when `docs/` exists,
+  else `prompts/`; runlist prompts an older version saved under either folder,
+  at any depth, are adopted in place). Inside that folder runlist manages only
+  `type: prompt` files: other Markdown there is never indexed, checked,
+  searched, repaired or moved. There is no index, and `plans`, `health`, hub
+  and module views say planning is off; `new plan` and `new doc` refuse.
+- The first baton checks with Git that it is inside a working tree whose top
+  holds the nearest `.git`, so a bare repository nested in a worktree, a stray
+  `.git` file, or `GIT_DIR`/`GIT_WORK_TREE` pointing elsewhere refuse instead
+  of configuring the outer folder. It refuses outside Git (unless the folder
+  already holds handoffs or plans saved without a config, which keep working as
+  before) and in a home directory that is a repository; existing configs work
+  outside Git as before. Runlist documents saved before any config that the new
+  config would hide (plans anywhere in the repository, prompts outside the two
+  prompt folders), or a scan that could not read every folder, keep the old
+  unconfigured behaviour and point at `runlist setup` instead. Every check that
+  can refuse the save runs before the config is written, so a refused baton
+  leaves nothing behind and `--dry-run` refuses where apply would; baton
+  `--json` gains `handoffsSetup`. The config is created exclusively, never
+  shadows a parent folder's config that appears meanwhile, and on a filesystem
+  without hard links baton refuses and prints the config to create by hand,
+  rather than risk leaving a half-written config that stops every command.
 - The save hint answers an explicit save request ("baton", "save where we
   are") in an unconfigured Git repository; SessionStart stays silent there.
   Handoffs-mode hints, the subagent primer and baton's missing-name error say
@@ -25,13 +39,22 @@ All notable changes to `runlist` are documented here. Older releases predate thi
   then rewrites the config's `mode` and `root`, adds plans and an index, and
   leaves the saved prompts where they are. The README quick path is now install,
   "baton", `/pickup`; the skills put handoffs first and mark plan sections
-  conditional on planning being on.
+  conditional on planning being on. Their shared save rule says to run
+  `runlist baton @<draft>` with no slug when the session owns an in-session
+  plan, and a planning-repo baton that saves under a slug while owning one
+  says the plan stays claimed. Values written into the upgraded config are
+  JavaScript literals, and the result must parse and read back as intended
+  before it replaces the live config.
 - Newcomer handoffs have a `/pickup` command, distinct save/pickup hints, and a
   session-start introduction until the first saved prompt. Hints recognize
   session/time-qualified save requests and ignore relayed task reports, quoted
   lines, and code blocks without building the document index.
 
 ### Fixed
+
+- `runlist setup --docs-root` with `$&` or `$'` in the folder name wrote the
+  pattern's expansion into a fresh config; the name is now written as given.
+  The setup preview lists a root that is also a prompt or plan folder once.
 
 - `doctor --transactions --apply` can clear a durably complete move after later
   edits, deletions or prompt consumption, with verified transaction-created

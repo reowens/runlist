@@ -59,6 +59,22 @@ parent_prompt: {{parent_prompt}}
   },
 };
 
+// The built-in outlines without plan wording, for a project where planning is
+// off (src/handoffs-mode.mjs). A saved override is the user's text and is used
+// as written.
+const HANDOFFS_ONLY_LINES = [
+  ['<!-- Work to resume and owning plan path + section, or a durable brief if there is no plan. -->', '<!-- Work to resume, with the paths it concerns or a durable brief. -->'],
+  ['<!-- Review linked child handoffs and record completed results in the owning plan. -->', '<!-- Review linked child handoffs and carry their completed results forward. -->'],
+  ['<!-- One sentence: the bounded job and its owning plan or brief. -->', '<!-- One sentence: the bounded job and its brief. -->'],
+  ["<!-- Owned files, shared claims, current authorization, and any required new go. -->", '<!-- Owned files, current authorization, and any required new go. -->'],
+  ["<!-- Do not release or claim the parent's plan. This handoff grants no new authority. -->", '<!-- This handoff grants no new authority. -->'],
+];
+
+export function builtinHandoffTemplate(key, { planning = true } = {}) {
+  const { source } = HANDOFF_TEMPLATES[key];
+  return planning ? source : HANDOFFS_ONLY_LINES.reduce((text, [from, to]) => text.replace(from, () => to), source);
+}
+
 // Explicit links win, including missing/ambiguous parents. Legacy child names
 // may share a parent stem; the longest whole-stem match is the most specific.
 

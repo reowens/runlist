@@ -1,5 +1,6 @@
 import { existsSync, lstatSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { managesFile } from './handoffs-scope.mjs';
 
 // These checks are authorization preflights, not filesystem transactions. A
 // concurrent actor can still replace a checked ancestor before the later write
@@ -115,6 +116,9 @@ export function authorizeManagedSource(input, config, { kind = 'Managed mutation
   }
   if (!statSync(canonicalPath).isFile()) {
     throw new Error(`${kind} is not a file: ${lexicalPath}\nConfigured docs roots: ${rootsMessage(roots)}`);
+  }
+  if (!managesFile(canonicalPath, config)) {
+    throw new Error(`${kind} is not a runlist prompt, and a handoffs-only project manages only its prompts: ${lexicalPath}`);
   }
 
   const lexical = lexicalOwner(lexicalPath, roots);

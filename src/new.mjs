@@ -12,7 +12,7 @@ import { regenIndex } from './lifecycle.mjs';
 import { extractFrontmatter, parseSimpleFrontmatter, normalizeEol } from './frontmatter.mjs';
 import { authorizeManagedDestination } from './managed-path.mjs';
 import { createFileExclusive, mutateFileSet, MutationConflictError } from './atomic-mutation.mjs';
-import { ensureHandoffsConfig, isHandoffsMode, PLANNING_OFF } from './handoffs-mode.mjs';
+import { assertPublishedPromptFolder, isHandoffsMode, planHandoffsConfig, PLANNING_OFF, publishHandoffsConfig } from './handoffs-mode.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
@@ -932,16 +932,36 @@ export async function runNew(argv, config, opts = {}) {
   }
 
   // Zero setup: the first prompt saved in a repository with no config creates
-  // a handoffs-only config (src/handoffs-mode.mjs), after every input check so
-  // a refused command leaves nothing behind.
+  // a handoffs-only config (src/handoffs-mode.mjs), after every check that can
+  // refuse the save has run against the proposed layout, so a refused command
+  // leaves nothing behind and dry-run refuses where apply would.
   let handoffsSetup = null;
+  let handoffsLine = null;
+  const publishHandoffs = async () => {
+    const published = await publishHandoffsConfig(handoffsSetup, { testHooks: opts.testHooks });
+    config = published.config;
+    assertPublishedPromptFolder(handoffsSetup, published, promptDirectory(config));
+    handoffsLine = published.line;
+    if (handoffsLine) process.stdout.write(`${handoffsLine}\n`);
+    handoffsSetup = null;
+  };
   if (typeName === 'prompt' && !config.configFound && !userNameDirIn(name) && !rootName) {
-    handoffsSetup = await ensureHandoffsConfig(process.cwd(), config, { dryRun });
-    config = handoffsSetup.config;
-    if (handoffsSetup.line && !dryRun) process.stdout.write(`${handoffsSetup.line}\n`);
-    if (dryRun && handoffsSetup.created) {
-      process.stdout.write(`${dim(handoffsSetup.line)}\n${dim('[dry-run]')} Would create: ${path.posix.join(handoffsSetup.created.promptDirectory, `${slugify(path.basename(name, '.md'))}.md`)}\n`);
-      return;
+    const setup = await planHandoffsConfig(process.cwd(), config);
+    if (setup && !setup.legacy) {
+      handoffsSetup = setup;
+      config = setup.config;
+      if (dryRun) process.stdout.write(`${dim(setup.dryRunLine)}\n`);
+      if (!setup.promptDirExists) {
+        // A folder that does not exist yet holds nothing to collide with, and
+        // the checks below cannot inspect it; only the name can still refuse.
+        const slug = slugify(path.basename(name, '.md'));
+        if (!slug) die('Name resolves to empty slug: ' + name);
+        if (dryRun) {
+          process.stdout.write(`${dim('[dry-run]')} Would create: ${path.posix.join(setup.promptRoot, `${slug}.md`)}\n`);
+          return;
+        }
+        await publishHandoffs();
+      }
     }
   }
 
@@ -1132,6 +1152,7 @@ export async function runNew(argv, config, opts = {}) {
   }
 
   if (typeName === 'prompt') content = bindPromptParent(content, opts.parentPrompt);
+  if (handoffsSetup) await publishHandoffs();
 
   // Ensure parent dir exists (templates with `dir:` may target a new subdirectory)
   mkdirSync(path.dirname(filePath), { recursive: true });
@@ -1168,7 +1189,7 @@ export async function runNew(argv, config, opts = {}) {
   // Prompt consumption and Git tracking are separate choices. Describe the
   // resolved policy, then flag an actually ignored target for any type.
   if (typeName === 'prompt') {
-    if (!handoffsSetup?.line) process.stdout.write(unconfiguredPromptHint(config));
+    if (!handoffsLine) process.stdout.write(unconfiguredPromptHint(config));
     const tracking = config.promptTracking ?? 'local';
     const policy = tracking === 'tracked' ? 'Prompt commits are allowed.'
       : tracking === 'untracked' ? 'Leave untracked to reduce commit churn; git add -A can still stage it.'

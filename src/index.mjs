@@ -5,6 +5,7 @@ import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { extractFirstHeading, extractSummary, extractStatusSnapshot, extractNextStep, extractChecklistCounts, extractBodyLinks } from './extractors.mjs';
 import { asString, normalizeStringList, normalizeBlockers, mergeUniqueStrings, toRepoPath, warn, die, resolveDocPath, suggestCandidates } from './util.mjs';
 import { findLexicalDocsRoot } from './managed-path.mjs';
+import { managesFile } from './handoffs-scope.mjs';
 import { openParseCache, fileStamp, stampSize } from './parse-cache.mjs';
 import { validateDoc, validatePlanShape, validateDocShape, checkBidirectionalReferences, checkGitStaleness, checkRunlistBackPointers, checkCoordinationHubExecutionMode, checkRoadmapHubExecutionMode, computeDaysSinceUpdate, computeIsStale, computeChecklistCompletionRate, enrichRefErrorSuggestions } from './validate.mjs';
 import { checkIndex } from './index-file.mjs';
@@ -233,7 +234,9 @@ export function collectDocFiles(config, { onError = null } = {}) {
   for (const root of roots) {
     walkMarkdownFiles(root, files, config.excludeDirs, skipPaths, seen, onError);
   }
-  return files.sort((a, b) => a.localeCompare(b));
+  // Every scanning verb collects here, so a handoffs-only project's other
+  // Markdown (src/handoffs-scope.mjs) drops out of all of them at once.
+  return files.filter(file => managesFile(file, config)).sort((a, b) => a.localeCompare(b));
 }
 
 // Shared resolver for CLI file arguments — the single path every file-taking
@@ -248,10 +251,10 @@ export function collectDocFiles(config, { onError = null } = {}) {
 export function resolveDocArg(input, config, { dieOnMiss = true } = {}) {
   if (!input) return null;
   const direct = resolveDocPath(input, config);
-  if (direct) return direct;
+  if (direct && managesFile(direct, config)) return direct;
   if (!input.endsWith('.md')) {
     const withExt = resolveDocPath(input + '.md', config);
-    if (withExt) return withExt;
+    if (withExt && managesFile(withExt, config)) return withExt;
   }
 
   const slug = input.replace(/\.md$/, '');

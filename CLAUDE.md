@@ -24,6 +24,29 @@ config in place (rewrites `mode`/`root`, adds the index) and keeps prompts put.
 Plan-mode baton, and repositories holding plans saved before any config, keep
 the old pre-setup behaviour so setup's carry-over still owns them.
 
+The rules that keep it safe, and where each one lives:
+- **The prompt folder is often the user's.** In handoffs mode runlist manages
+  only `type: prompt` files there. The filter (`src/handoffs-scope.mjs`) sits
+  in `collectDocFiles`, `resolveDocArg` and `authorizeManagedSource`, so every
+  scanning verb, file argument and mutation inherits it; don't patch commands
+  one by one.
+- **Git decides where the config goes.** The `.git` walk is only a hint; the
+  writing path asks `git rev-parse` and refuses unless its worktree top and git
+  dir match the nearest `.git` entry. Hooks keep to stat calls.
+- **Absence needs a complete scan.** Whether pre-config plans or prompts would
+  be hidden comes from the recursive document scan of the Git top (skipping
+  `.git` and `node_modules`), on the save path only. An unreadable folder means
+  "unknown", which keeps the unconfigured behaviour.
+- **Plan, check, then publish.** `planHandoffsConfig` writes nothing; the
+  caller runs every refusing check against the proposed config; only then
+  `publishHandoffsConfig` writes. A config every command imports must never
+  hold reservation data, so it passes `requireAtomicPublish` to
+  `createFileExclusive` and refuses on filesystems without hard links.
+- **Generated JavaScript is checked before it replaces the config.** Setup's
+  upgrade writes values with `jsLiteral`, uses replacement callbacks (a `$&` in
+  a folder name is text), and `checkUpgradedConfig` parses the result and
+  reads the values back.
+
 ## Document Types
 
 **Project onboarding.** Before a project has a config, use the plugin's
