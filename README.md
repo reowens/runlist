@@ -1658,3 +1658,11 @@ and the explicit compatibility and desktop qualification workflows.
 ## License
 
 MIT
+
+## P3 checkout session protection
+
+This P3 checkout has a local Claude shell write boundary in `.claude/settings.local.json`; it is host configuration, not a package default. Start a new session through `~/.hetchy-developer/bin/claude` from this repo to acquire the project pin and matching temp roots. Existing sessions do not acquire the launch-time environment retroactively.
+
+The shell can write this source root and the reviewed shared tool-state/cache/temp paths, with `scratchpad/` mounted read-only. Sibling source roots, stray home paths and unapproved caches are denied. Native file tools, hooks, MCP servers and service-mediated writes remain outside this shell boundary. Platform's repo hooks and worktree callbacks were not copied here; personal `--worktree`/`-w` sessions and linked-tree launches are not qualified and are refused by the managed launcher/selector.
+
+[Review and source/configuration diffs](../../platform/docs/plans/assets/p3-personal-protection-diff-20261029/rollout/../README.md), [installed real-project acceptance](../../platform/docs/plans/assets/p3-personal-protection-diff-20261029/rollout/README.md) and [machine-readable results](../../platform/docs/plans/assets/p3-personal-protection-diff-20261029/rollout/acceptance.json) let this repo review its profile. The single bounded batch passed 80 checks across the 4 installed profiles using real Git identity and the shell-prefix wrapper; this repo passed 20 checks, and all owned probe files were removed. Full native Personal/ROBOT startup, MCP/LSP connectivity and actual dependency/build workflows remain unqualified for this pilot.
