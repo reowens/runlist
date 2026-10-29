@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
+import { transactionResolutionAdvice } from './atomic-mutation.mjs';
 import { which } from './util.mjs';
 import { persistentCliOnPath, PERSISTENT_CLI_WARNING } from './installation.mjs';
 
@@ -216,8 +217,8 @@ export async function runSetup(argv, config, options = {}) {
     report.actions.push({ id: 'init', description: 'Initialize missing scaffolding; preserve configured roots, JavaScript and hooks', path: configPath || path.join(cwd, 'runlist.config.mjs'), preview: prepared.output, ...plan.layout });
     for (const move of carryMoves) report.actions.push({ id: `carry:${move.from}`, description: `move ${move.from} → ${move.to}`, from: move.from, to: move.to, type: move.type });
     report.outstanding.push(...plan.carry.outstanding);
-    report.outstanding.push(...plan.transactions.map(item => ({ id: `transaction:${item.id}`, description: `Outstanding transaction ${item.id}; setup must finish pre-config recovery before writing config. Run runlist doctor --transactions --apply if recovery is refused`, path: item.manifestPath })));
-    if (plan.carry.remaining.length) report.notes.push({ description: 'notice: files remain outside the configured roots; include their folders in the root export to keep using them without moving files', paths: plan.carry.remaining.map(file => path.relative(cwd, file).split(path.sep).join('/')) });
+    report.outstanding.push(...plan.transactions.map(item => ({ id: `transaction:${item.id}`, description: `Outstanding transaction ${item.id}; setup must finish pre-config recovery before writing config. ${transactionResolutionAdvice(item)}`, path: item.manifestPath })));
+    if (plan.carry.remaining.length) report.notes.push({ description: `notice: files remain outside the configured roots${!choices.carryPrompts ? '; carry-over was disabled. Before applying, rerun runlist setup without --no-carry-prompts to carry them. After a config is written, rerunning setup does not carry these files; include their folders in the config root export to keep using them without moving files' : '; include their folders in the root export to keep using them without moving files'}`, paths: plan.carry.remaining.map(file => path.relative(cwd, file).split(path.sep).join('/')) });
     if (plan.layout.sample) report.notes.push({ description: 'An existing example sample is preserved unchanged; archive or edit it explicitly when ready', path: plan.layout.sample });
     if (plan.policy) report.actions.push({ id: 'policy', description: `Set promptTracking to ${choices.promptTracking} using the narrow config setter`, path: configPath });
     else report.actions.push({ id: 'policy-info', description: `Prompt tracking: ${choices.promptTracking}${existing ? (config.promptTrackingSource === 'legacy-default' ? ' (legacy compatibility default preserved; choose --prompt-tracking explicitly)' : ' (preserve existing choice)') : ' (new project default/selection)'}` });
@@ -289,6 +290,9 @@ export async function runSetup(argv, config, options = {}) {
         const { preview, ...completedAction } = action;
         report.completed.push({ ...completedAction, output: result.output });
       } catch (error) {
+        // Recovery may change the verdict (active → complete/failed-manual).
+        // Its failure carries the fresh doctor's advice; discard stale preview advice.
+        if (step === 'recover') report.outstanding = report.outstanding.filter(item => !item.id?.startsWith('transaction:'));
         report.failed.push({ description: `${adoption ? 'Adoption' : step} failed: ${error.message}`, ...(adoption ? { path: step } : {}), output: error.output || '' });
         report.outstanding.push({ description: 'The failed stage may have partial effects; earlier completed stages remain applied. Setup is not a multi-stage transaction.' });
         for (const remaining of steps.slice(stepIndex + 1)) {

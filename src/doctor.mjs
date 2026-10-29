@@ -103,9 +103,9 @@ function runDoctorTransactions(argv, config, opts = {}) {
     process.stdout.write(`\n${resolvable.length} resolvable — the canonical files already agree on one generation.\n`);
     process.stdout.write(dim('Run `runlist doctor --transactions --apply` to clear them (no document content is touched).\n'));
   }
-  const stuck = report.filter(item => !item.resolvable && !clearedIds.has(item.id) && (item.status === 'failed-manual' || !item.readable));
+  const stuck = report.filter(item => !item.resolvable && !clearedIds.has(item.id));
   if (stuck.length) {
-    process.stdout.write(yellow(`\n${stuck.length} need manual review — generations disagree, so clearing them could lose work.\n`));
+    process.stdout.write(yellow(`\n${stuck.length} need manual review — generations or retained artifacts could not be verified.\n`));
     process.stdout.write(dim('Inspect the participant paths above against the artifacts in each transaction directory.\n'));
   }
 }

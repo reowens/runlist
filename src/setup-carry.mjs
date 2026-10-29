@@ -34,7 +34,7 @@ function directories(config, type) {
 // adoption candidates. Status vocabularies come from the resolved defaults.
 export function planSetupCarry(before, after, enabled = true) {
   const result = { moves: [], outstanding: [], remaining: [] };
-  if (before.configFound || !enabled) return result;
+  if (before.configFound) return result;
   const candidates = new Set();
   const seen = new Set();
   const targets = new Set();
@@ -60,9 +60,10 @@ export function planSetupCarry(before, after, enabled = true) {
         authorizeManagedSource(source, before, { kind: 'Setup carry-over source' });
         authorizeRepoGeneratedPath(target, after, { kind: 'Setup carry-over destination' });
         const from = toRepoPath(source, before.repoRoot), to = toRepoPath(target, before.repoRoot);
-        const targetKey = target.toLowerCase();
+        if (!enabled) continue;
+        const targetKey = target.normalize('NFC').toLowerCase().normalize('NFC');
         if (existsSync(target) || targets.has(targetKey)) {
-          result.outstanding.push({ description: `Carry-over collision: ${from} → ${to}; destination exists, source left in place`, path: source });
+          result.outstanding.push({ description: `Carry-over collision: ${from} → ${to}; ${targets.has(targetKey) ? 'collides with another file being carried' : 'destination exists'}, source left in place`, path: source });
           continue;
         }
         try { if (type === 'plan') prepareOwnershipMigration(from, target, before, { sessionId: availableSessionId() }); }
@@ -79,11 +80,25 @@ export function planSetupCarry(before, after, enabled = true) {
   return result;
 }
 
+// Recovery can empty a pre-setup folder before this run plans any moves.
+// These are only runlist's default source locations; rmdir never removes content.
+export function cleanupSetupSourceDirectories(config) {
+  if (config.configFound) return;
+  const sources = [...new Set(['prompt', 'plan'].flatMap(type => directories(config, type)))];
+  for (const directory of sources.sort((a, b) => b.length - a.length)) {
+    if (directory === config.repoRoot) continue;
+    authorizeRepoGeneratedPath(directory, config, { kind: 'Setup source folder' });
+    try { rmdirSync(directory); }
+    catch (error) { if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes(error.code)) throw error; }
+  }
+}
+
 // Carry before publishing the first config, so a retained move transaction is
 // recoverable under the same (unconfigured) roots that authorized its source.
 // Each move is transactional; setup itself remains a sequence of stages.
 export function applySetupCarry(moves, config, { testHooks } = {}) {
   const completed = [];
+  const createdDirectories = [];
   const expectedSources = new Map(moves.map(move => [move.source, move.expectedSource]));
   try {
     const checkConfig = () => {
@@ -111,11 +126,17 @@ export function applySetupCarry(moves, config, { testHooks } = {}) {
       });
       const tracked = isTracked(move.source, config.repoRoot);
       // Scaffold directories belong to setup, never to the move transaction.
-      // Recovery retains transaction-owned nonempty directories and their
-      // manifest; that manifest's old roots stop being valid after setup.
+      // Keep failed carry cleanup separate from transaction recovery; recovery
+      // evidence must be resolved under the old roots before setup writes config.
       for (const directory of [path.dirname(move.target), ...(ownership ? [path.dirname(ownership.newRecordPath)] : [])]) {
         authorizeRepoGeneratedPath(directory, config, { kind: 'Setup carry-over folder' });
-        mkdirSync(directory, { recursive: true });
+        const missing = [];
+        for (let next = directory; !existsSync(next); next = path.dirname(next)) missing.push(next);
+        for (const next of missing.reverse()) {
+          try { mkdirSync(next); }
+          catch (error) { if (error.code === 'EEXIST') continue; throw error; }
+          createdDirectories.push({ path: next, identity: lstatSync(next) });
+        }
       }
       checkConfig();
       moveFileAtomic(move.source, move.target, references.movedContent, {
@@ -132,15 +153,18 @@ export function applySetupCarry(moves, config, { testHooks } = {}) {
       });
       for (const update of references.updates) if (expectedSources.has(update.path)) expectedSources.set(update.path, update.content);
       completed.push(move);
-      // Remove only now-empty source directories, never keepfiles or user
-      // content. rmdir refuses a concurrent arrival; cleanup is best effort.
-      for (const directory of [path.dirname(move.source), path.dirname(path.dirname(move.source))]) {
-        const rel = path.relative(config.repoRoot, directory);
-        if (!rel || rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) continue;
-        try { rmdirSync(directory); }
-        catch (error) { if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes(error.code)) throw error; }
-      }
+      cleanupSetupSourceDirectories(config);
     }
     return { completed };
-  } catch (error) { return { completed, error: error.message }; }
+  } catch (error) {
+    if (!locateConfig(config.configDir).configPath) {
+      for (const entry of createdDirectories.reverse()) {
+        try {
+          const stat = lstatSync(entry.path);
+          if (stat.isDirectory() && stat.dev === entry.identity.dev && stat.ino === entry.identity.ino) rmdirSync(entry.path);
+        } catch { /* Keep nonempty/replaced directories and preserve the original failure. */ }
+      }
+    }
+    return { completed, error: error.message };
+  }
 }

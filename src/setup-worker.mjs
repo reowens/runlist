@@ -12,8 +12,8 @@ import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { authorizeManagedSource, authorizeRepoGeneratedPath } from './managed-path.mjs';
 import { readTemplateStore } from './template-store.mjs';
 import { regenIndex, renderLifecycleMutation } from './lifecycle.mjs';
-import { snapshotFile, replaceSnapshot, inspectTransactions, recoverAbandonedTransactions } from './atomic-mutation.mjs';
-import { planSetupCarry, applySetupCarry } from './setup-carry.mjs';
+import { snapshotFile, replaceSnapshot, inspectTransactions, recoverAbandonedTransactions, transactionResolutionAdvice } from './atomic-mutation.mjs';
+import { planSetupCarry, applySetupCarry, cleanupSetupSourceDirectories } from './setup-carry.mjs';
 
 function regularOrMissing(file, directory = false) {
   let stat;
@@ -138,13 +138,15 @@ export async function setupWorker(request) {
   const before = config;
   if (operation === 'carry') return applySetupCarry(request.moves, before);
   if (operation === 'recover') {
-    try {
-      recoverAbandonedTransactions(before.repoRoot, { config: before });
-      const remaining = inspectTransactions(before.repoRoot, { config: before });
-      if (remaining.length) throw new Error(`Outstanding transactions: ${remaining.map(item => item.id).join(', ')}`);
-    } catch (error) {
-      throw new Error(`Pre-config transaction recovery failed: ${error.message}. Run runlist doctor --transactions --apply before rerunning setup; no config was written.`);
+    let recoveryError;
+    try { recoverAbandonedTransactions(before.repoRoot, { config: before }); }
+    catch (error) { recoveryError = error; }
+    const remaining = inspectTransactions(before.repoRoot, { config: before });
+    if (remaining.length || recoveryError) {
+      const advice = remaining.map(item => `${item.id}: ${transactionResolutionAdvice(item)}`).join('\n');
+      throw new Error(`Pre-config transaction recovery failed: ${advice || recoveryError.message}. No config was written.`);
     }
+    cleanupSetupSourceDirectories(before);
     return null;
   }
   const existing = Boolean(config.configPath && existsSync(config.configPath));

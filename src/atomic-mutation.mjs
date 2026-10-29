@@ -588,6 +588,62 @@ export function recoverAbandonedTransactions(repoRoot, options = {}) {
   return recovered;
 }
 
+// Keep inspection and the locked doctor apply on the same conservative verdict.
+function transactionResolution(manifest, directory) {
+  const present = file => {
+    try { lstatSync(file); return true; }
+    catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+  };
+  const participants = manifest.participants.map(item => ({ path: item.path, state: participantState(item) }));
+  const states = new Set(participants.map(item => item.state));
+  const uniform = states.size === 1 && (states.has('old') || states.has('new'));
+  const retainedGitPaths = [...new Set([
+    ...manifest.gitIndex.retainedPaths,
+    manifest.gitIndex.prepared?.tempPath,
+  ].filter(item => item && present(item)))];
+  const retainedDirectories = manifest.createdDirectories.filter(item => present(item.path)).map(item => item.path);
+  const knownArtifacts = new Set([
+    'manifest.json', ...manifest.participants.flatMap(item => [item.old.artifact, item.new.artifact]),
+    ...manifest.recoveryArtifacts,
+  ].filter(Boolean).map(item => path.basename(item)));
+  const otherArtifacts = readdirSync(directory).some(name => {
+    const artifact = path.join(directory, name);
+    return !knownArtifacts.has(name) || !lstatSync(artifact).isFile();
+  });
+  const newGeneration = manifest.participants.every(item => {
+    try {
+      if (!item.new.exists) { lstatSync(item.path); return false; }
+      const stat = lstatSync(item.path);
+      return stat.isFile() && !stat.isSymbolicLink() && (stat.mode & 0o7777) === item.new.mode
+        && contentHash(readFileSync(item.path)) === item.new.hash;
+    } catch (error) { return !item.new.exists && error.code === 'ENOENT'; }
+  });
+  const contentDirectories = retainedDirectories.length > 0 && manifest.status === 'complete' && newGeneration
+    && manifest.createdDirectories.filter(item => retainedDirectories.includes(item.path)).every(item => {
+      try {
+        const stat = lstatSync(item.path);
+        if (!stat.isDirectory() || stat.isSymbolicLink() || !item.identity
+          || stat.dev !== item.identity.dev || stat.ino !== item.identity.ino) return false;
+        const entries = readdirSync(item.path);
+        if (entries.includes(path.basename(item.marker))) {
+          if (!lstatSync(item.marker).isFile() || readFileSync(item.marker, 'utf8') !== `${item.token}\n`) return false;
+        } else if (!['removing', 'removed'].includes(item.markerState)) return false;
+        return entries.some(name => path.join(item.path, name) !== item.marker);
+      } catch { return false; }
+    });
+  const resolvable = (uniform || contentDirectories) && retainedGitPaths.length === 0 && !otherArtifacts
+    && (retainedDirectories.length === 0 || contentDirectories);
+  return { participants, generation: contentDirectories ? 'new' : uniform ? [...states][0] : null, retainedGitPaths, retainedDirectories, resolvable,
+    reason: resolvable ? null : !uniform ? 'Canonical files do not agree on one generation' : 'Retained artifacts need manual review' };
+}
+
+// Shared by setup's preview and refusal, using the doctor's verdict and reason.
+export function transactionResolutionAdvice(item) {
+  if (item.resolvable) return 'Run runlist doctor --transactions --apply, then rerun setup';
+  const retained = item.retainedGitPaths?.length ? ` Retained Git artifacts: ${item.retainedGitPaths.join(', ')}.` : '';
+  return `${item.reason ?? 'Recovery has not established a complete generation'}.${retained} Manually inspect the canonical files and recovery artifacts in ${item.directory}; restore one complete generation, preserve any unverified artifacts, then remove that transaction directory and rerun setup`;
+}
+
 // Report on every transaction manifest without mutating anything, so a wedged
 // repo can be diagnosed. `recoverAbandonedTransactions` deliberately refuses to
 // guess and throws; that left no way to even SEE the state short of reading
@@ -600,7 +656,7 @@ export function inspectTransactions(repoRoot, options = {}) {
   const report = [];
   for (const entry of readdirSync(root, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
     if (!entry.isDirectory() || entry.isSymbolicLink()) {
-      report.push({ id: entry.name, readable: false, reason: 'Unsafe entry in transaction root', resolvable: false });
+      report.push({ id: entry.name, directory: path.join(root, entry.name), readable: false, reason: 'Unsafe entry in transaction root', resolvable: false });
       continue;
     }
     const directory = path.join(root, entry.name);
@@ -611,20 +667,15 @@ export function inspectTransactions(repoRoot, options = {}) {
       report.push({ id: entry.name, directory, manifestPath, readable: false, reason: err?.code === 'ENOENT' ? 'No manifest' : `Unreadable manifest: ${err.message}`, resolvable: false });
       continue;
     }
-    try { validateManifest(manifest, manifestPath, directory, repoRoot, options); }
+    let resolution;
+    try {
+      validateManifest(manifest, manifestPath, directory, repoRoot, options);
+      resolution = transactionResolution(manifest, directory);
+    }
     catch (err) {
       report.push({ id: entry.name, directory, manifestPath, readable: false, reason: err.message, resolvable: false });
       continue;
     }
-    const participants = manifest.participants.map(item => ({ path: item.path, state: participantState(item) }));
-    const states = new Set(participants.map(item => item.state));
-    const retainedGitPaths = (manifest.gitIndex?.retainedPaths ?? []).filter(item => existsSync(item));
-    const retainedDirectories = manifest.createdDirectories.filter(item => existsSync(item.path)).map(item => item.path);
-    // Safe to clear only when the filesystem already shows one uniform
-    // generation: that IS the atomicity the transaction existed to guarantee,
-    // so the manifest is bookkeeping for work that is fully done or fully
-    // undone. Anything mixed, unknown, or with retained artifacts stays put.
-    const uniform = states.size === 1 && (states.has('old') || states.has('new'));
     report.push({
       id: manifest.id,
       directory,
@@ -636,14 +687,7 @@ export function inspectTransactions(repoRoot, options = {}) {
       operation: manifest.operation,
       createdAt: manifest.createdAt,
       ownerLiveness: processOwnerLiveness(manifest.owner),
-      participants,
-      generation: uniform ? [...states][0] : null,
-      retainedGitPaths,
-      retainedDirectories,
-      resolvable: uniform && retainedGitPaths.length === 0 && retainedDirectories.length === 0,
-      reason: uniform
-        ? (retainedGitPaths.length || retainedDirectories.length ? 'Retained artifacts need manual review' : null)
-        : 'Canonical files do not agree on one generation',
+      ...resolution,
     });
   }
   return report;
@@ -656,14 +700,34 @@ export function resolveTransactions(repoRoot, options = {}) {
   const cleared = [];
   for (const item of inspectTransactions(repoRoot, options)) {
     if (!item.resolvable) continue;
-    let manifest;
-    try { manifest = JSON.parse(readFileSync(item.manifestPath, 'utf8')); } catch { continue; }
+    let manifest, manifestContent;
+    try {
+      manifestContent = readFileSync(item.manifestPath, 'utf8');
+      manifest = JSON.parse(manifestContent);
+    } catch { continue; }
     withPathLocks(manifest.participants.map(entry => entry.path), { repoRoot, ...options }, () => {
       // Re-check under the lock: nothing may have moved since inspection.
-      const states = new Set(manifest.participants.map(participantState));
-      if (states.size !== 1 || !(states.has('old') || states.has('new'))) return;
+      try {
+        if (readFileSync(item.manifestPath, 'utf8') !== manifestContent) return;
+        validateManifest(manifest, item.manifestPath, item.directory, repoRoot, options);
+      } catch { return; }
+      const verdict = transactionResolution(manifest, item.directory);
+      if (!verdict.resolvable) return;
+      // A rollback must prove what it did or didn't publish. Here the complete
+      // transaction proves every participant reached its recorded new generation:
+      // nothing remains to roll back. Nonempty created folders are now user-visible
+      // content. Keep them and remove only their verified transaction markers.
+      for (const entry of manifest.createdDirectories) {
+        if (!verdict.retainedDirectories.includes(entry.path) || !existsSync(entry.marker)) continue;
+        entry.markerState = 'removing';
+        durableJson(item.manifestPath, manifest, options);
+        unlinkSync(entry.marker);
+        fsyncDirectory(entry.path, options, 'transaction-directory-marker-delete');
+        entry.markerState = 'removed';
+        durableJson(item.manifestPath, manifest, options);
+      }
       cleanupTransactionDirectory(item.directory, manifest, options);
-      cleared.push({ id: item.id, generation: [...states][0] });
+      cleared.push({ id: item.id, generation: verdict.generation });
     });
   }
   return cleared;

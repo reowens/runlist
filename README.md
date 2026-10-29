@@ -1540,7 +1540,7 @@ duplicating the complete command catalog.
 
 ## Configuration
 
-Run `runlist init` to create `runlist.config.mjs` (a legacy `dotmd.config.mjs` is still read). A minimal typed configuration:
+Run `runlist setup` to create `runlist.config.mjs` (a legacy `dotmd.config.mjs` is still read). A minimal typed configuration:
 
 `runlist config show|get|set` currently supports only `promptTracking`. It reports
 the effective value, source and config path. Writes accept validated values,

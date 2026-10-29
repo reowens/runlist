@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,7 +10,7 @@ import { runSetup } from '../src/setup.mjs';
 import { applySetupCarry, planSetupCarry } from '../src/setup-carry.mjs';
 import { listPendingHandoffs } from '../src/handoff-record.mjs';
 import { availableSessionId, readPlanOwnership } from '../src/pickup.mjs';
-import { moveFileAtomic, recoverAbandonedTransactions } from '../src/atomic-mutation.mjs';
+import { moveFileAtomic, recoverAbandonedTransactions, inspectTransactions, resolveTransactions } from '../src/atomic-mutation.mjs';
 import { resolveRefPath } from '../src/util.mjs';
 import { CONFIG_FILENAMES } from '../src/naming.mjs';
 
@@ -157,11 +157,34 @@ describe('setup carries runlist artifacts written before configuration', () => {
     const original = read('prompts/resume-fresh.md');
     const first = await setup(['--yes', '--no-carry-prompts']);
     assert.equal(first.report.status, 'completed');
+    assert.match(first.output, /prompts\/resume-fresh.md/);
+    assert.match(first.output, /rerun runlist setup without --no-carry-prompts/);
+    assert.match(first.output, /After a config is written, rerunning setup does not carry/);
     assert.equal(moves(first.report).length, 0);
     const rerun = await setup(['--yes']);
     assert.equal(moves(rerun.report).length, 0);
     assert.equal(read('prompts/resume-fresh.md'), original);
     assert.ok(!has('docs/prompts/resume-fresh.md'));
+  });
+
+  it('names opted-out prompts and plans in previews and results and explains the configured rerun limit', async () => {
+    saved();
+    put('plans/sample.md', '---\ntype: plan\nstatus: active\n---\n# Sample\n');
+    const before = snapshot();
+    const preview = await setup(['--no-carry-prompts']);
+    assert.deepEqual(snapshot(), before);
+    const applied = await setup(['--yes', '--no-carry-prompts']);
+    for (const { report, output } of [preview, applied]) {
+      assert.equal(moves(report).length, 0);
+      assert.match(output, /outside the configured roots/);
+      assert.match(output, /prompts\/resume-fresh.md/);
+      assert.match(output, /plans\/sample.md/);
+      assert.match(output, /Before applying, rerun runlist setup without --no-carry-prompts/);
+      assert.match(output, /After a config is written, rerunning setup does not carry/);
+      assert.match(output, /include their folders in the config root export/);
+    }
+    assert.match(okCli(['prompts']).stdout, /No prompts/);
+    assert.equal(moves((await setup(['--yes'])).report).length, 0);
   });
 
   it('accepts the carry opt-out through the CLI registry', () => {
@@ -184,8 +207,21 @@ describe('setup carries runlist artifacts written before configuration', () => {
     const plan = planSetupCarry(before, { ...before, docsRoot, docsRoots: [docsRoot] });
     assert.deepEqual(plan.moves.map(move => move.from), ['prompts/example.md', 'prompts/archived/other.md']);
     assert.equal(plan.outstanding.length, 1);
-    assert.match(plan.outstanding[0].description, /Carry-over collision.*EXAMPLE.md/);
+    assert.match(plan.outstanding[0].description, /Carry-over collision.*EXAMPLE.md.*collides with another file being carried/);
+    assert.doesNotMatch(plan.outstanding[0].description, /destination exists/);
     assert.deepEqual(plan.remaining, [path.join(repo, 'prompts/archived/EXAMPLE.md')]);
+  });
+
+  it('compares planned carry destinations with Unicode normalization and case folding', async () => {
+    put('prompts/caf\u00e9.md', prompt('archived'));
+    put('prompts/archived/CAFE\u0301.md', prompt('archived'));
+    const before = await resolveConfig(repo);
+    const docsRoot = path.join(repo, 'docs');
+    const plan = planSetupCarry(before, { ...before, docsRoot, docsRoots: [docsRoot] });
+    assert.equal(plan.moves.length, 1);
+    assert.equal(plan.outstanding.length, 1);
+    assert.match(plan.outstanding[0].description, /collides with another file being carried/);
+    assert.equal(plan.remaining.length, 1);
   });
 
   it('routes to a selected docs root and preserves a nonempty source folder', async () => {
@@ -348,7 +384,22 @@ describe('carry-over transaction safety', () => {
     assert.equal(read('.runlist/handoffs/sample.json'), handoff);
     assert.equal(read('reference.md'), reference);
     assert.ok(!has('docs/prompts/resume-fresh.md'));
+    assert.ok(!has('docs'));
     assert.doesNotThrow(() => recoverAbandonedTransactions(repo, { config }));
+  });
+
+  for (const existing of [false, true]) it(`keeps ${existing ? 'pre-existing' : 'new nonempty'} scaffold folders after a failed carry`, async () => {
+    saved();
+    if (existing) mkdirSync(path.join(repo, 'docs/prompts'), { recursive: true });
+    const { config, moves } = await planned();
+    const result = applySetupCarry(moves, config, { testHooks: { afterMovePublish() {
+      if (!existing) put('docs/prompts/keep.txt', 'User content');
+      throw new Error('Synthetic failure');
+    } } });
+    assert.match(result.error, /Synthetic failure/);
+    assert.ok(has('docs/prompts'));
+    if (!existing) assert.equal(read('docs/prompts/keep.txt'), 'User content');
+    assert.ok(!has('runlist.config.mjs'));
   });
 
   it('refuses generated handoff participants outside the dedicated handoff directory', async () => {
@@ -374,6 +425,7 @@ describe('carry-over transaction safety', () => {
     const report = JSON.parse(okCli(['setup', '--yes', '--json']).stdout);
     assert.equal(report.status, 'completed', JSON.stringify(report.failed));
     assert.equal(report.outstanding.length, 0);
+    assert.ok(!has('prompts'));
     assertNoTransactions();
     okCli(['use', 'resume-fresh'], 'carry-b');
     assert.ok(has('docs/prompts/archived/resume-fresh.md'));
@@ -395,6 +447,101 @@ describe('carry-over transaction safety', () => {
     assert.ok(!has('runlist.config.mjs'));
     assert.ok(has(`.runlist/transactions/${manifests[0].id}/manifest.json`));
     assert.equal((await resolveConfig(repo)).configFound, false);
+    const doctor = JSON.parse(okCli(['doctor', '--transactions', '--apply', '--json']).stdout);
+    assert.equal(doctor.cleared.length, 1);
+    assert.ok(has('docs/prompts/resume-fresh.md'));
+    assert.ok(!existsSync(manifests[0].createdDirectories[0].marker));
+    assertNoTransactions();
+    okCli(['setup', '--yes', ...flags]);
+    assert.ok(!has('prompts'));
+    assert.ok(has('runlist.config.mjs'));
+  });
+
+  it('clears the other-verb archive shape with doctor, then setup completes', async () => {
+    put('plans/beta.md', '---\ntype: plan\nstatus: archived\n---\n# Beta\n');
+    const config = await resolveConfig(repo);
+    const move = { source: path.join(repo, 'plans/beta.md'), target: path.join(repo, 'plans/archived/beta.md'), expectedSource: read('plans/beta.md') };
+    const [manifest] = killCarry([move], 'target-publication', { direct: true });
+    const failed = await setup(['--yes']);
+    assert.match(failed.report.failed[0].description, /doctor --transactions --apply/);
+    assert.doesNotMatch(failed.output, /Manually inspect/);
+    assert.equal(inspectTransactions(repo, { config })[0].status, 'complete');
+    const doctor = JSON.parse(okCli(['doctor', '--transactions', '--apply', '--json']).stdout);
+    assert.deepEqual(doctor.cleared, [{ id: manifest.id, generation: 'new' }]);
+    assert.equal(read('plans/archived/beta.md'), move.expectedSource);
+    assert.deepEqual(readdirSync(path.join(repo, 'plans/archived')), ['beta.md']);
+    okCli(['setup', '--yes']);
+    assert.ok(has('runlist.config.mjs'));
+    assert.equal(read('plans/archived/beta.md'), move.expectedSource);
+    assert.ok(has('plans')); // Never remove a source directory holding content.
+    assertNoTransactions();
+  });
+
+  it('can resume doctor clearing after a stop between marker deletion and manifest cleanup', async () => {
+    saved();
+    const { config, moves } = await planned();
+    killCarry(moves, 'target-publication', { direct: true });
+    recoverAbandonedTransactions(repo, { config });
+    assert.throws(() => resolveTransactions(repo, { config, testHooks: { beforeDirectoryFsync(phase) {
+      if (phase === 'transaction-directory-marker-delete') throw new Error('Synthetic doctor stop');
+    } } }), /Synthetic doctor stop/);
+    assert.ok(has('docs/prompts/resume-fresh.md'));
+    const doctor = JSON.parse(okCli(['doctor', '--transactions', '--apply', '--json']).stdout);
+    assert.equal(doctor.cleared.length, 1);
+    assert.deepEqual(readdirSync(path.join(repo, 'docs/prompts')), ['resume-fresh.md']);
+    assertNoTransactions();
+  });
+
+  for (const mismatch of ['content', 'mode', 'other-artifact', 'marker', 'failed-manual']) it(`retains complete directory evidence needing manual review (${mismatch})`, async () => {
+    saved();
+    const { config, moves } = await planned();
+    const [manifest] = killCarry(moves, 'target-publication', { direct: true });
+    recoverAbandonedTransactions(repo, { config });
+    if (mismatch === 'content') put('docs/prompts/resume-fresh.md', 'Changed after recovery');
+    if (mismatch === 'mode') {
+      if (process.platform === 'win32') return; // Windows does not preserve POSIX permission bits.
+      chmodSync(moves[0].target, 0o600);
+    }
+    if (mismatch === 'other-artifact') put(`.runlist/transactions/${manifest.id}/unverified-index`, 'evidence');
+    if (mismatch === 'marker') writeFileSync(manifest.createdDirectories[0].marker, 'foreign marker');
+    if (mismatch === 'failed-manual') {
+      const retained = JSON.parse(read(`.runlist/transactions/${manifest.id}/manifest.json`));
+      retained.status = retained.phase = retained.result = 'failed-manual';
+      put(`.runlist/transactions/${manifest.id}/manifest.json`, JSON.stringify(retained));
+    }
+    const before = snapshot();
+    const doctor = JSON.parse(okCli(['doctor', '--transactions', '--apply', '--json']).stdout);
+    assert.equal(doctor.transactions[0].resolvable, false);
+    assert.deepEqual(doctor.cleared, []);
+    assert.deepEqual(snapshot(), before);
+    assert.ok(has(`.runlist/transactions/${manifest.id}/manifest.json`));
+  });
+
+  for (const invalid of [false, true]) it(`names the manual step when doctor cannot clear ${invalid ? 'an older-schema manifest' : 'failed-manual index evidence'}`, async () => {
+    saved();
+    const { config, moves } = await planned();
+    const [manifest] = killCarry(moves, 'target-publication', { direct: true });
+    recoverAbandonedTransactions(repo, { config });
+    const retained = JSON.parse(read(`.runlist/transactions/${manifest.id}/manifest.json`));
+    retained.status = retained.phase = retained.result = 'failed-manual';
+    if (invalid) retained.schema = 1;
+    else {
+      const indexFile = path.join(repo, '.git/.runlist-index-unverified');
+      writeFileSync(indexFile, 'unverified');
+      retained.gitIndex.retainedPaths.push(indexFile);
+    }
+    put(`.runlist/transactions/${manifest.id}/manifest.json`, JSON.stringify(retained));
+    const verdict = inspectTransactions(repo, { config })[0];
+    const preview = await setup();
+    const applied = await setup(['--yes']);
+    for (const text of [preview.output, applied.report.failed[0].description]) {
+      assert.ok(text.includes(verdict.reason), text);
+      assert.ok(text.includes(verdict.directory), text);
+      assert.match(text, /Manually inspect.*restore one complete generation.*remove that transaction directory/s);
+      assert.doesNotMatch(text, /Run runlist doctor --transactions --apply/);
+    }
+    assert.ok(!has('runlist.config.mjs'));
+    assert.ok(has(`.runlist/transactions/${manifest.id}/manifest.json`));
   });
 
   it('blocks config publication for failed-manual carry evidence until doctor resolves it', async () => {
@@ -466,6 +613,7 @@ describe('carry-over transaction safety', () => {
     okCli(['setup', '--yes'], session);
     const after = await resolveConfig(repo);
     assert.equal(readPlanOwnership('docs/plans/sample.md', after).state, 'owned');
+    assert.ok(!has('plans'));
     okCli(['set', 'active', 'sample'], session);
     okCli(['archive', 'sample'], session);
     assert.ok(has('docs/archived/sample.md'));
