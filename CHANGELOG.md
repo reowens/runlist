@@ -210,6 +210,10 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ### Changed
 
+- Updated the native file-dialog backend `rfd` from 0.16.0 to 0.16.1 within
+  the existing dependency range. The patch fixes GTK3 message descriptions with
+  percent characters that could display incorrectly or crash the dialog.
+
 - Updated the bundled desktop runtime to Node 26.13.0 LTS (Lithium), with all
   six archives pinned to official SHA-256 values. Linux packages declare the new
   libatomic runtime dependency; CI covers Node 26 while CLI Node 20 support stays.
