@@ -319,24 +319,31 @@ const SUBAGENT_PRIMER = [
 // verb (opening the clause, after "and"/"then", or "do a baton"), never as the
 // subject of a sentence ("baton prints its name first").
 const HANDOFF_PHRASE = /\bhand[\s-]?off\b|\bresume[\s-]prompt\b|\bsave (?:a |the )?resume\b|\bpick (?:it|this|that) (?:back )?up (?:next time|next session|later|tomorrow)\b/i;
+const LEAD_WORDS = String.raw`(?:(?:ok(?:ay)?|alright|right|anyway|hey|now|then|and|also|but|so|yes|yep|great|good|cool|thanks|please|pls|go ahead and|let'?s|lets|time to)\b[,\s]*)*`;
+const POLITE = String.raw`(?:(?:can|could|would|will) you (?:please )?(?:mind )?)`;
+const SESSION_REQUEST_START = String.raw`(?:^|,\s*)${LEAD_WORDS}${POLITE}?(?:(?:I want to|let'?s|lets|please) )?`;
 // Save forms name the session's work and a continuation time, or explicitly
 // end the workday. "Save where we are" is itself a session snapshot request;
-// accept it at the clause end, including before a semicolon continuation.
+// require a request at the clause start, including after a context-setting
+// comma, and a clause end (also before a semicolon continuation).
 // Keep the suffixes narrow: progress indicators and session objects are code.
 const SESSION_SAVE = [
-  /\bsave where we are\s*[.!?;]?$/i,
+  new RegExp(String.raw`${SESSION_REQUEST_START}save where we are\s*[.!?;]?$`, 'i'),
   /\bsave (?:where we are|our progress) (?:for (?:later|tomorrow|now|today|next (?:time|session))|so (?:I|we) can continue (?:later|tomorrow|next (?:time|session)))\b/i,
-  /\bwrap up for (?:today|the day|tonight)\s*[.!?;]?$/i,
+  new RegExp(String.raw`${SESSION_REQUEST_START}wrap up for (?:today|the day|tonight)\s*[.!?;]?$`, 'i'),
   /\bstop here for now(?: and|,)? (?:continue|pick (?:it|this) up) (?:tomorrow|later|next (?:time|session))\s*[.!?;]?$/i,
-  /\bstop (?:here )?for (?:today|the day|tonight)\s*[.!?;]?$/i,
-  /\b(?:let'?s|lets) call it a day\s*[.!?;]?$/i,
-  /\b(?:we'll|we will|let'?s|lets) continue (?:in (?:a |the )?new session|tomorrow)\s*[.!?;]?$/i,
+  new RegExp(String.raw`${SESSION_REQUEST_START}stop (?:here )?for (?:today|the day|tonight)\s*[.!?;]?$`, 'i'),
+  /\b(?:let'?s|lets|I think we can) call it a day\s*[.!?;]?$/i,
+  /\b(?:we'll|we will|I'll|I will|let'?s|lets) continue (?:in (?:a |the )?new session|(?:this )?tomorrow)\s*[.!?;]?$/i,
+  new RegExp(String.raw`${SESSION_REQUEST_START}save where we're at for tomorrow\s*[.!?;]?$`, 'i'),
+  new RegExp(String.raw`${SESSION_REQUEST_START}(?:let'?s|lets) pause here and continue tomorrow\s*[.!?;]?$`, 'i'),
 ];
 // Strip all explicit load/resume forms before the broad handoff save matcher.
 const LOAD_HANDOFF = String.raw`\b(?:load|resume|open|use) (?:my|the|our|that) handoff\b`;
-const PICKUP_PHRASE = String.raw`(?:(?:pick up|continue|resume) (?:from )?where (?:we|I|you) (?:left off|stopped)\b|(?:continue|resume|pick up) from (?:last (?:time|session)|yesterday)\b|${LOAD_HANDOFF}(?=\s*(?:$|[.!?;,]|and\b)))`;
-const LEAD_WORDS = String.raw`(?:(?:ok(?:ay)?|alright|right|anyway|hey|now|then|and|also|but|so|yes|yep|great|good|cool|thanks|please|pls|go ahead and|let'?s|lets|time to)\b[,\s]*)*`;
-const POLITE = String.raw`(?:(?:can|could|would|will) you (?:please )?(?:mind )?)`;
+// A continuation can start another clause with "and then". Other words after
+// stopped/left off describe code or another activity, rather than saved work.
+const PICKUP_END = String.raw`(?: (?:yesterday|last (?:time|session))(?!'s)\b)?(?=\s*(?:$|[.!?;,]|and then\b))`;
+const PICKUP_PHRASE = String.raw`(?:(?:pick up|continue|resume) (?:from )?where (?:we|I|you) (?:left off|stopped)\b${PICKUP_END}|(?:continue|resume|pick up) from (?:last (?:time|session)|yesterday)(?!'s)\b|${LOAD_HANDOFF}(?=\s*(?:$|[.!?;,]|and\b)))`;
 const BATON_AS_NOUN = String.raw`(?:(?:do|doing|make|write|leave|save|pass|run|drop) (?:a |the |your |another |one more )?)`;
 // A word here after "baton" makes it the subject or a noun ("baton is",
 // "baton prints", "baton command"), not a request.
@@ -351,15 +358,17 @@ const QUESTION_START = new RegExp(String.raw`^${LEAD_WORDS}(?:what'?s|whats|what
 
 // The harness hands background-task events to UserPromptSubmit as if typed.
 // A finished agent's report that names its handoff file is not a request.
-const SYSTEM_EVENT = /<task-notification>|\[SYSTEM NOTIFICATION\b|^\s*Delegated task \S+(?: \([^\n]*?\))?(?: \[[a-z_]+\]| reached a terminal state)[:.]/i;
+const SYSTEM_EVENT = /\[SYSTEM NOTIFICATION\b/i;
+const T3_RELAY_HEADER = /^[ \t]*Delegated task \S+(?: \([^\n]*?\))?(?: \[[a-z_]+\]| reached a terminal state)[:.]/im;
 // This question explicitly asks to recover earlier work, rather than asking
 // how the handoff mechanism works. Other question-led clauses stay silent.
-const PICKUP_QUESTION = new RegExp(String.raw`^${LEAD_WORDS}(?:what was I working on (?:in the )?last session|where were we)[?.!]*$`, 'i');
+const PICKUP_QUESTION = new RegExp(String.raw`^${LEAD_WORDS}(?:hmm[,\s]+)?(?:what was I working on (?:in the )?last session|where were we)[?.!]*$`, 'i');
 const PICKUP_REQUEST = new RegExp(String.raw`^${LEAD_WORDS}${POLITE}?(?:please )?${PICKUP_PHRASE}`, 'i');
 
 function requestText(prompt) {
   if (typeof prompt !== 'string' || SYSTEM_EVENT.test(prompt)) return '';
   prompt = prompt.replaceAll('’', "'");
+  prompt = prompt.replace(/<task-notification\b[^>]*>[\s\S]*?<\/task-notification>/gi, ' ');
   let fence = null;
   const prose = prompt.split('\n').map(line => {
     const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
@@ -372,7 +381,13 @@ function requestText(prompt) {
     if (/^(?: {4}|\t)|^ {0,3}>/.test(line)) return '';
     return line;
   }).join('\n');
-  return maskInlineCodeSpans(prose).replace(/"[^"\n]*"/g, '');
+  // T3 reports can contain blank lines and further relay headers. Everything
+  // from the first prose header onward belongs to the relay; only prior prose
+  // is the user's. A header inside code or a quote is not a relay envelope.
+  // Claude notifications have explicit closing tags instead.
+  const relay = T3_RELAY_HEADER.exec(prose);
+  const userProse = relay ? prose.slice(0, relay.index) : prose;
+  return maskInlineCodeSpans(userProse).replace(/"[^"\n]*"/g, ' ');
 }
 
 function clauses(prompt) {
@@ -453,7 +468,7 @@ export function pendingPromptsLine(prompts, { pickup = false } = {}) {
   const n = prompts.length;
   if (pickup) {
     const names = n <= 5 ? ` (${prompts.join(', ')})` : '';
-    const entry = process.env.CLAUDE_PLUGIN_ROOT?.trim() ? '`/pickup` or `runlist use <name>`' : '`runlist use <name>`';
+    const entry = hasPickupCommand() ? '`/pickup` or `runlist use <name>`' : '`runlist use <name>`';
     return `If the user is asking to resume saved work: ${n} pending prompt${n === 1 ? '' : 's'}${names}; ${entry} consumes one (archives the prompt and claims its linked plan).${n > 1 ? ' Ask which one; never consume the oldest by default.' : ''}`;
   }
   return `${n} pending prompt${n === 1 ? '' : 's'}: resume one only when the user asks for it (\`runlist prompts\` lists them, \`runlist use <name>\` resumes one, \`runlist prompts show <name>\` peeks); never consume the oldest by default.`;
@@ -461,6 +476,13 @@ export function pendingPromptsLine(prompts, { pickup = false } = {}) {
 
 function isRunlistRepo(config) {
   return Boolean(config?.configFound);
+}
+
+function hasPickupCommand() {
+  // Codex also exports CLAUDE_PLUGIN_ROOT for compatible hooks, but its plugin
+  // has no slash commands. Offer the command only when it is actually shipped.
+  const root = process.env.CLAUDE_PLUGIN_ROOT;
+  return Boolean(root?.trim() && existsSync(path.join(root, 'commands', 'pickup.md')));
 }
 
 // Directory entries only: any Markdown file is history, including held and
@@ -475,7 +497,7 @@ function handoffIntroLine(config, hud) {
     if (existsSync(dir) && readdirSync(dir, { withFileTypes: true, recursive: true })
       .some(entry => entry.isFile() && entry.name.endsWith('.md'))) return null;
   } catch { return null; } // Unreadable history cannot establish a fresh repo.
-  const pickup = process.env.CLAUDE_PLUGIN_ROOT?.trim()
+  const pickup = hasPickupCommand()
     ? '/pickup resumes it next time' : 'the next session lists saved handoffs at start';
   return `[runlist] Handoffs: say "baton" to save where you are before you stop; ${pickup}.`;
 }

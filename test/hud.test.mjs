@@ -88,7 +88,8 @@ describe('runlist hud', () => {
     for (const variable of ['CODEX_THREAD_ID', 'CODEX_SESSION_ID']) {
       const r = runCli(['hud'], { env: {
         RUNLIST_SESSION_ID: '', DOTMD_SESSION_ID: '', CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '',
-        CODEX_THREAD_ID: '', CODEX_SESSION_ID: '', CLAUDE_PLUGIN_ROOT: '', [variable]: 'codex-sample',
+        CODEX_THREAD_ID: '', CODEX_SESSION_ID: '',
+        CLAUDE_PLUGIN_ROOT: path.resolve(import.meta.dirname, '..', 'plugins', 'runlist-codex'), [variable]: 'codex-sample',
       } });
       strictEqual(r.status, 0, r.stderr);
       ok(r.stdout.includes('the next session lists saved handoffs at start'), r.stdout);
@@ -97,9 +98,11 @@ describe('runlist hud', () => {
     }
   });
 
-  it('offers /pickup only from the Claude plugin, regardless of session identity', () => {
+  it('offers /pickup only when the plugin ships commands/pickup.md, regardless of session identity', () => {
     setupProject();
-    const plugin = runCli(['hud'], { env: { RUNLIST_SESSION_ID: 'explicit-sample' } });
+    const pluginRoot = path.resolve(import.meta.dirname, '..', 'plugins', 'runlist');
+    ok(existsSync(path.join(pluginRoot, 'commands', 'pickup.md')));
+    const plugin = runCli(['hud'], { env: { RUNLIST_SESSION_ID: 'explicit-sample', CLAUDE_PLUGIN_ROOT: pluginRoot } });
     ok(plugin.stdout.includes('/pickup resumes'), plugin.stdout);
     const manual = runCli(['hud'], { env: { CLAUDE_PLUGIN_ROOT: '' } });
     ok(manual.stdout.includes('the next session lists saved handoffs at start'), manual.stdout);
@@ -497,7 +500,8 @@ describe('runlist hud --prompt-submit', () => {
       strictEqual(r.stdout, '', prompt);
     }
     const codex = runCli(['hud', '--prompt-submit'], { input: ask('load my handoff'), env: {
-      RUNLIST_SESSION_ID: '', DOTMD_SESSION_ID: '', CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '', CODEX_THREAD_ID: 'codex-sample', CLAUDE_PLUGIN_ROOT: '',
+      RUNLIST_SESSION_ID: '', DOTMD_SESSION_ID: '', CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '', CODEX_THREAD_ID: 'codex-sample',
+      CLAUDE_PLUGIN_ROOT: path.resolve(import.meta.dirname, '..', 'plugins', 'runlist-codex'),
     } });
     ok(codex.stdout.includes('`runlist use <name>` consumes one'), codex.stdout);
     ok(!codex.stdout.includes('/pickup'), codex.stdout);
@@ -539,6 +543,38 @@ describe('runlist hud --prompt-submit', () => {
     }
     const r = runCli(['hud', '--prompt-submit'], { input: ask('```\nbaton\n```\n' + longRequest) });
     ok(r.stdout.startsWith('[runlist] Baton:'), r.stdout);
+  });
+
+  it('matches user requests outside relay spans and drops every paragraph of T3 results', () => {
+    const docsDir = setupProject();
+    mkdirSync(path.join(docsDir, 'prompts'), { recursive: true });
+    writeFileSync(path.join(docsDir, 'prompts', 'sample.md'), '---\ntype: prompt\nstatus: pending\n---\nSample.');
+    const cases = [
+      ['look at this:\n\nDelegated task a (T) [completed]:\nthen baton', ''],
+      ['look at this:\n\nDelegated task a (T) [completed]:\nDone.\n\nthen baton', ''],
+      ['Delegated task a (T) [completed]:\nDone.\n\nok baton this', ''],
+      ['look at this:\n\nDelegated task a (T) [completed]:\nDone.\n\nDelegated task b (U) [failed]:\nload my handoff', ''],
+      ['ok baton this\n\nDelegated task a (T) [completed]:\nload my handoff', 'Baton'],
+      ['load my handoff\n\nDelegated task a (T) [completed]:\nthen baton', 'Pickup'],
+      ['notification\n\nok baton this', 'Baton'],
+      ['<task-notification>then baton</task-notification>', ''],
+      ['<task-notification>then baton</task-notification>\n\nload my handoff', 'Pickup'],
+      ['baton this\n<task-notification>load my handoff</task-notification>', 'Baton'],
+      ['<task-notification id="sample">then baton</task-notification>\n<task-notification>load my handoff</task-notification>', ''],
+      ['the message mentions <task-notification>; then baton', 'Baton'],
+      ['then ba<task-notification>report</task-notification>ton', ''],
+      ['```text\nDelegated task a (T) [completed]:\nload my handoff\n```\nthen baton', 'Baton'],
+      ['> Delegated task a (T) [completed]:\n> load my handoff\n\nthen baton', 'Baton'],
+      ['[SYSTEM NOTIFICATION] then baton', ''],
+    ];
+    for (const [prompt, hint] of cases) {
+      strictEqual(isHandoffAsk(prompt), hint === 'Baton', prompt);
+      strictEqual(isPickupAsk(prompt), hint === 'Pickup', prompt);
+      const r = runCli(['hud', '--prompt-submit'], { input: ask(prompt) });
+      strictEqual(r.status, 0, r.stderr);
+      if (hint) ok(r.stdout.startsWith(`[runlist] ${hint}:`), `${prompt}: ${r.stdout}`);
+      else strictEqual(r.stdout, '', prompt);
+    }
   });
 
   it('names the owned plan and the plan-mode form', () => {

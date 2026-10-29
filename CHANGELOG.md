@@ -13,6 +13,11 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ### Fixed
 
+- Handoff hints check that the host ships `/pickup`, keep user text outside
+  relay reports, and reject code-subject save requests and possessive pickup
+  times. Hook globs skip ordinary words and repository paths containing
+  `holiday` or `somewhere`; quoted fragments cannot join into a request.
+
 - Host installs warn when hooks lack a persistent CLI on PATH, checking the
   names hooks call and excluding npx, pnpm 8–11 dlx (including custom cache paths),
   bunx, nested Yarn temporary wrapper bins and npm-injected project bins. Setup keeps

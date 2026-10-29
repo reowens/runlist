@@ -75,10 +75,11 @@ if [ "$1" = "hud" ] && [ "$2" = "--prompt-submit" ]; then
   # Time/session markers gate the new forms; save/continue alone stay cheap.
   # Keep next/last time and context-tight forms too, not just session/tomorrow.
   # Never match bare session: every payload carries session_id. The other
-  # markers do not occur in standard payload keys.
+  # markers must not match cwd/transcript_path or ordinary words such as
+  # somewhere, holiday, collateral, and timeout.
   payload=$(cat)
   case "$payload" in
-    *[Bb][Aa][Tt][Oo][Nn]*|*[Hh][Aa][Nn][Dd]*[Oo][Ff][Ff]*|*[Rr][Ee][Ss][Uu][Mm][Ee]*|*[Pp][Ii][Cc][Kk]*[Uu][Pp]*|*[Ll][Aa][Tt][Ee][Rr]*|*[Tt][Oo][Mm][Oo][Rr][Rr][Oo][Ww]*|*[Tt][Oo][Dd][Aa][Yy]*|*[Yy][Ee][Ss][Tt][Ee][Rr][Dd][Aa][Yy]*|*[Ff][Oo][Rr]*[Nn][Oo][Ww]*|*[Nn][Ee][Xx][Tt]*[Ss][Ee][Ss][Ss][Ii][Oo][Nn]*|*[Nn][Ee][Ww]*[Ss][Ee][Ss][Ss][Ii][Oo][Nn]*|*[Ll][Aa][Ss][Tt]*[Ss][Ee][Ss][Ss][Ii][Oo][Nn]*|*[Nn][Ee][Xx][Tt]*[Tt][Ii][Mm][Ee]*|*[Ll][Aa][Ss][Tt]*[Tt][Ii][Mm][Ee]*|*[Cc][Oo][Nn][Tt][Ee][Xx][Tt]*[Tt][Ii][Gg][Hh][Tt]*|*[Ww][Hh][Ee][Rr][Ee]*|*[Dd][Aa][Yy]*|*[Tt][Oo][Nn][Ii][Gg][Hh][Tt]*)
+    *[Bb][Aa][Tt][Oo][Nn]*|*[Hh][Aa][Nn][Dd]*[Oo][Ff][Ff]*|*[Rr][Ee][Ss][Uu][Mm][Ee]*|*[Pp][Ii][Cc][Kk]*[Uu][Pp]*|*\ [Ll][Aa][Tt][Ee][Rr][!a-zA-Z0-9_]*|*[Tt][Oo][Mm][Oo][Rr][Rr][Oo][Ww]*|*[Tt][Oo][Dd][Aa][Yy]*|*[Yy][Ee][Ss][Tt][Ee][Rr][Dd][Aa][Yy]*|*[Ff][Oo][Rr]*[Nn][Oo][Ww]*|*[Nn][Ee][Xx][Tt]*[Ss][Ee][Ss][Ss][Ii][Oo][Nn]*|*[Nn][Ee][Ww]*[Ss][Ee][Ss][Ss][Ii][Oo][Nn]*|*[Ll][Aa][Ss][Tt]*[Ss][Ee][Ss][Ss][Ii][Oo][Nn]*|*[Nn][Ee][Xx][Tt]\ [Tt][Ii][Mm][Ee][!a-zA-Z0-9_]*|*[Ll][Aa][Ss][Tt]*[Tt][Ii][Mm][Ee]*|*[Cc][Oo][Nn][Tt][Ee][Xx][Tt]*[Tt][Ii][Gg][Hh][Tt]*|*[Ww][Hh][Ee][Rr][Ee]\ [WwIiYy]*|*\ [Dd][Aa][Yy]*|*[Tt][Oo][Nn][Ii][Gg][Hh][Tt]*)
       printf '%s' "$payload" | "$CLI" "$@"
       exit 0
       ;;

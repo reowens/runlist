@@ -19,6 +19,16 @@ export const saveRequests = [
   'save where we are',
   'Finish the synthetic check, then save our progress for tomorrow',
   'Delegated task a was weird. Anyway, baton this',
+  'I want to save where we are',
+  "let's save where we are",
+  'could you please save where we are?',
+  'please wrap up for the day',
+  'can you stop for tonight?',
+  "save where we're at for tomorrow",
+  "let's pause here and continue tomorrow",
+  "let's continue this tomorrow",
+  "I'll continue in a new session",
+  'I think we can call it a day',
 ];
 
 export const pickupRequests = [
@@ -41,6 +51,10 @@ export const pickupRequests = [
   'resume from where you stopped',
   'pick up from yesterday',
   'Please fix the sample. Then continue where we left off',
+  'hmm where were we',
+  'pick up where we left off yesterday',
+  'continue from where I stopped last time',
+  'resume where we left off last session.',
 ];
 
 export const silentRequests = [
@@ -69,6 +83,29 @@ export const silentRequests = [
   'the command `then baton` failed',
   'add a "wrap up for today" button to the dashboard',
   '"pick up where we left off" is a nice phrase',
+  'the cursor should save where we are',
+  'add a method that lets the parser save where we are',
+  'checkpoint() should save where we are.',
+  'the reader must save where we are; then resume on reconnect',
+  'the script should wrap up for the day',
+  'the job will stop for the day',
+  'the trader should stop for tonight',
+  "pick up from yesterday's logs",
+  "continue from yesterday's branch",
+  "resume from last time's checkpoint",
+  "continue from last session's dump",
+  'continue from where I stopped reading',
+  'continue from where we stopped the profiler',
+  'pick up where we left off in the parser',
+  "resume where we stopped last time's checkpoint",
+  'then ba"note"ton',
+  'the hint said "then baton"',
+  'the cursor should save where we\'re at for tomorrow',
+  "let's pause here and continue tomorrow's report",
+  "let's continue this tomorrow after reconnect",
+  "I'll continue in a new session object",
+  'I think the job can call it a day',
+  'hmm where were we storing the token',
 ];
 
 export const relayReport = (state = 'completed') =>

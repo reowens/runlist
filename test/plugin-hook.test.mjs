@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import { strictEqual, ok, match } from 'node:assert';
-import { mkdtempSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, chmodSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -114,10 +114,11 @@ describe('plugin hook wrapper (dotmd present)', { skip: process.platform === 'wi
       chmodSync(fake, 0o755);
       const hook = ['hud', '--prompt-submit'];
       const scripts = [wrapper, path.resolve(import.meta.dirname, '..', 'plugins', 'runlist-codex', 'bin', 'runlist-hook')];
+      strictEqual(readFileSync(scripts[0], 'utf8'), readFileSync(scripts[1], 'utf8'), 'both wrappers are byte-identical');
       const requests = ['Baton this', 'can you HAND OFF', 'save a resume prompt', 'pick it up next time', ...saveRequests, ...pickupRequests, ...mixedRequests, longRequest];
       let positives = 0;
       const payload = prompt => JSON.stringify({
-        session_id: 'synthetic-id', transcript_path: '/tmp/synthetic-log.jsonl', cwd: '/tmp/synthetic-repo',
+        session_id: 'synthetic-id', transcript_path: '/tmp/somewhere/holiday-planner/synthetic-log.jsonl', cwd: '/tmp/somewhere/holiday-planner',
         hook_event_name: 'UserPromptSubmit', permission_mode: 'default', prompt,
       });
       for (const script of scripts) {
@@ -130,7 +131,10 @@ describe('plugin hook wrapper (dotmd present)', { skip: process.platform === 'wi
           strictEqual(r.status, 0, r.stderr);
           match(r.stdout, /FAKE-RUNLIST: hud --prompt-submit/, `${script}: ${prompt}`);
         }
-        for (const prompt of ['fix the flaky test', 'save the file', 'continue with the next step']) {
+        for (const prompt of [
+          'fix the flaky test', 'save the file', 'continue with the next step',
+          'add a WHERE clause', 'update the Monday report', 'check collateral', 'fix the next timeout',
+        ]) {
           const quiet = runHook(hook, binDir, payload(prompt), script);
           strictEqual(quiet.status, 0);
           strictEqual(quiet.stdout, '');
