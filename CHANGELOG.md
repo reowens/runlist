@@ -92,6 +92,11 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ### Fixed
 
+- Carrying prompts out of the root `prompts/` (the first save, `runlist setup`,
+  a fresh `runlist init` and the change-time carry) no longer rewrites links in
+  documents that stay there. Each such link is listed, on dry-run and apply, as
+  "<file> links to prompts/<x>.md; update it to docs/prompts/<x>.md". Links in
+  managed documents elsewhere are still rewritten.
 - Baton-only mode, second review. A carry killed part-way (any phase) no
   longer breaks the next baton: moves an earlier command left unfinished are
   finished under the unconfigured roots before anything is surveyed, and a

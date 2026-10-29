@@ -4,7 +4,7 @@ import { promptDirectory, planDirectory } from './new.mjs';
 import { archiveBaseFor } from './lifecycle.mjs';
 import { collectDocFiles } from './index.mjs';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
-import { authorizeManagedSource, authorizeManagedSweep, authorizeRepoGeneratedPath } from './managed-path.mjs';
+import { authorizeManagedSource, authorizeManagedSweep, authorizeRepoGeneratedPath, inLegacyPromptFolder } from './managed-path.mjs';
 import { moveFileAtomic } from './atomic-mutation.mjs';
 import { configuredReferenceFields, planReferenceMove } from './reference-planner.mjs';
 import { availableSessionId, prepareOwnershipMigration } from './pickup.mjs';
@@ -140,25 +140,43 @@ export function planSetupCarry(before, after, enabled = true, { types = ['prompt
   return result;
 }
 
-// Links to a carried prompt from Markdown runlist does not manage (no
-// frontmatter, so the move's reference sweep never rewrites it): a README that
-// points at prompts/older.md, say. Reported for the user to update, never
-// edited. Read only on the explicit save and setup paths.
+// Everything left in the root prompts/ (what the carry does not move) is the
+// user's, by its path or through a symlinked folder: the carry never rewrites
+// it, and a link there to a carried file is reported instead.
+function staysInLegacyFolder(file, config, carried) {
+  return !carried.has(path.resolve(file)) && inLegacyPromptFolder(file, config.repoRoot);
+}
+
+function carryReferenceFields(config) {
+  return [...new Set([...configuredReferenceFields(config), 'plan', 'parent_prompt'])];
+}
+
+// Links to a carried file from Markdown runlist does not manage, which the
+// move's reference sweep never rewrites: a README with no frontmatter that
+// points at prompts/older.md, say, or any document that stays in the root
+// prompts/. Reported for the user to update, never edited. Read only on the
+// explicit save, init and setup paths.
 export function unmanagedCarryReferences(config, moves) {
   if (!moves.length) return [];
+  const carried = new Set(moves.map(move => path.resolve(move.source)));
   const plain = [];
   for (const file of collectDocFiles(config)) {
+    if (carried.has(path.resolve(file))) continue;
     let content;
     try { content = readFileSync(file, 'utf8'); } catch { continue; }
-    if (extractFrontmatter(content).frontmatter) continue;
+    if (extractFrontmatter(content).frontmatter) {
+      if (staysInLegacyFolder(file, config, carried)) plain.push({ path: file, content });
+      continue;
+    }
     // Lent a frontmatter block so the planner reads the body; never written.
     plain.push({ path: file, content: `---\nrunlist-probe: true\n---\n${content}` });
   }
   if (!plain.length) return [];
+  const referenceFields = carryReferenceFields(config);
   const found = [];
   for (const move of moves) {
-    const documents = [{ path: move.source, content: move.expectedSource }, ...plain.filter(item => item.path !== move.source)];
-    const { updates } = planReferenceMove({ documents, oldPath: move.source, newPath: move.target, repoRoot: config.repoRoot });
+    const documents = [{ path: move.source, content: move.expectedSource }, ...plain];
+    const { updates } = planReferenceMove({ documents, oldPath: move.source, newPath: move.target, repoRoot: config.repoRoot, referenceFields });
     for (const update of updates) found.push({ file: toRepoPath(update.path, config.repoRoot), from: move.from, to: move.to });
   }
   return found.sort((a, b) => a.file.localeCompare(b.file) || a.from.localeCompare(b.from));
@@ -194,6 +212,7 @@ export function applySetupCarry(moves, config, { testHooks, expectedConfig = nul
   const completed = [];
   const createdDirectories = [];
   const expectedSources = new Map(moves.map(move => [move.source, move.expectedSource]));
+  const carried = new Set(moves.map(move => path.resolve(move.source)));
   const configUnchanged = () => {
     if (!expectedConfig) return !config.configFound && !locateConfig(config.configDir).configPath;
     try { return locateConfig(config.configDir).configPath === expectedConfig.path && readFileSync(expectedConfig.path, 'utf8') === expectedConfig.content; }
@@ -210,11 +229,12 @@ export function applySetupCarry(moves, config, { testHooks, expectedConfig = nul
       if (readFileSync(move.source, 'utf8') !== move.expectedSource) throw new Error(`Carry-over source changed after preview: ${move.from}`);
     }
     for (const move of moves) {
-      const files = collectDocFiles(config);
+      // What stays in the root prompts/ is the user's and is never rewritten;
+      // unmanagedCarryReferences lists its links to a carried file.
+      const files = collectDocFiles(config).filter(file => !staysInLegacyFolder(file, config, carried));
       authorizeManagedSweep(files, config, { kind: 'Setup carry-over reference source' });
       const documents = files.map(file => ({ path: file, content: readFileSync(file, 'utf8') }));
-      const referenceFields = [...new Set([...configuredReferenceFields(config), 'plan', 'parent_prompt'])];
-      const references = planReferenceMove({ documents, oldPath: move.source, newPath: move.target, repoRoot: config.repoRoot, referenceFields });
+      const references = planReferenceMove({ documents, oldPath: move.source, newPath: move.target, repoRoot: config.repoRoot, referenceFields: carryReferenceFields(config) });
       const ownership = move.type === 'plan' ? prepareOwnershipMigration(move.from, move.target, config, { sessionId: availableSessionId() }) : null;
       const handoffs = listPendingHandoffs(config).flatMap(record => {
         const expectedContent = readFileSync(record.recordFile, 'utf8');

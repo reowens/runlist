@@ -451,6 +451,43 @@ describe('the first baton never hides what was saved before setup', () => {
     assert.match(ok(['use', 'resume-old'], { session: 'handoffs-b' }).stdout, /Earlier synthetic work/);
   });
 
+  const LIBRARY = '---\ntype: doc\nstatus: active\n---\n# Library\n\n[Older](older.md)\n';
+  const LIBRARY_LINK = 'prompts/library.md links to prompts/older.md; update it to docs/prompts/older.md';
+  const linkedLibrary = () => {
+    put('prompts/older.md', PROMPT);
+    put('prompts/library.md', LIBRARY);
+    put('notes.md', '---\ntype: doc\nstatus: active\n---\n# Notes\n\n[Older](prompts/older.md)\n');
+  };
+  const carriedAround = () => {
+    assert.equal(read('prompts/library.md'), LIBRARY, 'what stays in prompts/ is never rewritten');
+    assert.equal(read('docs/prompts/older.md'), PROMPT);
+    assert.match(read('notes.md'), /\[Older\]\(docs\/prompts\/older\.md\)/, 'a managed document outside prompts/ is still rewritten');
+  };
+
+  it('the first baton never rewrites a document that stays in prompts/; it lists the link instead', () => {
+    linkedLibrary();
+    const before = snapshot();
+    const preview = ok(['baton', 'exporter', draft(), '--dry-run']);
+    assert.ok(preview.stderr.includes(`Would leave links in files runlist does not manage as they are:\n  ${LIBRARY_LINK}\n`), preview.stderr);
+    assert.deepEqual(snapshot(), before);
+    const saved = ok(['baton', 'exporter', draft()]);
+    assert.ok(saved.stderr.includes(`Links in files runlist does not manage were left as they are:\n  ${LIBRARY_LINK}\n`), saved.stderr);
+    carriedAround();
+  });
+
+  it('setup never rewrites a document that stays in prompts/; it lists the link instead', () => {
+    linkedLibrary();
+    const before = snapshot();
+    const preview = ok(['setup', '--dry-run']);
+    assert.ok(preview.stdout.includes(`notice: links in files runlist does not manage are left as they are; update them yourself\n    ${LIBRARY_LINK}\n`), preview.stdout);
+    assert.deepEqual(snapshot(), before);
+    const applied = cli(['setup', '--yes', '--json']);
+    const report = JSON.parse(applied.stdout);
+    assert.deepEqual(report.notes.find(note => note.description.startsWith('notice: links in files')).paths, [LIBRARY_LINK]);
+    assert.ok(report.completed.some(item => item.id === 'carry:prompts/older.md'), applied.stdout);
+    carriedAround();
+  });
+
   it('sets up handoffs beside a prompt saved outside both prompt folders, which stays put', () => {
     put('notes/handoffs/resume-old.md', PROMPT);
     const saved = ok(['baton', 'exporter', draft()]);

@@ -13,7 +13,7 @@ import { authorizeManagedSource, authorizeRepoGeneratedPath } from './managed-pa
 import { readTemplateStore } from './template-store.mjs';
 import { regenIndex, renderLifecycleMutation } from './lifecycle.mjs';
 import { snapshotFile, replaceSnapshot, inspectTransactions, recoverAbandonedTransactions, transactionResolutionAdvice } from './atomic-mutation.mjs';
-import { planSetupCarry, applySetupCarry, cleanupSetupSourceDirectories, preConfigView } from './setup-carry.mjs';
+import { planSetupCarry, applySetupCarry, cleanupSetupSourceDirectories, preConfigView, unmanagedCarryReferences } from './setup-carry.mjs';
 import { planHandoffsUpgrade } from './handoffs-mode.mjs';
 import { SETUP_PROMPT_ROUTING } from './naming.mjs';
 
@@ -184,6 +184,9 @@ export async function setupWorker(request) {
   const initArgv = [ ...(choices.gitignore ? ['--gitignore'] : []), ...(!existing ? ['--prompt-tracking', choices.promptTracking] : []) ];
   if (operation === 'prepare') {
     const carry = planSetupCarry(carryFrom, config, choices.carryPrompts);
+    // Links the carry leaves alone (Markdown runlist does not manage, and what
+    // stays in the root prompts/), listed for the user to update.
+    carry.references = unmanagedCarryReferences(carryFrom, carry.moves);
     const layout = scaffolding(config, existing, choices, carry.moves);
     let policy = null;
     if (existing && choices.selectPromptTracking) {

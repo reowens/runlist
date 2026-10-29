@@ -253,13 +253,16 @@ export async function runSetup(argv, config, options = {}) {
     const legacyNotice = () => `notice: left untouched in ${LEGACY_PROMPT_DIR}/, which runlist does not read or write once set up (prompts live in ${PROMPT_DIR}/)${!choices.carryPrompts ? `; carry-over was disabled.${report.mode === 'preview' ? ' Before applying, rerun runlist setup without --no-carry-prompts to carry them.' : ''} After a config is written, rerunning setup does not carry these files` : ''}`;
     let remainingNotice = null;
     let legacyRemaining = null;
+    let referencesNotice = null;
     const noteRemaining = carry => {
-      report.notes = report.notes.filter(item => item !== remainingNotice && item !== legacyRemaining);
+      report.notes = report.notes.filter(item => item !== remainingNotice && item !== legacyRemaining && item !== referencesNotice);
       const remainingPaths = carry.remaining.map(file => path.relative(cwd, file).split(path.sep).join('/'));
       const inLegacyFolder = file => file.startsWith(`${LEGACY_PROMPT_DIR}/`);
       remainingNotice = remainingPaths.some(file => !inLegacyFolder(file)) ? { description: carryNotice(), paths: remainingPaths.filter(file => !inLegacyFolder(file)) } : null;
       legacyRemaining = remainingPaths.some(inLegacyFolder) ? { description: legacyNotice(), paths: remainingPaths.filter(inLegacyFolder) } : null;
-      report.notes.unshift(...[remainingNotice, legacyRemaining].filter(Boolean));
+      referencesNotice = carry.references?.length ? { description: 'notice: links in files runlist does not manage are left as they are; update them yourself',
+        paths: carry.references.map(item => `${item.file} links to ${item.from}; update it to ${item.to}`) } : null;
+      report.notes.unshift(...[remainingNotice, legacyRemaining, referencesNotice].filter(Boolean));
     };
     noteRemaining(plan.carry);
     if (plan.layout.sample) report.notes.push({ description: 'An existing example sample is preserved unchanged; archive or edit it explicitly when ready', path: plan.layout.sample });

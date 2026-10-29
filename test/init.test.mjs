@@ -1208,6 +1208,28 @@ describe('a new project started by init writes nothing new into the root prompts
     ok(queue.stdout.includes('older') && queue.stdout.includes('deep'), queue.stdout);
   });
 
+  it('never rewrites a document that stays in prompts/; lists its link to a carried prompt instead', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
+    const LIBRARY = '---\ntype: doc\nstatus: active\n---\n# Library\n\n[Older](older.md)\n';
+    put('prompts/older.md', PROMPT);
+    put('prompts/library.md', LIBRARY);
+    put('notes.md', '---\ntype: doc\nstatus: active\n---\n# Notes\n\n[Older](prompts/older.md)\n');
+    const link = 'prompts/library.md links to prompts/older.md; update it to docs/prompts/older.md';
+    const before = snapshot();
+    const preview = run(['init', '--dry-run']);
+    strictEqual(preview.status, 0, preview.stderr);
+    ok(preview.stdout.includes(`Would leave links in files runlist does not manage as they are:\n  ${link}\n`), preview.stdout);
+    deepStrictEqual(snapshot(), before);
+
+    const result = run(['init']);
+    strictEqual(result.status, 0, result.stderr);
+    ok(result.stdout.includes(`Links in files runlist does not manage were left as they are:\n  ${link}\n`), result.stdout);
+    ok(result.stdout.includes('prompts/ (1 .md file) is left untouched'), result.stdout);
+    strictEqual(readFileSync(path.join(tmpDir, 'prompts/library.md'), 'utf8'), LIBRARY);
+    strictEqual(readFileSync(path.join(tmpDir, 'docs/prompts/older.md'), 'utf8'), PROMPT);
+    ok(readFileSync(path.join(tmpDir, 'notes.md'), 'utf8').includes('[Older](docs/prompts/older.md)'), 'a managed document outside prompts/ is still rewritten');
+  });
+
   it('refuses a carry collision with no config written, on dry-run and apply', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'runlist-init-'));
     put('prompts/older.md', PROMPT);
