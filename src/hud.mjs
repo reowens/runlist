@@ -1,8 +1,9 @@
+import { maskInlineCodeSpans } from './markdown-code-spans.mjs';
 import { flagsHudLine, openFlags } from './flags.mjs';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { asString, currentSessionId, hostSessionSource, isArchivedPath, relTime, shellQuote, toRepoPath } from './util.mjs';
+import { asString, currentSessionId, isArchivedPath, relTime, shellQuote, toRepoPath } from './util.mjs';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { promptDirectory } from './new.mjs';
 import { dim, yellow } from './color.mjs';
@@ -318,17 +319,23 @@ const SUBAGENT_PRIMER = [
 // verb (opening the clause, after "and"/"then", or "do a baton"), never as the
 // subject of a sentence ("baton prints its name first").
 const HANDOFF_PHRASE = /\bhand[\s-]?off\b|\bresume[\s-]prompt\b|\bsave (?:a |the )?resume\b|\bpick (?:it|this|that) (?:back )?up (?:next time|next session|later|tomorrow)\b/i;
-// Saving ordinary files is not a handoff. New save forms require both a
-// work/session object and a time marker (or explicit context pressure).
+// Save forms name the session's work and a continuation time, or explicitly
+// end the workday. "Save where we are" is itself a session snapshot request;
+// accept it at the clause end, including before a semicolon continuation.
+// Keep the suffixes narrow: progress indicators and session objects are code.
 const SESSION_SAVE = [
-  /\bsave (?:where we are|our progress)\b[^.!?;\n]*\b(?:later|tomorrow|next (?:time|session)|new session|for (?:today|now))\b/i,
-  /\bwrap up for today\b/i,
-  /\bstop here for now\b/i,
-  /\b(?:we['’]ll|we will|let['’]?s|lets) continue in (?:a |the )?new session\b/i,
-  /\bcontext is getting tight\b[^.!?;\n]*\bsave where we are\b/i,
+  /\bsave where we are\s*[.!?;]?$/i,
+  /\bsave (?:where we are|our progress) (?:for (?:later|tomorrow|now|today|next (?:time|session))|so (?:I|we) can continue (?:later|tomorrow|next (?:time|session)))\b/i,
+  /\bwrap up for (?:today|the day|tonight)\s*[.!?;]?$/i,
+  /\bstop here for now(?: and|,)? (?:continue|pick (?:it|this) up) (?:tomorrow|later|next (?:time|session))\s*[.!?;]?$/i,
+  /\bstop (?:here )?for (?:today|the day|tonight)\s*[.!?;]?$/i,
+  /\b(?:let'?s|lets) call it a day\s*[.!?;]?$/i,
+  /\b(?:we'll|we will|let'?s|lets) continue (?:in (?:a |the )?new session|tomorrow)\s*[.!?;]?$/i,
 ];
-const PICKUP_PHRASE = /\bpick up where we left off\b|\bcontinue from last time\b|\bresume where we left off\b|\bcontinue where we stopped yesterday\b|\bwhat was I working on last session\b|\bload my handoff\b/i;
-const LEAD_WORDS = String.raw`(?:(?:ok(?:ay)?|alright|right|now|then|and|also|but|so|yes|yep|great|good|cool|thanks|please|pls|go ahead and|let'?s|lets|time to)\b[,\s]*)*`;
+// Strip all explicit load/resume forms before the broad handoff save matcher.
+const LOAD_HANDOFF = String.raw`\b(?:load|resume|open|use) (?:my|the|our|that) handoff\b`;
+const PICKUP_PHRASE = String.raw`(?:(?:pick up|continue|resume) (?:from )?where (?:we|I|you) (?:left off|stopped)\b|(?:continue|resume|pick up) from (?:last (?:time|session)|yesterday)\b|${LOAD_HANDOFF}(?=\s*(?:$|[.!?;,]|and\b)))`;
+const LEAD_WORDS = String.raw`(?:(?:ok(?:ay)?|alright|right|anyway|hey|now|then|and|also|but|so|yes|yep|great|good|cool|thanks|please|pls|go ahead and|let'?s|lets|time to)\b[,\s]*)*`;
 const POLITE = String.raw`(?:(?:can|could|would|will) you (?:please )?(?:mind )?)`;
 const BATON_AS_NOUN = String.raw`(?:(?:do|doing|make|write|leave|save|pass|run|drop) (?:a |the |your |another |one more )?)`;
 // A word here after "baton" makes it the subject or a noun ("baton is",
@@ -338,20 +345,23 @@ const BATON_REQUEST = [
   new RegExp(String.raw`^${LEAD_WORDS}${POLITE}?(?:please )?${BATON_AS_NOUN}?batons?\b${NOT_A_VERB}`, 'i'),
   new RegExp(String.raw`(?:\band|\bthen|&)\s+(?:please )?${BATON_AS_NOUN}?batons?\b${NOT_A_VERB}`, 'i'),
   new RegExp(String.raw`\b(?:do|make|write|leave|save|pass) (?:a |your |another |one more )baton\b`, 'i'),
+  new RegExp(String.raw`\bcontext is getting tight,\s+(?:please )?baton\b${NOT_A_VERB}`, 'i'),
 ];
 const QUESTION_START = new RegExp(String.raw`^${LEAD_WORDS}(?:what'?s|whats|what|why|how|when|where|who|whose|which|is|isn'?t|are|aren'?t|was|wasn'?t|were|does|doesn'?t|did|didn'?t|has|have|had|should|shall|do(?! (?:a |the |your |another |one more )?baton)|(?:can|could|would|will)(?! you\b))\b`, 'i');
 
 // The harness hands background-task events to UserPromptSubmit as if typed.
 // A finished agent's report that names its handoff file is not a request.
-const SYSTEM_EVENT = /<task-notification>|\[SYSTEM NOTIFICATION\b|^\s*Delegated task \S+ \([^\n]*?\) \[[a-z]+\]:/;
+const SYSTEM_EVENT = /<task-notification>|\[SYSTEM NOTIFICATION\b|^\s*Delegated task \S+(?: \([^\n]*?\))?(?: \[[a-z_]+\]| reached a terminal state)[:.]/i;
 // This question explicitly asks to recover earlier work, rather than asking
 // how the handoff mechanism works. Other question-led clauses stay silent.
-const PICKUP_QUESTION = new RegExp(String.raw`^${LEAD_WORDS}what was I working on last session[?.!]*$`, 'i');
+const PICKUP_QUESTION = new RegExp(String.raw`^${LEAD_WORDS}(?:what was I working on (?:in the )?last session|where were we)[?.!]*$`, 'i');
+const PICKUP_REQUEST = new RegExp(String.raw`^${LEAD_WORDS}${POLITE}?(?:please )?${PICKUP_PHRASE}`, 'i');
 
 function requestText(prompt) {
   if (typeof prompt !== 'string' || SYSTEM_EVENT.test(prompt)) return '';
+  prompt = prompt.replaceAll('’', "'");
   let fence = null;
-  return prompt.split('\n').map(line => {
+  const prose = prompt.split('\n').map(line => {
     const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
     if (fence) {
       if (marker && marker[0] === fence[0] && marker.length >= fence.length
@@ -362,6 +372,7 @@ function requestText(prompt) {
     if (/^(?: {4}|\t)|^ {0,3}>/.test(line)) return '';
     return line;
   }).join('\n');
+  return maskInlineCodeSpans(prose).replace(/"[^"\n]*"/g, '');
 }
 
 function clauses(prompt) {
@@ -372,12 +383,12 @@ export function isHandoffAsk(prompt) {
   return clauses(requestText(prompt)).some(clause => !QUESTION_START.test(clause)
     && (BATON_REQUEST.some(re => re.test(clause)) || SESSION_SAVE.some(re => re.test(clause))
       // A request to load a handoff is the opposite of saving one.
-      || HANDOFF_PHRASE.test(clause.replace(/\bload my handoff\b/gi, ''))));
+      || HANDOFF_PHRASE.test(clause.replace(new RegExp(LOAD_HANDOFF, 'gi'), ''))));
 }
 
 export function isPickupAsk(prompt) {
-  return clauses(requestText(prompt)).some(clause => PICKUP_PHRASE.test(clause)
-    && (!QUESTION_START.test(clause) || PICKUP_QUESTION.test(clause)));
+  return clauses(requestText(prompt)).some(clause => PICKUP_QUESTION.test(clause)
+    || (!QUESTION_START.test(clause) && PICKUP_REQUEST.test(clause)));
 }
 
 // The repo's own definition of baton (`templates.prompt.baton` in its config),
@@ -442,8 +453,8 @@ export function pendingPromptsLine(prompts, { pickup = false } = {}) {
   const n = prompts.length;
   if (pickup) {
     const names = n <= 5 ? ` (${prompts.join(', ')})` : '';
-    const entry = hostSessionSource()?.host === 'Claude Code' ? '`/pickup` or `runlist use <name>`' : '`runlist use <name>`';
-    return `${n} pending prompt${n === 1 ? '' : 's'}${names}: ${entry} consumes one.${n > 1 ? ' Ask which one; never consume the oldest by default.' : ''}`;
+    const entry = process.env.CLAUDE_PLUGIN_ROOT?.trim() ? '`/pickup` or `runlist use <name>`' : '`runlist use <name>`';
+    return `If the user is asking to resume saved work: ${n} pending prompt${n === 1 ? '' : 's'}${names}; ${entry} consumes one (archives the prompt and claims its linked plan).${n > 1 ? ' Ask which one; never consume the oldest by default.' : ''}`;
   }
   return `${n} pending prompt${n === 1 ? '' : 's'}: resume one only when the user asks for it (\`runlist prompts\` lists them, \`runlist use <name>\` resumes one, \`runlist prompts show <name>\` peeks); never consume the oldest by default.`;
 }
@@ -456,14 +467,16 @@ function isRunlistRepo(config) {
 // archived prompts. Resolve the type directory via the same loader as hud;
 // recursive listing includes config.archiveDir without assuming its spelling.
 function handoffIntroLine(config, hud) {
-  if (hud.prompts.length || hud.hasOwnedPlans) return null;
+  // OpenCode injects hud into its system prompt every turn (plugin.js),
+  // including when RUNLIST_SESSION_ID overrides the host's identity source.
+  if (process.env.OPENCODE || process.env.OPENCODE_PID || hud.prompts.length || hud.hasOwnedPlans) return null;
   try {
     const dir = promptDirectory(config);
     if (existsSync(dir) && readdirSync(dir, { withFileTypes: true, recursive: true })
       .some(entry => entry.isFile() && entry.name.endsWith('.md'))) return null;
   } catch { return null; } // Unreadable history cannot establish a fresh repo.
-  const pickup = hostSessionSource()?.host === 'Claude Code'
-    ? '/pickup resumes it next time' : 'say "pick up where we left off" to resume next time';
+  const pickup = process.env.CLAUDE_PLUGIN_ROOT?.trim()
+    ? '/pickup resumes it next time' : 'the next session lists saved handoffs at start';
   return `[runlist] Handoffs: say "baton" to save where you are before you stop; ${pickup}.`;
 }
 

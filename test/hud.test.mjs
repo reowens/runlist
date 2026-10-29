@@ -4,7 +4,8 @@ import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, existsSync
 import path from 'node:path';
 import os from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
-import { saveRequests, pickupRequests, silentRequests, relayReport, longRequest } from './fixtures/handoff-phrases.mjs';
+import { isHandoffAsk, isPickupAsk } from '../src/hud.mjs';
+import { saveRequests, pickupRequests, silentRequests, relayReport, relayReports, mixedRequests, longRequest } from './fixtures/handoff-phrases.mjs';
 
 let tmpDir;
 const bin = path.resolve(import.meta.dirname, '..', 'bin', 'runlist.mjs');
@@ -39,7 +40,7 @@ function runCli(args, { session = 'sess-A', input, env = {} } = {}) {
     cwd: tmpDir,
     encoding: 'utf8',
     input,
-    env: { ...process.env, CLAUDE_CODE_SESSION_ID: session, PATH: process.env.PATH, ...env },
+    env: { ...process.env, CLAUDE_CODE_SESSION_ID: session, PATH: process.env.PATH, CLAUDE_PLUGIN_ROOT: path.resolve(import.meta.dirname, '..', 'plugins', 'runlist'), OPENCODE: '', OPENCODE_PID: '', ...env },
   });
 }
 
@@ -87,11 +88,30 @@ describe('runlist hud', () => {
     for (const variable of ['CODEX_THREAD_ID', 'CODEX_SESSION_ID']) {
       const r = runCli(['hud'], { env: {
         RUNLIST_SESSION_ID: '', DOTMD_SESSION_ID: '', CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '',
-        CODEX_THREAD_ID: '', CODEX_SESSION_ID: '', [variable]: 'codex-sample',
+        CODEX_THREAD_ID: '', CODEX_SESSION_ID: '', CLAUDE_PLUGIN_ROOT: '', [variable]: 'codex-sample',
       } });
       strictEqual(r.status, 0, r.stderr);
-      ok(r.stdout.includes('say "pick up where we left off"'), r.stdout);
+      ok(r.stdout.includes('the next session lists saved handoffs at start'), r.stdout);
+      ok(!r.stdout.includes('say "pick up'), r.stdout);
       ok(!r.stdout.includes('/pickup'), r.stdout);
+    }
+  });
+
+  it('offers /pickup only from the Claude plugin, regardless of session identity', () => {
+    setupProject();
+    const plugin = runCli(['hud'], { env: { RUNLIST_SESSION_ID: 'explicit-sample' } });
+    ok(plugin.stdout.includes('/pickup resumes'), plugin.stdout);
+    const manual = runCli(['hud'], { env: { CLAUDE_PLUGIN_ROOT: '' } });
+    ok(manual.stdout.includes('the next session lists saved handoffs at start'), manual.stdout);
+    ok(!manual.stdout.includes('/pickup'), manual.stdout);
+  });
+
+  it('suppresses the intro under OpenCode even with an explicit session override', () => {
+    setupProject();
+    for (const env of [{ OPENCODE: '1' }, { OPENCODE_PID: '123' }]) {
+      const r = runCli(['hud'], { env: { RUNLIST_SESSION_ID: 'opencode:sample', ...env } });
+      strictEqual(r.status, 0, r.stderr);
+      strictEqual(r.stdout, '', r.stdout);
     }
   });
 
@@ -462,16 +482,22 @@ describe('runlist hud --prompt-submit', () => {
         const r = runCli(['hud', '--prompt-submit'], { input: ask(prompt) });
         strictEqual(r.status, 0, r.stderr);
         if (!count) { strictEqual(r.stdout, '', prompt); continue; }
-        ok(r.stdout.startsWith(`[runlist] Pickup: ${count} pending prompt`), `${prompt}: ${r.stdout}`);
+        ok(r.stdout.startsWith(`[runlist] Pickup: If the user is asking to resume saved work: ${count} pending prompt`), `${prompt}: ${r.stdout}`);
         ok(r.stdout.includes('`/pickup` or `runlist use <name>` consumes one'), r.stdout);
+        ok(r.stdout.includes('archives the prompt and claims its linked plan'), r.stdout);
         strictEqual(r.stdout.includes('Ask which one'), count > 1, r.stdout);
         strictEqual(r.stdout.includes('docs/prompts/sample-1.md'), count <= 5, r.stdout);
         ok(!r.stdout.includes('held.md'), r.stdout);
         ok(!r.stdout.includes('Baton:'), r.stdout);
       }
     }
+    for (const prompt of silentRequests) {
+      const r = runCli(['hud', '--prompt-submit'], { input: ask(prompt) });
+      strictEqual(r.status, 0, r.stderr);
+      strictEqual(r.stdout, '', prompt);
+    }
     const codex = runCli(['hud', '--prompt-submit'], { input: ask('load my handoff'), env: {
-      RUNLIST_SESSION_ID: '', DOTMD_SESSION_ID: '', CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '', CODEX_THREAD_ID: 'codex-sample',
+      RUNLIST_SESSION_ID: '', DOTMD_SESSION_ID: '', CLAUDE_CODE_SESSION_ID: '', CLAUDE_SESSION_ID: '', CODEX_THREAD_ID: 'codex-sample', CLAUDE_PLUGIN_ROOT: '',
     } });
     ok(codex.stdout.includes('`runlist use <name>` consumes one'), codex.stdout);
     ok(!codex.stdout.includes('/pickup'), codex.stdout);
@@ -481,9 +507,14 @@ describe('runlist hud --prompt-submit', () => {
     const docsDir = setupProject();
     mkdirSync(path.join(docsDir, 'prompts'), { recursive: true });
     writeFileSync(path.join(docsDir, 'prompts', 'sample.md'), '---\ntype: prompt\nstatus: pending\n---\nSample.');
-    const r = runCli(['hud', '--prompt-submit'], { input: ask('load my handoff; then baton') });
-    ok(r.stdout.startsWith('[runlist] Baton:'), r.stdout);
-    ok(!r.stdout.includes('Pickup:'), r.stdout);
+    for (const prompt of mixedRequests) {
+      ok(isHandoffAsk(prompt), prompt);
+      ok(isPickupAsk(prompt), prompt);
+      const r = runCli(['hud', '--prompt-submit'], { input: ask(prompt) });
+      strictEqual(r.status, 0, r.stderr);
+      ok(r.stdout.startsWith('[runlist] Baton:'), r.stdout);
+      ok(!r.stdout.includes('Pickup:'), r.stdout);
+    }
   });
 
   it('ignores relays, quoted lines and code for both save and pickup requests', () => {
@@ -492,6 +523,7 @@ describe('runlist hud --prompt-submit', () => {
     writeFileSync(path.join(docsDir, 'prompts', 'sample.md'), '---\ntype: prompt\nstatus: pending\n---\nSample.');
     const ignored = [
       ...['completed', 'failed', 'cancelled', 'running'].map(relayReport),
+      ...relayReports,
       '```text\nbaton\nload my handoff\n```',
       '````text\n```\nbaton\nload my handoff\n````',
       '    baton\n    load my handoff',
@@ -635,4 +667,17 @@ describe('hud dead claims', () => {
     strictEqual(j.deadClaims.length, 1);
     strictEqual(j.deadClaims[0].plan, 'docs/plans/wedged.md');
   });
+});
+
+describe('handoff phrase classification', () => {
+  for (const [label, phrases] of [['SAVE', saveRequests], ['PICKUP', pickupRequests], ['silent', [...silentRequests, ...relayReports]]]) {
+    it(`classifies ${label} phrases, including uppercase and curly apostrophes`, () => {
+      for (const phrase of phrases) {
+        for (const text of [phrase, phrase.toUpperCase(), phrase.replaceAll("'", '’')]) {
+          strictEqual(isHandoffAsk(text), label === 'SAVE', text);
+          strictEqual(isPickupAsk(text), label === 'PICKUP', text);
+        }
+      }
+    });
+  }
 });

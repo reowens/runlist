@@ -10,9 +10,8 @@
 #
 # Usage: runlist-hook [--hint] <runlist-subcommand> [args...]
 #   --hint  emit a one-line install hint to stdout when no CLI is on PATH.
-#           Only SessionStart passes this, so the hint surfaces exactly once
-#           per session (stdout from a SessionStart hook becomes context the
-#           model sees) — never on every SubagentStart / CwdChanged / guard.
+#           Only SessionStart passes this, so the hint surfaces once per hook
+#           invocation (stdout becomes session context), never on a tool call.
 #
 # When the CLI is missing we always exit 0 with no further output: hooks must
 # stay non-blocking, and the PreToolUse guard in particular must never deny a
@@ -34,7 +33,7 @@ else
   exit 0
 fi
 
-# PreToolUse fast path: the guard fires on EVERY Bash/Read/Edit/Write call, and
+# PreToolUse fast path: the guard fires on matched tool calls, and
 # a full Node boot (~100ms: CLI startup + config discovery) is pure overhead for
 # the vast majority of payloads no guard rule can possibly match. Every rule
 # needs a `.md` path AND either a prompts/ path (commit/cat/read-prompt) or the
@@ -68,15 +67,18 @@ if [ "$1" = "guard" ]; then
   exit 0
 fi
 
-# UserPromptSubmit fast path: this fires on every user message, and only a
-# message that asks for a handoff gets an answer. The glob is strictly weaker
+# UserPromptSubmit fast path: Claude Code runs this on every user message;
+# Codex retains the wrapper but registers no prompt hook. Only a handoff or
+# pickup request gets an answer. The glob is strictly weaker
 # than the Node-side match, so a skipped payload could never have matched.
 if [ "$1" = "hud" ] && [ "$2" = "--prompt-submit" ]; then
   # Time/session markers gate the new forms; save/continue alone stay cheap.
   # Keep next/last time and context-tight forms too, not just session/tomorrow.
+  # Never match bare session: every payload carries session_id. The other
+  # markers do not occur in standard payload keys.
   payload=$(cat)
   case "$payload" in
-    *[Bb][Aa][Tt][Oo][Nn]*|*[Hh][Aa][Nn][Dd]*[Oo][Ff][Ff]*|*[Rr][Ee][Ss][Uu][Mm][Ee]*|*[Pp][Ii][Cc][Kk]*[Uu][Pp]*|*[Ll][Aa][Tt][Ee][Rr]*|*[Tt][Oo][Mm][Oo][Rr][Rr][Oo][Ww]*|*[Tt][Oo][Dd][Aa][Yy]*|*[Yy][Ee][Ss][Tt][Ee][Rr][Dd][Aa][Yy]*|*[Ff][Oo][Rr]*[Nn][Oo][Ww]*|*[Ss][Ee][Ss][Ss][Ii][Oo][Nn]*|*[Nn][Ee][Xx][Tt]*[Tt][Ii][Mm][Ee]*|*[Ll][Aa][Ss][Tt]*[Tt][Ii][Mm][Ee]*|*[Cc][Oo][Nn][Tt][Ee][Xx][Tt]*[Tt][Ii][Gg][Hh][Tt]*)
+    *[Bb][Aa][Tt][Oo][Nn]*|*[Hh][Aa][Nn][Dd]*[Oo][Ff][Ff]*|*[Rr][Ee][Ss][Uu][Mm][Ee]*|*[Pp][Ii][Cc][Kk]*[Uu][Pp]*|*[Ll][Aa][Tt][Ee][Rr]*|*[Tt][Oo][Mm][Oo][Rr][Rr][Oo][Ww]*|*[Tt][Oo][Dd][Aa][Yy]*|*[Yy][Ee][Ss][Tt][Ee][Rr][Dd][Aa][Yy]*|*[Ff][Oo][Rr]*[Nn][Oo][Ww]*|*[Nn][Ee][Xx][Tt]*[Ss][Ee][Ss][Ss][Ii][Oo][Nn]*|*[Nn][Ee][Ww]*[Ss][Ee][Ss][Ss][Ii][Oo][Nn]*|*[Ll][Aa][Ss][Tt]*[Ss][Ee][Ss][Ss][Ii][Oo][Nn]*|*[Nn][Ee][Xx][Tt]*[Tt][Ii][Mm][Ee]*|*[Ll][Aa][Ss][Tt]*[Tt][Ii][Mm][Ee]*|*[Cc][Oo][Nn][Tt][Ee][Xx][Tt]*[Tt][Ii][Gg][Hh][Tt]*|*[Ww][Hh][Ee][Rr][Ee]*|*[Dd][Aa][Yy]*|*[Tt][Oo][Nn][Ii][Gg][Hh][Tt]*)
       printf '%s' "$payload" | "$CLI" "$@"
       exit 0
       ;;

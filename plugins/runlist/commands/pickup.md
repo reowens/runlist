@@ -5,16 +5,14 @@ allowed-tools: "Bash(runlist:*), Bash(rl:*), Bash(dotmd:*)"
 
 Resume saved work. The user's `/pickup` is the request to consume a handoff.
 
-- With `$ARGUMENTS`: survey `runlist prompts --status pending --all --json`
-  to check eligibility, then consume that prompt with `runlist use <name>`.
-  Held prompts are not candidates: if the named prompt is held, explain that it must be
-  unheld explicitly before pickup.
-- Without arguments: run `runlist prompts --status pending --all --json` to
-  survey the full pending queue. Exclude held prompts. With exactly one pending prompt, consume it with
-  `runlist use <name>` using its explicit name.
-- With several pending prompts: list their names, ages, titles, and linked plans
-  when available cheaply from the queue metadata.
-  Ask which one to resume; never consume the oldest by default.
+- If arguments were given (`$ARGUMENTS`), run `runlist use "$ARGUMENTS"`
+  directly. Let the CLI resolve the name and report any eligibility error.
+- Without arguments: run `runlist prompts list --status pending --all` for a
+  compact survey of the full pending queue. Only pending prompts are candidates.
+  With exactly one pending prompt, consume it with `runlist use <name>` using
+  its explicit name.
+- With several pending prompts: list their names, ages, and titles from the
+  compact survey. Ask which one to resume; never consume the oldest by default.
 - With none pending: say there are no pending handoffs and point to
   `runlist plans` for in-flight plans.
 

@@ -4,7 +4,8 @@ import { mkdtempSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { saveRequests, pickupRequests } from './fixtures/handoff-phrases.mjs';
+import { isHandoffAsk, isPickupAsk } from '../src/hud.mjs';
+import { saveRequests, pickupRequests, mixedRequests, longRequest } from './fixtures/handoff-phrases.mjs';
 
 // The plugin's hooks all run through this wrapper. Its contract:
 //   - dotmd off PATH + --hint (SessionStart)      → one install-hint line, exit 0
@@ -105,7 +106,7 @@ describe('plugin hook wrapper (dotmd present)', { skip: process.platform === 'wi
   // UserPromptSubmit fires on every message; only a handoff request should pay
   // for a Node start, and a failing CLI (an older one without the flag) must
   // never turn a message into a hook error.
-  it('runs the prompt hook only for handoff requests, always exiting 0', () => {
+  it('keeps both prompt globs weaker than Node and skips realistic quiet payloads', t => {
     const binDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-fakebin-'));
     try {
       const fake = path.join(binDir, 'runlist');
@@ -113,19 +114,29 @@ describe('plugin hook wrapper (dotmd present)', { skip: process.platform === 'wi
       chmodSync(fake, 0o755);
       const hook = ['hud', '--prompt-submit'];
       const scripts = [wrapper, path.resolve(import.meta.dirname, '..', 'plugins', 'runlist-codex', 'bin', 'runlist-hook')];
-      const requests = ['Baton this', 'can you HAND OFF', 'save a resume prompt', 'pick it up next time', ...saveRequests, ...pickupRequests];
+      const requests = ['Baton this', 'can you HAND OFF', 'save a resume prompt', 'pick it up next time', ...saveRequests, ...pickupRequests, ...mixedRequests, longRequest];
+      let positives = 0;
+      const payload = prompt => JSON.stringify({
+        session_id: 'synthetic-id', transcript_path: '/tmp/synthetic-log.jsonl', cwd: '/tmp/synthetic-repo',
+        hook_event_name: 'UserPromptSubmit', permission_mode: 'default', prompt,
+      });
       for (const script of scripts) {
-        for (const prompt of requests.flatMap(text => [text, text.toUpperCase()])) {
-          const r = runHook(hook, binDir, JSON.stringify({ prompt }), script);
+        for (const prompt of requests.flatMap(text => [text, text.toUpperCase(), text.replaceAll("'", '’'), text.replaceAll(' ', '\t'), text.replaceAll(' ', '\u00a0')])) {
+          // Normalize apostrophes exactly as the matcher does before checking coverage.
+          const normalized = prompt.replaceAll('’', "'");
+          if (!isHandoffAsk(normalized) && !isPickupAsk(normalized)) continue;
+          positives++;
+          const r = runHook(hook, binDir, payload(prompt), script);
           strictEqual(r.status, 0, r.stderr);
           match(r.stdout, /FAKE-RUNLIST: hud --prompt-submit/, `${script}: ${prompt}`);
         }
         for (const prompt of ['fix the flaky test', 'save the file', 'continue with the next step']) {
-          const quiet = runHook(hook, binDir, JSON.stringify({ prompt }), script);
+          const quiet = runHook(hook, binDir, payload(prompt), script);
           strictEqual(quiet.status, 0);
           strictEqual(quiet.stdout, '');
         }
       }
+      t.diagnostic(`${positives} Node-positive variants across both wrappers; none skipped`);
     } finally {
       rmSync(binDir, { recursive: true, force: true });
     }

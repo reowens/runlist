@@ -4,12 +4,14 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ## Unreleased
 
-### Fixed
+### Added
 
 - Newcomer handoffs have a `/pickup` command, distinct save/pickup hints, and a
   session-start introduction until the first saved prompt. Hints recognize
   session/time-qualified save requests and ignore relayed task reports, quoted
   lines, and code blocks without building the document index.
+
+### Fixed
 
 - Host installs warn when hooks lack a persistent CLI on PATH, checking the
   names hooks call and excluding npx, pnpm 8–11 dlx (including custom cache paths),
