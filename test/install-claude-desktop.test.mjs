@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -24,12 +24,17 @@ test('install claude without the claude CLI prints the documented terminal comma
   }
 });
 
-test('install claude --remove without the claude CLI does not suggest the install route', () => {
+test('install claude --remove without the claude CLI prints only the uninstall step', () => {
   const home = mkdtempSync(path.join(os.tmpdir(), 'runlist-install-desktop-'));
   try {
-    const env = { ...process.env, HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: path.join(home, '.claude'), NO_COLOR: '1', PATH: path.dirname(process.execPath) };
+    const configDir = path.join(home, '.claude');
+    mkdirSync(path.join(configDir, 'plugins'), { recursive: true });
+    writeFileSync(path.join(configDir, 'plugins', 'installed_plugins.json'), JSON.stringify({ version: 2, plugins: { 'runlist@runlist': [{ scope: 'user', version: '1.0.0', installPath: path.join(home, 'cache') }] } }));
+    const env = { ...process.env, HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: configDir, NO_COLOR: '1', PATH: path.dirname(process.execPath) };
     const result = spawnSync(process.execPath, [bin, 'install', 'claude', '--remove'], { cwd: home, encoding: 'utf8', env });
-    assert.doesNotMatch(result.stdout, /In Claude Desktop instead/);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /\/plugin uninstall runlist@runlist/);
+    assert.doesNotMatch(result.stdout, /plugin marketplace add|plugin install|Install the Claude Code CLI|Add plugins/);
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

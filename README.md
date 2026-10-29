@@ -35,8 +35,10 @@ instead of from a blank page.
 
    `runlist setup` shows what it will create (a `runlist.config.mjs` and a
    `docs/` folder) and asks before writing; add `--yes` to accept those defaults
-   without questions. Do this before your first handoff: saving a handoff in a
-   project with no config puts it where a later setup will not look. Terminal
+   without questions. Without an interactive terminal it only previews, so
+   rerun it with `--yes` to apply. Do this before your first handoff: saving a
+   handoff in a project with no config puts it where a later setup will not
+   look. Terminal
    sessions, Claude Desktop's **Code** tab (local sessions) and VS Code read the
    same plugin settings, so one install covers them all. Start a new session
    afterwards, or run `/reload-plugins` in one that is already open.
@@ -56,9 +58,12 @@ instead of from a blank page.
 If a session hook says it found neither `runlist` nor `dotmd` on its PATH, either
 runlist is not installed yet or the app is searching a different PATH than your
 terminal. In a terminal, compare `command -v runlist` and `echo $PATH` with the
-PATH the hook printed. If runlist is installed but its folder (`npm prefix -g`
-plus `/bin`) is missing from the hook's PATH, add that folder to your shell
-profile, then fully quit and reopen Claude Desktop (see Anthropic's
+PATH the hook printed (on Windows, `where runlist`). If runlist is installed but
+its folder is missing from the hook's PATH, add that folder, then
+fully quit and reopen Claude Desktop. On macOS and Linux the folder is `npm prefix -g` plus
+`/bin`, and it goes in your shell profile. On Windows it is the `npm prefix -g`
+folder itself, and it goes in your user environment variables, because Claude
+Desktop does not read PowerShell profiles (see Anthropic's
 [Desktop troubleshooting](https://code.claude.com/docs/en/desktop#session-not-finding-installed-tools)).
 
 This quick path uses Claude Code (the Code tab in Claude Desktop, or a terminal)

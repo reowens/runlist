@@ -34,7 +34,7 @@ else
     searched=$(printf '%.200s' "$PATH")
     [ "${#PATH}" -gt 200 ] && searched="$searched..."
     printf '%s\n' "runlist plugin: neither runlist nor dotmd was found on the PATH this app sees, so its hooks are doing nothing here. PATH searched: $searched"
-    printf '%s\n' 'Not installed yet? Run `npm install -g runlist`, then fully quit and reopen the app. Installed already? In a terminal compare `command -v runlist` and `echo $PATH` with the PATH above. If the folder holding runlist (`npm prefix -g` plus /bin) is missing here, add it to your shell profile, then fully quit and reopen the app.'
+    printf '%s\n' 'Not installed yet? Run `npm install -g runlist`, then fully quit and reopen the app. Installed already? In a terminal compare `command -v runlist` and `echo $PATH` with the PATH above. If the folder holding runlist is missing here, add it, then fully quit and reopen the app: on macOS/Linux `npm prefix -g` plus /bin, in your shell profile; on Windows the `npm prefix -g` folder itself, in your user environment variables.'
   fi
   exit 0
 fi

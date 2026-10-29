@@ -38,7 +38,7 @@ describe('plugin hook wrapper (missing dotmd binary)', { skip: process.platform 
       ok(r.stdout.includes(`PATH searched: ${emptyDir}`), 'shows the PATH it searched');
       match(r.stdout, /Not installed yet\? Run `npm install -g runlist`, then fully quit and reopen the app/);
       match(r.stdout, /Installed already\? In a terminal compare `command -v runlist` and `echo \$PATH` with the PATH above/);
-      match(r.stdout, /add it to your shell profile, then fully quit and reopen the app/);
+      match(r.stdout, /add it, then fully quit and reopen the app: on macOS\/Linux `npm prefix -g` plus \/bin, in your shell profile; on Windows the `npm prefix -g` folder itself, in your user environment variables\./);
       ok(!/doctor --session/.test(r.stdout), 'doctor --session reports session identity, not PATH');
       ok(!/restart the app from a terminal/.test(r.stdout), 'no unsupported terminal-restart advice');
       ok(!/npm i -g/.test(r.stdout), 'one spelling of the install command');
