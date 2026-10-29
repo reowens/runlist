@@ -1,7 +1,8 @@
+import { mkdirStateSync as mkdirSync } from './state-directory.mjs';
 // Human-scoped yardstick reviews share CLI assessment and archive semantics.
 import { fork } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, lstatSync, mkdirSync, readdirSync, openSync, fsyncSync, closeSync } from 'node:fs';
+import { existsSync, readFileSync, lstatSync, readdirSync, openSync, fsyncSync, closeSync } from 'node:fs';
 import path from 'node:path';
 import { authorizeRepoGeneratedPath, authorizeManagedDestination } from './managed-path.mjs';
 import { currentProcessOwner, processStartIdentity, processOwnerLiveness, inspectTransactions, withPathLocks, snapshotFile, replaceSnapshot, createFileExclusive } from './atomic-mutation.mjs';

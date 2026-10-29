@@ -57,6 +57,34 @@ function snapshot(directory = repo) {
 }
 
 describe('zero-setup handoffs: the first baton configures the repository', () => {
+  it('keeps all local state out of Git after the first baton and pickup', () => {
+    ok(['baton', 'synthetic-state', draft()]);
+    ok(['use', 'resume-synthetic-state']);
+    assert.equal(read('.runlist/.gitignore'), '*\n');
+    assert.ok(!has('.gitignore'), 'does not create repository ignore rules');
+    const status = spawnSync('git', ['status', '--short', '-uall'], { cwd: repo, encoding: 'utf8' });
+    assert.equal(status.status, 0, status.stderr);
+    assert.doesNotMatch(status.stdout, /\.runlist\//);
+  });
+
+  it('preserves an existing local-state ignore file', () => {
+    put('.gitignore', '# synthetic repository rules\n');
+    put('.runlist/.gitignore', '# synthetic user rules\n*\n');
+    ok(['baton', 'synthetic-ignore', draft()]);
+    ok(['use', 'resume-synthetic-ignore']);
+    assert.equal(read('.runlist/.gitignore'), '# synthetic user rules\n*\n');
+    assert.equal(read('.gitignore'), '# synthetic repository rules\n');
+  });
+
+  it('asks to commit the config only when saving the first prompt', () => {
+    for (const command of [['baton', 'synthetic-first', draft()], ['new', 'prompt', 'synthetic-next', draft()]]) {
+      const result = ok(command);
+      const output = result.stdout + result.stderr;
+      if (command[0] === 'baton') assert.match(output, /Commit runlist\.config\.mjs[^\n]*promptTracking/);
+      else assert.doesNotMatch(output, /Commit runlist\.config\.mjs/);
+    }
+  });
+
   for (const layout of ['docs', 'no-docs']) it(`saves, lists, surfaces and consumes a handoff with no setup step (${layout})`, () => {
     const userDoc = '# Design notes\n\nA user document with no frontmatter.\n';
     if (layout === 'docs') put('docs/design.md', userDoc);
@@ -233,7 +261,7 @@ describe('handoffs-only hints and wording', () => {
     assert.doesNotMatch(save, /no runlist config here yet/);
     assert.doesNotMatch(save, PLAN_TALK);
     const pickup = hint('pick up where we left off');
-    assert.match(pickup, /1 pending prompt \(docs\/prompts\/resume-exporter\.md\); `\/pickup` or `runlist use <name>` consumes one \(archives the prompt and prints it\)/);
+    assert.match(pickup, /1 pending prompt \(docs\/prompts\/resume-exporter\.md\); `\/runlist:pickup` or `runlist use <name>` consumes one \(archives the prompt and prints it\)/);
     assert.doesNotMatch(pickup, PLAN_TALK);
     const subagent = ok(['hud', '--subagent']).stdout;
     assert.match(subagent, /planning is off/);
@@ -598,7 +626,7 @@ describe('handoffs-only wording beyond the hook', () => {
     ok(['baton', 'exporter', draft()]);
     const bare = cli(['baton'], { input: '' });
     assert.equal(bare.status, 1);
-    assert.match(bare.stderr, /runlist baton <slug> @\/tmp\/draft\.md/);
+    assert.match(bare.stderr, /runlist baton <slug> @<draft-file>/);
     assert.doesNotMatch(bare.stderr, PLAN_TALK);
     const done = cli(['baton', '--done']);
     assert.equal(done.status, 1);

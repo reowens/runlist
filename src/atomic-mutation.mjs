@@ -1,3 +1,4 @@
+import { mkdirStateSync as mkdirSync } from './state-directory.mjs';
 import {
   closeSync,
   existsSync,
@@ -6,7 +7,6 @@ import {
   fsyncSync,
   linkSync,
   lstatSync,
-  mkdirSync,
   openSync,
   readFileSync,
   readdirSync,

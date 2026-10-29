@@ -4,9 +4,9 @@ when_to_use: "Use when the user says pick up where we left off, where were we, r
 allowed-tools: "Bash(runlist:*), Bash(rl:*), Bash(dotmd:*)"
 ---
 
-Resume saved work. The user's `/pickup` is the request to consume a handoff.
+Resume saved work. The user's `/runlist:pickup` is the request to consume a handoff.
 
-- If arguments were given (`$ARGUMENTS`), run `runlist use "$ARGUMENTS"`
+- With a name supplied in the command arguments, run `runlist use <name>`
   directly, including a named held prompt: naming it is the user's explicit
   request. Let the CLI resolve the name and report any eligibility error.
 - Without arguments: run `runlist prompts list --status pending --all` for a

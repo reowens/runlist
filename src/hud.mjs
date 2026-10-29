@@ -510,7 +510,7 @@ export function pendingPromptsLine(prompts, { pickup = false, planning = true } 
   const n = prompts.length;
   if (pickup) {
     const names = n <= 5 ? ` (${prompts.join(', ')})` : '';
-    const entry = hasPickupCommand() ? '`/pickup` or `runlist use <name>`' : '`runlist use <name>`';
+    const entry = hasPickupCommand() ? '`/runlist:pickup` or `runlist use <name>`' : '`runlist use <name>`';
     const effect = planning ? 'archives the prompt and claims its linked plan' : 'archives the prompt and prints it';
     return `If the user is asking to resume saved work: ${n} pending prompt${n === 1 ? '' : 's'}${names}; ${entry} consumes one (${effect}).${n > 1 ? ' Ask which one; never consume the oldest by default.' : ''}`;
   }
@@ -541,7 +541,7 @@ function handoffIntroLine(config, hud) {
       .some(entry => entry.isFile() && entry.name.endsWith('.md'))) return null;
   } catch { return null; } // Unreadable history cannot establish a fresh repo.
   const pickup = hasPickupCommand()
-    ? '/pickup resumes it next time' : 'the next session lists saved handoffs at start';
+    ? '/runlist:pickup resumes it next time' : 'the next session lists saved handoffs at start';
   return `[runlist] Handoffs: say "baton" to save where you are before you stop; ${pickup}.`;
 }
 
@@ -599,7 +599,7 @@ export function runHud(argv, config) {
   if (flagsLine) queue.push(flagsLine);
   if (queue.length) process.stdout.write(yellow(`[runlist] ${queue.join(' ')}`) + '\n');
   if (hud.owned && hud.owned.via === 'ownership') {
-    process.stdout.write(yellow(`[runlist] in-session (yours): ${hud.owned.path} — continue it; hand off with \`runlist baton @/tmp/draft.md\` before stopping.`) + '\n');
+    process.stdout.write(yellow(`[runlist] in-session (yours): ${hud.owned.path} — continue it; hand off with \`runlist baton @<draft-file>\` before stopping.`) + '\n');
   }
   // A handoff this session started and did not finish (a compaction or a stop
   // between saving the prompt and updating the plan). Where planning is off

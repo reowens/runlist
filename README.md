@@ -43,9 +43,9 @@ instead of from a blank page. There is no setup step.
    sessions).
 2. **Stop with a handoff.** In a Claude Code session in your project's Git
    repository (terminal or Desktop's Code tab), say "baton" or "save where we
-   are", or type `/baton`. The first handoff in a project also writes a small
+   are", or type `/runlist:baton`. The first handoff in a project also writes a small
    `runlist.config.mjs` and keeps handoffs in `docs/prompts/`.
-3. **Pick it up next time.** In a new session, type `/pickup` or say "pick up
+3. **Pick it up next time.** In a new session, type `/runlist:pickup` or say "pick up
    where we left off".
 
 Planning is optional: when you want plans, docs and an index, run `runlist
@@ -70,8 +70,8 @@ handoffs live in `docs/prompts/`.
 
 What works:
 
-- Saving: say "baton" or "save where we are", or type `/baton`.
-- Picking up: `/pickup`, or `runlist use [<name>]` in a session, consumes a
+- Saving: say "baton" or "save where we are", or type `/runlist:baton`.
+- Picking up: `/runlist:pickup`, or `runlist use [<name>]` in a session, consumes a
   handoff (archives it and prints it).
 - `runlist prompts` lists the saved handoffs; `runlist prompts show <name>`
   reads one without consuming it.
@@ -398,8 +398,8 @@ then uninstalls the old plugin, so its hooks do not run twice.
 
 The plugin provides SessionStart and SubagentStart orientation, a
 UserPromptSubmit hint that gives the exact `runlist baton` form when you ask for
-a handoff, a PreToolUse guard, the canonical workflow skill, and `/plans`,
-`/docs`, `/prompts`, and `/baton` commands.
+a handoff, a PreToolUse guard, the canonical workflow skill, and `/runlist:plans`,
+`/runlist:docs`, `/runlist:prompts`, and `/runlist:baton` commands.
 
 ### OpenCode Plugin
 

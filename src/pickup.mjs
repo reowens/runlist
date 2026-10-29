@@ -1,5 +1,6 @@
+import { mkdirStateSync as mkdirSync } from './state-directory.mjs';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { authorizeManagedSource, authorizeRepoGeneratedPath } from './managed-path.mjs';
 import os from 'node:os';

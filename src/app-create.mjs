@@ -1,5 +1,6 @@
+import { mkdirStateSync as mkdirSync } from './state-directory.mjs';
 import {createHash} from 'node:crypto';
-import {existsSync, lstatSync, mkdirSync, readFileSync, readdirSync} from 'node:fs';
+import {existsSync, lstatSync, readFileSync, readdirSync} from 'node:fs';
 import path from 'node:path';
 import {appDocumentTemplates, catchAllRoot, renderAppDocument} from './new.mjs';
 import {readTemplateStore} from './template-store.mjs';

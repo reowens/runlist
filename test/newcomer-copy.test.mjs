@@ -78,7 +78,7 @@ test('README quick path is install, baton, /pickup — no setup step, planning o
   assert.match(path3, /There is no setup step\./);
   assert.match(path3, /^1\. \*\*Install\*\* \(once, in a terminal\):/m);
   assert.match(path3, /^2\. \*\*Stop with a handoff\.\*\*/m);
-  assert.match(path3, /^3\. \*\*Pick it up next time\.\*\* In a new session, type `\/pickup`/m);
+  assert.match(path3, /^3\. \*\*Pick it up next time\.\*\* In a new session, type `\/runlist:pickup`/m);
   const steps = path3.slice(path3.indexOf('1. **Install'), path3.indexOf('Planning is optional'));
   assert.doesNotMatch(steps, /runlist setup/, 'setup is not a step before the first handoff');
   assert.match(steps, /first handoff in a project also writes a small\s+`runlist\.config\.mjs`/);
@@ -99,7 +99,7 @@ test('README quick path is install, baton, /pickup — no setup step, planning o
 test('/baton, /plans and both skills lead with handoffs and keep plan steps conditional', () => {
   const baton = read('plugins/runlist/commands/baton.md');
   const verb = baton.slice(baton.indexOf('2. **'), baton.indexOf('3. **'));
-  assert.ok(verb.indexOf('runlist baton <slug> @/tmp/baton.md') < verb.indexOf('runlist baton @/tmp/baton.md'), 'slug form first');
+  assert.ok(verb.indexOf('runlist baton <slug> @<draft-file>') < verb.indexOf('runlist baton @<draft-file>'), 'slug form first');
   assert.match(verb, /Pick the slug yourself/);
   assert.match(verb, /\*\*Only in a project that uses plans\*\*/);
   assert.match(read('plugins/runlist/commands/plans.md'), /If it says planning is off, relay that line and stop/);
@@ -119,4 +119,14 @@ test('GETTING_STARTED points source review at the checkout section', () => {
   const guide = read('GETTING_STARTED.md');
   assert.match(guide, /\(README\.md#checkout-review-and-migration\)/);
   assert.match(read('README.md'), /^### Checkout review and migration$/m);
+});
+
+
+test('Claude command guidance uses registered names and private draft placeholders', () => {
+  for (const file of ['baton', 'pickup', 'plans', 'docs', 'prompts']) {
+    const body = read(`plugins/runlist/commands/${file}.md`);
+    assert.doesNotMatch(body, /(?<![\w/:.-])\/(?:pickup|baton|plans|docs|prompts)(?![\w/.*-])/);
+    assert.doesNotMatch(body, /\/tmp\/(?:baton|draft)\.md|runlist use "\$ARGUMENTS"/);
+  }
+  assert.match(read('plugins/runlist/commands/baton.md'), /fresh temporary file.*mktemp/);
 });

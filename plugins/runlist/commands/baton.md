@@ -1,19 +1,19 @@
 ---
-description: "Save where you are so the next session can pick it up (a “baton”). /pickup is the other half."
+description: "Save where you are so the next session can pick it up (a “baton”). /runlist:pickup is the other half."
 when_to_use: "Use when the user says baton (“baton this”, “baton now”, “baton those items”), save where we are, save a resume, hand off, wrap up, or pick it up next time, or when context is getting tight."
 allowed-tools: "Bash(runlist:*), Bash(rl:*), Bash(dotmd:*), Bash(git commit:*), Write, Edit"
 ---
 
-Save a resume prompt for the work in flight (and, in a project that uses plans, bring the plans up to date). The user's `/baton` (or "baton", "save where we are", "hand off", "pick it up next time") is the request. The next session loads it with `/pickup`. If the repo defines baton (`templates.prompt.baton` in its runlist config, printed by the hook when the user asks for a baton), that definition wins wherever it differs from the steps below.
+Save a resume prompt for the work in flight (and, in a project that uses plans, bring the plans up to date). The user's `/runlist:baton` (or "baton", "save where we are", "hand off", "pick it up next time") is the request. The next session loads it with `/runlist:pickup`. If the repo defines baton (`templates.prompt.baton` in its runlist config, printed by the hook when the user asks for a baton), that definition wins wherever it differs from the steps below.
 
 Start with `runlist baton --template` if useful. Resume and subagent outlines can be customized in the Runlist desktop app's Templates editor (`runlist.templates.json`; not a Claude Desktop feature); repository baton instructions still apply.
 
-1. **Write the draft** to a temp file (`/tmp/baton.md`): 10–20 lines — the next concrete decision plus any gotchas, NOT a recap. Reference the relevant file paths inside the draft so the next session can orient.
+1. **Write the draft** to a fresh temporary file of your own (for example, a path from `mktemp`): 10–20 lines — the next concrete decision plus any gotchas, NOT a recap. Reference the relevant file paths inside the draft so the next session can orient.
 
 2. **Run the verb.** If this session owns an in-session plan, use the plan form further down (no slug) so the plan is handed off with the prompt. Otherwise — the usual case, and the only one when the project has no runlist config yet or `runlist plans` says planning is off:
 
    ```bash
-   runlist baton <slug> @/tmp/baton.md         # saves resume-<slug>, touches NOTHING else
+   runlist baton <slug> @<draft-file>         # saves resume-<slug>, touches NOTHING else
    ```
 
    Pick the slug yourself: a few words naming the work (`checkout-totals`); never ask the user to name it. In a Git repository with no runlist config, this first baton also writes a handoffs-only `runlist.config.mjs` and keeps prompts in `docs/prompts/`, first moving any an older runlist saved in a root `prompts/`; relay what baton prints about that. The user saying "save a resume prompt for this" does NOT require a plan — slug mode exists precisely for that.
@@ -21,12 +21,12 @@ Start with `runlist baton --template` if useful. Resume and subagent outlines ca
    **Only in a project that uses plans**, when this session owns an in-session plan:
 
    ```bash
-   runlist baton @/tmp/baton.md                # saves resume-<plan-slug>, flips the plan
+   runlist baton @<draft-file>                # saves resume-<plan-slug>, flips the plan
                                              # in-session → active, prints the exact commit
    ```
 
    Variations (plan mode only):
-   - `runlist baton <plan-file> @/tmp/baton.md` — when baton can't tell which plan is yours.
+   - `runlist baton <plan-file> @<draft-file>` — when baton can't tell which plan is yours.
    - `--status paused|awaiting|partial|blocked` — when the plan's reality changed; default `active` is right for plain "work continues".
    - `--note "why"` — records the reason in `## Version History` in the same call.
 
@@ -51,7 +51,7 @@ Start with `runlist baton --template` if useful. Resume and subagent outlines ca
 
 ## Subagents (only when you are a delegated agent)
 
-Delegated agents use `runlist baton --subagent <task-slug> @/tmp/baton.md`,
+Delegated agents use `runlist baton --subagent <task-slug> @<draft-file>`,
 which saves `subagent-<task-slug>`. Under a parent-owned plan, choose a distinct
 task slug that does not resolve to a plan; do not release the parent's claim.
 A child owning a dedicated plan can pass `<plan-file>` with `--subagent`.

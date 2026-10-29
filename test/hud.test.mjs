@@ -78,7 +78,7 @@ describe('runlist hud', () => {
     const r = runCli(['hud']);
     strictEqual(r.status, 0, `hud failed: ${r.stderr}`);
     ok(r.stdout.includes('[runlist] Handoffs: say "baton"'), r.stdout);
-    ok(r.stdout.includes('/pickup resumes it next time'), r.stdout);
+    ok(r.stdout.includes('/runlist:pickup resumes it next time'), r.stdout);
     strictEqual(r.stdout.trim().split('\n').length, 1, r.stdout);
     ok(!/set <status>|Plan statuses/.test(r.stdout), `no command sheet or statuses; got: ${r.stdout}`);
   });
@@ -94,7 +94,7 @@ describe('runlist hud', () => {
       strictEqual(r.status, 0, r.stderr);
       ok(r.stdout.includes('the next session lists saved handoffs at start'), r.stdout);
       ok(!r.stdout.includes('say "pick up'), r.stdout);
-      ok(!r.stdout.includes('/pickup'), r.stdout);
+      ok(!r.stdout.includes('/runlist:pickup'), r.stdout);
     }
   });
 
@@ -103,10 +103,10 @@ describe('runlist hud', () => {
     const pluginRoot = path.resolve(import.meta.dirname, '..', 'plugins', 'runlist');
     ok(existsSync(path.join(pluginRoot, 'commands', 'pickup.md')));
     const plugin = runCli(['hud'], { env: { RUNLIST_SESSION_ID: 'explicit-sample', CLAUDE_PLUGIN_ROOT: pluginRoot } });
-    ok(plugin.stdout.includes('/pickup resumes'), plugin.stdout);
+    ok(plugin.stdout.includes('/runlist:pickup resumes'), plugin.stdout);
     const manual = runCli(['hud'], { env: { CLAUDE_PLUGIN_ROOT: '' } });
     ok(manual.stdout.includes('the next session lists saved handoffs at start'), manual.stdout);
-    ok(!manual.stdout.includes('/pickup'), manual.stdout);
+    ok(!manual.stdout.includes('/runlist:pickup'), manual.stdout);
   });
 
   it('suppresses the intro under OpenCode even with an explicit session override', () => {
@@ -486,7 +486,7 @@ describe('runlist hud --prompt-submit', () => {
         strictEqual(r.status, 0, r.stderr);
         if (!count) { strictEqual(r.stdout, '', prompt); continue; }
         ok(r.stdout.startsWith(`[runlist] Pickup: If the user is asking to resume saved work: ${count} pending prompt`), `${prompt}: ${r.stdout}`);
-        ok(r.stdout.includes('`/pickup` or `runlist use <name>` consumes one'), r.stdout);
+        ok(r.stdout.includes('`/runlist:pickup` or `runlist use <name>` consumes one'), r.stdout);
         ok(r.stdout.includes('archives the prompt and claims its linked plan'), r.stdout);
         strictEqual(r.stdout.includes('Ask which one'), count > 1, r.stdout);
         strictEqual(r.stdout.includes('docs/prompts/sample-1.md'), count <= 5, r.stdout);
@@ -504,7 +504,7 @@ describe('runlist hud --prompt-submit', () => {
       CLAUDE_PLUGIN_ROOT: path.resolve(import.meta.dirname, '..', 'plugins', 'runlist-codex'),
     } });
     ok(codex.stdout.includes('`runlist use <name>` consumes one'), codex.stdout);
-    ok(!codex.stdout.includes('/pickup'), codex.stdout);
+    ok(!codex.stdout.includes('/runlist:pickup'), codex.stdout);
   });
 
   it('prioritizes an explicit save request when both intents match', () => {

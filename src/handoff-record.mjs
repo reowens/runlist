@@ -1,5 +1,6 @@
+import { mkdirStateSync as mkdirSync } from './state-directory.mjs';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter, replaceFrontmatter } from './frontmatter.mjs';
 import { replaceFrontmatterField } from './frontmatter-fix.mjs';

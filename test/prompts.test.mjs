@@ -87,7 +87,7 @@ describe('runlist prompts list', () => {
     ok(olderIdx > -1 && newerIdx > -1, `expected both prompts:\n${r.stdout}`);
     ok(olderIdx < newerIdx, `oldest pending should be first:\n${r.stdout}`);
     ok(!r.stdout.includes('[NEXT]'), r.stdout);
-    match(r.stdout, /older[^\n]*\d+d old[^\n]*target unknown: unknown/);
+    match(r.stdout, /older[^\n]*\d+d old\n/);
   });
 
   it('shows explicit children on their parent line without changing the next consumed prompt', () => {
@@ -97,7 +97,7 @@ describe('runlist prompts list', () => {
     const r = run(['prompts']);
     strictEqual(r.status, 0, r.stderr);
     match(r.stdout, /resume-session[^\n]*\[PENDING\] \[\+1 subagent\]/);
-    match(r.stdout, /children: \d+-\d+d old; targets: 1 unknown/);
+    match(r.stdout, /children: \d+-\d+d old\n/);
     ok(!r.stdout.includes('subagent-review'), r.stdout);
     ok(r.stdout.indexOf('[+1 subagent]') < r.stdout.indexOf('unrelated'), r.stdout);
     const json = run(['prompts', '--json']);
@@ -141,7 +141,7 @@ describe('runlist prompts list', () => {
     for (let i = 0; i < 5; i++) writePrompt(`subagent-review-${i}`);
     const r = run(['prompts']);
     strictEqual(r.status, 0, r.stderr);
-    match(r.stdout, /\[\+5 subagent\] · \d+-\d+d old; targets: 5 unknown/);
+    match(r.stdout, /\[\+5 subagent\] · \d+-\d+d old\n/);
     ok(!r.stdout.includes('[NEXT]'), r.stdout);
     ok(!r.stdout.includes('subagent-review-'), r.stdout);
     match(r.stdout, /rl prompts --verbose/);
@@ -246,7 +246,7 @@ describe('runlist prompts list', () => {
       process.stdout.write = originalWrite;
       syncBuiltinESMExports();
     }
-    match(output, /resume-widget[^\n]*target unknown: unknown/);
+    match(output, /resume-widget[^\n]*\d+d old\n/);
     strictEqual(bytes.get(file), Buffer.byteLength(header));
     strictEqual(bytes.get(path.join(promptsDir, 'oversized.md')), 16 * 1024);
   });

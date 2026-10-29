@@ -1,5 +1,6 @@
+import { mkdirStateSync as mkdirSync } from './state-directory.mjs';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { buildIndex, resolveDocArg } from './index.mjs';
 import { resolveBodyLinkTarget } from './body-link.mjs';

@@ -21,8 +21,8 @@ export function unsupportedCommandHelp(command) {
 function creationHelp(type) {
   return `runlist new ${type} <slug> @<draft-file> — create a ${type} from a draft
 
-  runlist new ${type} example @/tmp/draft.md
-  runlist new ${type} example - < /tmp/draft.md
+  runlist new ${type} example @<draft-file>
+  runlist new ${type} example - < <draft-file>
 
 Write the draft first. Its headings become the body; opening frontmatter
 supplies scaffold fields while the command fixes type to ${type}.
@@ -45,7 +45,7 @@ Complete prompt commands: \`runlist prompts --help\`.`;
 
 const CHILD_BATON = `runlist baton --subagent <task-slug> @<draft-file> [--parent resume-<name>]
 
-  runlist baton --subagent task-example @/tmp/draft.md --parent resume-example
+  runlist baton --subagent task-example @<draft-file> --parent resume-example
   runlist baton --subagent --template --parent resume-example
 
 Return completed results to the parent. Save unfinished work or an explicitly

@@ -1,8 +1,9 @@
+import { mkdirStateSync as mkdirSync } from './state-directory.mjs';
 // Trusted local adapters supply authentication and policy. Never expose these
 // callbacks, config, test hooks, or this factory as browser request parameters.
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { closeSync, existsSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync } from 'node:fs';
+import { closeSync, existsSync, fstatSync, fsyncSync, lstatSync, openSync, readFileSync, readSync, readdirSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { assertSnapshotCurrent, createFileExclusive, MutationConflictError, replaceSnapshot, snapshotFile, withPathLocks } from './atomic-mutation.mjs';
 import { authorizeManagedSource, authorizeManagedDestination, authorizeRepoGeneratedPath } from './managed-path.mjs';

@@ -1,3 +1,4 @@
+import { mkdirStateSync as mkdirSync } from './state-directory.mjs';
 // Installing runlist's integration into agent hosts other than Claude Code.
 //
 // Claude Code gets its integration through a real plugin (`plugins/runlist/`,
@@ -17,7 +18,7 @@
 // installs. Passive commands touch nothing.
 
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

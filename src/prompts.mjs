@@ -223,12 +223,13 @@ function renderPromptQueueList(index, config) {
   const childFreshness = children => {
     const states = new Map();
     for (const child of children) {
+      if (!freshness.get(child).target) continue;
       const state = freshness.get(child).change;
       states.set(state, (states.get(state) ?? 0) + 1);
     }
     const ages = children.map(child => freshness.get(child).age).filter(Number.isFinite);
     const age = ages.length === children.length ? `${Math.min(...ages)}-${Math.max(...ages)}d old` : 'age unknown';
-    return `${age}; targets: ${[...states].map(([state, count]) => `${count} ${state}`).join(', ')}`;
+    return `${age}${states.size ? `; targets: ${[...states].map(([state, count]) => `${count} ${state}`).join(', ')}` : ''}`;
   };
   for (const { doc: p, children } of visible) {
     const slug = path.basename(p.path, '.md').padEnd(maxSlug);
@@ -260,7 +261,7 @@ function promptFreshness(prompts, config) {
     const time = doc.created ? new Date(doc.created).getTime() : NaN;
     const age = Number.isFinite(time) && time <= now ? Math.floor((now - time) / 86_400_000) : null;
     const target = targets[i]?.replace(/\s/g, ' ');
-    return [doc, { age, change: changes[i], text: `${age === null ? 'age unknown' : `${age}d old`} · ${target ?? 'target unknown'}: ${changes[i]}` }];
+    return [doc, { age, target, change: changes[i], text: `${age === null ? 'age unknown' : `${age}d old`}${target ? ` · ${target}: ${changes[i]}` : ''}` }];
   }));
 }
 

@@ -1,5 +1,6 @@
+import { mkdirStateSync as mkdirSync } from './state-directory.mjs';
 // Private, actor/checkout-bound Git receipts. No renderer-controlled locations.
-import {existsSync,lstatSync,mkdirSync,readdirSync,readFileSync,realpathSync,openSync,writeFileSync,closeSync,fsyncSync,renameSync,unlinkSync} from 'node:fs';
+import {existsSync,lstatSync,readdirSync,readFileSync,realpathSync,openSync,writeFileSync,closeSync,fsyncSync,renameSync,unlinkSync} from 'node:fs';
 import {randomUUID,createHash} from 'node:crypto';
 import path from 'node:path';
 import {stateDir} from './naming.mjs';

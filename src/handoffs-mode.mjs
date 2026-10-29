@@ -44,7 +44,7 @@ export function readsAsHandoffsOnly(located) {
 }
 
 export function handoffsConfigSource(promptTracking = 'untracked') {
-  return `// runlist.config.mjs — created by the first \`runlist baton\` here, for session handoffs.
+  return `// runlist.config.mjs — created by the first saved prompt here, for session handoffs.
 // Planning is off: runlist only manages the prompts in ${PROMPT_DIR}/.
 // \`runlist setup\` turns planning on (adds plans and an index; prompts stay put).
 export const mode = 'handoffs';
@@ -159,7 +159,7 @@ function setupLine(created, dryRun) {
   const where = `${created.config}, prompts in ${created.promptDirectory}/`;
   return dryRun
     ? `[dry-run] Would set up runlist for handoffs here (${where}). Planning stays off; \`runlist setup\` turns it on.`
-    : `Set up runlist for handoffs here (${where}). Planning is off; \`runlist setup\` turns it on.`;
+    : `Set up runlist for handoffs here (${where}). Planning is off; \`runlist setup\` turns it on.\nCommit runlist.config.mjs so everyone gets handoffs mode; leave prompts out of commits when promptTracking calls for it.`;
 }
 
 /**
@@ -439,7 +439,7 @@ export function planHandoffsUpgrade(config) {
   }
   const rootSource = jsLiteral(root);
   let content = source
-    .replace(/^\/\/ runlist\.config\.mjs — created by the first `runlist baton` here[^\n]*\n\/\/ Planning is off[^\n]*\n\/\/ `runlist setup` turns planning on[^\n]*\n/m,
+    .replace(/^\/\/ runlist\.config\.mjs — created by the first (?:`runlist baton`|saved prompt) here[^\n]*\n\/\/ Planning is off[^\n]*\n\/\/ `runlist setup` turns planning on[^\n]*\n/m,
       () => '// runlist.config.mjs — document management configuration (planning turned on by `runlist setup`).\n')
     .replace(modeLine, () => "export const mode = 'plans';")
     .replace(rootLine, () => `export const root = ${rootSource};`);

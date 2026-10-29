@@ -11,7 +11,7 @@ const HELP = {
   baton: `runlist baton — save a resume prompt for the next session ${OFF}
 
 Usage (write the resume to a file first):
-  runlist baton <slug> @/tmp/draft.md   # saves resume-<slug> in docs/prompts/
+  runlist baton <slug> @<draft-file>   # saves resume-<slug> in docs/prompts/
   The resume can also come from stdin (\`-\`, or a pipe) or --message "..." for one-liners.
   Baton prints the prompt name it saved as its last line.
 
@@ -32,7 +32,7 @@ Options:
 
 Examples:
   runlist baton --template > /tmp/resume.md
-  runlist baton checkout-fixes @/tmp/draft.md
+  runlist baton checkout-fixes @<draft-file>
   runlist baton checkout-fixes @/tmp/new-draft.md --replace
   runlist baton --subagent totals-review --parent resume-checkout-fixes @/tmp/child.md
 
@@ -53,7 +53,7 @@ Options:
   --dry-run, -n          Preview without writing
 
 Examples:
-  runlist new prompt look-at-retries @/tmp/draft.md
+  runlist new prompt look-at-retries @<draft-file>
   runlist new prompt cleanup --message "look at the remaining lint warnings"
 
 Plans and docs come with planning; ${SETUP}`,

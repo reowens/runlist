@@ -1,6 +1,6 @@
+import { mkdirStateSync as mkdirSync } from './state-directory.mjs';
 import {
   existsSync,
-  mkdirSync,
   readFileSync,
   readdirSync,
   renameSync,

@@ -1115,9 +1115,9 @@ Use --dry-run (-n) to preview without writing.`,
   new: `runlist new <type> <name> [body] — create a new document
 
 Usage (write the draft to a file first):
-  runlist new plan <slug> @/tmp/draft.md     # plan from a draft
-  runlist new doc <slug> @/tmp/draft.md      # reference doc from a draft
-  runlist new prompt <slug> @/tmp/draft.md   # saved prompt (body required)
+  runlist new plan <slug> @<draft-file>     # plan from a draft
+  runlist new doc <slug> @<draft-file>      # reference doc from a draft
+  runlist new prompt <slug> @<draft-file>   # saved prompt (body required)
   runlist new plan <slug>                    # empty scaffold to fill in
 
 What the draft does:
@@ -1151,7 +1151,7 @@ filename; a name with a \`/\` is read relative to the repo (or to --root).
 
 Examples:
   runlist new plan auth-revamp @/tmp/auth-revamp.md
-  runlist new prompt resume-foo @/tmp/draft.md
+  runlist new prompt resume-foo @<draft-file>
   runlist new plan full-spec - <<'EOF'
   ---
   status: planned
@@ -1498,9 +1498,9 @@ Examples:
   baton: `runlist baton — save a resume prompt for whatever you're doing (and release the plan, if there is one)
 
 Usage (write the resume to a file first, then pick the form that matches):
-  runlist baton @/tmp/draft.md               # a plan is in-session: save resume-<plan-slug>, release the plan
-  runlist baton <plan-file> @/tmp/draft.md   # hand off a named plan
-  runlist baton <slug> @/tmp/draft.md        # no plan: save resume-<slug>, change nothing else
+  runlist baton @<draft-file>               # a plan is in-session: save resume-<plan-slug>, release the plan
+  runlist baton <plan-file> @<draft-file>   # hand off a named plan
+  runlist baton <slug> @<draft-file>        # no plan: save resume-<slug>, change nothing else
   runlist baton --done [<plan-file>] --next-step "..."   # after a plan handoff: write next_step, confirm it
   The resume can also come from stdin (\`-\`, or a pipe) or --message "..." for one-liners.
   Baton prints the prompt name it saved, as its last line too, and, in plan mode, the git commit to run.
@@ -1544,16 +1544,16 @@ The function returns argv; baton shell-quotes each argument before printing.
 
 Examples:
   runlist baton --template > /tmp/resume.md
-  runlist baton @/tmp/draft.md
-  runlist baton checkout-fixes @/tmp/draft.md
-  runlist baton --subagent totals-review @/tmp/draft.md
-  runlist baton --subagent totals-review --parent resume-session-name @/tmp/draft.md
+  runlist baton @<draft-file>
+  runlist baton checkout-fixes @<draft-file>
+  runlist baton --subagent totals-review @<draft-file>
+  runlist baton --subagent totals-review --parent resume-session-name @<draft-file>
   runlist baton --subagent --template --parent resume-session-name > /tmp/child.md
-  runlist baton docs/plans/auth.md @/tmp/draft.md
+  runlist baton docs/plans/auth.md @<draft-file>
   runlist baton docs/plans/auth.md @/tmp/new-draft.md --replace
   runlist baton --status paused --note "blocked on review" @/tmp/d.md
   runlist baton --done --next-step "wire the retry path" --current-state "parser merged"
-  cat /tmp/draft.md | runlist baton
+  cat <draft-file> | runlist baton
 
 Plan mode (a plan is in-session, or you pass one) publishes in one atomic
 cooperating transaction:

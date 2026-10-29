@@ -151,6 +151,9 @@ test('recovery excludes other actors and corrupt state is retained for inspectio
   const result=await f.api('recovery');assert.equal(result.unavailable,1);assert.equal(readFileSync(draftFile,'utf8'),'{bad json');
 });
 test('creation preserves the Git private-state guard and never changes ignore/index rules',async()=>{
-  const f=await fixture();execFileSync('git',['init','-q',f.root]);await assert.rejects(f.api('create/preview',request()),{code:'unsafe-local-state'});
+  // runlist never overwrites an existing .runlist/.gitignore, so one that
+  // ignores nothing leaves the private state committable.
+  const f=await fixture();execFileSync('git',['init','-q',f.root]);mkdirSync(path.join(f.root,'.runlist'),{recursive:true});writeFileSync(path.join(f.root,'.runlist/.gitignore'),'# kept by the user\n');await assert.rejects(f.api('create/preview',request()),{code:'unsafe-local-state'});
   assert.equal(existsSync(path.join(f.root,'.gitignore')),false);writeFileSync(path.join(f.root,'.gitignore'),'.runlist/\n');const review=await f.api('create/preview',request());await f.api('create/commit',{operationId:review.operationId});assert.equal(execFileSync('git',['-C',f.root,'ls-files'],{encoding:'utf8'}),'');
+  assert.equal(readFileSync(path.join(f.root,'.runlist/.gitignore'),'utf8'),'# kept by the user\n');
 });

@@ -40,12 +40,12 @@ export function findOwnedPlan(config, index = null) {
 // prints, and an agent unsure of the shape should be able to act on it without
 // a trip through --help.
 const BODY_USAGE = `Nothing saved: baton needs the resume you wrote, passed as @<file> or - (stdin).
-  runlist baton @/tmp/draft.md               # hand off the plan this session owns
-  runlist baton <plan-file> @/tmp/draft.md   # hand off a named plan
-  runlist baton <slug> @/tmp/draft.md        # no plan: save resume-<slug>, change nothing else`;
+  runlist baton @<draft-file>               # hand off the plan this session owns
+  runlist baton <plan-file> @<draft-file>   # hand off a named plan
+  runlist baton <slug> @<draft-file>        # no plan: save resume-<slug>, change nothing else`;
 // Where planning is off (or there is no config yet) a name is the only form.
 const HANDOFFS_BODY_USAGE = `Nothing saved: baton needs the resume you wrote, passed as @<file> or - (stdin).
-  runlist baton <slug> @/tmp/draft.md        # saves resume-<slug>; pick a short slug naming the work`;
+  runlist baton <slug> @<draft-file>        # saves resume-<slug>; pick a short slug naming the work`;
 
 // A handoff that lands beside a pending one leaves two prompts for the same
 // work, and the next session picks whichever sorts first. Baton used to step to
@@ -244,13 +244,13 @@ export async function runBaton(argv, config, opts = {}) {
     if (owned.plan) {
       planPath = path.resolve(config.repoRoot, owned.plan.path);
     } else if (owned.owned?.length > 1) {
-      die(`Multiple plans are owned by this session; pass one explicitly:\n${owned.owned.map(d => '  runlist baton ' + d.path + ' @/tmp/draft.md').join('\n')}`);
+      die(`Multiple plans are owned by this session; pass one explicitly:\n${owned.owned.map(d => '  runlist baton ' + d.path + ' @<draft-file>').join('\n')}`);
     } else if (isHandoffsMode(config) || !config.configFound) {
       // No plans here: the only thing missing is a name, which the session picks.
-      die('Baton needs a short name for the handoff — a few words naming the work:\n  runlist baton <slug> @/tmp/draft.md      # saves resume-<slug>');
+      die('Baton needs a short name for the handoff — a few words naming the work:\n  runlist baton <slug> @<draft-file>      # saves resume-<slug>');
     } else {
       const diagnostics = owned.diagnostics?.length ? `\nIgnored ownership records:\n${owned.diagnostics.map(d => `  ${d}`).join('\n')}` : '';
-      die(`No valid in-session plan is owned by this session, so baton needs a name for the resume prompt:\n  runlist baton <slug> @/tmp/draft.md      # saves resume-<slug>, touches nothing else\nHanding off a specific plan? runlist baton <plan-file> @/tmp/draft.md${diagnostics}`);
+      die(`No valid in-session plan is owned by this session, so baton needs a name for the resume prompt:\n  runlist baton <slug> @<draft-file>      # saves resume-<slug>, touches nothing else\nHanding off a specific plan? runlist baton <plan-file> @<draft-file>${diagnostics}`);
     }
   }
 
@@ -382,7 +382,7 @@ export async function runBaton(argv, config, opts = {}) {
     const raw = readFileSync(planPath, 'utf8');
     const { frontmatter: fmRaw } = extractFrontmatter(raw);
     if (!fmRaw) {
-      die(`${repoPath} has no frontmatter block — baton can't flip its status.\nFix the doc first (\`runlist bulk-tag ${repoPath} --type plan --status in-session\`), or save the prompt without a status flip: runlist baton ${path.basename(planPath, '.md')} @/tmp/draft.md`);
+      die(`${repoPath} has no frontmatter block — baton can't flip its status.\nFix the doc first (\`runlist bulk-tag ${repoPath} --type plan --status in-session\`), or save the prompt without a status flip: runlist baton ${path.basename(planPath, '.md')} @<draft-file>`);
     }
     const fm = parseSimpleFrontmatter(fmRaw);
     const docType = asString(fm.type);

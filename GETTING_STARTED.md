@@ -169,9 +169,9 @@ and the [host routes](README.md#which-assistant-can-run-setup).
 
 With the Claude Code plugin installed, stopping and resuming takes two phrases,
 with or without setup. When you are done for now, say "baton" or "save where we
-are" (or type `/baton`); the assistant writes a short resume note, called a
+are" (or type `/runlist:baton`); the assistant writes a short resume note, called a
 *baton*, into your project.
-In the next session, type `/pickup` or say "pick up where we left off". The
+In the next session, type `/runlist:pickup` or say "pick up where we left off". The
 [three-step quick path](README.md#handoffs-in-3-steps) has the install commands.
 
 ## 5. Inspect settings and verify what finished

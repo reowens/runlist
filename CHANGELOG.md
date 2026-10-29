@@ -4,6 +4,16 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ## Unreleased
 
+### Fixed
+
+- Claude handoff guidance uses registered `/runlist:` command names and fresh
+  temporary draft files; pickup reads naturally without arguments.
+- Local `.runlist/` state ignores itself without changing repository ignore rules
+  or replacing an existing state ignore file.
+- The first saved prompt asks users to commit the handoffs config, whose comment
+  now covers both baton and new-prompt saves. Unlinked prompts show their age
+  without an unknown target hint.
+
 ### Added
 
 - `runlist prompts` shows prompt age and bounded target-plan change hints,

@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, appendFileSync, statSync, renameSync, readFileSync, unlinkSync, openSync, readSync, closeSync } from 'node:fs';
+import { mkdirStateSync as mkdirSync } from './state-directory.mjs';
+import { existsSync, appendFileSync, statSync, renameSync, readFileSync, unlinkSync, openSync, readSync, closeSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { currentSessionId } from './util.mjs';

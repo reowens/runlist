@@ -456,7 +456,7 @@ syncBuiltinESMExports();
     ok(code !== 0);
     ok(Date.now() - started < 10_000);
     match(stderr, /^Nothing saved: baton needs the resume you wrote/m);
-    match(stderr, /runlist baton <slug> @\/tmp\/draft\.md/);
+    match(stderr, /runlist baton <slug> @<draft-file>/);
     const plan = readFileSync(path.join(plansDir, 'auth-revamp.md'), 'utf8');
     ok(plan.includes('status: in-session'), 'plan untouched');
   });

@@ -1,5 +1,6 @@
+import { mkdirStateSync as mkdirSync } from './state-directory.mjs';
 import { createHash } from 'node:crypto';
-import { appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, fsyncSync, openSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { withPathLocks } from './atomic-mutation.mjs';
