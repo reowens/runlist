@@ -19,6 +19,12 @@ const REPLACE_KEYS = new Set([
 ]);
 
 const DEFAULTS = {
+  // 'plans' (the full plan/doc/prompt system) or 'handoffs': session handoffs
+  // only, written by the first `runlist baton` in a repository with no config.
+  // Handoffs mode pairs with a `root` that is the prompt folder itself, so the
+  // scan never reaches the project's own docs; this flag only changes wording
+  // and refuses plan verbs. `runlist setup` flips it to 'plans'.
+  mode: 'plans',
   root: '.',
   promptTracking: 'untracked',
   archiveDir: 'archived',
@@ -475,21 +481,36 @@ export function locateConfig(cwd, explicitConfigPath) {
   return {configPath,configDir,repoRoot};
 }
 
-export async function resolveConfig(cwd, explicitConfigPath) {
-  const {configPath,configDir,repoRoot} = locateConfig(cwd, explicitConfigPath);
+// `options.exports` stands in for a config file that does not exist yet (a
+// dry-run of the handoffs config baton would create); `options.overrides`
+// replaces exports of the file that does (setup previewing a planning upgrade).
+// Both are internal: neither writes anything.
+export async function resolveConfig(cwd, explicitConfigPath, options = {}) {
+  const located = locateConfig(cwd, explicitConfigPath);
+  const virtual = Boolean(options.exports && explicitConfigPath);
+  const {configPath} = located;
+  let {configDir, repoRoot} = located;
+  if (virtual) {
+    configDir = path.dirname(configPath);
+    repoRoot = locateConfig(configDir).repoRoot;
+  }
 
   let userConfig = {};
   let hooks = {};
-  let promptTrackingSource = configPath && existsSync(configPath) ? 'legacy-default' : 'default';
+  const fileExists = Boolean(configPath && existsSync(configPath));
+  let promptTrackingSource = fileExists || virtual ? 'legacy-default' : 'default';
 
-  if (configPath && existsSync(configPath)) {
-    const configUrl = pathToFileURL(configPath).href;
-    let mod;
-    try {
-      mod = await import(configUrl);
-    } catch (err) {
-      die('Failed to load config: ' + configPath + '\n' + err.message + '\nCheck for syntax errors in your config file.');
+  if (fileExists || virtual) {
+    let mod = options.exports;
+    if (!virtual) {
+      const configUrl = pathToFileURL(configPath).href;
+      try {
+        mod = await import(configUrl);
+      } catch (err) {
+        die('Failed to load config: ' + configPath + '\n' + err.message + '\nCheck for syntax errors in your config file.');
+      }
     }
+    if (options.overrides) mod = { ...mod, ...options.overrides };
 
     for (const [key, value] of Object.entries(mod)) {
       if (key === 'default') continue;
@@ -643,6 +664,10 @@ export async function resolveConfig(cwd, explicitConfigPath) {
     }
   }
 
+  let mode = 'plans';
+  if (config.mode === 'handoffs' || config.mode === 'plans') mode = config.mode;
+  else earlyWarnings.push(`Config: mode must be 'plans' or 'handoffs'; ignoring \`${config.mode}\`.`);
+
   const configWarnings = [...earlyWarnings, ...validateConfig(userConfig, config, validStatuses, indexPath)];
 
   return {
@@ -654,6 +679,8 @@ export async function resolveConfig(cwd, explicitConfigPath) {
     configDir,
     configPath: configPath ?? null,
     configFound: Boolean(configPath),
+    mode,
+    planning: mode !== 'handoffs',
     promptTracking: config.promptTracking,
     promptTrackingSource,
     settingSources: {

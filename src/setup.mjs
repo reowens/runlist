@@ -42,18 +42,28 @@ function parse(argv, config) {
   return { choices, flags, seen };
 }
 
-function validate(choices, config, existing) {
+// A handoffs-only config (written by the first baton) is upgraded, not
+// preserved: setup chooses a docs root as it would for a fresh project, then
+// rewrites that config's mode and root lines (src/handoffs-mode.mjs).
+function validate(choices, config, existing, upgrade = false) {
   if (!policies.includes(choices.promptTracking)) throw new Error('--prompt-tracking must be untracked, tracked, or local.');
   if (!hosts.includes(choices.host)) throw new Error('--host must be none, claude, codex, or opencode.');
   if (choices.docsRoot !== null) {
     if (!choices.docsRoot.trim() || path.isAbsolute(choices.docsRoot) || /[\r\n\0\\]/.test(choices.docsRoot) || choices.docsRoot.split('/').includes('..')) {
       throw new Error('--docs-root must be a relative project path without traversal.');
     }
-    if (existing && ((config.docsRoots ?? [config.docsRoot]).length !== 1 || path.resolve(config.repoRoot, choices.docsRoot) !== config.docsRoot)) {
+    if (existing && !upgrade && ((config.docsRoots ?? [config.docsRoot]).length !== 1 || path.resolve(config.repoRoot, choices.docsRoot) !== config.docsRoot)) {
       throw new Error(`Existing configured roots are preserved. Edit the root export manually in ${config.configPath}, review the resulting layout with runlist init --dry-run, then rerun setup without --docs-root.`);
     }
   }
-  if (!existing) choices.docsRoot ??= 'docs';
+  if (!existing || upgrade) choices.docsRoot ??= 'docs';
+  if (upgrade) {
+    const promptRoot = path.relative(config.repoRoot, config.docsRoot).split(path.sep).join('/');
+    const docsRoot = path.posix.normalize(choices.docsRoot).replace(/\/$/, '');
+    if (docsRoot !== path.posix.dirname(promptRoot) && (docsRoot === promptRoot || docsRoot.startsWith(`${promptRoot}/`) || promptRoot.startsWith(`${docsRoot}/`))) {
+      throw new Error(`--docs-root ${choices.docsRoot} overlaps the prompt folder ${promptRoot}/; choose a separate docs folder (default: docs).`);
+    }
+  }
   if (choices.adopt.length > 100) throw new Error('Setup accepts at most 100 explicitly selected adoption files per run.');
   choices.adopt = [...new Set(choices.adopt)];
   for (const file of choices.adopt) {
@@ -132,7 +142,7 @@ function terminal(input, output) {
   } };
 }
 
-async function collect(choices, seen, existing, ask) {
+async function collect(choices, seen, existing, ask, upgrade = false) {
   const answer = async (flag, question, key, fallback) => {
     if (seen.has(flag)) return;
     const value = await ask(question);
@@ -140,7 +150,7 @@ async function collect(choices, seen, existing, ask) {
     choices[key] = value || fallback;
     if (flag === '--prompt-tracking' && value) choices.selectPromptTracking = true;
   };
-  if (!existing) await answer('--docs-root', 'Docs root [docs]: ', 'docsRoot', 'docs');
+  if (!existing || upgrade) await answer('--docs-root', 'Docs root [docs]: ', 'docsRoot', 'docs');
   await answer('--prompt-tracking', `Prompt tracking: untracked/tracked/local [${choices.promptTracking}]: `, 'promptTracking', choices.promptTracking);
   if (!seen.has('--gitignore')) {
     const value = await ask('Add .gitignore rules for runtime state and non-tracked prompts? [y/N]: ');
@@ -200,12 +210,13 @@ export async function runSetup(argv, config, options = {}) {
     const existing = Boolean(config.configPath && existsSync(config.configPath));
     if (config.configPath && !existing) throw new Error(`The selected config does not exist: ${config.configPath}. Setup will not redirect initialization to a different config. Create the selected config manually, or rerun without --config for the standard fresh-project config.`);
     const cwd = existing ? config.repoRoot : (options.cwd ?? process.cwd());
+    const upgrade = existing && config.mode === 'handoffs';
     const interactive = options.interactive ?? Boolean(input.isTTY && prompts.isTTY);
     if (!flags.yes && !dryRun && !json && interactive) {
       session = options.ask ? { ask: options.ask, close() {} } : terminal(input, prompts);
-      await collect(choices, seen, existing, session.ask);
+      await collect(choices, seen, existing, session.ask, upgrade);
     }
-    validate(choices, config, existing);
+    validate(choices, config, existing, upgrade);
     const configPath = existing ? config.configPath : null;
     const request = { cwd, configPath, choices };
     const configSnapshot = existing ? readFileSync(configPath, 'utf8') : null;
@@ -214,6 +225,8 @@ export async function runSetup(argv, config, options = {}) {
     if (plan.skippedValidationHooks.length) report.outstanding.push({ description: `Custom ${plan.skippedValidationHooks.join('/')} hooks were not executed by setup validation; run runlist check to execute the project's custom checks` });
     const adoptionSnapshots = plan.adoptions.map(item => [item.path, readFileSync(item.path, 'utf8')]);
     const carryMoves = plan.carry.moves;
+    if (plan.upgrade) report.actions.push({ id: 'upgrade', description: `Turn planning on: rewrite mode and root in the handoffs config (prompts stay in ${plan.upgrade.promptRoot}/)`, path: configPath,
+      preview: `Config before:\n${plan.upgrade.source}Config after:\n${plan.upgrade.content}` });
     report.actions.push({ id: 'init', description: 'Initialize missing scaffolding; preserve configured roots, JavaScript and hooks', path: configPath || path.join(cwd, 'runlist.config.mjs'), preview: prepared.output, ...plan.layout });
     for (const move of carryMoves) report.actions.push({ id: `carry:${move.from}`, description: `move ${move.from} → ${move.to}`, from: move.from, to: move.to, type: move.type });
     report.outstanding.push(...plan.carry.outstanding);
@@ -244,7 +257,7 @@ export async function runSetup(argv, config, options = {}) {
     const untouched = plan.untagged.filter(file => !plan.adoptions.some(item => item.path === file));
     if (untouched.length) report.outstanding.push({ description: `${untouched.length} pre-existing untagged Markdown file(s) remain untouched; select exact paths with --adopt`, paths: untouched });
     if (choices.promptTracking === 'untracked') report.notes.push({ description: 'Leave pending prompts untracked to reduce commit churn; git add -A can still stage prompts that are not ignored' });
-    if (plan.layout.files.includes(config.indexPath) || !existing) report.actions.push({ id: 'index', description: 'Regenerate the configured generated index after selected changes', path: plan.layout.files.find(file => file === config.indexPath) || path.join(cwd, choices.docsRoot, 'docs.md') });
+    if (plan.layout.files.includes(config.indexPath) || !existing || plan.upgrade) report.actions.push({ id: 'index', description: 'Regenerate the configured generated index after selected changes', path: plan.layout.files.find(file => file === config.indexPath) || path.join(cwd, choices.docsRoot, 'docs.md') });
     if (dryRun || (!flags.yes && !session)) {
       report.outstanding.push({ description: 'Preview only; rerun with --yes and the selected flags to apply' });
       render(report, out, json);
@@ -271,13 +284,13 @@ export async function runSetup(argv, config, options = {}) {
     if (remainingNotice) remainingNotice.description = carryNotice();
     // Each stage preflights again in a fresh process. This is deliberately a
     // sequence of honest operations, not an advertised multi-stage transaction.
-    const steps = [ ...(plan.policy ? ['policy'] : []), 'init', ...plan.adoptions.filter(item => item.candidate).map(item => item.path), ...(plan.firstPlan ? ['plan'] : []), ...(report.actions.some(action => action.id === 'index') ? ['index'] : []) ];
+    const steps = [ ...(plan.upgrade ? ['upgrade'] : []), ...(plan.policy ? ['policy'] : []), 'init', ...plan.adoptions.filter(item => item.candidate).map(item => item.path), ...(plan.firstPlan ? ['plan'] : []), ...(report.actions.some(action => action.id === 'index') ? ['index'] : []) ];
     if (carryMoves.length) steps.unshift('carry');
     if (!existing) steps.unshift('recover');
     for (const [stepIndex, step] of steps.entries()) {
       const adoption = plan.adoptions.find(item => item.path === step);
       try {
-        const result = runWorker({ ...request, operation: adoption ? 'adopt' : step, ...(step === 'carry' ? { moves: carryMoves } : {}), ...(adoption ? { path: step, expectedSource: adoptionSnapshots.find(([file]) => file === step)[1] } : {}) });
+        const result = runWorker({ ...request, operation: adoption ? 'adopt' : step, ...(step === 'carry' ? { moves: carryMoves } : {}), ...(step === 'upgrade' ? { expectedSource: plan.upgrade.source } : {}), ...(adoption ? { path: step, expectedSource: adoptionSnapshots.find(([file]) => file === step)[1] } : {}) });
         if (step === 'recover') {
           report.outstanding = report.outstanding.filter(item => !item.id?.startsWith('transaction:'));
           const refreshed = runWorker({ ...request, operation: 'prepare' });

@@ -14,6 +14,7 @@ import { readTemplateStore } from './template-store.mjs';
 import { regenIndex, renderLifecycleMutation } from './lifecycle.mjs';
 import { snapshotFile, replaceSnapshot, inspectTransactions, recoverAbandonedTransactions, transactionResolutionAdvice } from './atomic-mutation.mjs';
 import { planSetupCarry, applySetupCarry, cleanupSetupSourceDirectories } from './setup-carry.mjs';
+import { planHandoffsUpgrade } from './handoffs-mode.mjs';
 
 function regularOrMissing(file, directory = false) {
   let stat;
@@ -155,6 +156,18 @@ export async function setupWorker(request) {
     return null;
   }
   const existing = Boolean(config.configPath && existsSync(config.configPath));
+  // Handoffs-only config: every stage before the rewrite sees the upgraded
+  // layout through overrides, so the preview is what applying will do. Its
+  // prompts are already under the config's root, so nothing is carried.
+  const upgrade = existing && config.mode === 'handoffs' ? planHandoffsUpgrade(config, choices.docsRoot || 'docs') : null;
+  if (operation === 'upgrade') {
+    if (!upgrade) throw new Error('The config is no longer a handoffs-only config; rerun setup.');
+    const snapshot = snapshotFile(config.configPath);
+    if (snapshot.content !== request.expectedSource) throw new Error('Config changed since preview; rerun setup.');
+    replaceSnapshot(snapshot, upgrade.content, { repoRoot: config.repoRoot });
+    return { path: config.configPath };
+  }
+  if (upgrade) config = await resolveConfig(cwd, configPath || undefined, { overrides: upgrade.overrides });
   if (!existing) {
     const root = path.resolve(cwd, choices.docsRoot || 'docs');
     config = { ...config, repoRoot: cwd, configDir: cwd, configPath: path.join(cwd, 'runlist.config.mjs'), configFound: false,
@@ -184,7 +197,8 @@ export async function setupWorker(request) {
     const plan = firstPlan(config, choices);
     if (plan && carry.moves.some(move => move.target === plan.path)) throw new Error(`First plan collides with a pre-setup plan being carried over: ${plan.path}`);
     const transactions = existing ? [] : inspectTransactions(before.repoRoot, { config: before });
-    return { layout, policy, adoptions, firstPlan: plan, untagged, carry, transactions, skippedValidationHooks: ['validate', 'transformDoc'].filter(name => typeof config.hooks?.[name] === 'function') };
+    return { layout, policy, adoptions, firstPlan: plan, untagged, carry, transactions,
+      upgrade: upgrade ? { source: upgrade.source, content: upgrade.content, promptRoot: upgrade.promptRoot } : null, skippedValidationHooks: ['validate', 'transformDoc'].filter(name => typeof config.hooks?.[name] === 'function') };
   }
   if (operation === 'init') {
     // Check again after carry, including when there were no moves. Never let

@@ -13,6 +13,7 @@ import { assertPlanMutationAuthorized, authoritativeSessionId, listOwnedPlans, r
 import { HANDOFF_TEMPLATES, parentPromptName } from './prompt-handoff.mjs';
 import { readTemplateStore, templateFile } from './template-store.mjs';
 import { isGitIgnored, gitCommitPaths, literalGitPathspec } from './git.mjs';
+import { ensureHandoffsConfig, isHandoffsMode } from './handoffs-mode.mjs';
 
 // `runlist baton` is the one-command handoff: save the resume prompt AND release
 // the plan in a single atomic-ish verb. It exists because the three-step skill
@@ -238,10 +239,22 @@ export async function runBaton(argv, config, opts = {}) {
       planPath = path.resolve(config.repoRoot, owned.plan.path);
     } else if (owned.owned?.length > 1) {
       die(`Multiple plans are owned by this session; pass one explicitly:\n${owned.owned.map(d => '  runlist baton ' + d.path + ' @/tmp/draft.md').join('\n')}`);
+    } else if (isHandoffsMode(config) || !config.configFound) {
+      // No plans here: the only thing missing is a name, which the session picks.
+      die('Baton needs a short name for the handoff — a few words naming the work:\n  runlist baton <slug> @/tmp/draft.md      # saves resume-<slug>');
     } else {
       const diagnostics = owned.diagnostics?.length ? `\nIgnored ownership records:\n${owned.diagnostics.map(d => `  ${d}`).join('\n')}` : '';
       die(`No valid in-session plan is owned by this session, so baton needs a name for the resume prompt:\n  runlist baton <slug> @/tmp/draft.md      # saves resume-<slug>, touches nothing else\nHanding off a specific plan? runlist baton <plan-file> @/tmp/draft.md${diagnostics}`);
     }
+  }
+
+  // Zero setup: a prompt saved in a repository with no config creates the
+  // handoffs-only config first (src/handoffs-mode.mjs). Plan mode is left alone:
+  // a plan saved before setup belongs to `runlist setup`, which carries it.
+  let handoffsSetup = null;
+  if (!planPath && !config.configFound) {
+    handoffsSetup = await ensureHandoffsConfig(process.cwd(), config, { dryRun });
+    config = handoffsSetup.config;
   }
 
   const nameBase = slugify(planPath ? path.basename(planPath, '.md') : promptSlug);
@@ -255,6 +268,17 @@ export async function runBaton(argv, config, opts = {}) {
     die('Nothing saved: use a nonempty handoff name with at most one resume- or subagent- prefix.');
   }
   const slugBase = `${handoffPrefix}${unprefixed}`;
+  // The prompt folder does not exist yet, so nothing below can be previewed
+  // against it; the would-be paths are all there is to say.
+  if (dryRun && handoffsSetup?.created) {
+    const prompt = path.posix.join(handoffsSetup.created.promptDirectory, `${slugBase}.md`);
+    const result = { operation: 'baton', parentPrompt, dryRun: true, disposition: 'would-change', wouldChange: true, mode: 'slug', status: null,
+      repositoryFiles: [], sessionFiles: [prompt], generatedFiles: [], deferredGeneratedFiles: [], prompt, plan: null, planMovement: null,
+      replacement: null, claimRelease: null, handoffDone: true, savedPrompt: slugBase, handoffsSetup: handoffsSetup.created };
+    if (json) process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+    else process.stderr.write(`${handoffsSetup.line}\n${dim('[dry-run]')} Would create: ${prompt}\n`);
+    return result;
+  }
   let replacement = null;
   let alternatePromptPath = null;
   const resolvePending = () => {
@@ -509,6 +533,7 @@ export async function runBaton(argv, config, opts = {}) {
     claimRelease: planPath ? { wouldRelease: wouldReleaseClaim, released: !dryRun && wouldReleaseClaim } : null,
     handoffDone: !pendingHandoff,
     savedPrompt: createdSlug,
+    handoffsSetup: handoffsSetup?.created ?? null,
   };
 
   const prefix = dryRun ? dim('[dry-run] ') : '';
@@ -517,7 +542,8 @@ export async function runBaton(argv, config, opts = {}) {
     return operationResult;
   }
   const verdict = replacement?.alreadyCurrent ? '✓ Handoff kept' : pendingHandoff ? '✓ Prompt saved' : replacement ? '✓ Baton replaced' : '✓ Baton passed';
-  if (!dryRun && (planPath || replacement)) process.stderr.write(unconfiguredPromptHint(config));
+  if (handoffsSetup?.line) process.stderr.write(`${handoffsSetup.line}\n`);
+  else if (!dryRun && (planPath || replacement)) process.stderr.write(unconfiguredPromptHint(config));
   process.stderr.write(`\n${prefix}${green(verdict)}: ${createdSlug} (the next session's hud surfaces it — nothing to paste into chat)\n`);
   if (archivedPromptRepoPath) process.stderr.write(dim(`${prefix}Previous handoff preserved: ${archivedPromptRepoPath}\n`));
   if (planGuard) {

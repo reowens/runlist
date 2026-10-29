@@ -44,9 +44,12 @@ async function setup(args = [], opts = {}) {
   const report = await runSetup(args, await resolveConfig(repo), { cwd: repo, out: { write(chunk) { output += chunk; } }, ...opts });
   return { report, output };
 }
-function saved(slug = 'fresh', flags = []) {
+// What an older runlist left behind: a baton saved before any config, in
+// ./prompts/. A current baton there creates a handoffs-only config instead
+// (test/handoffs-mode.test.mjs), so these fixtures are written directly.
+function saved(slug = 'fresh') {
   put('draft', '# Resume\n\nInspect the synthetic exporter.\n');
-  return okCli(['baton', slug, '@draft', ...flags]);
+  put(`prompts/resume-${slug}.md`, `---\ntype: prompt\nstatus: pending\ncreated: 2026-10-01\nupdated: 2026-10-01\ncontext: "Resume ${slug}"\nrelated_plans:\n---\n\n# Resume\n\nInspect the synthetic exporter.\n`);
 }
 function snapshot(directory = repo) {
   return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
@@ -255,7 +258,7 @@ describe('setup carries runlist artifacts written before configuration', () => {
     put('draft', '# Synthetic work\n\nInspect the exporter.\n');
     okCli(['new', 'plan', 'sample', '@draft']);
     okCli(['use', 'sample']);
-    saved('sample');
+    okCli(['baton', 'sample', '@draft']);
     const beforeConfig = await resolveConfig(repo);
     assert.equal(listPendingHandoffs(beforeConfig)[0].prompt, 'prompts/resume-sample.md');
     put('docs/related.md', '---\ntype: doc\nstatus: active\nupdated: 2026-10-01\nrelated_plans:\n  - plans/sample.md\n---\n# Reference\n\n[Resume](../prompts/resume-sample.md)\n');
@@ -307,14 +310,19 @@ describe('setup carries runlist artifacts written before configuration', () => {
     assert.match(output, /archived\/library.md/);
   });
 
-  it('prints the setup hint for unconfigured baton/new prompt and keeps baton JSON clean', async () => {
-    const first = saved();
+  it('keeps the setup hint, and creates no handoffs config, where plans were saved before setup', async () => {
+    put('draft', '# Synthetic plan\n\nInspect the exporter.\n');
+    okCli(['new', 'plan', 'sample', '@draft']);
+    const first = okCli(['baton', 'notes', '@draft']);
     assert.equal((first.stdout + first.stderr).match(/it carries this prompt over/g)?.length, 1);
-    assert.doesNotMatch(first.stdout + first.stderr, /runlist init/);
+    assert.doesNotMatch(first.stdout + first.stderr, /runlist init|Set up runlist for handoffs/);
     assert.match(okCli(['new', 'prompt', 'other', '@draft']).stdout, /run `runlist setup`; it carries this prompt over/);
-    assert.equal(JSON.parse(saved('third', ['--json']).stdout).prompt, 'prompts/resume-third.md');
+    assert.equal(JSON.parse(okCli(['baton', 'third', '@draft', '--json']).stdout).prompt, 'prompts/resume-third.md');
+    assert.ok(!CONFIG_FILENAMES.some(has));
     await setup(['--yes']);
-    assert.doesNotMatch(saved('configured').stdout + saved('configured-second').stderr, /No runlist config here yet/);
+    assert.ok(has('docs/prompts/resume-notes.md') && has('docs/plans/sample.md'));
+    const configured = okCli(['baton', 'configured', '@draft']);
+    assert.doesNotMatch(configured.stdout + configured.stderr, /No runlist config here yet|Set up runlist for handoffs/);
   });
 });
 

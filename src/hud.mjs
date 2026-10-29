@@ -14,6 +14,7 @@ import { findOwnedPlan } from './baton.mjs';
 import { listOwnedPlans, surveyOwnershipClaims } from './pickup.mjs';
 import { handoffNotDoneLine, pendingHandoffsForSession } from './handoff-record.mjs';
 import { actionablePromptStatuses, comparePromptDocs } from './status-metadata.mjs';
+import { handoffsAnchor, isHandoffsMode, wouldCreateHandoffsConfig } from './handoffs-mode.mjs';
 
 export { actionablePromptStatuses } from './status-metadata.mjs';
 
@@ -295,6 +296,14 @@ export function buildHud(config) {
 // again and again: the read verbs, the three wrong-moves the guard exists to
 // stop, and a pointer for the rare child handoff. Statuses are not listed —
 // `runlist set` names the valid ones when given a wrong one.
+// Handoffs-only projects have no plans and no status lines to guard; a child
+// needs only the prompt rules and its own handoff form.
+const HANDOFFS_SUBAGENT_PRIMER = [
+  'runlist keeps session handoffs (saved prompts) here; planning is off.',
+  'Do NOT cat/read a saved prompt file (`runlist prompts show <name>` peeks, `runlist use <name>` consumes); follow `runlist config get promptTracking` for Git.',
+  'Return completed results to the parent. Unfinished handoff: `runlist baton --subagent <task-slug> @<draft-file> --parent resume-<parent>`.',
+].join('\n');
+
 const SUBAGENT_PRIMER = [
   'runlist manages plans/docs/prompts. Orient: `runlist plans`. Read: `runlist show <file>`, then `runlist show <file> --section "<heading>"`, never whole.',
   'Do NOT: cat/read a docs/prompts/*.md (`runlist prompts show <name>` peeks, `runlist use <name>` consumes); ignore promptTracking (`runlist config get promptTracking`); hand-edit status (`runlist set <status> <file>`).',
@@ -401,6 +410,14 @@ export function isHandoffAsk(prompt) {
       || HANDOFF_PHRASE.test(clause.replace(new RegExp(LOAD_HANDOFF, 'gi'), ''))));
 }
 
+// Before a repository has any runlist config the hook only answers an explicit
+// request to save the session: a baton, or one of the session-save phrases. The
+// bare word "handoff" is common in code, and nothing here is runlist's yet.
+export function isExplicitSaveAsk(prompt) {
+  return clauses(requestText(prompt)).some(clause => !QUESTION_START.test(clause)
+    && (BATON_REQUEST.some(re => re.test(clause)) || SESSION_SAVE.some(re => re.test(clause))));
+}
+
 export function isPickupAsk(prompt) {
   return clauses(requestText(prompt)).some(clause => PICKUP_QUESTION.test(clause)
     || (!QUESTION_START.test(clause) && PICKUP_REQUEST.test(clause)));
@@ -414,7 +431,21 @@ export function repoBatonDefinition(config) {
   return typeof text === 'string' && text.trim() ? text.trim() : null;
 }
 
+const RESUME_DRAFT = 'Write the resume first (current work and exact next move, decisions and waiting approvals, durable evidence paths, unverified claims and authorization boundaries; not a recap). `runlist baton --template` prints the checkout’s editable outline. Draft in a temporary file; keep working material at durable repo-relative paths.';
+const BATON_TAIL = 'Baton prints the prompt name it saved as its last line; tell the user that name. No `--help` needed.';
+
+// Handoffs only — a repository with no config yet, or one in handoffs mode —
+// has no plans, so the form is always a name the session picks itself.
+export function buildHandoffsOnlyContext(config, { firstHandoff = false } = {}) {
+  const command = 'Save it with `runlist baton <slug> @<file>`, choosing a short slug that names the work (it saves resume-<slug>).';
+  const first = firstHandoff ? ' This is the first handoff here, so baton also creates runlist.config.mjs and a prompts folder for handoffs.' : '';
+  const definition = repoBatonDefinition(config);
+  if (definition) return `[runlist] Baton: ${command}${first} Where the definition below names a command, use this form. ${BATON_TAIL}\nThis repo defines baton (templates.prompt.baton in its runlist config):\n${definition}`;
+  return `[runlist] Baton: ${RESUME_DRAFT} ${command}${first} ${BATON_TAIL}`;
+}
+
 export function buildHandoffContext(config) {
+  if (isHandoffsMode(config)) return buildHandoffsOnlyContext(config);
   // Ownership records name their plans and are checked against those files
   // alone; building the index here cost 9s in a repo of ~5k docs, past the
   // hook's timeout.
@@ -436,40 +467,47 @@ export function buildHandoffContext(config) {
     who = 'this session owns no plan.';
     command = 'Save the prompt with `runlist baton <slug> @<file>` (saves resume-<slug>, changes nothing else), or `runlist baton <plan-file> @<file>` to hand off a plan by path.';
   }
-  const tail = 'Baton prints the prompt name it saved as its last line; tell the user that name. No `--help` needed.';
+  const tail = BATON_TAIL;
   const definition = repoBatonDefinition(config);
   if (definition) {
     return `[runlist] Baton: ${who} ${command} Where the definition below names a command, use this form. ${tail}\nThis repo defines baton (templates.prompt.baton in its runlist config):\n${definition}`;
   }
-  const draft = 'Write the resume first (current work and exact next move, decisions and waiting approvals, durable evidence paths, unverified claims and authorization boundaries; not a recap). `runlist baton --template` prints the checkout’s editable outline. Draft in a temporary file; keep working material at durable repo-relative paths.';
-  return `[runlist] Baton: ${who} ${draft} ${command} ${tail}`;
+  return `[runlist] Baton: ${who} ${RESUME_DRAFT} ${command} ${tail}`;
 }
 
-export async function runPromptSubmitHud(config, { readStdin } = {}) {
-  if (!isRunlistRepo(config)) return;
+export async function runPromptSubmitHud(config, { readStdin, cwd = process.cwd() } = {}) {
+  // With no config, only a Git project can take a first handoff (baton refuses
+  // elsewhere); everything else stays silent, as in any repo runlist isn't in.
+  const configured = isRunlistRepo(config);
+  if (!configured && handoffsAnchor(cwd).refusal) return;
   let prompt = '';
   try {
     const raw = await readStdin();
     if (raw && raw.trim()) prompt = JSON.parse(raw).prompt ?? '';
   } catch { return; }
+  if (!configured) {
+    if (isExplicitSaveAsk(prompt)) process.stdout.write(buildHandoffsOnlyContext(config, { firstHandoff: wouldCreateHandoffsConfig(cwd, config) }) + '\n');
+    return;
+  }
   // Saving wins when both intents are explicit: save now, resume later.
   if (isHandoffAsk(prompt)) {
     process.stdout.write(buildHandoffContext(config) + '\n');
   } else if (isPickupAsk(prompt)) {
     let prompts;
     try { prompts = findActionablePromptsInPromptDir(config); } catch { return; }
-    if (prompts.length) process.stdout.write(`[runlist] Pickup: ${pendingPromptsLine(prompts, { pickup: true })}\n`);
+    if (prompts.length) process.stdout.write(`[runlist] Pickup: ${pendingPromptsLine(prompts, { pickup: true, planning: !isHandoffsMode(config) })}\n`);
   }
 }
 
 // A count, not names: a queue of dozens printed a dozen names nobody asked
 // about, and `runlist prompts` lists them when the user names one.
-export function pendingPromptsLine(prompts, { pickup = false } = {}) {
+export function pendingPromptsLine(prompts, { pickup = false, planning = true } = {}) {
   const n = prompts.length;
   if (pickup) {
     const names = n <= 5 ? ` (${prompts.join(', ')})` : '';
     const entry = hasPickupCommand() ? '`/pickup` or `runlist use <name>`' : '`runlist use <name>`';
-    return `If the user is asking to resume saved work: ${n} pending prompt${n === 1 ? '' : 's'}${names}; ${entry} consumes one (archives the prompt and claims its linked plan).${n > 1 ? ' Ask which one; never consume the oldest by default.' : ''}`;
+    const effect = planning ? 'archives the prompt and claims its linked plan' : 'archives the prompt and prints it';
+    return `If the user is asking to resume saved work: ${n} pending prompt${n === 1 ? '' : 's'}${names}; ${entry} consumes one (${effect}).${n > 1 ? ' Ask which one; never consume the oldest by default.' : ''}`;
   }
   return `${n} pending prompt${n === 1 ? '' : 's'}: resume one only when the user asks for it (\`runlist prompts\` lists them, \`runlist use <name>\` resumes one, \`runlist prompts show <name>\` peeks); never consume the oldest by default.`;
 }
@@ -513,7 +551,7 @@ export function runHud(argv, config) {
   // need the operator-facing machinery, just the verbs and the guardrails.
   if (argv.includes('--subagent')) {
     if (!runlistRepo) return; // silent in repos that don't use runlist
-    process.stdout.write(dim(SUBAGENT_PRIMER) + '\n');
+    process.stdout.write(dim(isHandoffsMode(config) ? HANDOFFS_SUBAGENT_PRIMER : SUBAGENT_PRIMER) + '\n');
     if (drift) process.stdout.write(yellow(drift) + '\n');
     return;
   }

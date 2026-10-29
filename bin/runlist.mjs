@@ -2263,7 +2263,10 @@ async function main() {
   // runlist isn't used, so don't nag them about a missing config (they no-op
   // cleanly on their own). The warning is still useful for interactive commands.
   const HOOK_COMMANDS = new Set(['hud', 'guard']);
-  if (!config.configFound && command !== 'init' && !HOOK_COMMANDS.has(command)) {
+  // A prompt saved here creates a handoffs-only config itself (src/handoffs-mode.mjs).
+  const savesPrompt = command === 'baton' || (command === 'new' && restArgs.find(a => !a.startsWith('-')) === 'prompt')
+    || (command === 'prompts' && restArgs[0] === 'new');
+  if (!config.configFound && command !== 'init' && !HOOK_COMMANDS.has(command) && !savesPrompt) {
     warn('No runlist config found — using defaults. Run `runlist setup` to create one and carry over saved prompts and plans.');
   }
 
@@ -2271,6 +2274,15 @@ async function main() {
     for (const w of config.configWarnings) {
       warn(w);
     }
+  }
+
+  // Handoffs-only projects (src/handoffs-mode.mjs) have no plans; plan views
+  // say planning is off and name the command that turns it on.
+  const PLAN_VIEWS = new Set(['plans', 'health', 'runlists', 'roadmaps', 'roadmap', 'runlist', 'modules', 'module']);
+  if (config.mode === 'handoffs' && PLAN_VIEWS.has(command) && !config.configuredPresetNames.has(command)) {
+    const { PLANNING_OFF } = await import('../src/handoffs-mode.mjs');
+    process.stdout.write(restArgs.includes('--json') ? `${JSON.stringify({ planning: false, message: PLANNING_OFF }, null, 2)}\n` : `${PLANNING_OFF}\n`);
+    return;
   }
 
   if (verbose) {
@@ -2790,6 +2802,10 @@ async function main() {
       }, null, 2) + '\n');
     } else {
       process.stdout.write(renderBriefing(index, config));
+      if (config.mode === 'handoffs') {
+        const { PLANNING_OFF } = await import('../src/handoffs-mode.mjs');
+        process.stdout.write(`${PLANNING_OFF}\n`);
+      }
     }
     return;
   }

@@ -170,6 +170,9 @@ export function buildAgentContext(index, config, options = {}) {
       types: options.types?.length ? [...options.types] : null,
       ...(options.sections ? { sections: [...sections] } : {}),
     },
+    // Handoffs-only projects have no plans to orient on; say so instead of
+    // leaving an agent to infer it from an empty plan vocabulary.
+    planning: config.planning !== false,
     statusVocabulary: vocabulary,
     counts: {
       documents: index.docs.length,

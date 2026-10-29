@@ -12,6 +12,7 @@ import { regenIndex } from './lifecycle.mjs';
 import { extractFrontmatter, parseSimpleFrontmatter, normalizeEol } from './frontmatter.mjs';
 import { authorizeManagedDestination } from './managed-path.mjs';
 import { createFileExclusive, mutateFileSet, MutationConflictError } from './atomic-mutation.mjs';
+import { ensureHandoffsConfig, isHandoffsMode, PLANNING_OFF } from './handoffs-mode.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
@@ -427,8 +428,18 @@ export function planDirectory(config, template = resolveTemplate('plan', config)
   return routed || path.join(catchAllRoot(config), template.dir || '');
 }
 
+// Only reached where no handoffs config could be created for the prompt: a
+// repository holding plans saved before setup, which setup carries over.
 export function unconfiguredPromptHint(config) {
   return config.configFound ? '' : 'No runlist config here yet — run `runlist setup`; it carries this prompt over.\n';
+}
+
+export function planningOffRefusal(what) {
+  return `${what} needs planning. ${PLANNING_OFF}`;
+}
+
+function userNameDirIn(name) {
+  return Boolean(name && (name.includes('/') || name.includes(path.sep)));
 }
 
 function bindPromptParent(content, parentPrompt) {
@@ -682,7 +693,10 @@ next_step:
 export async function runNew(argv, config, opts = {}) {
   const { dryRun } = opts;
 
-  if (argv.find(a => !a.startsWith('-')) === 'decision') return runNewDecisionArgs(argv, config, opts);
+  if (argv.find(a => !a.startsWith('-')) === 'decision') {
+    if (isHandoffsMode(config)) die(planningOffRefusal('`runlist new decision`'));
+    return runNewDecisionArgs(argv, config, opts);
+  }
 
   const knownTypes = new Set(Object.keys(BUILTIN_TEMPLATES));
   // Also include any custom templates from config
@@ -770,6 +784,9 @@ export async function runNew(argv, config, opts = {}) {
     typeName = 'plan';
     if (runlistArg === null && !roadmap) coordination = true;
   }
+  // A handoffs-only project scans its prompt folder alone; anything else
+  // created there would land among the prompts and outside every listing.
+  if (isHandoffsMode(config) && typeName !== 'prompt') die(planningOffRefusal(`\`runlist new ${typeName}\``));
 
   if (!name) {
     if (isInteractive()) {
@@ -912,6 +929,19 @@ export async function runNew(argv, config, opts = {}) {
       cause = `Either drop the body, switch to a template that accepts it, or set \`acceptsBody: true\` on your custom \`${typeName}\` template in runlist.config.mjs.`;
     }
     die(`\`${typeName}\` template does not accept body input, but body was passed via ${bodyInputSource}.${hint}\n${cause}`);
+  }
+
+  // Zero setup: the first prompt saved in a repository with no config creates
+  // a handoffs-only config (src/handoffs-mode.mjs), after every input check so
+  // a refused command leaves nothing behind.
+  let handoffsSetup = null;
+  if (typeName === 'prompt' && !config.configFound && !userNameDirIn(name) && !rootName) {
+    handoffsSetup = await ensureHandoffsConfig(process.cwd(), config, { dryRun });
+    config = handoffsSetup.config;
+    if (dryRun && handoffsSetup.created) {
+      process.stdout.write(`${dim(handoffsSetup.line)}\n${dim('[dry-run]')} Would create: ${path.posix.join(handoffsSetup.created.promptDirectory, `${slugify(path.basename(name, '.md'))}.md`)}\n`);
+      return;
+    }
   }
 
   // If name contains path separators, split into directory prefix and basename
@@ -1137,7 +1167,8 @@ export async function runNew(argv, config, opts = {}) {
   // Prompt consumption and Git tracking are separate choices. Describe the
   // resolved policy, then flag an actually ignored target for any type.
   if (typeName === 'prompt') {
-    process.stdout.write(unconfiguredPromptHint(config));
+    if (handoffsSetup?.line) process.stdout.write(`${handoffsSetup.line}\n`);
+    else process.stdout.write(unconfiguredPromptHint(config));
     const tracking = config.promptTracking ?? 'local';
     const policy = tracking === 'tracked' ? 'Prompt commits are allowed.'
       : tracking === 'untracked' ? 'Leave untracked to reduce commit churn; git add -A can still stage it.'
