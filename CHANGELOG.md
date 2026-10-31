@@ -8,6 +8,8 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 - The README and desktop Air notes no longer link to documents outside this
   repository; those links could not resolve for anyone else.
+- `npm run check:public` now fails on a Markdown path that climbs out of the
+  repository.
 
 ## 0.100.1 — 2026-10-29
 

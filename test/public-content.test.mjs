@@ -56,5 +56,12 @@ test('private inventories fail even when force-added or included in an npm packa
     assert.equal(binary.filter(item => item.category === 'private vocabulary').length, 1);
     assert.equal(binary.filter(item => item.category === 'personal absolute path').length, 1);
     assert.throws(() => inspectPublicFiles(root, ['../outside']), /escapes/);
+    mkdirSync(path.join(root, 'guide'));
+    writeFileSync(path.join(root, 'guide', 'notes.md'), 'see [plan](../../../sibling/plan.md)\nand `../plans/x.md`\nand [local](../README.md)\n');
+    writeFileSync(path.join(root, 'README.md'), 'see `../../sibling/plan.md`\nand `../plans/x.md`\n');
+    assert.deepEqual(inspectPublicFiles(root, ['guide/notes.md', 'README.md'], { fingerprints }), [
+      { file: 'README.md', line: 1, category: 'path outside repository' },
+      { file: 'guide/notes.md', line: 1, category: 'path outside repository' },
+    ]);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

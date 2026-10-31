@@ -39,6 +39,19 @@ export function inspectPublicText(text, file, { fingerprints = PRIVATE_FINGERPRI
   return findings;
 }
 
+// A relative path that climbs out of the repository names the author's machine
+// layout and resolves for nobody else. Climbing one level stays legal so prose
+// can show a doc-relative example such as `../plans/x.md`.
+function inspectEscapingPaths(text, file) {
+  const findings = [];
+  for (const [index, line] of text.split('\n').entries()) {
+    const escapes = (line.match(/(?:\.\.\/)+[\w.-]+/g) ?? [])
+      .some(ref => path.posix.normalize(path.posix.join(path.posix.dirname(file), ref)).startsWith('../../'));
+    if (escapes) findings.push({ file, line: index + 1, category: 'path outside repository' });
+  }
+  return findings;
+}
+
 export function inspectPublicFiles(root, files, options) {
   const findings = [];
   for (const file of [...new Set(files)].sort()) {
@@ -59,6 +72,7 @@ export function inspectPublicFiles(root, files, options) {
     const bytes = readFileSync(full);
     const text = bytes.toString(bytes.includes(0) ? 'latin1' : 'utf8');
     findings.push(...inspectPublicText(text, normalized, options));
+    if (/\.md$/i.test(normalized)) findings.push(...inspectEscapingPaths(text, normalized));
   }
   return findings;
 }
