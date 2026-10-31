@@ -23,8 +23,8 @@ compiler requirement, and preparation does not launch or install the app.
 The source and dependency directories must already be complete; preparation
 does not fetch packages.
 
-The current Air continuation is planned in [Platform machine-control
-consolidation](../../../platform/docs/plans/developer-machine-control-consolidation.md).
+The current Air continuation is planned in a private machine-control
+consolidation plan outside this repository.
 Its Developer/Worker route must qualify remote unlocking and replace the older
 SSH implementation before another Air run. The former `just runlist-air`
 entry is retained source history, not an instruction to retry that transport or
@@ -58,7 +58,6 @@ These cases passed native compilation; execution remains pending. See the valida
 Screenshots and accessibility trees remain in the job's `native.xcresult`.
 An inaccessible control fails the native test. See
 [source validation](AIR-VALIDATION.md).
-The [Platform execution record](../../../platform/docs/plans/runlist-air-verification.md)
-owns Runlist worker policy and retained remote acceptance evidence; the linked
-consolidation plan owns its current machine-control dependency.
+A private execution record owns Runlist worker policy and retained remote
+acceptance evidence; the consolidation plan owns its current machine-control dependency.
 

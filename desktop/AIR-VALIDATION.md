@@ -59,15 +59,14 @@ that native pointer hit testing is repaired. Configuration trust and document
 selection use the actual native sheet and document-row identities.
 
 The revised harness passed `just typecheck runlist-native-tests`.
-The [focused-editor execution record](../../../platform/docs/plans/runlist-air-verification.md#focused-editor-input-and-runlist-repository-update)
-owns its compile log. The [latest Air attempt](../../../platform/docs/plans/runlist-air-verification.md#focused-input-staging-and-locked-air-no-start)
+A private execution record owns its compile log. The latest Air attempt
 records a locked-console refusal before execution; the changed workflow has no
 live native verdict yet.
 
 This is source evidence, not a native-window pass. The harness preserves the
 [existing dialog investigation](VALIDATION.md#confirmation-fix-and-native-investigation-2026-10-20)
 as a failing result if native controls remain inaccessible. Installation,
-worker readiness and actual helper/native-window receipts have 1 owner, the
-Platform execution plan at `../../../platform/docs/plans/runlist-air-verification.md`.
+worker readiness and actual helper/native-window receipts have 1 owner, a
+private execution plan outside this repository.
 The [payload entry](AIR-VERIFICATION.md) describes preparation.
 

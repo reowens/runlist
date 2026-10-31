@@ -2,6 +2,13 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- The README and desktop Air notes no longer link to documents outside this
+  repository; those links could not resolve for anyone else.
+
 ## 0.100.1 — 2026-10-29
 
 ### Fixed

@@ -1667,5 +1667,3 @@ and the explicit compatibility and desktop qualification workflows.
 ## License
 
 MIT
-
-The reviewed [protective parser/global Git/Codex hook error changes](../../platform/docs/plans/assets/p3-hook-error-review-20261029/README.md) are applied. [Application evidence](../../platform/docs/plans/assets/p3-hook-error-review-20261029/applied/README.md) records passing guard/global/fault checks and the corrected Codex sibling-prefix case passing its approved focused rerun. Intentional observers, accepted filesystem profiles and ROBOT's shared settings symlink are preserved.
