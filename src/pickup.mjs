@@ -654,6 +654,21 @@ export function assertHookDeliveryTakeoverSafe(ownership, options = {}) {
   }
 }
 
+// Who holds an in-session plan, for read commands. Null for anything else. A
+// released record is what a claim leaves behind, so it reads as no claim, the
+// same as the survey and pickup treat it. A corrupt record names nobody we can
+// trust, even when its session field matches, so it stays someone else's and
+// never gone: only a process seen to have ended reads as gone.
+export function planClaimState(doc, config, sessionId) {
+  if (doc?.type !== 'plan' || doc.status !== 'in-session') return null;
+  const ownership = readPlanOwnership(doc.path, config);
+  if (ownership?.corrupt) return { state: 'other', sessionId: null, claimedAt: null, liveness: ownershipLiveness(ownership) };
+  if (ownership?.state !== 'owned') return { state: 'none', sessionId: null, claimedAt: null, liveness: null };
+  const liveness = ownershipLiveness(ownership);
+  const state = sessionId && ownership.sessionId === sessionId ? 'yours' : liveness === 'dead' ? 'gone' : 'other';
+  return { state, sessionId: ownership.sessionId, claimedAt: ownership.claimedAt ?? null, liveness };
+}
+
 export function pickupFactsForDoc(doc, config, { sessionId = availableSessionId() } = {}) {
   const ownership = doc?.path ? readPlanOwnership(doc.path, config) : null;
   return classifyPlanPickup({

@@ -9,6 +9,7 @@ import { extractFrontmatter } from './frontmatter.mjs';
 import { summarizeDocBody } from './ai.mjs';
 import { bold, dim, yellow, red, green, blue, magenta, cyan, brightYellow } from './color.mjs';
 import { buildRunlistIndex, buildCoordinationIndex, buildRoadmapIndex, isRoadmapHub, hubLabel } from './runlist.mjs';
+import { availableSessionId, planClaimState } from './pickup.mjs';
 
 const STATUS_COLORS = {
   'in-session': (s) => bold(red(s)),
@@ -24,14 +25,27 @@ const STATUS_COLORS = {
   'claimed': dim,
 };
 
-function colorTag(status) {
-  const tag = `[${(status ?? 'unknown').toUpperCase()}]`;
+const CLAIM_LABELS = { yours: 'yours', other: 'other', gone: 'gone', none: 'no claim' };
+
+function colorTag(status, claim = null) {
+  const label = claim ? ` · ${CLAIM_LABELS[claim.state]}` : '';
+  const tag = `[${(status ?? 'unknown').toUpperCase()}${label}]`;
   const fn = STATUS_COLORS[status] ?? dim;
   return fn(tag);
 }
 
 // Strip ANSI for length math
 function visibleLen(s) { return s.replace(/\x1b\[[0-9;]*m/g, '').length; }
+
+// `plans` is a read command, so a shell with no session id still works: nothing
+// reads as yours. The limited rows share their objects with this matched set.
+function attachPlanClaims(docs, config) {
+  const sessionId = availableSessionId();
+  for (const doc of docs) {
+    const claim = planClaimState(doc, config, sessionId);
+    if (claim) doc.claim = claim;
+  }
+}
 
 export function runFocus(index, argv, config) {
   // Find first positional arg, skipping flag-value pairs like --root <name>
@@ -87,6 +101,7 @@ export function runQuery(index, argv, config, opts = {}) {
     die('`--body` extends a keyword search into document bodies — pass `--keyword <term>` (or use `runlist grep <term>`).');
   }
   const docs = filterDocs(index.docs, filters, config, opts.gitMetadataOptions);
+  if (opts.preset === 'plans') attachPlanClaims(filters._matched ?? docs, config);
   const summaryPreviewSkipped = filters.summarize && config._execution?.suppressSideEffects;
 
   if (filters.json) {
@@ -771,13 +786,23 @@ function renderPlansByGroup(docs, keyFn, filters, maxWidth) {
 // next-step column when right-aligning tags.
 const MAX_TAG_WIDTH = '[QUEUED-AFTER]'.length;
 
+// A claim tag is wider than the tag column, so these rows may give up the whole
+// text column to stay inside the width. Other rows keep their 10-column floor.
+function fitText(text, budget) {
+  if (text.length <= budget) return text;
+  return budget > 3 ? text.slice(0, budget - 3) + '...' : '';
+}
+
 // Format a single triage row: `<indent><slug>  <age>  <pct>  <next-step>` with
 // an optional right-aligned tag. `indent` carries the left gutter (and, for
 // runlist children, the `→` next-pickup marker), so its visible length must be
 // stable across sibling rows for the slug column to align. `tag` overrides the
 // status tag (used for the `[RUNLIST]` hub tag).
-function formatPlanRow(doc, maxWidth, { slug, indent = '  ', maxSlug, showTag = false, tag } = {}) {
-  const slugCell = slug.padEnd(maxSlug ?? slug.length);
+export function formatPlanRow(doc, maxWidth, { slug, indent = '  ', maxSlug, showTag = false, tag } = {}) {
+  const claimRow = showTag && !tag && Boolean(doc.claim);
+  const tagText = showTag ? tag ?? colorTag(doc.status, doc.claim) : '';
+  const tagWidth = claimRow ? visibleLen(tagText) : MAX_TAG_WIDTH;
+  let slugCell = slug.padEnd(maxSlug ?? slug.length);
   const age = doc.daysSinceUpdate != null ? `${doc.daysSinceUpdate}d` : '—';
   const ageStr = doc.daysSinceUpdate != null && doc.isStale ? red(age.padStart(4)) : dim(age.padStart(4));
 
@@ -788,7 +813,15 @@ function formatPlanRow(doc, maxWidth, { slug, indent = '  ', maxSlug, showTag = 
     pctCell = `${pct.toString().padStart(3)}% `;
   }
 
-  const leftBlock = `${indent}${slugCell}  ${ageStr}  ${dim(pctCell)}`;
+  let leftBlock = `${indent}${slugCell}  ${ageStr}  ${dim(pctCell)}`;
+  // With no text left, a claim row can still be too wide: shorten its slug, keeping
+  // enough to recognize. The 4 is the two gaps either side of the empty text.
+  const excess = claimRow ? visibleLen(leftBlock) + 4 + tagWidth - maxWidth : 0;
+  if (excess > 0) {
+    const width = Math.max(8, slugCell.length - excess);
+    slugCell = slug.length > width ? slug.slice(0, width - 3) + '...' : slug.padEnd(width);
+    leftBlock = `${indent}${slugCell}  ${ageStr}  ${dim(pctCell)}`;
+  }
   const leftLen = visibleLen(leftBlock);
 
   // Next-step / blocker text. Budget = maxWidth - leftLen - separator - (tag column if shown).
@@ -799,10 +832,9 @@ function formatPlanRow(doc, maxWidth, { slug, indent = '  ', maxSlug, showTag = 
     nextText = doc.nextStep;
   }
 
-  const tagBudget = showTag ? MAX_TAG_WIDTH + 2 : 0; // 2 = gap before tag
-  const nextBudget = Math.max(10, maxWidth - leftLen - 2 - tagBudget); // -2 for `  ` separator
-  let nextRendered = nextText;
-  if (nextText.length > nextBudget) nextRendered = nextText.slice(0, nextBudget - 3) + '...';
+  const tagBudget = showTag ? tagWidth + 2 : 0; // 2 = gap before tag
+  const nextBudget = Math.max(claimRow ? 0 : 10, maxWidth - leftLen - 2 - tagBudget); // -2 for `  ` separator
+  let nextRendered = fitText(nextText, nextBudget);
 
   // Coloring for "blocked by" stays yellow.
   if (doc.blockers?.length && doc.status === 'blocked') nextRendered = yellow(nextRendered);
@@ -811,9 +843,9 @@ function formatPlanRow(doc, maxWidth, { slug, indent = '  ', maxSlug, showTag = 
   if (showTag) {
     // Pad next column to push tag to the right column boundary.
     const consumed = visibleLen(line);
-    const targetCol = maxWidth - MAX_TAG_WIDTH;
+    const targetCol = maxWidth - tagWidth;
     const padCount = Math.max(2, targetCol - consumed);
-    line = `${line}${' '.repeat(padCount)}${tag ?? colorTag(doc.status)}`;
+    line = `${line}${' '.repeat(padCount)}${tagText}`;
   }
   return line;
 }
@@ -822,7 +854,8 @@ function renderPlanRows(group, _filters, maxWidth, opts = {}) {
   const { showTag = false } = opts;
   const maxSlug = Math.min(30, Math.max(...group.map(d => toSlug(d).length)));
   for (const doc of group) {
-    process.stdout.write(formatPlanRow(doc, maxWidth, { slug: toSlug(doc), maxSlug, showTag }) + '\n');
+    // Grouped views print no tag, but a status heading cannot say who holds a plan.
+    process.stdout.write(formatPlanRow(doc, maxWidth, { slug: toSlug(doc), maxSlug, showTag: showTag || Boolean(doc.claim) }) + '\n');
   }
 }
 
@@ -933,11 +966,11 @@ function renderRoadmapsSection(roadmapDocs, roadmap, maxWidth, total) {
     const ageStr = doc.daysSinceUpdate != null && doc.isStale ? red(age.padStart(4)) : dim(age.padStart(4));
     const roll = (info ? `${info.grandDone}/${info.grandTotal}` : '').padStart(8);
     const kids = info ? `${info.childCount} ${info.childCount === 1 ? 'runlist' : 'runlists'}` : '';
-    const statusTag = doc.status && doc.status !== 'active' ? ` ${colorTag(doc.status)}` : '';
+    const statusTag = doc.status && doc.status !== 'active' ? ` ${colorTag(doc.status, doc.claim)}` : '';
     const desc = (doc.nextStep || doc.currentState || doc.title || '').replace(/\s+/g, ' ').trim();
     const left = `  ${slug}  ${ageStr}  ${dim(roll)}  ${dim(kids.padEnd(11))}  `;
-    const budget = Math.max(10, maxWidth - visibleLen(left) - visibleLen(statusTag) - 2);
-    const descR = desc.length > budget ? desc.slice(0, Math.max(0, budget - 3)) + '...' : desc;
+    const budget = Math.max(doc.claim ? 0 : 10, maxWidth - visibleLen(left) - visibleLen(statusTag) - 2);
+    const descR = fitText(desc, budget);
     process.stdout.write(`${left}${dim(descR)}${statusTag}\n`);
   }
 }
@@ -957,7 +990,7 @@ function renderCoordinationSection(coordDocs, coordination, maxWidth, total) {
     const age = doc.daysSinceUpdate != null ? `${doc.daysSinceUpdate}d` : '—';
     const ageStr = doc.daysSinceUpdate != null && doc.isStale ? red(age.padStart(4)) : dim(age.padStart(4));
     const count = (info?.total ? `${info.doneCount}/${info.total}` : '').padStart(7);
-    const statusTag = doc.status && doc.status !== 'active' ? ` ${colorTag(doc.status)}` : '';
+    const statusTag = doc.status && doc.status !== 'active' ? ` ${colorTag(doc.status, doc.claim)}` : '';
     const desc = (doc.nextStep || doc.currentState || doc.title || '').replace(/\s+/g, ' ').trim();
 
     // Next-pickup (first non-archived ranked child from the body) leads the
@@ -970,8 +1003,8 @@ function renderCoordinationSection(coordDocs, coordination, maxWidth, total) {
     const nextPart = nextStr ? `${nextStr}  ` : '';
 
     const left = `  ${slug}  ${ageStr}  ${dim(count)}  `;
-    const budget = Math.max(10, maxWidth - visibleLen(left) - visibleLen(nextPart) - visibleLen(statusTag) - 2);
-    const descR = desc.length > budget ? desc.slice(0, budget - 3) + '...' : desc;
+    const budget = Math.max(doc.claim ? 0 : 10, maxWidth - visibleLen(left) - visibleLen(nextPart) - visibleLen(statusTag) - 2);
+    const descR = fitText(desc, budget);
     process.stdout.write(`${left}${nextPart}${dim(descR)}${statusTag}\n`);
   }
 }
