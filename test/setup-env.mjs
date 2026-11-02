@@ -21,6 +21,10 @@ const OWNER_FLAG = 'RUNLIST_TEST_LOG_DIR_OWNER';
 process.env.RUNLIST_JOURNAL = '0';
 process.env.DOTMD_JOURNAL = '0';
 
+// A child given a temporary HOME still honours CODEX_HOME, as Codex does, so a
+// developer's own value would point an install test at their real hooks file.
+delete process.env.CODEX_HOME;
+
 // Node's test runner hands its children FORCE_COLOR=1 when it runs in a colour
 // terminal, and color.mjs honours that first, so every output comparison saw
 // escape codes under a TTY and passed only where stdout was piped. Each test

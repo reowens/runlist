@@ -197,6 +197,7 @@ with a one-line recap naming the habit to break.`,
   runlist install                report what is installed for each known host
   runlist install claude         install the Claude Code plugin (marketplace + plugin)
   runlist install codex          install/refresh the Codex plugin (personal marketplace)
+  runlist install codex --remove take runlist's hooks out of your Codex hooks.json
   runlist install opencode       install/refresh the OpenCode plugin (global config dir)
   runlist install opencode --remove
   runlist install opencode --path <dir>   write to a specific plugin directory
@@ -220,9 +221,11 @@ host gets that a different way:
 
   codex     Copies the npm-packaged runlist-codex plugin into the personal
             marketplace and invokes \`codex plugin add\`. It supplies a compact
-            skill, SessionStart orientation, and a PreToolUse guard. Codex
-            requires a separate hook trust review; start a new thread after
-            installing. CODEX_THREAD_ID remains the ownership identity.
+            skill, and adds SessionStart orientation and a PreToolUse guard to
+            your ~/.codex/hooks.json, leaving your other hooks where they are.
+            Start a new thread and trust them once in /hooks; updating runlist
+            does not change them. \`codex plugin remove\` leaves them running, so use
+            --remove as well. CODEX_THREAD_ID remains the ownership identity.
 
   opencode  Writes one auto-discovered plugin file. OpenCode has no plugin
             registry but globs \`{plugin,plugins}/*.{ts,js}\` under its global

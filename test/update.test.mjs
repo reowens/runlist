@@ -437,6 +437,7 @@ test('managed host verification rejects no-op updates, disappeared installs and 
   assert.match(verifyManagedHostUpdates(before, { ...after, opencode: { ...current, version: '0.9.0' } }, '1.0.0').join(), /opencode.*expected 1.0.0/);
   assert.match(verifyManagedHostUpdates(before, { ...after, codex: { ...current, installed: { ok: true, version: '0.9.0' } } }, '1.0.0').join(), /Codex installed plugin.*0.9.0/);
   assert.equal(verifyManagedHostUpdates(before, {}, '1.0.0').length, 3);
+  assert.match(verifyManagedHostUpdates(before, { ...after, codex: { ...after.codex, stale: true, hooks: { path: '/h/hooks.json', state: 'unreadable', reason: 'bad' } } }, '1.0.0').join(), /Codex hooks in \/h\/hooks\.json are unreadable \(bad\)/);
   assert.deepEqual(verifyManagedHostUpdates({ opencode: { ...current, foreign: true } }, {}, '1.0.0'), []);
 });
 

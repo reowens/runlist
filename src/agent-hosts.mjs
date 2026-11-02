@@ -6,6 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { codexHomeDir, codexHooksStatus } from './codex-integration.mjs';
+
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PLUGIN_FILES = ['skills', 'commands', 'hooks', 'hooks.json', 'bin', '.claude-plugin', '.codex-plugin'];
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -203,7 +205,7 @@ function codexReport(home, env, root, executables) {
   const sourceState = !existsSync(sourcePath) ? 'missing' : foreign || registered && !expectedSource ? 'foreign'
     : marketplace.state === 'unreadable' ? 'unknown' : !registered || same(fingerprint, candidate) === false ? 'stale'
       : same(fingerprint, candidate) === true ? 'current' : 'unknown';
-  const codexHome = env.CODEX_HOME ? path.resolve(env.CODEX_HOME) : path.join(home, '.codex');
+  const codexHome = codexHomeDir(home, env);
   const cacheRoot = path.join(codexHome, 'plugins/cache'), cached = [];
   try { for (const market of readdirSync(cacheRoot).slice(0, 100)) {
     const pluginRoot = path.join(cacheRoot, market, 'runlist-codex');
@@ -214,15 +216,17 @@ function codexReport(home, env, root, executables) {
         state: sameSource === true ? 'current' : sameSource === false ? 'stale' : 'unknown', sameSource, sameCandidate: same(fp, candidate) });
     } } catch {}
   } } catch {}
-  return { state: sourceState, stateBasis: 'managed marketplace source relative to the selected candidate; installed and loaded states remain unknown', executables, configDir: codexHome, cacheRoot,
+  const hooks = codexHooksStatus({ hooksFile: path.join(codexHome, 'hooks.json'), pluginRoot: sourcePath });
+  const state = sourceState === 'current' && hooks.state !== 'current' ? 'stale' : sourceState;
+  return { state, stateBasis: 'managed marketplace source and user hooks relative to the selected candidate; installed, trusted and loaded states remain unknown', hooks, executables, configDir: codexHome, cacheRoot,
     marketplace: { path: marketplacePath, state: marketplace.state, name: marketplace.data?.name ?? null, registered, expectedSource },
     source: { path: sourcePath, state: sourceState, foreign, version: marker.data?.version ?? null, fingerprint, sameCandidate: same(fingerprint, candidate) },
     cached, installed: { state: 'unknown', reason: 'offline cache inventory does not attest host installation' }, loaded: 'unknown',
-    repair: { host: 'codex', action: sourceState === 'missing' ? 'install' : 'refresh', targetable: !foreign && (!registered || expectedSource) && marketplace.state !== 'unreadable',
-      reason: foreign ? 'preserve unmarked source' : registered && !expectedSource ? 'preserve marketplace entry targeting another source'
+    repair: { host: 'codex', action: sourceState === 'missing' ? 'install' : 'refresh', targetable: !foreign && (!registered || expectedSource) && marketplace.state !== 'unreadable' && hooks.state !== 'unreadable',
+      reason: foreign ? 'preserve unmarked source' : hooks.state === 'unreadable' ? `fix ${hooks.path} first: ${hooks.reason}` : registered && !expectedSource ? 'preserve marketplace entry targeting another source'
         : marketplace.state === 'unreadable' ? 'marketplace data is unreadable; preserve unknown entries'
           : 'refresh managed marketplace source; host installation still requires verification' },
-    requirements: ['Start a new Codex thread after repair.', 'Review and trust plugin hooks in Codex; cached copies do not prove activation.'] };
+    requirements: ['Start a new Codex thread after repair.', 'Trust the runlist hooks in /hooks once; this report cannot see whether they are trusted.'] };
 }
 
 function opencodeReport(home, env, root, executables) {
@@ -289,6 +293,7 @@ export function formatAgentHostReport(report) {
     if (host === 'codex') {
       lines.push(`  Personal marketplace: ${item.marketplace.path} · ${item.marketplace.state} · registered ${item.marketplace.registered}`,
         `  Marketplace source: ${item.source.path} · ${item.source.state} · local candidate ${parity(item.source.sameCandidate)}`,
+        `  Hooks: ${item.hooks.path} · ${item.hooks.state}${item.hooks.reason ? ` · ${item.hooks.reason}` : ''}`,
         `  State basis: ${item.stateBasis}`,
         `  Active Codex profile: ${item.configDir} · cache ${item.cacheRoot}`,
         `  Installed record: ${item.installed.state} · ${item.installed.reason}`);

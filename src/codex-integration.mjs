@@ -1,16 +1,33 @@
 // Codex's default personal marketplace is discovered without a CLI registration.
 // The npm package carries this plugin so installation does not need a Git checkout.
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { commitRename } from './durable-rename.mjs';
 import { executableName } from './util.mjs';
 
 const SOURCE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'plugins', 'runlist-codex');
 const NAME = 'runlist-codex';
 const MARKER = '.runlist-generated.json';
+
+// Codex keeps trust for a plugin hook against the plugin's whole contents, so
+// every plugin update turned these hooks off until someone re-trusted them. A
+// hook in the user's hooks.json is trusted against its own definition alone, so
+// these live there and call scripts at a path that updates keep in place.
+//
+// Changing a command or matcher here makes every user review the hook again.
+// Change the scripts instead unless that review is the point. A changed timeout
+// reaches new installs only: an existing hook keeps the value it has, because
+// Codex counts a timeout as part of the definition, and a user may have tuned it.
+const HOOKS = {
+  UserPromptSubmit: { run: 'node', script: 'consume-prompt.mjs', timeout: 15 },
+  SessionStart: { matcher: 'startup|resume|clear|compact', run: 'sh', script: 'runlist-hook', args: ' --hint hud', timeout: 5 },
+  SubagentStart: { matcher: '*', run: 'node', script: 'subagent-start.mjs', timeout: 5 },
+  PreToolUse: { matcher: 'Bash|apply_patch|mcp__.*__(read_file|read_text_file|read_media_file|read_multiple_files)', run: 'sh', script: 'runlist-hook', args: ' guard', timeout: 5 },
+};
 
 // Compare the whole distributed tree, including hook scripts and manifests.
 // The ownership marker is metadata, never an asset or proof of source parity.
@@ -41,11 +58,159 @@ export function codexAssetParity(installedPath, sourcePath = SOURCE) {
   return { state: !expected || !actual ? 'unknown' : expected === actual ? 'match' : 'mismatch', expected, actual };
 }
 
-export function codexPaths(homedir = os.homedir()) {
+export function codexHomeDir(homedir, env) {
+  return env.CODEX_HOME ? path.resolve(env.CODEX_HOME) : path.join(homedir, '.codex');
+}
+
+// A caller naming another home with no env of its own stays self-contained. One
+// that passes env gets Codex's own rule, so every reader here agrees on the file.
+export function codexPaths(homedir = os.homedir(), env = homedir === os.homedir() ? process.env : {}) {
   const root = path.join(homedir, '.agents', 'plugins');
   // The implicit personal marketplace file lives under ~/.agents/plugins,
   // but Codex resolves its `./plugins/...` sources relative to the home dir.
-  return { root, marketplace: path.join(root, 'marketplace.json'), plugin: path.join(homedir, 'plugins', NAME) };
+  return { root, marketplace: path.join(root, 'marketplace.json'), plugin: path.join(homedir, 'plugins', NAME), hooksFile: path.join(codexHomeDir(homedir, env), 'hooks.json') };
+}
+
+function shellPath(file) {
+  const portable = file.split(path.sep).join('/');
+  return process.platform === 'win32' ? portable : portable.replace(/[\\"$`]/g, '\\$&');
+}
+
+export function codexHookDefinitions(pluginRoot) {
+  const root = shellPath(pluginRoot);
+  return Object.fromEntries(Object.entries(HOOKS).map(([event, { matcher, run, script, args = '', timeout }]) => [event, {
+    ...(matcher ? { matcher } : {}),
+    hooks: [{ type: 'command', command: `${run} "${root}/bin/${script}"${args}`, timeout }],
+  }]));
+}
+
+// A hook is ours only when the whole command is one we would write for this
+// plugin folder. A wrapper around our script, or a copy in someone's checkout, is
+// the user's own and is left alone.
+function ourHookTest(pluginRoot) {
+  const root = shellPath(pluginRoot).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`^(?:node|sh) "${root}/bin/[^"]*"(?: [\\w -]*)?$`);
+  return hook => typeof hook?.command === 'string' && pattern.test(hook.command);
+}
+
+// Codex names a user hook by its event and position, and keeps trust under that
+// name: a hook that changes position reads `modified` and stops running. So no
+// path here moves someone else's hook. New hooks go last, ours are updated where
+// they are, and a doubled one is dropped only when nothing of theirs follows it.
+export function mergeCodexHooks(data, pluginRoot) {
+  const hooks = { ...(data.hooks ?? {}) };
+  const isOurs = ourHookTest(pluginRoot);
+  let changed = false, present = false;
+  const doubled = [];
+  for (const [event, wanted] of Object.entries(codexHookDefinitions(pluginRoot))) {
+    const groups = hooks[event] ?? [];
+    if (!Array.isArray(groups)) throw new Error(`hooks.${event} is not a list`);
+    const [want] = wanted.hooks;
+    let count = 0;
+    const next = groups.map(group => {
+      const list = Array.isArray(group?.hooks) ? group.hooks : [];
+      if (!list.some(isOurs)) return group;
+      present = true;
+      count += list.filter(isOurs).length;
+      const updated = list.map(hook => !isOurs(hook) || hook.command === want.command ? hook : { ...hook, ...want });
+      // A shared group's matcher also decides when the user's hook runs.
+      const matcherStale = list.every(isOurs) && group.matcher !== wanted.matcher;
+      if (!matcherStale && updated.every((hook, i) => hook === list[i])) return group;
+      changed = true;
+      const { matcher: _old, ...rest } = group;
+      return matcherStale ? { ...rest, ...(wanted.matcher ? { matcher: wanted.matcher } : {}), hooks: updated } : { ...group, hooks: updated };
+    });
+    while (count > 1 && next.at(-1)?.hooks?.length === 1 && isOurs(next.at(-1).hooks[0])) { next.pop(); count--; changed = true; }
+    if (count > 1) doubled.push(event);
+    if (!count) { next.push(wanted); changed = true; }
+    hooks[event] = next;
+  }
+  return { data: { ...data, hooks }, changed, present, doubled };
+}
+
+function readCodexHooks(file) {
+  let text;
+  try { text = readFileSync(file, 'utf8'); }
+  catch (err) {
+    if (err.code !== 'ENOENT') throw err;
+    // Writing here would replace the link, and a dotfile manager with it.
+    if (lstatSync(file, { throwIfNoEntry: false })?.isSymbolicLink()) throw new Error('it is a link to a file that does not exist');
+    return {};
+  }
+  const data = JSON.parse(text);
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('not a JSON object');
+  if (data.hooks !== undefined && (!data.hooks || typeof data.hooks !== 'object' || Array.isArray(data.hooks))) throw new Error('hooks is not an object');
+  return data;
+}
+
+export function codexHooksStatus({ hooksFile, pluginRoot }) {
+  try {
+    const { changed, present, doubled } = mergeCodexHooks(readCodexHooks(hooksFile), pluginRoot);
+    return { path: hooksFile, state: !changed ? 'current' : present ? 'stale' : 'missing',
+      ...(doubled.length ? { reason: `runlist's hook appears more than once in ${doubled.join(', ')}, and removing it here would move your hooks; remove the extra one by hand` } : {}) };
+  } catch (err) {
+    return { path: hooksFile, state: 'unreadable', reason: err.message };
+  }
+}
+
+function writeHooksFile(hooksFile, data) {
+  // Follow a linked file (a managed dotfile, say) rather than replace the link.
+  const target = existsSync(hooksFile) ? realpathSync(hooksFile) : hooksFile;
+  mkdirSync(path.dirname(target), { recursive: true });
+  const stage = `${target}.runlist-stage-${process.pid}`;
+  try {
+    writeFileSync(stage, JSON.stringify(data, null, 2) + '\n', { mode: existsSync(target) ? statSync(target).mode & 0o777 : 0o600 });
+    commitRename(stage, target);
+  } finally {
+    rmSync(stage, { force: true });
+  }
+}
+
+// The plugin is already published by the time this runs, and a hooks file that
+// cannot be written must not undo that. The caller reports it and fails the step.
+function addCodexHooks(hooksFile, pluginRoot) {
+  try {
+    const { data, changed } = mergeCodexHooks(readCodexHooks(hooksFile), pluginRoot);
+    if (changed) writeHooksFile(hooksFile, data);
+    return {};
+  } catch (err) {
+    return { hooksError: `could not write ${hooksFile}: ${err.message}` };
+  }
+}
+
+// Removing the plugin no longer removes the hooks, so this is how they come out.
+// Hooks after ours do change position here, which cannot be avoided, so the count
+// is returned for the caller to tell the user they need reviewing.
+export function removeCodexHooks({ homedir = os.homedir(), env, dryRun = false } = {}) {
+  const paths = codexPaths(homedir, env);
+  const data = readCodexHooks(paths.hooksFile);
+  const isOurs = ourHookTest(paths.plugin);
+  let removed = 0, moved = 0;
+  const hooks = { ...(data.hooks ?? {}) };
+  for (const [event, groups] of Object.entries(hooks)) {
+    if (!Array.isArray(groups)) continue;
+    const next = [];
+    let groupDropped = false, removedHere = false;
+    for (const group of groups) {
+      const list = Array.isArray(group?.hooks) ? group.hooks : [];
+      let oursBefore = false;
+      for (const hook of list) {
+        if (isOurs(hook)) { removed++; removedHere = true; oursBefore = true; }
+        else if (oursBefore || groupDropped) moved++;
+      }
+      if (!oursBefore) { next.push(group); continue; }
+      const kept = list.filter(hook => !isOurs(hook));
+      if (kept.length) next.push({ ...group, hooks: kept });
+      else groupDropped = true;
+    }
+    if (!removedHere) continue;
+    if (next.length) hooks[event] = next;
+    else delete hooks[event];
+  }
+  if (removed && !dryRun) writeHooksFile(paths.hooksFile, { ...data, hooks });
+  let marketplaceName = 'personal';
+  try { marketplaceName = marketplaceAt(paths.marketplace).name; } catch { /* the name only completes a printed command */ }
+  return { hooksFile: paths.hooksFile, removed, moved, marketplaceName, ...(dryRun ? { dryRun: true } : {}) };
 }
 
 function marketplaceAt(file) {
@@ -57,8 +222,8 @@ function marketplaceAt(file) {
   return data;
 }
 
-export function codexStatus({ version, homedir = os.homedir() } = {}) {
-  const paths = codexPaths(homedir);
+export function codexStatus({ version, homedir = os.homedir(), env } = {}) {
+  const paths = codexPaths(homedir, env);
   let installed = null;
   try { installed = JSON.parse(readFileSync(path.join(paths.plugin, MARKER), 'utf8')).version; } catch { /* absent or foreign */ }
   const exists = existsSync(paths.plugin);
@@ -72,9 +237,11 @@ export function codexStatus({ version, homedir = os.homedir() } = {}) {
     marketplaceRegistered = entry?.source?.source === 'local' && entry.source.path === `./plugins/${NAME}`;
     foreignRegistration = Boolean(entry && !marketplaceRegistered);
   } catch { /* An unreadable registration cannot establish a managed source. */ }
+  const pluginStale = Boolean(installed && ((version && installed !== version) || sourceParity.state !== 'match' || !marketplaceRegistered));
+  const hooks = codexHooksStatus({ hooksFile: paths.hooksFile, pluginRoot: paths.plugin });
   return { ...paths, exists, foreign: (exists && !installed) || foreignRegistration, version: installed, sourceParity,
-    marketplaceState, marketplaceRegistered,
-    stale: Boolean(installed && ((version && installed !== version) || sourceParity.state !== 'match' || !marketplaceRegistered)) };
+    marketplaceState, marketplaceRegistered, hooks, pluginStale,
+    stale: pluginStale || Boolean(installed && hooks.state !== 'current') };
 }
 
 // The marketplace source is not the plugin Codex loads. Ask the host about its
@@ -105,14 +272,17 @@ export function installedCodexStatus({ homedir = os.homedir(), run = spawnSync, 
   }
 }
 
-export function installCodexPlugin({ version, homedir = os.homedir(), dryRun = false } = {}) {
+export function installCodexPlugin({ version, homedir = os.homedir(), env, dryRun = false } = {}) {
   const sourceVersion = JSON.parse(readFileSync(path.join(SOURCE, '.codex-plugin', 'plugin.json'), 'utf8')).version;
   if (sourceVersion !== version) throw new Error(`Codex plugin source is ${sourceVersion}, CLI is ${version}`);
-  const status = codexStatus({ version, homedir });
+  const status = codexStatus({ version, homedir, env });
   if (status.foreign) return { ...status, action: 'refused', reason: 'plugin directory exists without a runlist marker' };
   let market;
   try { market = marketplaceAt(status.marketplace); }
   catch (err) { return { ...status, action: 'refused', reason: err.message }; }
+  if (status.hooks.state === 'unreadable') {
+    return { ...status, action: 'refused', reason: `cannot add hooks to ${status.hooksFile}: ${status.hooks.reason}` };
+  }
   const expected = `./plugins/${NAME}`;
   const entry = market.plugins.find(p => p.name === NAME);
   if (entry && (entry.source?.source !== 'local' || entry.source?.path !== expected)) {
@@ -123,7 +293,12 @@ export function installCodexPlugin({ version, homedir = os.homedir(), dryRun = f
     policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' }, category: 'Productivity',
   });
   if (status.exists && !status.stale && entry) return { ...status, action: 'current', marketplaceName: market.name };
-  if (dryRun) return { ...status, action: status.exists ? 'updated' : 'installed', marketplaceName: market.name, dryRun: true };
+  const hooksChanged = status.hooks.state !== 'current';
+  if (dryRun) return { ...status, action: status.exists ? 'updated' : 'installed', marketplaceName: market.name, hooksChanged, dryRun: true };
+  if (status.exists && !status.pluginStale && entry) {
+    const hooksResult = addCodexHooks(status.hooksFile, status.plugin);
+    return { ...codexStatus({ version, homedir, env }), ...hooksResult, action: 'updated', marketplaceName: market.name, hooksChanged };
+  }
 
   const parent = path.dirname(status.plugin);
   mkdirSync(parent, { recursive: true });
@@ -149,5 +324,6 @@ export function installCodexPlugin({ version, homedir = os.homedir(), dryRun = f
     rmSync(marketStage, { force: true });
     throw err;
   }
-  return { ...codexStatus({ version, homedir }), action: status.exists ? 'updated' : 'installed', marketplaceName: market.name };
+  const hooksResult = addCodexHooks(status.hooksFile, status.plugin);
+  return { ...codexStatus({ version, homedir, env }), ...hooksResult, action: status.exists ? 'updated' : 'installed', marketplaceName: market.name, hooksChanged };
 }

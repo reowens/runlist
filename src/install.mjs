@@ -10,7 +10,7 @@ import {
 import { LEGACY_PLUGIN_ID, readInstalledPlugin, readInstalledPluginRecords } from './update.mjs';
 import { executableName, which } from './util.mjs';
 import { installationReport, formatInstallationReport, persistentCliOnPath, PERSISTENT_CLI_WARNING } from './installation.mjs';
-import { codexStatus, installCodexPlugin, installedCodexStatus } from './codex-integration.mjs';
+import { codexStatus, installCodexPlugin, installedCodexStatus, removeCodexHooks } from './codex-integration.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
@@ -59,7 +59,8 @@ function reportStatus(json, config) {
 
   const codexState = codex.foreign ? yellow('unmanaged directory present')
     : !codex.exists ? yellow('not installed')
-    : codex.stale ? yellow(`${codex.version} — behind CLI ${pkg.version}`)
+    : codex.pluginStale ? yellow(`${codex.version} — behind CLI ${pkg.version}`)
+    : codex.stale ? yellow(`${codex.version} — hooks ${codex.hooks.state} in ${codex.hooks.path}`)
     : green(codex.version);
   process.stdout.write(`  codex     ${codexState}\n`);
   process.stdout.write(`            ${dim(codex.plugin)}\n`);
@@ -86,12 +87,25 @@ function reportStatus(json, config) {
   }
 }
 
-function installCodex(argv, dryRun, json, prerequisites) {
-  if (argv.includes('--remove')) {
-    process.stderr.write('Codex removal is managed by `codex plugin remove`; the personal marketplace source is left available.\n');
+function removeCodex(dryRun, json) {
+  let result;
+  try { result = removeCodexHooks({ dryRun }); }
+  catch (err) {
+    process.stderr.write(`refused: cannot read the Codex hooks file: ${err.message}\n`);
     process.exitCode = 1;
     return;
   }
+  if (json) { process.stdout.write(JSON.stringify(result, null, 2) + '\n'); return; }
+  const prefix = dryRun ? '[dry-run] ' : '';
+  process.stdout.write(result.removed
+    ? `${prefix}${dryRun ? 'Would remove' : 'Removed'} ${result.removed} runlist hook${result.removed === 1 ? '' : 's'} from ${result.hooksFile}\n`
+    : `${prefix}No runlist hooks in ${result.hooksFile}\n`);
+  if (result.moved) process.stdout.write(`${prefix}${result.moved} of your hooks ${dryRun ? 'would move' : 'moved'} position. Codex will not run ${result.moved === 1 ? 'it' : 'them'} until you trust ${result.moved === 1 ? 'it' : 'them'} again in /hooks.\n`);
+  process.stdout.write(`${prefix}To remove the plugin as well: codex plugin remove runlist-codex@${result.marketplaceName}. The personal marketplace source is left available.\n`);
+}
+
+function installCodex(argv, dryRun, json, prerequisites) {
+  if (argv.includes('--remove')) return removeCodex(dryRun, json);
   const result = { ...installCodexPlugin({ version: pkg.version, dryRun }), ...prerequisites };
   if (result.action === 'refused') {
     if (json) process.stdout.write(JSON.stringify(result, null, 2) + '\n');
@@ -102,15 +116,22 @@ function installCodex(argv, dryRun, json, prerequisites) {
   if (!json) {
     const action = dryRun ? ({ installed: 'Would install', updated: 'Would update', current: 'Already current' }[result.action] ?? result.action) : result.action;
     process.stdout.write(`${dryRun ? '[dry-run] ' : ''}${action} codex integration (${pkg.version}) at ${result.plugin}\n`);
+    if (dryRun && result.hooksChanged) process.stdout.write(`[dry-run] Would add hooks to ${result.hooksFile}\n`);
+  }
+  if (result.hooksError) {
+    process.stderr.write(`The plugin was updated, but its primer and guard are not set up: ${result.hooksError}. Fix that and run \`runlist install codex\` again.\n`);
+    process.exitCode = 1;
   }
   if (dryRun) {
     if (json) process.stdout.write(JSON.stringify(result, null, 2) + '\n');
     return;
   }
   const selector = `runlist-codex@${result.marketplaceName}`;
+  const trustLine = `Hooks written to ${result.hooksFile}. Start a new Codex thread and trust them in /hooks to enable the primer and guard; they stay trusted across runlist updates.\n`;
+  const hooksAdded = result.hooksChanged && !result.hooksError;
   if (!which('codex')) {
     if (json) process.stdout.write(JSON.stringify({ ...result, pluginAdd: 'codex-cli-unavailable' }, null, 2) + '\n');
-    else process.stdout.write(`Install in Codex with: codex plugin add ${selector}\n`);
+    else process.stdout.write(`Install in Codex with: codex plugin add ${selector}\n${hooksAdded ? trustLine : ''}`);
     return;
   }
   const added = spawnSync(executableName('codex'), ['plugin', 'add', selector], {
@@ -123,9 +144,10 @@ function installCodex(argv, dryRun, json, prerequisites) {
     installedVersion: installed.version ?? null, ...(!verified ? { reason: installed.reason ?? `Codex has ${installed.version}, expected ${pkg.version}` } : {}) }, null, 2) + '\n');
   if (!verified) {
     process.stderr.write(`Codex plugin installation is unverified: ${installed.reason ?? `has ${installed.version}, expected ${pkg.version}`}. Retry: codex plugin add ${selector}\n`);
+    if (hooksAdded) process.stderr.write(`Until that succeeds, Codex may still hold the old plugin's hooks. Trust the new ones in ${result.hooksFile} afterwards, or both sets run.\n`);
     process.exitCode = 1;
   } else if (!json) {
-    process.stdout.write('Start a new Codex thread and review/trust the plugin hooks to enable the primer and guard.\n');
+    process.stdout.write(hooksAdded ? trustLine : 'Start a new Codex thread to load it.\n');
   }
 }
 

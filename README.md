@@ -382,8 +382,14 @@ with `runlist desktop install` on supported Macs; `setup` never downloads it.
 
 `runlist install codex` copies the plugin included in the npm package into the
 personal Codex marketplace and runs `codex plugin add runlist-codex@personal`.
-Codex asks you to review and trust plugin hooks separately. Start a new thread
-after installation so the skill and SessionStart primer load. The hooks use
+The hooks go in your `~/.codex/hooks.json` (or `$CODEX_HOME/hooks.json`) rather
+than the plugin, leaving your other hooks where they are. Codex resets trust for
+a plugin's hooks whenever the plugin changes, so hooks kept in the plugin would
+turn off at every update. Start a new thread after installation and trust them
+once in `/hooks`; updating runlist does not change them, so they stay trusted.
+Codex therefore does not ask you to review the hook scripts again when an update
+changes them. To remove them, run `runlist install codex --remove`; `codex plugin
+remove` alone leaves them running. The hooks use
 the globally installed `runlist` CLI; a missing CLI produces one install hint
 and otherwise leaves tool calls alone. `CODEX_THREAD_ID` stays the ownership
 source. The CLI refuses to overwrite a plugin directory it did not generate.

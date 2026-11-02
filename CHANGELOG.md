@@ -2,6 +2,19 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Changed
+
+- The Codex hooks now live in your `~/.codex/hooks.json` instead of the plugin,
+  so they stay trusted across runlist updates. Codex reset trust for plugin hooks
+  whenever the plugin changed, which turned them off until they were re-trusted.
+  `runlist install codex` and `runlist update` add them and leave your other
+  hooks in place. Trust them once more in `/hooks` after this update. Codex will
+  no longer ask you to review the hook scripts when an update changes them.
+- `runlist install codex --remove` now takes those hooks out of `hooks.json`.
+  `codex plugin remove` alone leaves them running.
+
 ## 0.102.0 — 2026-11-02
 
 ### Added

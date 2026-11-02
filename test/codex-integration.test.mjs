@@ -1,10 +1,10 @@
 import { afterEach, describe, it } from 'node:test';
-import { strictEqual, match, ok } from 'node:assert';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { deepStrictEqual, strictEqual, match, ok } from 'node:assert';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
-import { codexStatus, installCodexPlugin, installedCodexStatus } from '../src/codex-integration.mjs';
+import { codexHooksStatus, codexPaths, codexStatus, installCodexPlugin, installedCodexStatus, mergeCodexHooks, removeCodexHooks } from '../src/codex-integration.mjs';
 
 let home;
 const root = path.resolve(import.meta.dirname, '..');
@@ -22,7 +22,8 @@ describe('Codex plugin distribution', () => {
     ok(!existsSync(preview.plugin));
     const first = installCodexPlugin({ version, homedir: h });
     strictEqual(first.action, 'installed');
-    ok(existsSync(path.join(first.plugin, 'hooks', 'hooks.json')));
+    ok(!existsSync(path.join(first.plugin, 'hooks')));
+    ok(existsSync(first.hooksFile));
     ok(existsSync(path.join(first.plugin, 'skills', 'runlist', 'SKILL.md')));
     strictEqual(readFileSync(path.join(first.plugin, 'skills', 'runlist', 'SKILL.md'), 'utf8'),
       readFileSync(path.join(root, 'plugins', 'runlist-codex', 'skills', 'runlist', 'SKILL.md'), 'utf8'));
@@ -32,6 +33,224 @@ describe('Codex plugin distribution', () => {
     writeFileSync(path.join(first.plugin, '.runlist-generated.json'), JSON.stringify({ version: '0.0.0' }));
     strictEqual(installCodexPlugin({ version, homedir: h }).action, 'updated');
     strictEqual(codexStatus({ version, homedir: h }).stale, false);
+  });
+
+  it('adds its hooks after the user\'s, without moving or changing them', () => {
+    const h = fresh();
+    const { hooksFile } = codexPaths(h);
+    const mine = { matcher: 'x', hooks: [{ type: 'command', command: 'my-hook', timeout: 9 }] };
+    mkdirSync(path.dirname(hooksFile), { recursive: true });
+    writeFileSync(hooksFile, JSON.stringify({ note: 'keep', hooks: { PreToolUse: [mine], PostToolUse: [mine] } }));
+    const result = installCodexPlugin({ version, homedir: h });
+    strictEqual(result.hooksChanged, true);
+    const written = JSON.parse(readFileSync(hooksFile, 'utf8'));
+    strictEqual(written.note, 'keep');
+    deepStrictEqual(written.hooks.PostToolUse, [mine]);
+    deepStrictEqual(written.hooks.PreToolUse[0], mine);
+    ok(written.hooks.PreToolUse[1].hooks[0].command.endsWith('/bin/runlist-hook" guard'));
+    strictEqual(written.hooks.PreToolUse.length, 2);
+    ok(written.hooks.SessionStart && written.hooks.UserPromptSubmit && written.hooks.SubagentStart);
+  });
+
+  it('keeps the hook file byte-identical across a plugin update', () => {
+    const h = fresh();
+    const first = installCodexPlugin({ version, homedir: h });
+    const before = readFileSync(first.hooksFile, 'utf8');
+    writeFileSync(path.join(first.plugin, '.runlist-generated.json'), JSON.stringify({ version: '0.0.0' }));
+    const second = installCodexPlugin({ version, homedir: h });
+    strictEqual(second.action, 'updated');
+    strictEqual(second.hooksChanged, false);
+    strictEqual(readFileSync(first.hooksFile, 'utf8'), before);
+  });
+
+  it('puts back only the hooks when the plugin is current', () => {
+    const h = fresh();
+    const first = installCodexPlugin({ version, homedir: h });
+    rmSync(first.hooksFile);
+    const status = codexStatus({ version, homedir: h });
+    strictEqual(status.stale, true);
+    strictEqual(status.pluginStale, false);
+    strictEqual(status.hooks.state, 'missing');
+    const repaired = installCodexPlugin({ version, homedir: h });
+    strictEqual(repaired.action, 'updated');
+    strictEqual(repaired.hooksChanged, true);
+    strictEqual(codexStatus({ version, homedir: h }).stale, false);
+  });
+
+  it('repairs its own stale or doubled hook without moving the others', () => {
+    const h = fresh();
+    const { hooksFile, plugin } = codexPaths(h);
+    const old = { hooks: [{ type: 'command', command: `sh "${plugin}/bin/runlist-hook" old`, timeout: 1 }] };
+    const other = { hooks: [{ type: 'command', command: 'other', timeout: 1 }] };
+    mkdirSync(path.dirname(hooksFile), { recursive: true });
+    writeFileSync(hooksFile, JSON.stringify({ hooks: { PreToolUse: [old, other, old] } }));
+    installCodexPlugin({ version, homedir: h });
+    strictEqual(codexStatus({ version, homedir: h }).hooks.state, 'current');
+    const list = JSON.parse(readFileSync(hooksFile, 'utf8')).hooks.PreToolUse;
+    strictEqual(list.length, 2);
+    ok(list[0].hooks[0].command.endsWith('" guard'));
+    deepStrictEqual(list[1], other);
+  });
+
+  it('refuses a hooks file it cannot read, before changing anything', () => {
+    const h = fresh();
+    const { hooksFile, plugin } = codexPaths(h);
+    mkdirSync(path.dirname(hooksFile), { recursive: true });
+    writeFileSync(hooksFile, '{ not json');
+    const refused = installCodexPlugin({ version, homedir: h });
+    strictEqual(refused.action, 'refused');
+    ok(refused.reason.includes(hooksFile));
+    strictEqual(readFileSync(hooksFile, 'utf8'), '{ not json');
+    ok(!existsSync(plugin));
+  });
+
+  it('never moves a hook it does not own', () => {
+    const root = '/h/plugins/runlist-codex';
+    const ours = args => ({ type: 'command', command: `sh "${root}/bin/runlist-hook" ${args}`, timeout: 1 });
+    const mine = name => ({ type: 'command', command: name, timeout: 9 });
+    const merge = list => mergeCodexHooks({ hooks: { PreToolUse: list } }, root);
+    const flat = list => list.flatMap((group, g) => group.hooks.map((hook, h) => `${g}:${h}:${hook.command}`));
+    for (const list of [
+      [{ hooks: [ours('old')] }, { hooks: [ours('old')] }, { hooks: [mine('a')] }],
+      [{ hooks: [ours('old')] }, { hooks: [mine('a')] }, { hooks: [ours('old')] }, { hooks: [mine('b')] }],
+      [{ matcher: 'x', hooks: [ours('old'), mine('a')] }, { hooks: [mine('b')] }],
+      [{ matcher: 'x', hooks: [mine('a'), ours('old'), mine('b')] }],
+      [{ hooks: [mine('a')] }, { hooks: [ours('old')] }, { hooks: [ours('old')] }],
+    ]) {
+      const theirs = flat(list).filter(entry => !entry.includes('/runlist-hook'));
+      const merged = merge(list).data.hooks.PreToolUse;
+      deepStrictEqual(flat(merged).filter(entry => !entry.includes('/runlist-hook')), theirs);
+      for (const entry of flat(merged).filter(item => item.includes('/runlist-hook'))) ok(entry.endsWith('" guard'), entry);
+    }
+    deepStrictEqual(merge([{ hooks: [ours('old')] }, { hooks: [ours('old')] }, { hooks: [mine('a')] }]).doubled, ['PreToolUse']);
+    deepStrictEqual(merge([{ hooks: [ours('old')] }, { hooks: [mine('a')] }, { hooks: [ours('old')] }]).doubled, []);
+    strictEqual(merge([{ matcher: 'x', hooks: [ours('old'), mine('a')] }]).data.hooks.PreToolUse[0].matcher, 'x');
+  });
+
+  it('reports a doubled hook it cannot safely remove', () => {
+    const h = fresh();
+    const { hooksFile, plugin } = codexPaths(h);
+    const wanted = () => JSON.parse(readFileSync(hooksFile, 'utf8'));
+    installCodexPlugin({ version, homedir: h });
+    const file = wanted();
+    file.hooks.PreToolUse = [file.hooks.PreToolUse[0], file.hooks.PreToolUse[0], { hooks: [{ type: 'command', command: 'mine' }] }];
+    writeFileSync(hooksFile, JSON.stringify(file));
+    const status = codexHooksStatus({ hooksFile, pluginRoot: plugin });
+    strictEqual(status.state, 'current');
+    match(status.reason, /more than once in PreToolUse/);
+  });
+
+  it('leaves commands it did not write alone', () => {
+    const root = '/h/plugins/runlist-codex';
+    for (const command of [
+      `my-audit --then sh "${root}/bin/runlist-hook" guard`,
+      `sh "${root}/bin/runlist-hook" guard; my-audit`,
+      'sh "/dev/checkout/plugins/runlist-codex/bin/runlist-hook" guard',
+    ]) {
+      const group = { hooks: [{ type: 'command', command }] };
+      const list = mergeCodexHooks({ hooks: { PreToolUse: [group] } }, root).data.hooks.PreToolUse;
+      deepStrictEqual(list[0], group);
+      strictEqual(list.length, 2);
+    }
+  });
+
+  it('does not rewrite a hook whose keys were reordered or whose timeout was tuned', () => {
+    const h = fresh();
+    const { hooksFile } = installCodexPlugin({ version, homedir: h });
+    const file = JSON.parse(readFileSync(hooksFile, 'utf8'));
+    const [session] = file.hooks.SessionStart;
+    file.hooks.SessionStart = [{ hooks: [{ ...session.hooks[0], timeout: 30 }], matcher: session.matcher }];
+    const text = JSON.stringify(file);
+    writeFileSync(hooksFile, text);
+    strictEqual(codexStatus({ version, homedir: h }).hooks.state, 'current');
+    writeFileSync(path.join(codexPaths(h).plugin, '.runlist-generated.json'), JSON.stringify({ version: '0.0.0' }));
+    installCodexPlugin({ version, homedir: h });
+    strictEqual(readFileSync(hooksFile, 'utf8'), text);
+  });
+
+  it('refuses a hooks file linked to nothing, and keeps the link', { skip: process.platform === 'win32' }, () => {
+    const h = fresh();
+    const { hooksFile, plugin } = codexPaths(h);
+    mkdirSync(path.dirname(hooksFile), { recursive: true });
+    symlinkSync(path.join(h, 'not-yet.json'), hooksFile);
+    const refused = installCodexPlugin({ version, homedir: h });
+    strictEqual(refused.action, 'refused');
+    match(refused.reason, /link to a file that does not exist/);
+    ok(lstatSync(hooksFile).isSymbolicLink());
+    ok(!existsSync(plugin));
+  });
+
+  it('keeps the published plugin when the hooks cannot be written', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, () => {
+    const h = fresh();
+    const { hooksFile, plugin, marketplace } = codexPaths(h);
+    const dir = path.dirname(hooksFile);
+    mkdirSync(dir, { recursive: true });
+    chmodSync(dir, 0o555);
+    const result = installCodexPlugin({ version, homedir: h });
+    chmodSync(dir, 0o755);
+    strictEqual(result.action, 'installed');
+    match(result.hooksError, /could not write/);
+    ok(existsSync(path.join(plugin, 'bin', 'runlist-hook')));
+    ok(JSON.parse(readFileSync(marketplace, 'utf8')).plugins.some(entry => entry.name === 'runlist-codex'));
+    strictEqual(codexStatus({ version, homedir: h }).hooks.state, 'missing');
+  });
+
+  it('removes only its own hooks and counts what that moves', () => {
+    const h = fresh();
+    const { hooksFile, plugin } = codexPaths(h);
+    const mine = { hooks: [{ type: 'command', command: 'mine' }] };
+    mkdirSync(path.dirname(hooksFile), { recursive: true });
+    writeFileSync(hooksFile, JSON.stringify({ note: 'keep', hooks: { PostToolUse: [mine], SessionStart: [mine] } }));
+    installCodexPlugin({ version, homedir: h });
+    const installed = JSON.parse(readFileSync(hooksFile, 'utf8'));
+    installed.hooks.SessionStart.push(mine);
+    const text = JSON.stringify(installed);
+    writeFileSync(hooksFile, text);
+    const preview = removeCodexHooks({ homedir: h, dryRun: true });
+    strictEqual(preview.removed, 4);
+    strictEqual(preview.moved, 1);
+    strictEqual(readFileSync(hooksFile, 'utf8'), text);
+    removeCodexHooks({ homedir: h });
+    deepStrictEqual(JSON.parse(readFileSync(hooksFile, 'utf8')), { note: 'keep', hooks: { PostToolUse: [mine], SessionStart: [mine, mine] } });
+    strictEqual(removeCodexHooks({ homedir: h }).removed, 0);
+    ok(existsSync(plugin));
+  });
+
+  it('install codex --remove takes the hooks out and names the plugin step', () => {
+    const h = fresh();
+    const { hooksFile } = installCodexPlugin({ version, homedir: h });
+    const run = spawnSync(process.execPath, [bin, 'install', 'codex', '--remove'], {
+      cwd: root, encoding: 'utf8', env: { ...process.env, HOME: h, USERPROFILE: h },
+    });
+    strictEqual(run.status, 0, run.stderr);
+    match(run.stdout, /Removed 4 runlist hooks/);
+    match(run.stdout, /codex plugin remove runlist-codex@personal/);
+    deepStrictEqual(JSON.parse(readFileSync(hooksFile, 'utf8')).hooks, {});
+  });
+
+  it('previews without writing hooks, and only a caller\'s own env moves an explicit home', t => {
+    const h = fresh();
+    const preview = installCodexPlugin({ version, homedir: h, dryRun: true });
+    strictEqual(preview.hooksChanged, true);
+    ok(!existsSync(preview.hooksFile));
+    process.env.CODEX_HOME = path.resolve('/elsewhere');
+    t.after(() => { delete process.env.CODEX_HOME; });
+    strictEqual(codexPaths(h).hooksFile, path.join(h, '.codex', 'hooks.json'));
+    strictEqual(codexPaths(os.homedir()).hooksFile, path.join(path.resolve('/elsewhere'), 'hooks.json'));
+    strictEqual(codexPaths(h, { CODEX_HOME: path.resolve('/elsewhere') }).hooksFile, path.join(path.resolve('/elsewhere'), 'hooks.json'));
+    strictEqual(codexPaths(h, {}).hooksFile, path.join(h, '.codex', 'hooks.json'));
+  });
+
+  it('follows a linked hooks file instead of replacing the link', { skip: process.platform === 'win32' }, () => {
+    const h = fresh();
+    const { hooksFile } = codexPaths(h);
+    const real = path.join(h, 'dotfiles-hooks.json');
+    writeFileSync(real, '{}');
+    mkdirSync(path.dirname(hooksFile), { recursive: true });
+    symlinkSync(real, hooksFile);
+    installCodexPlugin({ version, homedir: h });
+    ok(lstatSync(hooksFile).isSymbolicLink());
+    ok(JSON.parse(readFileSync(real, 'utf8')).hooks.SessionStart);
   });
 
   it('refuses to replace a foreign plugin or marketplace entry', () => {
@@ -60,7 +279,7 @@ describe('Codex plugin distribution', () => {
     const p = Array.isArray(output) ? output[0] : output.runlist;
     const files = new Set(p.files.map(f => f.path));
     ok(files.has('plugins/runlist-codex/.codex-plugin/plugin.json'));
-    ok(files.has('plugins/runlist-codex/hooks/hooks.json'));
+    ok(files.has('plugins/runlist-codex/bin/runlist-hook'));
     ok(files.has('plugins/runlist-codex/skills/runlist/SKILL.md'));
   });
 
@@ -153,7 +372,7 @@ describe('Codex same-version source integrity', () => {
     writeFileSync(skill, readFileSync(skill, 'utf8') + '\nchanged source\n');
     strictEqual(codexStatus({ version, homedir: h }).sourceParity.state, 'mismatch');
     strictEqual(installCodexPlugin({ version, homedir: h }).action, 'updated');
-    rmSync(path.join(installed.plugin, 'hooks/hooks.json'));
+    rmSync(path.join(installed.plugin, 'bin/runlist-hook'));
     strictEqual(codexStatus({ version, homedir: h }).stale, true);
     installCodexPlugin({ version, homedir: h });
     writeFileSync(path.join(installed.plugin, 'extra-hook.js'), 'changed');
@@ -173,7 +392,7 @@ describe('Codex same-version source integrity', () => {
     ] }) }) });
     strictEqual(read().sourceParity.state, 'unknown');
     strictEqual(read(second.plugin).sourceParity.state, 'match');
-    writeFileSync(path.join(second.plugin, 'hooks/hooks.json'), '{}');
+    writeFileSync(path.join(second.plugin, 'bin/runlist-hook'), 'changed');
     strictEqual(read(second.plugin).ok, false);
     strictEqual(read(second.plugin).sourceParity.state, 'mismatch');
     strictEqual(read(second.plugin).loaded, 'unknown');

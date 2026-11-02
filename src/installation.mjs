@@ -157,7 +157,7 @@ export function installationReport(config={}, {root=packageRoot,home=os.homedir(
   const desktop=appPath ? platform==='darwin'?{...identity(path.join(appPath,'Contents/Resources/engine')),application:appPath}: {application:appPath,state:'unverified'} : {state:'not-installed'};
   desktop.sameEngineSource=cli.fingerprint?.sha256&&desktop.fingerprint?.sha256?cli.fingerprint.sha256===desktop.fingerprint.sha256:null;
   const claude=readInstalledPluginRecords({home});
-  const codex=codexStatus({homedir:home,version:cli.version});
+  const codex=codexStatus({homedir:home,version:cli.version,env});
   const market=json(codex.marketplace)?.name??'personal';
   const cache=path.join(home,'.codex/plugins/cache',market,'runlist-codex');
   let cached=[];

@@ -221,3 +221,16 @@ test('report and human formatter are read-only, secret-free and show executable,
   assert.match(formatted, /Personal marketplace:/); assert.match(formatted, /Active Codex profile:/);
   assert.equal((JSON.stringify(report) + formatted).includes('PRIVATE_'), false);
 });
+
+test('Codex repair is not offered while the hooks file cannot be read', t => {
+  const f = fixture(t);
+  f.write(path.join(f.home, '.codex/hooks.json'), '{ not json');
+  const { repair, hooks } = f.report().hosts.codex;
+  assert.equal(hooks.state, 'unreadable');
+  assert.equal(repair.targetable, false);
+  assert.match(repair.reason, /hooks\.json/);
+  f.write(path.join(f.home, 'dot/hooks.json'), '{}');
+  const elsewhere = f.report({ env: { PATH: '', CODEX_HOME: path.join(f.home, 'dot') } }).hosts.codex;
+  assert.equal(elsewhere.hooks.path, path.join(f.home, 'dot/hooks.json'));
+  assert.equal(elsewhere.repair.targetable, true);
+});

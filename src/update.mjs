@@ -216,7 +216,9 @@ export function verifyManagedHostUpdates(before, after, expectedVersion) {
   for (const host of ['opencode', 'codex']) {
     if (!before[host]?.exists || before[host].foreign) continue;
     const current = after[host];
-    if (!current?.exists || current.foreign || current.version !== expectedVersion || current.stale) {
+    if (host === 'codex' && current?.exists && !current.foreign && current.version === expectedVersion && current.hooks && current.hooks.state !== 'current') {
+      failures.push(`Codex hooks in ${current.hooks.path} are ${current.hooks.state}${current.hooks.reason ? ` (${current.hooks.reason})` : ''}`);
+    } else if (!current?.exists || current.foreign || current.version !== expectedVersion || current.stale) {
       failures.push(`${host} integration has ${current?.version ?? 'no managed installation'}, expected ${expectedVersion}`);
     }
     if (host === 'codex' && (!current?.installed?.ok || current.installed.version !== expectedVersion)) {
@@ -227,7 +229,7 @@ export function verifyManagedHostUpdates(before, after, expectedVersion) {
 }
 
 function currentCodexStatus(version, { home = os.homedir(), env = process.env, run = spawnSync, binary } = {}) {
-  const source = codexStatus({ version, homedir: home });
+  const source = codexStatus({ version, homedir: home, env });
   if (!source.exists || source.foreign) return source;
   const installed = binary ? installedCodexStatus({ homedir: home, env, run, binary }) : { ok: false, reason: 'codex CLI not found; installed plugin is unverified' };
   return { ...source, installed, stale: source.stale || !installed.ok || installed.version !== version };
@@ -353,7 +355,7 @@ export async function runUpdate(argv, _config, opts = {}) {
   if (check) {
     const installation = installationReport(_config, reportOptions);
     const hosts = agentHostReport(_config, reportOptions);
-    const managedSources = { codex: codexStatus({ version: pkg.version, homedir: home }), opencode: opencodeStatus({ version: pkg.version, homedir: home, env }) };
+    const managedSources = { codex: codexStatus({ version: pkg.version, homedir: home, env }), opencode: opencodeStatus({ version: pkg.version, homedir: home, env }) };
     const report = { ...installation, hostReport: hosts, managedSources, selection: { host: host ?? null, claudeConfigDirs },
       readOnly: true, offline: true, publishedAvailability: 'not-queried-offline' };
     if (options.json) process.stdout.write(JSON.stringify(report, null, 2) + '\n');
@@ -393,7 +395,7 @@ export async function runUpdate(argv, _config, opts = {}) {
     if (!pluginOnly) process.stdout.write('The CLI update may replace this installation before host installers read its assets.\n');
   }
   const opencode = !cliOnly && selected('opencode') ? opencodeStatus({ version: pkg.version, homedir: home, env }) : null;
-  const codex = !cliOnly && selected('codex') ? (dryRun ? codexStatus({ version: pkg.version, homedir: home })
+  const codex = !cliOnly && selected('codex') ? (dryRun ? codexStatus({ version: pkg.version, homedir: home, env })
     : currentCodexStatus(pkg.version, { home, env, run, binary: inventory.codex.selected?.path })) : null;
   const desktop = !host && !pluginOnly && process.platform === 'darwin' && process.arch === 'arm64' ? desktopLaunch([], { home, env }).app : null;
   // Keep the existing all-host planner; replace only its single-default-profile

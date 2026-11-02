@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { codexHookDefinitions } from '../src/codex-integration.mjs';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -51,9 +52,9 @@ function context(output) {
 }
 
 test('Codex registers the child adapter with its own 5-second budget', () => {
-  const hooks = JSON.parse(readFileSync(join(root, 'plugins/runlist-codex/hooks/hooks.json'), 'utf8')).hooks;
-  assert.deepEqual(hooks.SubagentStart, [{
-    matcher: '*', hooks: [{ type: 'command', command: 'node "${PLUGIN_ROOT}/bin/subagent-start.mjs"', timeout: 5 }],
+  const hooks = codexHookDefinitions('/h/plugins/runlist-codex');
+  assert.deepEqual([hooks.SubagentStart], [{
+    matcher: '*', hooks: [{ type: 'command', command: 'node "/h/plugins/runlist-codex/bin/subagent-start.mjs"', timeout: 5 }],
   }]);
   assert.ok(hooks.PreToolUse && hooks.SessionStart && hooks.UserPromptSubmit);
 });
