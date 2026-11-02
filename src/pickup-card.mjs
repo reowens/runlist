@@ -282,7 +282,7 @@ export function renderCard(card) {
   }
 
   lines.push('');
-  lines.push(dim(`Body: ${formatBytes(card.bodyBytes)}. \`runlist show ${card.path} --section "<heading>"\` reads one section; \`runlist set in-session ${card.path} --full\` prints everything.`));
+  lines.push(dim(`Body: ${formatBytes(card.bodyBytes)}. \`runlist show ${card.path} --section "<heading>"\` reads one section; \`runlist use ${card.path} --full\` prints everything.`));
   return lines.join('\n') + '\n';
 }
 
