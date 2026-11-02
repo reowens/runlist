@@ -669,6 +669,15 @@ export async function startPlan(argv, config, opts = {}) {
     die(`Plan cannot be picked up: ${disposition.kind}${detail}\n  ${repoPath}`);
   }
   const today = nowIso();
+  // Claim records stay on the machine that made them while status travels
+  // through git, so an in-session plan with no claim here may be held elsewhere.
+  // `adopt` alone does not mean that: it also covers a record left by a session
+  // proven dead and a --force over a busy or corrupt record. A claim exists in
+  // those cases, so saying there is none would be false. A released record is
+  // no longer a claim, and pulling a status from another machine leaves exactly
+  // that behind, so it counts as unclaimed.
+  const adopted = !dryRun && disposition.kind === 'adopt'
+    && ownership?.state !== 'owned' && !ownership?.corrupt;
   if (dryRun) {
     if (disposition.kind === 'resume') {
       process.stderr.write(`${dim('[dry-run]')} Already in-session: ${repoPath}\n`);
@@ -686,6 +695,11 @@ export async function startPlan(argv, config, opts = {}) {
       : null;
     commitPlanClaim({ filePath, repoPath, sourceContent: raw, renderedContent: rendered,
       ownership, sessionId, now: today, config, testHooks: opts.testHooks });
+    // Written as soon as the claim commits: an index or hook failure below ends
+    // the command, and the retry reads as a resume, so this is the only chance.
+    if (adopted) {
+      process.stderr.write(`Took over ${repoPath}: it was in-session with no claim on this machine. Another machine's session may hold it; its claim would not show here.\n`);
+    }
   }
 
   if (!dryRun) {
@@ -706,6 +720,7 @@ export async function startPlan(argv, config, opts = {}) {
       path: repoPath, oldStatus, newStatus: 'in-session', title,
       body: body?.trim() ?? '',
       card,
+      adopted,
     }, null, 2) + '\n');
   } else {
     process.stderr.write(`${green('▶ Started')}: ${repoPath} (${oldStatus ?? 'unset'} → in-session)\n\n`);

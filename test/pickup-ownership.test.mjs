@@ -1203,3 +1203,170 @@ describe('durable lifecycle ownership', () => {
     match(index, /linked/);
   });
 });
+
+describe('taking over an unclaimed in-session plan', () => {
+  const warning = /^Took over docs\/plans\/[\w-]+\.md: it was in-session with no claim on this machine\. Another machine's session may hold it; its claim would not show here\.$/m;
+  const warnings = stderr => (stderr.match(new RegExp(warning.source, 'gm')) ?? []).length;
+
+  // Made through the CLI rather than hand-written, so the fixture is the state
+  // a real command leaves behind: status in-session and no ownership record.
+  function unclaimed(name) {
+    const draft = path.join(tmp, 'draft.md');
+    writeFileSync(draft, `# ${name}\n\nSynthetic body.\n`);
+    const created = run(['new', 'plan', name, `@${draft}`, '--status', 'in-session'], 'creator');
+    strictEqual(created.status, 0, created.stderr);
+    ok(!existsSync(path.join(tmp, '.runlist', 'ownership')), 'new leaves no claim behind');
+    const file = path.join(tmp, 'docs', 'plans', `${name}.md`);
+    match(readFileSync(file, 'utf8'), /^status: in-session$/m);
+    return file;
+  }
+
+  for (const [verb, args] of [
+    ['use', file => ['use', file]],
+    ['set in-session', file => ['set', 'in-session', file]],
+  ]) {
+    it(`${verb} warns once on stderr and records the claim, so a second session is refused`, () => {
+      setup();
+      const file = unclaimed('taken');
+      const before = readFileSync(file, 'utf8');
+      const taken = run(args(file), 'A');
+      strictEqual(taken.status, 0, taken.stderr);
+      strictEqual(warnings(taken.stderr), 1, taken.stderr);
+      match(taken.stderr, /Took over docs\/plans\/taken\.md:/);
+      match(taken.stderr, /Started: docs\/plans\/taken\.md \(in-session → in-session\)/);
+      ok(!/Took over/.test(taken.stdout), 'the warning stays out of stdout');
+      strictEqual(readFileSync(file, 'utf8'), before, 'taking over writes only the claim');
+
+      const record = JSON.parse(readFileSync(ownershipFile(), 'utf8'));
+      strictEqual(record.state, 'owned');
+      strictEqual(record.sessionId, 'A');
+
+      const refused = run(args(file), 'B');
+      ok(refused.status !== 0);
+      match(refused.stderr, /busy/i);
+      strictEqual(warnings(refused.stderr), 0);
+      strictEqual(JSON.parse(readFileSync(ownershipFile(), 'utf8')).sessionId, 'A');
+
+      const resumed = run(args(file), 'A');
+      strictEqual(resumed.status, 0, resumed.stderr);
+      strictEqual(warnings(resumed.stderr), 0, 'a resume is not a takeover');
+      // The plan bytes are the same across both runs, so the card must be too.
+      strictEqual(taken.stdout, resumed.stdout, 'stdout carries nothing extra');
+    });
+  }
+
+  it('reports adopted in JSON without changing any other field', () => {
+    setup();
+    const file = unclaimed('json-taken');
+    const taken = run(['use', file, '--json'], 'A');
+    strictEqual(taken.status, 0, taken.stderr);
+    strictEqual(warnings(taken.stderr), 1, 'the warning still reaches stderr');
+    const adoptedOutput = JSON.parse(taken.stdout);
+    strictEqual(adoptedOutput.adopted, true);
+
+    const resumed = run(['use', file, '--json'], 'A');
+    strictEqual(resumed.status, 0, resumed.stderr);
+    strictEqual(warnings(resumed.stderr), 0);
+    const resumedOutput = JSON.parse(resumed.stdout);
+    strictEqual(resumedOutput.adopted, false);
+    deepStrictEqual({ ...adoptedOutput, adopted: false }, resumedOutput);
+    deepStrictEqual(Object.keys(adoptedOutput), ['path', 'oldStatus', 'newStatus', 'title', 'body', 'card', 'adopted']);
+
+    const started = run(['use', plan('json-started'), '--json'], 'A');
+    strictEqual(started.status, 0, started.stderr);
+    strictEqual(warnings(started.stderr), 0);
+    strictEqual(JSON.parse(started.stdout).adopted, false);
+  });
+
+  it('does not warn on a start or a resume', () => {
+    setup();
+    const file = plan('ordinary');
+    const started = run(['use', file], 'A');
+    strictEqual(started.status, 0, started.stderr);
+    strictEqual(warnings(started.stderr), 0);
+    match(started.stderr, /Started: docs\/plans\/ordinary\.md \(active → in-session\)/);
+    const resumed = run(['use', file], 'A');
+    strictEqual(resumed.status, 0, resumed.stderr);
+    strictEqual(warnings(resumed.stderr), 0);
+  });
+
+  it('a dry run only previews: no warning, no claim, adopted false', () => {
+    setup();
+    const file = unclaimed('dry');
+    const previewed = run(['use', file, '--dry-run'], 'A');
+    strictEqual(previewed.status, 0, previewed.stderr);
+    strictEqual(warnings(previewed.stderr), 0);
+    match(previewed.stderr, /Would adopt unowned in-session plan: docs\/plans\/dry\.md/);
+    const json = run(['use', file, '--dry-run', '--json'], 'A');
+    strictEqual(json.status, 0, json.stderr);
+    strictEqual(JSON.parse(json.stdout).adopted, false);
+    ok(!existsSync(path.join(tmp, '.runlist', 'ownership')));
+  });
+
+  // A status pulled from another machine lands on top of whatever record this
+  // machine last wrote, and for a plan worked here before that is a released one.
+  it('warns when the only record on this machine was already released', () => {
+    setup();
+    const file = plan('released');
+    strictEqual(run(['use', file], 'A').status, 0);
+    strictEqual(run(['set', 'active', file], 'A').status, 0);
+    strictEqual(JSON.parse(readFileSync(ownershipFile(), 'utf8')).state, 'released');
+    writeFileSync(file, readFileSync(file, 'utf8').replace('status: active', 'status: in-session'));
+    const taken = run(['use', file], 'B');
+    strictEqual(taken.status, 0, taken.stderr);
+    strictEqual(warnings(taken.stderr), 1, taken.stderr);
+    strictEqual(JSON.parse(readFileSync(ownershipFile(), 'utf8')).sessionId, 'B');
+  });
+
+  // These reach the same `adopt` disposition, but a claim exists on this machine,
+  // so "no claim on this machine" would be untrue.
+  it('stays silent when --force overrides a claim that exists here', () => {
+    setup();
+    const file = plan('forced');
+    strictEqual(run(['use', file], 'A').status, 0);
+    const forced = run(['use', file, '--force', '--json'], 'B');
+    strictEqual(forced.status, 0, forced.stderr);
+    strictEqual(warnings(forced.stderr), 0);
+    strictEqual(JSON.parse(forced.stdout).adopted, false);
+
+    writeFileSync(ownershipFile(), '{broken\n');
+    const repaired = run(['use', file, '--force', '--json'], 'C');
+    strictEqual(repaired.status, 0, repaired.stderr);
+    strictEqual(warnings(repaired.stderr), 0);
+    strictEqual(JSON.parse(repaired.stdout).adopted, false);
+    strictEqual(JSON.parse(readFileSync(ownershipFile(), 'utf8')).sessionId, 'C');
+  });
+
+  it('stays silent when the record here belongs to a session proven dead', async () => {
+    setup();
+    const file = plan('dead-holder');
+    const victim = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)']);
+    strictEqual(run(['use', file], 'A', { DOTMD_SESSION_PID: String(victim.pid) }).status, 0);
+    await new Promise(resolve => { victim.on('exit', resolve); victim.kill('SIGKILL'); });
+    const taken = run(['use', file, '--json'], 'B');
+    strictEqual(taken.status, 0, taken.stderr);
+    strictEqual(warnings(taken.stderr), 0);
+    strictEqual(JSON.parse(taken.stdout).adopted, false);
+    strictEqual(JSON.parse(readFileSync(ownershipFile(), 'utf8')).sessionId, 'B');
+  });
+
+  // The retry after a failed completion reads as this session's own resume, so
+  // the first run is the only place the warning can appear.
+  it('still warns when a pickup hook fails after the claim committed', () => {
+    setup();
+    const gate = path.join(tmp, 'hook-gate');
+    writeFileSync(path.join(tmp, 'dotmd.config.mjs'), [
+      `import { existsSync, writeFileSync } from 'node:fs';`,
+      `export const root = 'docs';`,
+      `export function onPickup() { if (!existsSync(${JSON.stringify(gate)})) { writeFileSync(${JSON.stringify(gate)}, 'x'); throw new Error('hook failure'); } }`,
+      '',
+    ].join('\n'));
+    const file = unclaimed('hook-fails');
+    const first = run(['use', file], 'A');
+    ok(first.status !== 0);
+    strictEqual(warnings(first.stderr), 1, first.stderr);
+    const retry = run(['use', file], 'A');
+    strictEqual(retry.status, 0, retry.stderr);
+    strictEqual(warnings(retry.stderr), 0);
+  });
+});
