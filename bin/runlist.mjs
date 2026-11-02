@@ -649,6 +649,10 @@ Examples:
   runlist set archived docs/plans/x    # archive a specific plan
   runlist set active                   # release this session's sole owned plan
 
+\`set\` changes status only. To change next_step or current_state, edit those
+frontmatter lines in your file editor; during a handoff, use
+\`runlist baton --done --next-step "…"\`.
+
 To open a plan (mark in-session AND print its body), use \`runlist use <file>\`.`,
 
   status: `runlist status <file> <new-status> — transition document status

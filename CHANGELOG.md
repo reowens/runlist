@@ -2,6 +2,21 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- The OpenCode plugin adds the same save and pickup hint Claude Code gets:
+  asking to baton or to pick up saved work gives the model the exact steps,
+  and any other prompt adds nothing. Run `runlist update` or
+  `runlist install opencode`, then restart OpenCode.
+
+### Changed
+
+- `runlist set --help` and the error for `runlist set <file> next_step …` now
+  say that `set` only changes status, and how to change `next_step` and
+  `current_state`.
+
 ## 0.100.2 — 2026-10-30
 
 ### Fixed

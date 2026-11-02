@@ -414,7 +414,7 @@ a handoff, a PreToolUse guard, the canonical workflow skill, and `/runlist:plans
 
 `runlist install opencode` writes one plugin file into OpenCode's global config
 directory, where OpenCode auto-discovers it — no `opencode.json` edit. It
-supplies the two things the CLI cannot get on its own:
+supplies what the CLI cannot get on its own:
 
 - **Per-session plan ownership.** OpenCode exports no session id to a tool
   shell. Without the plugin, runlist falls back to `OPENCODE_PID`, which names the
@@ -426,6 +426,9 @@ supplies the two things the CLI cannot get on its own:
 - **Prompt-read guardrails.** Recognized reads are checked before execution so
   the opt-in strict policy can stop them. Default warnings are attached to the
   result because OpenCode's before hook cannot return model context.
+- **A save and pickup hint**, the equivalent of Claude Code's UserPromptSubmit
+  hook. Asking to baton or to pick up saved work adds the exact steps to that
+  message for the model; any other prompt adds nothing.
 
 Restart OpenCode after installing. The generated file is `runlist.js` and is
 version-stamped (`runlist-generated:`). `runlist install opencode` migrates a

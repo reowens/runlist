@@ -246,6 +246,51 @@ describe('the generated opencode plugin module', () => {
     await hooks['shell.env']({}, {});
     await hooks['experimental.chat.system.transform']({}, {});
     await hooks['experimental.chat.system.transform'](undefined, undefined);
+    await hooks['chat.message'](undefined, undefined);
+    await hooks['chat.message']({}, {});
+    await hooks['chat.message']({ sessionID: 's' }, { message: {}, parts: [{ type: 'text', text: 'baton this' }] });
+  });
+
+  it('adds the prompt hint as a synthetic part, and nothing for an ordinary prompt', async () => {
+    const home = setup();
+    const dir = path.join(home, 'plugin');
+    const { path: file } = installOpencodePlugin({ version: '9.9.9', dir });
+    const fakeBin = path.join(home, 'bin');
+    mkdirSync(fakeBin, { recursive: true });
+    // The stand-in answers only the hint request, and only for the save word.
+    writeCliStub(fakeBin,
+      'case "$(cat)" in *\'{"prompt":"baton this"}\'*) echo "[runlist] Baton hint";; esac',
+      '@findstr /c:"baton this" >nul && echo [runlist] Baton hint');
+    const restorePath = process.env.PATH;
+    process.env.PATH = `${fakeBin}${path.delimiter}${process.env.PATH}`;
+    try {
+      const hooks = await (await import(pathToFileURL(file).href)).default({ directory: home });
+      const message = { id: 'msg_1' };
+
+      const quiet = { message, parts: [{ type: 'text', text: 'fix the typo', id: 'prt_1' }] };
+      await hooks['chat.message']({ sessionID: 'ses_1' }, quiet);
+      strictEqual(quiet.parts.length, 1);
+
+      // `opencode run` passes a quoted argument with its quotes on.
+      for (const text of ['baton this', '"baton this"']) {
+        const asked = { message, parts: [{ type: 'text', text, id: 'prt_1' }] };
+        await hooks['chat.message']({ sessionID: 'ses_1' }, asked);
+        strictEqual(asked.parts.length, 2);
+        const hint = asked.parts[1];
+        strictEqual(hint.text, '[runlist] Baton hint');
+        strictEqual(hint.synthetic, true);
+        strictEqual(hint.sessionID, 'ses_1');
+        strictEqual(hint.messageID, 'msg_1');
+        ok(hint.id.startsWith('prt_'));
+      }
+
+      // Text the host or another plugin added is not what the user asked.
+      const injected = { message, parts: [{ type: 'text', text: 'baton this', synthetic: true, id: 'prt_1' }] };
+      await hooks['chat.message']({ sessionID: 'ses_1' }, injected);
+      strictEqual(injected.parts.length, 1);
+    } finally {
+      process.env.PATH = restorePath;
+    }
   });
 
   it('primes the system prompt from runlist hud, and stays silent when it says nothing', async () => {

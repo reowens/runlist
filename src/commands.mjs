@@ -418,6 +418,9 @@ export function validateCommandArgs(name, argv, { preset = false } = {}) {
   const selectedOptions = optionMap([selected]);
   const positional = scanArgs(canonical, normalized, selectedOptions, selected.passthrough, selected.dashPositionalsAfter);
   const args = selected.subcommands.includes(positional[0]) ? positional.slice(1) : positional;
+  if (canonical === 'set' && args.some(arg => /^(next_step|current_state)(=|$)/.test(arg))) {
+    throw new Error('`runlist set` changes status only. To change next_step or current_state, edit those frontmatter lines in your file editor; during a handoff, use `runlist baton --done --next-step "…"`.');
+  }
   if (args.length < selected.positionals.min || args.length > selected.positionals.max) {
     throw new Error(`Usage: ${commandUsage(canonical)}`);
   }

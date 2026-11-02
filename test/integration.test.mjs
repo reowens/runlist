@@ -376,3 +376,27 @@ export const templates = { plan: { body() { throw new Error('help must not rende
     ok(result.stdout.includes('READY'), 'shows status header');
   });
 });
+
+describe('runlist set asked to change a frontmatter field', () => {
+  afterEach(() => {
+    if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('says how to change next_step and leaves the file alone', () => {
+    const docsDir = setupProject();
+    const file = writeDoc(docsDir, 'field.md', 'type: plan\nstatus: active\nnext_step: First', '# Field\n');
+    const before = readFileSync(file, 'utf8');
+    for (const args of [
+      ['set', 'docs/field.md', 'next_step', 'Second'],
+      ['set', 'docs/field.md', 'next_step=Second'],
+      ['set', 'next_step=Second', 'docs/field.md'],
+    ]) {
+      const result = run(args);
+      strictEqual(result.status, 1);
+      ok(result.stderr.includes('changes status only'), result.stderr);
+      ok(result.stderr.includes('baton --done --next-step'), result.stderr);
+    }
+    strictEqual(readFileSync(file, 'utf8'), before);
+    ok(run(['set', '--help']).stdout.includes('changes status only'));
+  });
+});

@@ -17,6 +17,7 @@
 // Runs under Bun inside the OpenCode process. Node builtins only, no deps.
 
 import { execFile } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 
 // The primer is a nicety; identity is a correctness invariant. They are split
 // across two hooks deliberately: `shell.env` is stable API, while
@@ -147,6 +148,36 @@ export default async function runlistOpencodePlugin({ directory }) {
         const note = (decision ?? await guardFor(input?.tool, input?.args))?.additionalContext;
         if (typeof note === 'string' && note) output.output += `\n\n${note}`;
       } catch { /* a guard failure never touches the tool result */ }
+    },
+
+    // The save/pickup hint — the equivalent of the UserPromptSubmit hook that
+    // runs `runlist hud --prompt-submit` under Claude Code. `chat.message` sees
+    // the user's text before the model does, and a synthetic part added here
+    // reaches the model without showing as something the user typed. The CLI
+    // prints nothing for an ordinary prompt, so most turns add no part.
+    'chat.message': async (input, output) => {
+      try {
+        const prompt = (output?.parts ?? [])
+          .filter(part => part?.type === 'text' && !part.synthetic && !part.ignored)
+          .map(part => part.text)
+          .join('\n')
+          // `opencode run "a b"` hands the plugin the text with its quotes on,
+          // and the CLI reads quoted text as something the user is mentioning.
+          .replace(/^"([\s\S]*)"$/, '$1');
+        if (!prompt.trim() || !input?.sessionID || !output?.message?.id) return;
+        const hint = await runCli(directory, ['hud', '--prompt-submit'], JSON.stringify({ prompt }));
+        if (!hint) return;
+        output.parts.push({
+          // OpenCode requires its `prt` prefix; the ids of a message's parts
+          // sort in creation order, so this one follows the user's text.
+          id: `prt_${Date.now().toString(16)}${randomBytes(8).toString('hex')}`,
+          sessionID: input.sessionID,
+          messageID: output.message.id,
+          type: 'text',
+          text: hint,
+          synthetic: true,
+        });
+      } catch { /* a missed hint must not fail the chat turn */ }
     },
 
     // Session priming — the equivalent of the SessionStart hook that runs
