@@ -2,6 +2,26 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- `runlist plans` shows who holds each in-session plan: `yours`, `other`, `gone`
+  or `no claim`, with the same state as `claim` in `--json`. `no claim` means no
+  claim on this machine; claims do not travel between machines.
+- `runlist doctor --claims` lists in-session plans with no claim, and `--json`
+  gives them as `unclaimed`. `--apply` leaves them alone.
+- Taking over an in-session plan with no claim on this machine now prints a
+  warning that another machine's session may hold it, through `use`,
+  `set in-session` and consuming a linked prompt. `use --json` gains `adopted`.
+
+### Fixed
+
+- The plan card named `runlist set in-session <path> --full`, which fails with an
+  unknown flag. It now names `runlist use <path> --full`.
+- `runlist use` on a plan you already hold no longer prints
+  `Started (in-session → in-session)`.
+
 ## 0.101.0 — 2026-11-01
 
 ### Added

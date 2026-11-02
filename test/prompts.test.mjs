@@ -734,6 +734,18 @@ describe('a prompt is consumed only inside an agent session', () => {
     ok(existsSync(path.join(promptsDir, 'archived', 'resume-linked.md')));
     match(readFileSync(plan, 'utf8'), /^status: in-session$/m);
     match(r.stderr, /Claimed.*linked-work\.md/);
+    ok(!r.stderr.includes('Took over'), r.stderr);
+  });
+
+  it('consuming a prompt warns when its plan was in-session with no claim here', () => {
+    const { plan } = linkedPrompt('resume-linked', 'ADOPT-BODY');
+    writeFileSync(plan, readFileSync(plan, 'utf8').replace(/^status: active$/m, 'status: in-session'));
+    const r = runOutside(['use', 'resume-linked'], { CLAUDE_CODE_SESSION_ID: 'claude-session' });
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stdout, /ADOPT-BODY/);
+    ok(!r.stdout.includes('Took over'), r.stdout);
+    match(r.stderr, /Claimed.*linked-work\.md/);
+    match(r.stderr, /Took over .*linked-work\.md: it was in-session with no claim on this machine/);
   });
 
   it('RUNLIST_SESSION_ID counts as a session', () => {

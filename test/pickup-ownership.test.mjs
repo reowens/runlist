@@ -1285,6 +1285,10 @@ describe('taking over an unclaimed in-session plan', () => {
     strictEqual(started.status, 0, started.stderr);
     strictEqual(warnings(started.stderr), 0);
     match(started.stderr, /Started: docs\/plans\/ordinary\.md \(active → in-session\)/);
+    const again = run(['use', 'docs/plans/ordinary.md'], 'A');
+    strictEqual(again.status, 0, again.stderr);
+    match(again.stderr, /Already yours: docs\/plans\/ordinary\.md \(in-session\)/);
+    ok(!/Started|Took over/.test(again.stderr), again.stderr);
     const resumed = run(['use', file], 'A');
     strictEqual(resumed.status, 0, resumed.stderr);
     strictEqual(warnings(resumed.stderr), 0);

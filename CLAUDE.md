@@ -95,7 +95,7 @@ Every document has a `type:` field in its frontmatter. Types determine which sta
 
 Each stop-status maps to a distinct **unstuck-action** — that's the test for whether the status earns its keep.
 
-- **`in-session`** — An agent session is actively working on this plan right now. `runlist use` writes the status plus a local ownership record; another session cannot resume/release it without an explicit `--force` recovery.
+- **`in-session`** — An agent session is actively working on this plan right now. `runlist use` writes the status plus a local ownership record; another session cannot resume/release it without an explicit `--force` recovery. The status travels through git but the record stays on the machine that made it, so `runlist plans` labels each in-session plan `yours`, `other`, `gone` or `no claim`, where `no claim` means none on this machine, never that the plan is free. `doctor --claims` lists those plans, and taking one over warns.
 - **`active`** — Ready for a Claude session to pick up and work on.
 - **`planned`** — Queued for future work, not yet ready to execute.
 - **`blocked`** — *Unstuck-action: monitor.* External arrival on its own schedule (hardware, vendor delivery, third-party rollout). You can't speed it up.

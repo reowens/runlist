@@ -654,6 +654,20 @@ export function assertHookDeliveryTakeoverSafe(ownership, options = {}) {
   }
 }
 
+// Claim records stay on the machine that made them while status travels through
+// git, so an in-session plan with no claim here may be held elsewhere. `adopt`
+// alone does not mean that: it also covers a record left by a session proven dead
+// and a --force over a busy or corrupt record. A claim exists in those cases, so
+// saying there is none would be false. A released record is no longer a claim,
+// and pulling a status from another machine leaves exactly that behind.
+export function adoptsUnclaimedPlan(disposition, ownership) {
+  return disposition.kind === 'adopt' && ownership?.state !== 'owned' && !ownership?.corrupt;
+}
+
+export function unclaimedAdoptionNotice(repoPath) {
+  return `Took over ${repoPath}: it was in-session with no claim on this machine. Another machine's session may hold it; its claim would not show here.\n`;
+}
+
 // Who holds an in-session plan, for read commands. Null for anything else. A
 // released record is what a claim leaves behind, so it reads as no claim, the
 // same as the survey and pickup treat it. A corrupt record names nobody we can

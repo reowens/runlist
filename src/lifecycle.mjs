@@ -32,6 +32,8 @@ import {
   skipClaimHookDelivery,
   updateOwnershipOperation,
   validatedClaimOperation,
+  adoptsUnclaimedPlan,
+  unclaimedAdoptionNotice,
 } from './pickup.mjs';
 import { assertInsideHandoffs } from './handoffs-scope.mjs';
 import { LEGACY_PROMPT_DIR, PROMPT_DIR, rootIsWorkingFolder } from './naming.mjs';
@@ -669,15 +671,7 @@ export async function startPlan(argv, config, opts = {}) {
     die(`Plan cannot be picked up: ${disposition.kind}${detail}\n  ${repoPath}`);
   }
   const today = nowIso();
-  // Claim records stay on the machine that made them while status travels
-  // through git, so an in-session plan with no claim here may be held elsewhere.
-  // `adopt` alone does not mean that: it also covers a record left by a session
-  // proven dead and a --force over a busy or corrupt record. A claim exists in
-  // those cases, so saying there is none would be false. A released record is
-  // no longer a claim, and pulling a status from another machine leaves exactly
-  // that behind, so it counts as unclaimed.
-  const adopted = !dryRun && disposition.kind === 'adopt'
-    && ownership?.state !== 'owned' && !ownership?.corrupt;
+  const adopted = !dryRun && adoptsUnclaimedPlan(disposition, ownership);
   if (dryRun) {
     if (disposition.kind === 'resume') {
       process.stderr.write(`${dim('[dry-run]')} Already in-session: ${repoPath}\n`);
@@ -697,9 +691,7 @@ export async function startPlan(argv, config, opts = {}) {
       ownership, sessionId, now: today, config, testHooks: opts.testHooks });
     // Written as soon as the claim commits: an index or hook failure below ends
     // the command, and the retry reads as a resume, so this is the only chance.
-    if (adopted) {
-      process.stderr.write(`Took over ${repoPath}: it was in-session with no claim on this machine. Another machine's session may hold it; its claim would not show here.\n`);
-    }
+    if (adopted) process.stderr.write(unclaimedAdoptionNotice(repoPath));
   }
 
   if (!dryRun) {
@@ -723,7 +715,10 @@ export async function startPlan(argv, config, opts = {}) {
       adopted,
     }, null, 2) + '\n');
   } else {
-    process.stderr.write(`${green('▶ Started')}: ${repoPath} (${oldStatus ?? 'unset'} → in-session)\n\n`);
+    // A session re-reading its own plan started nothing, and printing a status
+    // change would suggest it had.
+    if (disposition.kind === 'resume') process.stderr.write(`${green('▶ Already yours')}: ${repoPath} (in-session)\n\n`);
+    else process.stderr.write(`${green('▶ Started')}: ${repoPath} (${oldStatus ?? 'unset'} → in-session)\n\n`);
     if (fullBody) {
       const header = `[runlist] in-session: ${repoPath} — close with: runlist set <status> ${repoPath}\n---\n`;
       process.stdout.write(header);

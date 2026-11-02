@@ -10,11 +10,13 @@ import { green, dim, yellow } from './color.mjs';
 import { authorizeManagedSource } from './managed-path.mjs';
 import { isHandoffsMode, managesFile, outsideHandoffs, outsideHandoffsLine } from './handoffs-scope.mjs';
 import {
+  adoptsUnclaimedPlan,
   authoritativeSessionId,
   classifyPlanPickup,
   ownershipLiveness,
   preparePlanClaim,
   readPlanOwnership,
+  unclaimedAdoptionNotice,
 } from './pickup.mjs';
 import { actionablePromptStatuses, comparePromptDocs } from './status-metadata.mjs';
 import { LEGACY_STATE_DIR, STATE_DIR } from './naming.mjs';
@@ -520,6 +522,7 @@ export async function consumePrompt(filePath, config, opts) {
       throw new Error(`Prompt consumed and body delivered; linked claim completion remains pending for ${linkedClaim.repoPath}: ${err.message}`);
     }
     process.stderr.write(`${green('→ Claimed')}: ${linkedClaim.repoPath} (in-session)\n`);
+    if (linkedClaim.adopted) process.stderr.write(unclaimedAdoptionNotice(linkedClaim.repoPath));
   }
   if (claimSkipReason) process.stderr.write(`${yellow('→ Not claimed')}: ${claimSkipReason}\n`);
   process.stderr.write(`${green('✓ Consumed')}: ${consumedPath}\n`);
@@ -685,6 +688,7 @@ function prepareLinkedPromptClaim(planRef, config, promptDir) {
     prepared,
     planChanged: prepared.updates.some(item => path.resolve(item.path) === path.resolve(planPath)),
     disposition: disposition.kind,
+    adopted: adoptsUnclaimedPlan(disposition, ownership),
   };
 }
 
