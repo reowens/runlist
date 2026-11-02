@@ -211,6 +211,15 @@ just a pointer to its line range.
     ok(!/offset\/limit|Read the file/.test(r.stdout), r.stdout);
   });
 
+  it('names use --full as the full read, not a status verb', () => {
+    const docsDir = setupProject();
+    const planPath = writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', `# Plan\n\n## Phases\n\n### Phase 1 — active 🟡\n\ntext\n`);
+    const r = runCli(['use', planPath]);
+    strictEqual(r.status, 0, r.stderr);
+    ok(/runlist use \S+ --full/.test(r.stdout), r.stdout);
+    ok(!r.stdout.includes('set in-session'), r.stdout);
+  });
+
   it('--full opts into the full body', () => {
     const docsDir = setupProject();
     const planPath = writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', `# Plan\n\n## Phases\n\n### Phase 1 — active 🟡\n\nFULL_BODY_CONTENT_MARKER\n`);
