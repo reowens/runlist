@@ -963,6 +963,10 @@ Modes:
                          another machine — that are older than the duration.
                          That threshold is your judgement, not runlist's: it
                          cannot tell a dead session from a slow one.
+                         --claims also lists in-session plans with no claim.
+                         The holder may be on another machine or gone, so
+                         --apply leaves them alone. --json adds them as
+                         \`unclaimed\`.
   --session              Read-only: what session identity runlist resolved, from
                          which environment variable, and whether it names THIS
                          session or something coarser that its siblings share
@@ -1413,6 +1417,11 @@ word:word:beta when a stage name itself starts with word:.
 Default plan statuses: in-session, active, planned, blocked, partial,
 paused, awaiting, queued-after, archived. Run \`runlist help statuses\` for
 the unstuck-action behind each one and canonical transitions.
+
+An in-session plan shows who holds it: [IN-SESSION · yours], [IN-SESSION · other],
+[IN-SESSION · gone] (its session's process has ended) or [IN-SESSION · no claim].
+With no session id, nothing reads as yours. --json adds these as \`claim\`
+on in-session plans.
 
 Examples:
   runlist plans                          # live plans (default)

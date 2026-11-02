@@ -17,10 +17,10 @@ import { runMigrateTemplate } from './migrate-template.mjs';
 import { runMigratePrompts } from './migrate-prompts.mjs';
 import { runFrontmatterFix } from './frontmatter-fix.mjs';
 import { normalizeEol } from './frontmatter.mjs';
-import { die, runlistVersion, relTime, toRepoPath } from './util.mjs';
+import { die, isArchivedPath, runlistVersion, relTime, toRepoPath } from './util.mjs';
 import { inspectTransactions, resolveTransactions } from './atomic-mutation.mjs';
 import { describeSessionIdentity, opencodeStatus } from './host-integration.mjs';
-import { availableSessionId, releaseVanishedPlanClaim, surveyOwnershipClaims } from './pickup.mjs';
+import { availableSessionId, planClaimState, releaseVanishedPlanClaim, surveyOwnershipClaims } from './pickup.mjs';
 
 // Tunable thresholds for `runlist doctor --statuses` conflation detection.
 // MIN_BUCKET_SIZE: only flag buckets with at least this many docs (small buckets aren't worth nagging).
@@ -169,17 +169,24 @@ async function runDoctorClaims(argv, config, opts = {}) {
     }
   }
 
+  // An in-session plan with no record has nothing to release, and no record says
+  // whether anyone is still on it, so this only ever reports.
+  const unclaimed = buildIndex(config, { fast: true, invokeHooks: false }).docs
+    .filter(doc => !isArchivedPath(doc.path, config) && planClaimState(doc, config, null)?.state === 'none')
+    .map(doc => doc.path)
+    .sort();
+
   if (json) {
-    process.stdout.write(JSON.stringify({ claims, released }, null, 2) + '\n');
+    process.stdout.write(JSON.stringify({ claims, released, unclaimed }, null, 2) + '\n');
     return;
   }
-  if (claims.length === 0) {
+  if (claims.length === 0 && unclaimed.length === 0) {
     process.stdout.write(green('✓') + (config.mode === 'handoffs' ? ' Nothing is claimed.\n' : ' No plans are claimed — nothing can be wedged by ownership.\n'));
     return;
   }
 
   const releasedSet = new Set(released);
-  process.stdout.write(bold(`Plan claims (${claims.length})\n`));
+  if (claims.length) process.stdout.write(bold(`Plan claims (${claims.length})\n`));
   for (const claim of claims) {
     if (claim.corrupt) {
       process.stdout.write(`  ${yellow('?')} ${path.basename(claim.recordPath)} — ${claim.reason}\n`);
@@ -213,6 +220,11 @@ async function runDoctorClaims(argv, config, opts = {}) {
   if (unjudgeable.length && olderThanMs === null) {
     process.stdout.write(dim(`\n${unjudgeable.length} cannot be judged from here — no owning process was recorded, or it is on another machine.\n`));
     process.stdout.write(dim('If you know those sessions are over: `runlist doctor --claims --apply --older-than 24h`.\n'));
+  }
+  if (unclaimed.length) {
+    process.stdout.write(`${claims.length ? '\n' : ''}${bold(`No claim (${unclaimed.length})`)}\n`);
+    for (const plan of unclaimed) process.stdout.write(`  ${dim('·')} ${plan}\n`);
+    process.stdout.write(dim('The holder may be on another machine or gone.\n'));
   }
 }
 
