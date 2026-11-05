@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import { strictEqual, deepStrictEqual } from 'node:assert';
-import { buildBrief, collapseFrontmatter, readSection, LIMITS } from '../src/brief.mjs';
+import { buildBrief, collapseFrontmatter, readSection, sectionSizes, LIMITS } from '../src/brief.mjs';
 
 const PLAN = [
   '---', 'type: plan', 'status: active', '---', // 1-4
@@ -133,5 +133,39 @@ describe('collapseFrontmatter', () => {
     strictEqual(out.length, 2 + 8 + 1 + 1);
     strictEqual(out[10], '  (+2 more)');
     strictEqual(out[11].length, LIMITS.width);
+  });
+});
+
+describe('sectionSizes', () => {
+  const doc = [
+    '---', 'type: plan', '---', // 1-3
+    '# Boathouse', // 4
+    'Intro.', // 5
+    '## Hull', // 6
+    'x'.repeat(99), // 7
+    '### Keel', // 8
+    'k'.repeat(299), // 9
+    '## Sails', // 10
+    's'.repeat(49), // 11
+  ].join('\n') + '\n';
+
+  it('measures each section on file lines, largest first', () => {
+    const sizes = sectionSizes(doc);
+    deepStrictEqual(sizes.map(s => [s.heading, s.line]), [['Boathouse', 4]]);
+    strictEqual(sizes[0].bytes, Buffer.byteLength(doc.split('\n').slice(3).join('\n')));
+  });
+
+  it('lists a section over splitOver as its subsections and its own text', () => {
+    const sizes = sectionSizes(doc, { splitOver: 200 });
+    deepStrictEqual(sizes.map(s => [s.heading, s.level, s.line, s.bytes]), [
+      ['Keel', 3, 8, 9 + 300],
+      ['Hull', 2, 6, 8 + 100],
+      ['Sails', 2, 10, 9 + 50],
+      ['Boathouse', 1, 4, 12 + 7],
+    ]);
+  });
+
+  it('returns nothing for a document with no headings', () => {
+    deepStrictEqual(sectionSizes('just text\n'), []);
   });
 });

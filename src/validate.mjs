@@ -7,6 +7,7 @@ import { resolveBodyLinkTarget } from './body-link.mjs';
 import { getStageDefinitions, readPlanStage } from './stages.mjs';
 import { assessmentIssues } from './yardstick.mjs';
 import { RETIRED_PROMPT_STATUSES } from './naming.mjs';
+import { sectionSizes } from './brief.mjs';
 
 const NOW = new Date();
 
@@ -717,6 +718,41 @@ export function validatePlanShape(doc, body, frontmatter, config, bodyLineOffset
       message: `Phase marker contradicts its own checklist (line ${bodyLineOffset + phase.lineStart}): \`${phase.heading.trim()}\` is marked ${conflict.declared}, but ${conflict.checked}/${conflict.total} boxes are checked — that reads as ${conflict.implied}. Update whichever half is stale.`,
     });
   }
+}
+
+const KB = 1024;
+const formatSize = bytes => bytes < KB ? `${bytes} B` : `${Math.round(bytes / KB).toLocaleString('en-US')} KB`;
+
+// A plan too large for an agent to read: a warning over `planSize.warnKB`, a
+// problem over `planSize.problemKB`, with the largest sections named so the
+// author knows what to split or archive. Reported only; a plan is never cut
+// for size. Closed plans are skipped, and a status that silences warnings
+// silences only the warning tier.
+export function validatePlanSize(doc, raw, config) {
+  if (doc.type !== 'plan' || raw == null || !config.planSize) return;
+  if (config.lifecycle.terminalStatuses.has(doc.status) || config.lifecycle.archiveStatuses.has(doc.status)) return;
+  const { warnKB, problemKB, sections: listed } = config.planSize;
+  const bytes = Buffer.byteLength(raw);
+  const over = limit => typeof limit === 'number' && limit > 0 && bytes > limit * KB;
+  let tier = null;
+  if (over(problemKB)) tier = 'problem';
+  else if (over(warnKB) && !config.lifecycle.skipsWarnings(doc.status, doc.type)) tier = 'warning';
+  if (!tier) return;
+  const limitKB = tier === 'problem' ? problemKB : warnKB;
+  const splitOver = (over(warnKB) ? warnKB : limitKB) * KB;
+  const count = Number.isInteger(listed) && listed > 0 ? listed : 5;
+  const largest = sectionSizes(raw, { splitOver }).slice(0, count)
+    .map(({ heading, level, line, bytes: size }) => ({ heading, level, line, bytes: size }));
+  const named = largest.map(s => `\`${'#'.repeat(s.level)} ${s.heading.trim()}\` (line ${s.line}, ${formatSize(s.bytes)})`);
+  const issue = {
+    path: doc.path,
+    level: tier === 'problem' ? 'error' : 'warning',
+    message: `Plan is ${formatSize(bytes)}, over the ${limitKB} KB ${tier} limit (\`planSize.${tier === 'problem' ? 'problemKB' : 'warnKB'}\`). `
+      + (named.length ? `Largest sections: ${named.join('; ')}. ` : 'It has no headings to split on. ')
+      + 'Split or archive what an agent no longer needs to read.',
+    meta: { kind: 'plan-size', tier, bytes, limitBytes: limitKB * KB, sections: largest },
+  };
+  (tier === 'problem' ? doc.errors : doc.warnings).push(issue);
 }
 
 // Doc-shape lint: soft warnings on convention drift. Doc-only.

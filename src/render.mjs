@@ -427,6 +427,9 @@ export function classifyIssueAction(issue) {
   if (issue?.meta?.kind === 'hub-status-unreadable') {
     return { action: `edit ${file}: lead the status cell with the status word, or wrap it in <!--s-->…<!--/s-->`, fixable: false, label: 'hub status rows' };
   }
+  if (issue?.meta?.kind === 'plan-size') {
+    return { action: `edit ${file}: split or archive its largest sections`, fixable: false, label: 'plan size' };
+  }
   if (issue?.meta?.kind === 'hub-membership-backref') {
     return { action: 'runlist fix-membership', fixable: true, label: 'membership back-references' };
   }

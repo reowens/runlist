@@ -162,6 +162,10 @@ const DEFAULTS = {
   // `promptReads: 'deny'` blocks direct reads of existing pending prompts.
   guard: { deny: true, promptReads: 'warn' },
 
+  // A plan over warnKB is a warning in `check`, over problemKB an error; each
+  // names its largest `sections`. A tier set to null is off; false turns both off.
+  planSize: { warnKB: 50, problemKB: 100, sections: 5 },
+
   presets: {
     stale: ['--status', 'active,ready,planned,blocked,scoping', '--stale', '--sort', 'updated', '--all'],
     actionable: ['--status', 'active,ready', '--has-next-step', '--sort', 'updated', '--all'],
@@ -362,10 +366,26 @@ function findConfigFile(startDir) {
 
 const VALID_CONFIG_KEYS = new Set(Object.keys(DEFAULTS));
 
+function validatePlanSizeConfig(value) {
+  if (value === false || value == null) return [];
+  if (typeof value !== 'object' || Array.isArray(value)) return ['Config: planSize must be an object { warnKB, problemKB, sections } or false.'];
+  const warnings = [];
+  for (const key of ['warnKB', 'problemKB']) {
+    const limit = value[key];
+    if (limit != null && !(typeof limit === 'number' && limit > 0)) warnings.push(`Config: planSize.${key} must be a positive number of KB, or null to turn it off.`);
+  }
+  if (typeof value.warnKB === 'number' && typeof value.problemKB === 'number' && value.warnKB > value.problemKB) {
+    warnings.push('Config: planSize.warnKB is above planSize.problemKB, so no plan is ever only a warning.');
+  }
+  if (value.sections != null && !(Number.isInteger(value.sections) && value.sections > 0)) warnings.push('Config: planSize.sections must be a positive whole number.');
+  return warnings;
+}
+
 function validateConfig(userConfig, config, validStatuses, indexPath) {
   const warnings = validateStageDefinitions(config);
   warnings.push(...validateFilingConfig(config.filing));
   warnings.push(...validateYardstickConfig(config.yardstick));
+  warnings.push(...validatePlanSizeConfig(config.planSize));
 
   // statuses.order must be array
   if (config.statuses && config.statuses.order !== undefined && !Array.isArray(config.statuses.order)) {
@@ -727,6 +747,7 @@ export async function resolveConfig(cwd, explicitConfigPath, options = {}) {
     referenceFields: config.referenceFields,
     filing: config.filing,
     yardstick: config.yardstick,
+    planSize: config.planSize,
     presets: config.presets,
     configuredPresetNames: new Set(Object.keys(userConfig.presets ?? {})),
     journal: config.journal === true,

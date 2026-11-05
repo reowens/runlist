@@ -159,6 +159,13 @@ export const excludeDirs = ['evidence'];
 //   },
 // };
 
+// Plan size. `runlist check` and `runlist doctor` warn about a live plan over
+// warnKB and report a problem (an error) over problemKB, each naming the plan's
+// largest `sections` so you know what to split or archive. Archived plans are
+// skipped and nothing is edited. Set a tier to null to turn it off, or
+// `planSize = false` for both.
+// export const planSize = { warnKB: 50, problemKB: 100, sections: 5 };
+
 // ─── Array form (also supported) ────────────────────────────────────────────
 // When using array form, define behavior in separate statuses/lifecycle/taxonomy sections.
 // export const types = {

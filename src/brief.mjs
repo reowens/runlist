@@ -134,6 +134,50 @@ export function buildBrief(raw, { all = false, limits = LIMITS } = {}) {
   };
 }
 
+// Headings nested under the one before them that is shallower.
+function headingTree(headings) {
+  const roots = [];
+  const stack = [];
+  for (const h of headings) {
+    const node = { ...h, children: [] };
+    while (stack.length && stack.at(-1).level >= h.level) stack.pop();
+    (stack.length ? stack.at(-1).children : roots).push(node);
+    stack.push(node);
+  }
+  return roots;
+}
+
+/**
+ * The sections of a document by size in bytes, largest first, measured on the
+ * same lines `show` numbers. A section over `splitOver` bytes that has
+ * subsections is listed as its subsections instead, plus its own text before
+ * the first of them, so a single wrapping heading never hides where the bulk
+ * sits. Text before the first heading is not a section.
+ */
+export function sectionSizes(raw, { splitOver = Infinity } = {}) {
+  const text = normalizeEol(raw);
+  const { body, bodyLineOffset } = extractFrontmatter(text);
+  const lines = fileLines(text);
+  const before = [0];
+  for (const line of lines) before.push(before.at(-1) + Buffer.byteLength(line) + 1);
+  const bytes = (from, to) => before[Math.min(to, lines.length)] - before[from - 1];
+  const sections = [];
+  const visit = nodes => {
+    for (const node of nodes) {
+      const size = bytes(node.line, node.end);
+      if (size > splitOver && node.children.length) {
+        const own = bytes(node.line, node.children[0].line - 1);
+        if (own > 0) sections.push({ heading: node.heading, level: node.level, line: node.line, bytes: own });
+        visit(node.children);
+      } else {
+        sections.push({ heading: node.heading, level: node.level, line: node.line, bytes: size });
+      }
+    }
+  };
+  visit(headingTree(headingsOf(body, bodyLineOffset, lines.length)));
+  return sections.sort((a, b) => b.bytes - a.bytes || a.line - b.line);
+}
+
 /**
  * One section of a document by heading: its lines from `from` (default the
  * heading) to the section's end, cut at `limits.sectionLines` lines or

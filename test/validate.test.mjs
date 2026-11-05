@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync, symlinkSync } from 'node
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { computeChecklistCompletionRate, validatePlanShape } from '../src/validate.mjs';
+import { computeChecklistCompletionRate, validatePlanShape, validatePlanSize } from '../src/validate.mjs';
 import { parseDocFile, buildIndex } from '../src/index.mjs';
 import { resolveConfig } from '../src/config.mjs';
 
@@ -938,5 +938,104 @@ describe('scan floor (minDocs)', () => {
     const all = r.stdout + r.stderr;
     ok(all.includes('minDocs must be a positive integer'), all);
     ok(!all.includes("unknown key 'minDocs'"), 'minDocs must be a recognized config key');
+  });
+});
+
+describe('plan size', () => {
+  const KB = 1024;
+  // A plan of about `kb` KB: three sections, the first holding half the bulk.
+  function sizedPlan(kb, status = 'active') {
+    const filler = n => `${'w'.repeat(99)}\n`.repeat(Math.max(1, Math.round(n * KB / 100)));
+    return [
+      '---', 'type: plan', `status: ${status}`, `updated: ${new Date().toISOString().slice(0, 10)}`,
+      'current_state: Underway.', 'next_step: Continue.', '---',
+      '# Lantern', '',
+      '## Wicks', filler(kb / 2),
+      '## Glass', filler(kb / 3),
+      '## Oil', filler(kb / 6),
+    ].join('\n');
+  }
+  function sizeIssues(doc) {
+    return [...doc.errors, ...doc.warnings].filter(i => i.meta?.kind === 'plan-size');
+  }
+  async function check(raw, status = 'active') {
+    setupProject();
+    const config = await resolveConfig(tmpDir);
+    const doc = { type: 'plan', status, path: 'docs/lantern.md', warnings: [], errors: [] };
+    validatePlanSize(doc, raw, config);
+    return doc;
+  }
+
+  it('says nothing about a plan under the warning limit', async () => {
+    const doc = await check(sizedPlan(40));
+    deepStrictEqual(sizeIssues(doc), []);
+  });
+
+  it('warns over 50 KB and names the largest sections, largest first', async () => {
+    const raw = sizedPlan(70);
+    const lineOf = heading => raw.split('\n').indexOf(heading) + 1;
+    const doc = await check(raw);
+    strictEqual(doc.errors.length, 0);
+    const [issue] = sizeIssues(doc);
+    strictEqual(issue.level, 'warning');
+    strictEqual(issue.meta.tier, 'warning');
+    ok(issue.message.includes('over the 50 KB warning limit'), issue.message);
+    deepStrictEqual(issue.meta.sections.map(s => [s.heading, s.line]),
+      [['Wicks', 10], ['Glass', lineOf('## Glass')], ['Oil', lineOf('## Oil')], ['Lantern', 8]]);
+    ok(issue.meta.sections[0].bytes > issue.meta.sections[1].bytes);
+    ok(issue.message.includes('`## Wicks` (line 10, 35 KB)'), issue.message);
+  });
+
+  it('reports a problem over 100 KB as an error', async () => {
+    const doc = await check(sizedPlan(130));
+    strictEqual(doc.warnings.length, 0);
+    const [issue] = sizeIssues(doc);
+    strictEqual(issue.level, 'error');
+    strictEqual(issue.meta.tier, 'problem');
+    strictEqual(issue.meta.limitBytes, 100 * KB);
+    ok(issue.message.includes('over the 100 KB problem limit'), issue.message);
+  });
+
+  it('skips archived plans', async () => {
+    deepStrictEqual(sizeIssues(await check(sizedPlan(130, 'archived'), 'archived')), []);
+  });
+
+  it('takes its limits and section count from config', async () => {
+    setupProject();
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'),
+      "export const root = 'docs';\nexport const planSize = { warnKB: 5, problemKB: 20, sections: 1 };");
+    const config = await resolveConfig(tmpDir);
+    const small = { type: 'plan', status: 'active', path: 'docs/lantern.md', warnings: [], errors: [] };
+    validatePlanSize(small, sizedPlan(10), config);
+    const [warning] = sizeIssues(small);
+    strictEqual(warning.meta.tier, 'warning');
+    ok(warning.message.includes('over the 5 KB warning limit'), warning.message);
+    deepStrictEqual(warning.meta.sections.map(s => s.heading), ['Wicks']);
+    const large = { type: 'plan', status: 'active', path: 'docs/lantern.md', warnings: [], errors: [] };
+    validatePlanSize(large, sizedPlan(30), config);
+    strictEqual(sizeIssues(large)[0].meta.tier, 'problem');
+  });
+
+  it('is off when config sets planSize to false', async () => {
+    setupProject();
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), "export const root = 'docs';\nexport const planSize = false;");
+    const config = await resolveConfig(tmpDir);
+    const off = { type: 'plan', status: 'active', path: 'docs/lantern.md', warnings: [], errors: [] };
+    validatePlanSize(off, sizedPlan(130), config);
+    deepStrictEqual(sizeIssues(off), []);
+  });
+
+  it('shows in check and in doctor remaining issues, and a problem fails check', () => {
+    const dir = setupProject();
+    writeFileSync(path.join(dir, 'lantern.md'), sizedPlan(130));
+    const checked = run(['check', '--dry-run', '--json']);
+    const report = JSON.parse(checked.stdout);
+    const issue = report.errors.find(i => i.meta?.kind === 'plan-size');
+    ok(issue, checked.stdout);
+    strictEqual(issue.path, 'docs/lantern.md');
+    strictEqual(checked.status, 1);
+    const doctor = run(['doctor', '--dry-run']);
+    const remaining = doctor.stdout.slice(doctor.stdout.indexOf('Remaining issues'));
+    ok(remaining.includes('docs/lantern.md: Plan is'), doctor.stdout + doctor.stderr);
   });
 });

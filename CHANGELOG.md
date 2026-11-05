@@ -2,6 +2,18 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- `runlist check` and `runlist doctor` flag plans too large for an agent to
+  read: a warning over 50 KB and a problem over 100 KB, each listing the plan's
+  largest sections with their line and size, largest first. A section bigger
+  than the warning limit is listed by its subsections. Archived plans are
+  skipped and nothing is edited. Set the limits with
+  `export const planSize = { warnKB, problemKB, sections }`, or turn it off
+  with `planSize = false`.
+
 ## 0.103.0 — 2026-11-02
 
 ### Changed

@@ -7,7 +7,7 @@ import { asString, normalizeStringList, normalizeBlockers, mergeUniqueStrings, t
 import { findLexicalDocsRoot } from './managed-path.mjs';
 import { managesFile, outsideHandoffs, outsideHandoffsLine } from './handoffs-scope.mjs';
 import { openParseCache, fileStamp, stampSize } from './parse-cache.mjs';
-import { validateDoc, validatePlanShape, validateDocShape, checkBidirectionalReferences, checkGitStaleness, checkRunlistBackPointers, checkCoordinationHubExecutionMode, checkRoadmapHubExecutionMode, computeDaysSinceUpdate, computeIsStale, computeChecklistCompletionRate, enrichRefErrorSuggestions } from './validate.mjs';
+import { validateDoc, validatePlanShape, validatePlanSize, validateDocShape, checkBidirectionalReferences, checkGitStaleness, checkRunlistBackPointers, checkCoordinationHubExecutionMode, checkRoadmapHubExecutionMode, computeDaysSinceUpdate, computeIsStale, computeChecklistCompletionRate, enrichRefErrorSuggestions } from './validate.mjs';
 import { checkIndex } from './index-file.mjs';
 import { checkClaudeCommands } from './claude-commands.mjs';
 import { checkGlossaryConfig } from './glossary-check.mjs';
@@ -483,6 +483,7 @@ export function parseDocFile(filePath, config, opts = {}) {
     }
     validateDoc(doc, parsedFrontmatter, headingTitle, config);
     validatePlanShape(doc, body, parsedFrontmatter, config, bodyLineOffset);
+    validatePlanSize(doc, rawSource, config);
     validateDocShape(doc, body, parsedFrontmatter, config);
   }
   return doc;

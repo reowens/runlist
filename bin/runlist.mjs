@@ -692,6 +692,8 @@ pointer to \`runlist doctor\` (auto-fix) or \`runlist check --verbose\`
 (per-doc detail). Errors are always shown in full.
 With \`filing\` enabled in config, reports missing/multiple/uncategorized plan
 homes from status-bearing subject rows. These are warnings, never auto-filed.
+A live plan over \`planSize.warnKB\` (default 50) is a warning and over
+\`planSize.problemKB\` (default 100) an error, listing its largest sections.
 
 Options:
   --verbose              Show every warning per-doc (with category collapse
