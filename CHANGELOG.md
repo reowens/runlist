@@ -2,6 +2,20 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- `runlist check`, `briefing` and `agent-context` no longer resolve the
+  repository root and every `externalBodyLinkRoots` entry again for each
+  Markdown body link. An index build resolves those roots once and looks up
+  only each link's target, which took about 45% off `agent-context` and
+  `briefing` and a third off `check` in a 7,500-document repository. Results
+  are unchanged.
+- `runlist prompts` reads each file's frontmatter with one read of at most
+  16 KB instead of one byte at a time, which cut its run time by more than half
+  in the same repository. The listed prompts are unchanged.
+
 ## 0.104.0 — 2026-11-05
 
 ### Added

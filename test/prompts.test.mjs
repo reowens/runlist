@@ -7,7 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { resolveConfig } from '../src/config.mjs';
-import { runPrompts } from '../src/prompts.mjs';
+import { readPromptHeader, runPrompts } from '../src/prompts.mjs';
 import { SESSION_ID_VARIABLES } from '../src/util.mjs';
 
 const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
@@ -247,7 +247,7 @@ describe('runlist prompts list', () => {
       syncBuiltinESMExports();
     }
     match(output, /resume-widget[^\n]*\d+d old\n/);
-    strictEqual(bytes.get(file), Buffer.byteLength(header));
+    strictEqual(bytes.get(file), 16 * 1024);
     strictEqual(bytes.get(path.join(promptsDir, 'oversized.md')), 16 * 1024);
   });
 
@@ -974,5 +974,48 @@ describe('a prompt named as session start lists it', () => {
     const r = run(['use', 'resume-twin']);
     strictEqual(r.status, 0, r.stderr);
     ok(r.stdout.includes('the live one'), r.stdout);
+  });
+});
+
+describe('readPromptHeader', () => {
+  let dir;
+  beforeEach(() => { dir = mkdtempSync(path.join(os.tmpdir(), 'runlist-prompt-header-')); });
+  afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+
+  function header(name, content) {
+    const file = path.join(dir, name);
+    writeFileSync(file, content);
+    return readPromptHeader(file);
+  }
+
+  it('returns the frontmatter through the closing line', () => {
+    strictEqual(header('a.md', '---\ntype: prompt\nstatus: pending\n---\nBody\n---\n'),
+      '---\ntype: prompt\nstatus: pending\n---\n');
+    strictEqual(header('trailing.md', '--- \ntype: prompt\n---\t\nBody\n'), '--- \ntype: prompt\n---\t\n');
+  });
+
+  it('returns nothing without opening frontmatter or a closing line', () => {
+    strictEqual(header('none.md', '# Title\n---\ntype: prompt\n---\n'), '');
+    strictEqual(header('empty.md', ''), '');
+    strictEqual(header('unclosed.md', '---\ntype: prompt\n'), '');
+    strictEqual(header('no-newline.md', '---\ntype: prompt\n---'), '');
+  });
+
+  it('reads CRLF headers', () => {
+    strictEqual(header('crlf.md', '---\r\ntype: prompt\r\n---\r\nBody\r\n'), '---\r\ntype: prompt\r\n---\r\n');
+  });
+
+  it('caps the header at 16 KiB', () => {
+    const fits = '---\n' + 'x'.repeat(16 * 1024 - 9) + '\n---\n';
+    strictEqual(Buffer.byteLength(fits), 16 * 1024);
+    strictEqual(header('fits.md', fits + 'Body\n'), fits);
+    const over = '---\n' + 'x'.repeat(16 * 1024 - 8) + '\n---\n';
+    strictEqual(header('over.md', over), '');
+  });
+
+  it('decodes multibyte text in the header and ignores a body cut mid-character', () => {
+    const head = '---\ntitle: caf\u00e9 \u2014 \u{1F600}\n---\n';
+    const body = 'a'.repeat(16 * 1024 - Buffer.byteLength(head) - 1) + '\u00e9\u00e9\n';
+    strictEqual(header('utf8.md', head + body), head);
   });
 });

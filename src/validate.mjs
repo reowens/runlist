@@ -3,7 +3,7 @@ import { asString, resolveRefPath, suggestCandidates } from './util.mjs';
 import { getGitLastModified, getGitLastModifiedBatch, getGitLastSubstantiveModifiedBatch } from './git.mjs';
 import { toRepoPath } from './util.mjs';
 import { detectMarker, isPhaseHeading, phaseMarkerConflict, walkSections } from './section.mjs';
-import { resolveBodyLinkTarget } from './body-link.mjs';
+import { bodyLinkRoots, resolveBodyLinkTargetWithin } from './body-link.mjs';
 import { getStageDefinitions, readPlanStage } from './stages.mjs';
 import { assessmentIssues } from './yardstick.mjs';
 import { RETIRED_PROMPT_STATUSES } from './naming.mjs';
@@ -78,7 +78,7 @@ function isValidStatus(status, root, config, type) {
   return config.validStatuses.has(status);
 }
 
-export function validateDoc(doc, frontmatter, headingTitle, config) {
+export function validateDoc(doc, frontmatter, headingTitle, config, options = {}) {
   if (doc.type === 'plan') {
     const archived = config.lifecycle.archiveStatuses.has(doc.status) || doc.path.split('/').includes(config.archiveDir);
     for (const message of assessmentIssues(frontmatter, archived)) {
@@ -295,8 +295,11 @@ export function validateDoc(doc, frontmatter, headingTitle, config) {
     }
   }
 
+  const linkRoots = doc.bodyLinks?.length
+    ? options.bodyLinkRoots ?? bodyLinkRoots(config.repoRoot, config.externalBodyLinkRoots)
+    : null;
   for (const link of (doc.bodyLinks || [])) {
-    const resolution = resolveBodyLinkTarget(link.href, docDir, config.repoRoot, config.externalBodyLinkRoots);
+    const resolution = resolveBodyLinkTargetWithin(linkRoots, link.href, docDir);
     if (!resolution.ok) {
       const shownHref = link.rawHref ?? link.href;
       doc.errors.push({

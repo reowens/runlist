@@ -17,6 +17,7 @@ import { checkHubMembershipDrift } from './hub-membership.mjs';
 import {parseNativeRecord} from './native-record.mjs';
 import { readShipsFrontmatter } from './stages.mjs';
 import { buildFilingCoverage, filingFindings } from './filing.mjs';
+import { bodyLinkRoots } from './body-link.mjs';
 
 // `fast: true` skips every pass that produces warnings/errors — the rendered
 // index file consumes only status/title/snapshot/etc., not the validation
@@ -38,10 +39,11 @@ export function buildIndex(config, opts = {}) {
   const skipWarningOnlyChecks = fast || errorsOnly;
   const cache = openParseCache(config);
   const scanFailures = [];
+  const linkRoots = fast ? undefined : bodyLinkRoots(config.repoRoot, config.externalBodyLinkRoots);
   const docs = collectDocFiles(config, { onError: (directory, err) => {
     scanFailures.push({ path: null, level: 'error', message: `Could not read scan directory ${toRepoPath(directory, config.repoRoot)}: ${err.message}`, meta: { kind: 'scan-failure' } });
   } }).flatMap(f => {
-    try { return [parseDocFile(f, config, { fast, cache })]; }
+    try { return [parseDocFile(f, config, { fast, cache, bodyLinkRoots: linkRoots })]; }
     catch (err) {
       if (err.code !== 'ENOENT') throw err;
       scanFailures.push({ path: toRepoPath(f, config.repoRoot), level: 'warning', message: 'Document disappeared after discovery; it was not checked.', meta: { kind: 'scan-disappeared' } });
@@ -481,7 +483,7 @@ export function parseDocFile(filePath, config, opts = {}) {
       doc.errors.push(...native.diagnostics.map(d=>({path:relativePath,level:'error',message:`${d.path}: ${d.message}`})));
       return doc;
     }
-    validateDoc(doc, parsedFrontmatter, headingTitle, config);
+    validateDoc(doc, parsedFrontmatter, headingTitle, config, { bodyLinkRoots: opts.bodyLinkRoots });
     validatePlanShape(doc, body, parsedFrontmatter, config, bodyLineOffset);
     validatePlanSize(doc, rawSource, config);
     validateDocShape(doc, body, parsedFrontmatter, config);

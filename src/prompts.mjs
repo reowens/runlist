@@ -128,20 +128,31 @@ function childHandoffs(repoPath, config, index = null) {
   return { paths: children.map(doc => doc.path), notice: `\n\n## Saved child handoffs\n\n${children.length} child handoff(s) remain pending:\n\n${names}\n\nInspect a child with \`rl prompts show <name>\`. Review its current state and authorization before resuming its lane. ${isHandoffsMode(config) ? 'Fold completed results into the parent\'s work' : 'Fold completed results into the owning plan'}, then archive the completed handoff explicitly.\n\nPass \`--parent ${parent}\` when saving another child, or pass \`RUNLIST_PARENT_PROMPT=${parent}\` into its environment.\n` };
 }
 
-function readPromptHeader(file) {
+const PROMPT_HEADER_CAP = 16 * 1024;
+let promptHeaderBuffer = null;
+
+// The frontmatter of a prompt, read with one bounded read: the text through
+// the closing `---` line, or '' when the file does not open with `---` or the
+// header does not close within the cap. Only the header bytes are decoded.
+export function readPromptHeader(file) {
   let fd;
   try {
     fd = openSync(file, 'r');
-    const byte = Buffer.alloc(1), bytes = [];
-    let line = '', lines = 0;
-    while (bytes.length < 16 * 1024 && readSync(fd, byte, 0, 1, null)) {
-      bytes.push(byte[0]);
-      line += String.fromCharCode(byte[0]);
-      if (byte[0] !== 10) continue;
-      const marker = line.trimEnd() === '---';
-      if (lines++ === 0 && !marker) return '';
-      if (lines > 1 && marker) return Buffer.from(bytes).toString('utf8');
-      line = '';
+    const buffer = promptHeaderBuffer ??= Buffer.alloc(PROMPT_HEADER_CAP);
+    let length = 0;
+    while (length < buffer.length) {
+      const count = readSync(fd, buffer, length, buffer.length - length, null);
+      if (!count) break;
+      length += count;
+    }
+    let start = 0;
+    for (let line = 0; start < length; line++) {
+      const end = buffer.indexOf(10, start);
+      if (end === -1 || end >= length) break;
+      const marker = buffer.toString('latin1', start, end + 1).trimEnd() === '---';
+      if (line === 0 && !marker) return '';
+      if (line > 0 && marker) return buffer.toString('utf8', 0, end + 1);
+      start = end + 1;
     }
   } catch { /* an unreadable or disappearing header cannot supply metadata */ }
   finally { if (fd !== undefined) closeSync(fd); }
