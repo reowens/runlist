@@ -27,7 +27,7 @@ All notable changes to `runlist` are documented here. Older releases predate thi
   candidates for every broken reference. `check`, `doctor`, `json`,
   `agent-context` and any `--json` output still do, and rank each missing
   target once per reference type instead of once per reference. Their output
-  is unchanged; `briefing` took a quarter less time in a 7,500-document
+  is unchanged; `briefing` took about a fifth less time in a 7,500-document
   repository.
 
 ## 0.104.1 — 2026-11-05
