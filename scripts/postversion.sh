@@ -114,14 +114,19 @@ fi
 
 # CI's `npm publish` succeeding doesn't guarantee the registry serves the
 # version to us yet. Poll until the exact version resolves before installing.
-echo "→ waiting for registry to serve ${PACKAGE}@${VERSION} (up to ~120s)"
-for _ in $(seq 1 40); do
-  if npm view "${PACKAGE}@${VERSION}" version >/dev/null 2>&1; then
-    break
-  fi
-  sleep 3
+# --prefer-online skips npm's local metadata cache, which otherwise keeps
+# answering with the pre-publish packument for minutes.
+REGISTRY_WAIT_SECONDS="${RUNLIST_REGISTRY_WAIT_SECONDS:-900}"
+registry_serves() {
+  npm view --prefer-online "${PACKAGE}@${VERSION}" version >/dev/null 2>&1
+}
+echo "→ waiting for registry to serve ${PACKAGE}@${VERSION} (up to ${REGISTRY_WAIT_SECONDS}s)"
+REGISTRY_DEADLINE=$(( $(date +%s) + REGISTRY_WAIT_SECONDS ))
+until registry_serves || [ "$(date +%s)" -ge "${REGISTRY_DEADLINE}" ]; do
+  sleep 10
+  echo "  still waiting ($(( REGISTRY_DEADLINE - $(date +%s) ))s left)"
 done
-if ! npm view "${PACKAGE}@${VERSION}" version >/dev/null 2>&1; then
+if ! registry_serves; then
   echo "✗ ${PACKAGE}@${VERSION} not resolvable on the registry after waiting." >&2
   echo "  Publish CI passed, so this is registry lag. Resume without bumping:" >&2
   echo "    npm run release:resume" >&2

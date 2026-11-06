@@ -2,6 +2,16 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- The release no longer stops at "waiting for registry" while npm is still
+  propagating the new version. The check asks the registry directly
+  (`npm view --prefer-online`) instead of npm's local metadata cache, and waits
+  up to 15 minutes (`RUNLIST_REGISTRY_WAIT_SECONDS`) with a progress line every
+  10 seconds instead of about 2 minutes.
+
 ## 0.104.2 — 2026-11-05
 
 ### Added
