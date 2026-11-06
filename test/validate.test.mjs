@@ -513,6 +513,33 @@ describe('reference path resolution', () => {
       `should not suggest when nothing close. got: ${result.stdout}`);
   });
 
+  it('computes `Did you mean` suggestions only for output that prints issue messages', async () => {
+    const root = setupRefProject();
+    writeFileSync(path.join(root, 'docs', 'plans', 'authn-revamp.md'),
+      '---\nstatus: active\nupdated: 2025-01-01\n---\n# Authn\n');
+    for (const name of ['a', 'b']) {
+      writeFileSync(path.join(root, 'docs', 'plans', `${name}.md`),
+        `---\nstatus: active\nupdated: 2025-01-01\nrelated_plans:\n  - docs/plans/authn-revam.md\n---\n# ${name}\n`);
+    }
+    const config = await resolveConfig(root, path.join(root, 'dotmd.config.mjs'));
+    const brokenRefs = index => index.errors.filter(e => e.meta?.kind === 'ref-resolution');
+
+    const enriched = brokenRefs(buildIndex(config, { gitStaleness: false }));
+    strictEqual(enriched.length, 2);
+    for (const e of enriched) ok(e.message.endsWith('Did you mean: authn-revamp.md?'), e.message);
+
+    const plain = brokenRefs(buildIndex(config, { gitStaleness: false, suggestions: false }));
+    strictEqual(plain.length, 2);
+    for (const e of plain) {
+      ok(!e.message.includes('Did you mean'), e.message);
+      strictEqual(e._suggested, undefined);
+    }
+
+    for (const args of [['json'], ['agent-context'], ['list', '--json'], ['check']]) {
+      ok(run(args).stdout.includes('Did you mean'), `${args.join(' ')} should print the suggestion`);
+    }
+  });
+
   it('does not warn about missing back-ref when the outbound entry uses `>` prefix (A4)', () => {
     const root = setupRefProject();
     // a.md → b.md is one-way via the `>` prefix; b.md doesn't reference a back.

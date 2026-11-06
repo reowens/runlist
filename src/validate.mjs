@@ -369,13 +369,21 @@ export function enrichRefErrorSuggestions(docs, config) {
     return candidateCache.get(key);
   };
 
+  // Many broken refs name the same missing target, and the ranking depends
+  // only on the basename and the candidate list, so each pair is ranked once.
+  const suggestionCache = new Map();
+  const suggestionsFor = (basename, type) => {
+    const key = `${type ?? ''}\0${basename}`;
+    if (!suggestionCache.has(key)) suggestionCache.set(key, suggestCandidates(basename, candidatesFor(type)));
+    return suggestionCache.get(key);
+  };
+
   const enrich = (entry) => {
     if (!entry?.meta || !['ref-resolution', 'body-link-resolution'].includes(entry.meta.kind)) return;
     if (entry.meta.kind === 'body-link-resolution'
       && (entry.meta.targetKind !== 'document' || entry.meta.reason !== 'missing')) return;
     if (entry._suggested) return;
-    const inferred = inferRefFieldType(entry.meta.field);
-    const suggestions = suggestCandidates(path.basename(entry.meta.relPath), candidatesFor(inferred));
+    const suggestions = suggestionsFor(path.basename(entry.meta.relPath), inferRefFieldType(entry.meta.field));
     entry._suggested = true;
     if (suggestions.length === 0) return;
     entry.message = `${entry.message} Did you mean: ${suggestions.join(', ')}?`;

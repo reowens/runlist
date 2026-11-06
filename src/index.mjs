@@ -32,8 +32,11 @@ import { bodyLinkRoots } from './body-link.mjs';
 // commands). Use it from `runlist hud` — the SessionStart hook only renders the
 // error COUNT, so the warning-only passes are pure overhead there. Preserves
 // the built-in invariant that HUD's error count matches `runlist check`.
+//
+// `suggestions: false` leaves broken-reference messages without their
+// "Did you mean" candidates, for callers that print counts but no messages.
 export function buildIndex(config, opts = {}) {
-  const { fast = false, errorsOnly = false, autoHealIndex = false } = opts;
+  const { fast = false, errorsOnly = false, autoHealIndex = false, suggestions = true } = opts;
   const invokeHooks = opts.invokeHooks ?? !config._execution?.suppressSideEffects;
   const gitStaleness = opts.gitStaleness ?? config._execution?.gitStaleness ?? true;
   const skipWarningOnlyChecks = fast || errorsOnly;
@@ -51,7 +54,7 @@ export function buildIndex(config, opts = {}) {
     }
   });
   if (cache && !config._execution?.suppressSideEffects) cache.save();
-  if (!fast) {
+  if (!fast && suggestions) {
     // Per-file validation (validateDoc) ran during parse without sibling
     // visibility. Now that the full index is materialized, enrich
     // unresolved-ref entries with "Did you mean..." candidates drawn from the

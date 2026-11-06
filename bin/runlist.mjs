@@ -2711,9 +2711,13 @@ async function main() {
   // `query`, `index --print`, ...) stay opt-out so they never mutate disk.
   const checkHasPathScope = command === 'check' && restArgs.some(arg => !arg.startsWith('-'));
   const AUTO_HEAL_INDEX_COMMANDS = new Set(['check']);
+  // Did-you-mean candidates cost a ranking per broken reference, so they are
+  // computed only for output that carries issue messages.
+  const PRINTS_ISSUE_MESSAGES = new Set(['check', 'json', 'agent-context']);
   const index = buildIndex(config, {
     autoHealIndex: AUTO_HEAL_INDEX_COMMANDS.has(command) && !checkHasPathScope && !dryRun,
     invokeHooks: !suppressSideEffects,
+    suggestions: PRINTS_ISSUE_MESSAGES.has(command) || args.includes('--json'),
   });
 
   applyIndexFilters(index);

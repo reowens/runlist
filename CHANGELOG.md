@@ -12,6 +12,13 @@ All notable changes to `runlist` are documented here. Older releases predate thi
   `no edits since save (file clock)` without a Git call, where a tracked one
   read `no commits since save` before. The `git log` call over the remaining
   plans is still most of the step's time.
+- Commands whose output carries no issue messages, such as `briefing`,
+  `context`, `stats` and the text lists, no longer rank "Did you mean"
+  candidates for every broken reference. `check`, `doctor`, `json`,
+  `agent-context` and any `--json` output still do, and rank each missing
+  target once per reference type instead of once per reference. Their output
+  is unchanged; `briefing` took a quarter less time in a 7,500-document
+  repository.
 
 ## 0.104.1 — 2026-11-05
 
