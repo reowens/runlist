@@ -22,7 +22,16 @@ export function summarizePlanChanges(requests, config, { runGit = spawnSync, sta
     try { targets.set(plan, stat(path.resolve(config.repoRoot, plan))); }
     catch { targets.set(plan, null); }
   }
-  const paths = [...targets].filter(([, stamp]) => stamp?.isFile()).map(([file]) => file);
+  // A plan whose file has not changed since its prompt was saved has nothing
+  // to report, so only plans edited after some prompt about them go to Git,
+  // and the history window starts at the earliest of those prompts.
+  const savedAt = ({ since }) => since ? new Date(since).getTime() : NaN;
+  const editedSince = request => {
+    const stamp = targets.get(request.plan), when = savedAt(request);
+    return Number.isFinite(when) && stamp?.isFile() && stamp.mtimeMs > when;
+  };
+  const gitRequests = requests.filter(request => targets.has(request.plan) && editedSince(request));
+  const paths = [...new Set(gitRequests.map(({ plan }) => plan))];
   const query = args => {
     if (!paths.length) return null;
     try {
@@ -34,7 +43,7 @@ export function summarizePlanChanges(requests, config, { runGit = spawnSync, sta
   const trackedOutput = query(['ls-files', '-z', '--', ...pathspecs]);
   const tracked = new Set((trackedOutput ?? '').split('\0'));
   const trackedPaths = paths.filter(file => tracked.has(file));
-  const validTimes = requests.map(({ since }) => since ? new Date(since).getTime() : NaN).filter(Number.isFinite);
+  const validTimes = gitRequests.map(savedAt);
   const earliest = validTimes.length ? new Date(Math.min(...validTimes)).toISOString() : null;
   const log = trackedPaths.length && earliest
     ? query(['log', `--max-count=${maxCommits + 1}`, `--since=${earliest}`, '--format=%x00runlist:change:%ct%x00', '--name-only', '-z', '--', ...trackedPaths.map(file => `:(top,literal)${file}`)]) : null;
@@ -48,11 +57,13 @@ export function summarizePlanChanges(requests, config, { runGit = spawnSync, sta
     const file = field.replace(/^\n/, '');
     if (date !== null && tracked.has(file)) latest.set(file, Math.max(latest.get(file) ?? 0, date));
   }
-  return requests.map(({ plan, since }) => {
-    const when = since ? new Date(since).getTime() : NaN;
+  return requests.map(request => {
+    const { plan } = request, when = savedAt(request);
     const stamp = targets.get(plan);
-    if (!Number.isFinite(when) || !stamp?.isFile() || trackedOutput === null) return 'unknown';
-    if (!tracked.has(plan)) return stamp.mtimeMs > when ? 'edited since save (file clock)' : 'no edits since save (file clock)';
+    if (!Number.isFinite(when) || !stamp?.isFile()) return 'unknown';
+    if (!editedSince(request)) return 'no edits since save (file clock)';
+    if (trackedOutput === null) return 'unknown';
+    if (!tracked.has(plan)) return 'edited since save (file clock)';
     if ((latest.get(plan) ?? 0) > when) return 'changed since save';
     if (dirty.has(plan)) return 'working changes (time unknown)';
     if (log === null || dirtyOutput === null || commits > maxCommits) return 'unknown';

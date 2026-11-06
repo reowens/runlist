@@ -2,6 +2,17 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Changed
+
+- `runlist prompts` asks Git only about plans whose file changed after a
+  prompt about them was saved, and starts its history window at the earliest
+  of those prompts. A plan untouched since its prompt now reads
+  `no edits since save (file clock)` without a Git call, where a tracked one
+  read `no commits since save` before. The `git log` call over the remaining
+  plans is still most of the step's time.
+
 ## 0.104.1 — 2026-11-05
 
 ### Fixed

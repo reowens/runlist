@@ -107,7 +107,7 @@ describe('list-time plan change summaries', () => {
     let stats = 0;
     const calls = [];
     const result = summarizePlanChanges(requests, { repoRoot: '/project' }, {
-      stat: () => { stats++; return { isFile: () => true, mtimeMs: 0 }; },
+      stat: () => { stats++; return { isFile: () => true, mtimeMs: Date.now() }; },
       runGit: (command, args, options) => {
         strictEqual(command, 'git');
         calls.push(args);
@@ -124,9 +124,37 @@ describe('list-time plan change summaries', () => {
     strictEqual(result[80], result[0]);
   });
 
+  it('asks Git only about plans edited after a prompt about them was saved', () => {
+    const saved = new Date('2025-02-01').getTime();
+    const mtimes = { 'docs/plans/quiet.md': saved - 1000, 'docs/plans/busy.md': saved + 1000, 'docs/plans/shared.md': saved };
+    const stat = file => ({ isFile: () => true, mtimeMs: mtimes[path.relative('/project', file)] });
+    const calls = [];
+    const runGit = (_, args) => {
+      calls.push(args);
+      return { status: 0, stdout: args[0] === 'ls-files' ? 'docs/plans/busy.md\0docs/plans/shared.md\0' : '' };
+    };
+    deepStrictEqual(summarizePlanChanges([{ plan: 'docs/plans/quiet.md', since: '2025-02-01' }], { repoRoot: '/project' }, { stat, runGit }),
+      ['no edits since save (file clock)']);
+    strictEqual(calls.length, 0);
+
+    const result = summarizePlanChanges([
+      { plan: 'docs/plans/quiet.md', since: '2025-03-01' },
+      { plan: 'docs/plans/busy.md', since: '2025-02-01' },
+      { plan: 'docs/plans/shared.md', since: '2025-02-01' },
+      { plan: 'docs/plans/shared.md', since: '2025-01-15' },
+    ], { repoRoot: '/project' }, { stat, runGit });
+    deepStrictEqual(result, ['no edits since save (file clock)', 'no commits since save', 'no edits since save (file clock)', 'no commits since save']);
+    strictEqual(calls.length, 3);
+    for (const args of calls) {
+      const pathspecs = args.slice(args.indexOf('--') + 1);
+      deepStrictEqual(pathspecs, [':(top,literal)docs/plans/busy.md', ':(top,literal)docs/plans/shared.md']);
+    }
+    ok(calls[1].includes('--since=2025-01-15T00:00:00.000Z'), calls[1].join(' '));
+  });
+
   it('keeps budget exhaustion and Git failures unknown instead of claiming no change', () => {
     const request = [{ plan: 'docs/plans/widget.md', since: '2025-02-01' }];
-    const stat = () => ({ isFile: () => true, mtimeMs: 0 });
+    const stat = () => ({ isFile: () => true, mtimeMs: Date.now() });
     const success = stdout => ({ status: 0, stdout });
     const tracked = 'docs/plans/widget.md\0';
     const old = Math.floor(new Date('2025-01-01').getTime() / 1000);
