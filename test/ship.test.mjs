@@ -271,6 +271,8 @@ describe('npm version lifecycle prepares release artifacts', () => {
     ok(script.includes('node scripts/update-installed-hosts.mjs "${VERSION}"'), 'postversion should update and verify all installed hosts');
     ok(script.indexOf('node scripts/update-installed-hosts.mjs') < script.indexOf('node scripts/release-intent.mjs clear'),
       'host verification must succeed before clearing release intent');
+    ok(script.indexOf('node scripts/install-cli-hosts.mjs "${VERSION}" "${SHA}"') < script.indexOf('node scripts/release-intent.mjs clear'),
+      'every listed CLI host must be installed before clearing release intent');
     ok(!script.includes('PLUGIN_VERIFIED'), 'host failure must propagate to the resumable release failure trap');
     ok(script.includes('npm run release:resume'), 'push failure should print the resumable recovery command');
     ok(/gh release view/.test(script), 'GitHub release creation should be idempotent for resume mode');

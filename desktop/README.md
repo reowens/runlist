@@ -339,6 +339,16 @@ locked. `RUNLIST_RELEASE_CONFIG` can select that private
 file from a clean release checkout. The privacy scanner also needs its local
 key or `RUNLIST_PUBLIC_CHECK_KEY`.
 
+Other machines that run the CLI from a checkout rather than an npm global copy
+are listed in the same private file, for example
+`"cliHosts": [{ "ssh": "worker-a", "checkout": "<absolute path of the checkout>", "node": "<path to node>" }]`
+(`node` is optional and defaults to the first `node` on the SSH command's
+`PATH`). After its own install the release connects to each with
+`ssh -o BatchMode=yes`, fetches the release tag into that checkout, prepares the
+tag's commit under `~/.local/share/runlist/artifacts/<commit>` and points
+`~/.local/bin/runlist` and `~/.local/bin/rl` at it. A host that cannot be
+reached or refuses is printed as owed, and `npm run release:resume` retries it.
+
 After npm publication, the release command builds and checks the matching Mac
 app, signs/notarizes it and publishes the exact verified installer. Release
 acceptance ends at verified publication; local installation, app launch and

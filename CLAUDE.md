@@ -371,7 +371,7 @@ Everything is automated — do NOT manually `git push`, `git tag`, `npm publish`
 3. Pushes to `origin main --tags`
 4. Creates GitHub Release with auto-generated notes
 5. Waits for GitHub Actions `publish.yml` to `npm publish`
-6. Installs the new version locally via `npm install -g`, then synchronizes and verifies every PATH-visible `runlist`/`rl`/`dotmd` copy (for example Homebrew + NVM prefixes)
+6. Installs the new version locally via `npm install -g`, then synchronizes and verifies every PATH-visible `runlist`/`rl`/`dotmd` copy (for example Homebrew + NVM prefixes); then, over SSH, on each machine listed as `cliHosts` in the private `.runlist/release-config.json` (`scripts/install-cli-hosts.mjs`, see `desktop/README.md`). An unreachable host is printed as owed and the release stays resumable
 7. Refreshes every saved user/project/local Claude Code plugin scope from its recorded directory, then verifies each entry against the release version — restart the session (or `/reload-plugins`) to apply
 
 Write changelog entries under `## Unreleased` as you go — the version commit promotes that heading to the released version, and `test/changelog.test.mjs` requires a heading matching `package.json`. If there is neither an `## Unreleased` section nor a heading for the target version, the version commit fails and rolls back *before* cutting the tag; the same mismatch discovered later fails `publish.yml` against a tag that is already pushed.

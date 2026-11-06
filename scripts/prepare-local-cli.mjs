@@ -2,7 +2,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { commitRename } from '../src/durable-rename.mjs';
@@ -91,10 +91,37 @@ export function selectLocalCLI({ directory, manifestSha256, link, previous }) {
   return { link, entry, previous };
 }
 
+// A host without an npm global copy runs a release from a prepared artifact:
+// prepare (or revalidate) the tag's commit, then point each command link at it.
+export function installLocalCLI({ repository, commit, version, artifacts = join(homedir(), '.local/share/runlist/artifacts'), bin = join(homedir(), '.local/bin'), commands = ['runlist', 'rl'] }) {
+  if (!/^[a-f0-9]{40}$/.test(commit ?? '')) refuse('exact commit required');
+  const directory = join(resolve(artifacts), commit);
+  let manifestSha256, entry, receipt;
+  if (existsSync(directory)) {
+    if (!existsSync(join(directory, 'receipt.json'))) refuse(`${directory} holds an incomplete preparation; inspect and remove it, then retry`);
+    manifestSha256 = hash(readFileSync(join(directory, 'receipt.json')));
+    ({ entry, receipt } = validateLocalCLI({ directory, manifestSha256 }));
+    if (receipt.sourceCommit !== commit) refuse(`${directory} was prepared from ${receipt.sourceCommit}`);
+  } else {
+    mkdirSync(resolve(artifacts), { recursive: true });
+    ({ manifestSha256, entry, ...receipt } = prepareLocalCLI({ repository, commit, directory }));
+  }
+  if (version && receipt.version !== version) refuse(`${commit} is version ${receipt.version}, not ${version}`);
+  mkdirSync(resolve(bin), { recursive: true });
+  const links = commands.map(name => {
+    const link = join(resolve(bin), name);
+    let previous = null;
+    try { previous = readlinkSync(link); } catch (error) { if (error.code !== 'ENOENT') refuse(`${link} is not a symbolic link`); }
+    if (previous === entry) return { link, entry, previous, changed: false };
+    return { ...selectLocalCLI({ directory, manifestSha256, link, previous }), changed: true };
+  });
+  return { version: receipt.version, commit, entry, links };
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const [operation, request] = process.argv.slice(2);
-  if (!['prepare', 'validate', 'select'].includes(operation) || !request || process.argv.length !== 4) refuse('expected prepare|validate|select request.json');
-  const options = JSON.parse(readFileSync(request));
-  const result = operation === 'prepare' ? prepareLocalCLI(options) : operation === 'select' ? selectLocalCLI(options) : validateLocalCLI(options);
+  const operations = { prepare: prepareLocalCLI, validate: validateLocalCLI, select: selectLocalCLI, install: installLocalCLI };
+  if (!Object.hasOwn(operations, operation) || !request || process.argv.length !== 4) refuse('expected prepare|validate|select|install request.json');
+  const result = operations[operation](JSON.parse(readFileSync(request)));
   console.log(JSON.stringify(result, null, 2));
 }

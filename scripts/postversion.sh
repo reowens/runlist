@@ -128,18 +128,24 @@ if ! npm view "${PACKAGE}@${VERSION}" version >/dev/null 2>&1; then
   exit 1
 fi
 
-if npm ls -g --depth=0 dotmd-cli >/dev/null 2>&1; then
-  echo "→ removing legacy dotmd-cli global install before installing ${PACKAGE}"
-  npm uninstall -g dotmd-cli
-fi
-echo "→ installing ${PACKAGE}@${VERSION} globally"
-npm install -g "${PACKAGE}@${VERSION}"
+if [ "$(uname -s)" = "Darwin" ]; then
+  if npm ls -g --depth=0 dotmd-cli >/dev/null 2>&1; then
+    echo "→ removing legacy dotmd-cli global install before installing ${PACKAGE}"
+    npm uninstall -g dotmd-cli
+  fi
+  echo "→ installing ${PACKAGE}@${VERSION} globally"
+  npm install -g "${PACKAGE}@${VERSION}"
 
-# A release shell and an agent host can resolve different Node installations
-# from PATH (for example NVM first during release, Homebrew first in OpenCode).
-# Update every visible copy and verify them all before claiming local success.
-echo "→ checking every PATH-visible runlist installation"
-node scripts/sync-global-cli.mjs "${VERSION}"
+  # A release shell and an agent host can resolve different Node installations
+  # from PATH (for example NVM first during release, Homebrew first in OpenCode).
+  # Update every visible copy and verify them all before claiming local success.
+  echo "→ checking every PATH-visible runlist installation"
+  node scripts/sync-global-cli.mjs "${VERSION}"
+else
+  # Other hosts run the CLI from an artifact prepared from the tag's commit.
+  echo "→ installing ${PACKAGE}@${VERSION} from ${TAG} into this host's runlist and rl links"
+  node scripts/install-cli-hosts.mjs --this-host "${VERSION}" "${SHA}"
+fi
 
 # npm's postinstall is only a notice and may be suppressed. Refresh every
 # already installed host, including Codex's installed cache, using the same
@@ -151,14 +157,26 @@ if node scripts/update-installed-hosts.mjs "${VERSION}"; then
   HOSTS_VERIFIED=1
 fi
 
+# Every other machine listed as cliHosts in the private release config gets the
+# same version. One that cannot be reached stays owed, and the release resumable.
+CLI_HOSTS_INSTALLED=""
+if node scripts/install-cli-hosts.mjs "${VERSION}" "${SHA}"; then
+  CLI_HOSTS_INSTALLED=1
+fi
+
 # A host failure must not strand the independent desktop release. Complete
 # that phase too, then retain release intent if either phase is incomplete.
 node scripts/release-desktop.mjs "${VERSION}" "${SHA}"
-if [ -z "${HOSTS_VERIFIED}" ]; then
-  echo "✗ installed host integrations remain incomplete; desktop publication completed." >&2
+if [ -z "${HOSTS_VERIFIED}" ] || [ -z "${CLI_HOSTS_INSTALLED}" ]; then
+  if [ -z "${HOSTS_VERIFIED}" ]; then
+    echo "✗ installed host integrations remain incomplete; desktop publication completed." >&2
+  fi
+  if [ -z "${CLI_HOSTS_INSTALLED}" ]; then
+    echo "✗ the CLI is still owed on the cliHosts listed above; desktop publication completed." >&2
+  fi
   release_failed
   exit 1
 fi
 node scripts/release-intent.mjs clear
 trap - ERR
-echo "✓ released ${PACKAGE}@${VERSION}; CLI and desktop published, CLI installations and host integrations updated"
+echo "✓ released ${PACKAGE}@${VERSION}; CLI and desktop published, CLI installations on every listed host and host integrations updated"

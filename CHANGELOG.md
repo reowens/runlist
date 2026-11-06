@@ -4,6 +4,16 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ## Unreleased
 
+### Added
+
+- A release installs the new CLI on every machine listed as `cliHosts` in the
+  private release config, not only on the machine that ran it. Over SSH, each
+  host fetches the release tag into its checkout, prepares that commit with
+  `scripts/prepare-local-cli.mjs` and points its `runlist` and `rl` links at
+  it. A host that cannot be reached or refuses is reported as owed, and
+  `npm run release:resume` retries it. A release host other than a Mac
+  installs the same way instead of with `npm install -g`.
+
 ### Changed
 
 - `runlist prompts` asks Git only about plans whose file changed after a

@@ -533,7 +533,7 @@ if (process.argv[3] === 'list') console.log(JSON.stringify({installed: [{pluginI
   });
 });
 
-test('release attempts desktop after a host failure and clears intent only when both phases succeed', { skip: process.platform === 'win32' && 'release automation is POSIX-only' }, () => {
+test('release attempts desktop after a host or CLI host failure and clears intent only when every phase succeeds', { skip: process.platform === 'win32' && 'release automation is POSIX-only' }, () => {
   withHome(home => {
     const script = readFileSync(new URL('../scripts/postversion.sh', import.meta.url), 'utf8');
     const phase = script.slice(script.indexOf('echo "→ refreshing and verifying installed host integrations"'));
@@ -541,18 +541,21 @@ test('release attempts desktop after a host failure and clears intent only when 
     writeNodeCommand(home, 'node', `const fs = require('node:fs');
 const name = process.argv[2]; fs.appendFileSync(${JSON.stringify(calls)}, name + '\\n');
 if (name.endsWith('update-installed-hosts.mjs')) process.exitCode = Number(process.env.HOST_EXIT);
+if (name.endsWith('install-cli-hosts.mjs')) process.exitCode = Number(process.env.CLI_EXIT);
 if (name.endsWith('release-desktop.mjs')) process.exitCode = Number(process.env.DESKTOP_EXIT);`);
-    for (const [hosts, desktop] of [[1, 0], [0, 1], [0, 0]]) {
+    for (const [hosts, cli, desktop] of [[1, 0, 0], [0, 1, 0], [0, 0, 1], [0, 0, 0]]) {
       writeFileSync(calls, '');
       const result = spawnSync('bash', ['-c', `set -euo pipefail\nrelease_failed() { echo resumable >&2; }\ntrap release_failed ERR\nVERSION=1.0.0\nSHA=fixture\nPACKAGE=runlist\n${phase}`], {
-        encoding: 'utf8', env: { ...process.env, PATH: `${home}${path.delimiter}${process.env.PATH}`, HOST_EXIT: String(hosts), DESKTOP_EXIT: String(desktop) },
+        encoding: 'utf8', env: { ...process.env, PATH: `${home}${path.delimiter}${process.env.PATH}`, HOST_EXIT: String(hosts), CLI_EXIT: String(cli), DESKTOP_EXIT: String(desktop) },
       });
-      assert.equal(result.status, hosts || desktop ? 1 : 0, result.stdout + result.stderr);
+      assert.equal(result.status, hosts || cli || desktop ? 1 : 0, result.stdout + result.stderr);
       const executed = readFileSync(calls, 'utf8');
       assert.ok(executed.includes('scripts/update-installed-hosts.mjs'));
+      assert.ok(executed.includes('scripts/install-cli-hosts.mjs'));
       assert.ok(executed.includes('scripts/release-desktop.mjs'));
-      assert.equal(executed.includes('scripts/release-intent.mjs'), hosts === 0 && desktop === 0);
-      if (hosts || desktop) assert.match(result.stderr, /resumable/);
+      assert.equal(executed.includes('scripts/release-intent.mjs'), hosts === 0 && cli === 0 && desktop === 0);
+      if (hosts || cli || desktop) assert.match(result.stderr, /resumable/);
+      if (cli) assert.match(result.stderr, /CLI is still owed/);
     }
   });
 });
