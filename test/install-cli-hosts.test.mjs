@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readlinkSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -71,6 +71,7 @@ test('an unreachable or refusing host is reported as owed with the resume comman
       { ssh: 'worker-a', checkout: '/srv/run list', node: '/opt/node/bin/node' },
       { ssh: 'worker-b', checkout: '/srv/runlist' },
       { ssh: 'worker-c', checkout: '/srv/runlist' },
+      { ssh: 'worker-d', checkout: '/srv/runlist' },
     ] });
     const calls = [];
     const lines = [];
@@ -79,10 +80,15 @@ test('an unreachable or refusing host is reported as owed with the resume comman
       calls.push([program, ...args]);
       if (args.includes('worker-b')) return { status: 255, stdout: '', stderr: 'ssh: connect to host worker-b: No route to host' };
       if (args.includes('worker-c')) return { status: 1, stdout: '', stderr: 'Local CLI preparation refused: package changed' };
+      if (args.includes('worker-d')) return { status: 0, stdout: '', stderr: '' };
       return { status: 0, stdout: JSON.stringify({ links: [{ link: '/home/u/.local/bin/runlist', entry: '/x/bin/runlist.mjs', changed: true }] }), stderr: '' };
     } });
-    assert.deepEqual(owed, [{ host: 'worker-b', reason: 'unreachable over SSH' }, { host: 'worker-c', reason: 'install exited 1' }]);
-    assert.equal(calls.length, 3);
+    assert.deepEqual(owed, [
+      { host: 'worker-b', reason: 'unreachable over SSH' },
+      { host: 'worker-c', reason: 'install exited 1' },
+      { host: 'worker-d', reason: 'install reported no selected links' },
+    ]);
+    assert.equal(calls.length, 4);
     for (const call of calls) {
       assert.equal(call[0], 'ssh');
       assert.ok(call.includes('BatchMode=yes'));
@@ -91,7 +97,7 @@ test('an unreachable or refusing host is reported as owed with the resume comman
     assert.ok(calls[0].at(-1).includes('"/srv/run list" v1.2.3 ' + commit + ' 1.2.3 /opt/node/bin/node'), calls[0].at(-1));
     const output = lines.join('\n');
     assert.match(output, /still owed on worker-b: unreachable over SSH\n {4}ssh: connect to host worker-b/);
-    assert.match(output, /2 CLI host\(s\) still owe 1\.2\.3.*npm run release:resume/);
+    assert.match(output, /3 CLI host\(s\) still owe 1\.2\.3.*npm run release:resume/);
   });
 });
 
@@ -106,8 +112,11 @@ test('no listed hosts means nothing is owed', () => {
 test('a host fetches the tag and links runlist and rl to the prepared commit, again without change', posixOnly, () => {
   withTemp(dir => {
     const { checkout, commit, home } = releaseFixture(dir);
+    // The host's temporary folder sits behind a symbolic link, as /var does on macOS.
+    mkdirSync(path.join(dir, 'real-tmp'));
+    symlinkSync(path.join(dir, 'real-tmp'), path.join(dir, 'linked-tmp'));
     const command = remoteInstallArgs({ ssh: 'worker-a', checkout, node: process.execPath }, '1.2.3', commit).at(-1);
-    const run = () => spawnSync('sh', ['-c', command], { encoding: 'utf8', env: { ...process.env, HOME: home } });
+    const run = () => spawnSync('sh', ['-c', command], { encoding: 'utf8', env: { ...process.env, HOME: home, TMPDIR: path.join(dir, 'linked-tmp') } });
     const first = run();
     assert.equal(first.status, 0, first.stderr);
     const entry = path.join(home, '.local/share/runlist/artifacts', commit, 'package/bin/runlist.mjs');

@@ -53,11 +53,14 @@ export function installCliHosts({ root, version, commit, env = process.env, run 
   for (const host of hosts) {
     log(`→ installing runlist ${version} on ${host.ssh}`);
     const result = run('ssh', remoteInstallArgs(host, version, commit), { encoding: 'utf8', timeout: 600_000, maxBuffer: 8 * 1024 ** 2 });
-    if (!result.error && result.status === 0) {
-      try { logLinks(JSON.parse(result.stdout), log); } catch { log(`  installed on ${host.ssh}`); }
+    let installed = null;
+    try { installed = JSON.parse(result.stdout); } catch { /* reported below */ }
+    if (!result.error && result.status === 0 && Array.isArray(installed?.links) && installed.links.length) {
+      logLinks(installed, log);
       continue;
     }
     const reason = result.error ? result.error.message
+      : result.status === 0 ? 'install reported no selected links'
       : result.status === 255 ? 'unreachable over SSH'
       : `install exited ${result.status}`;
     const detail = String(result.stderr ?? '').trim().split('\n').slice(-3).join('\n    ');

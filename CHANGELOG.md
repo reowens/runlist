@@ -13,6 +13,10 @@ All notable changes to `runlist` are documented here. Older releases predate thi
   it. A host that cannot be reached or refuses is reported as owed, and
   `npm run release:resume` retries it. A release host other than a Mac
   installs the same way instead of with `npm install -g`.
+  `scripts/prepare-local-cli.mjs` reads both the npm 10 and 11 list and the
+  npm 12 object from `npm pack --json`, and runs when started from a folder
+  behind a symbolic link, such as a macOS temporary folder. A host whose
+  install selects no link is reported as owed.
 
 ### Changed
 

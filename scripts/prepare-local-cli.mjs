@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -40,8 +40,10 @@ export function prepareLocalCLI({ repository, commit, directory }) {
     const source = join(temporary, 'source'); mkdirSync(source);
     const archive = git(['archive', '--format=tar', commit, '--', ...paths]);
     command('tar', ['-xf', '-', '-C', source], { input: archive });
-    const inventory = JSON.parse(command('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', directory], { cwd: source }));
-    if (inventory.length !== 1 || !/^[A-Za-z0-9_.-]+\.tgz$/.test(inventory[0].filename)) refuse('unexpected npm package');
+    // npm 10 and 11 print a list of packed packages; npm 12 an object keyed by name.
+    const packed = JSON.parse(command('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', directory], { cwd: source }));
+    const inventory = Array.isArray(packed) ? packed : Object.values(packed ?? {});
+    if (inventory.length !== 1 || !/^[A-Za-z0-9_.-]+\.tgz$/.test(inventory[0]?.filename ?? '')) refuse('unexpected npm package');
     const tarball = join(directory, inventory[0].filename);
     command('tar', ['-xzf', tarball, '-C', directory]);
     const root = join(directory, 'package');
@@ -118,7 +120,9 @@ export function installLocalCLI({ repository, commit, version, artifacts = join(
   return { version: receipt.version, commit, entry, links };
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+// Compared through realpath: a script run from a symlinked folder, such as a
+// macOS temporary folder under /var, has a module URL under the link's target.
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const [operation, request] = process.argv.slice(2);
   const operations = { prepare: prepareLocalCLI, validate: validateLocalCLI, select: selectLocalCLI, install: installLocalCLI };
   if (!Object.hasOwn(operations, operation) || !request || process.argv.length !== 4) refuse('expected prepare|validate|select|install request.json');
