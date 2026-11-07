@@ -111,6 +111,17 @@ function executableCandidate(file, source, platform) {
   } catch { return null; }
 }
 
+// Codex installed through npm under nvm sits in one Node version's bin folder,
+// which a PATH led by another Node does not name. Newest version first.
+const nvmRoot = (home, env) => path.join(env.NVM_DIR || path.join(home, '.nvm'), 'versions', 'node');
+function nvmBinDirs(home, env) {
+  const parts = name => (/^v(\d+)\.(\d+)\.(\d+)$/.exec(name) ?? []).slice(1).map(Number);
+  let names = [];
+  try { names = readdirSync(nvmRoot(home, env)).filter(name => parts(name).length === 3); } catch { return []; }
+  names.sort((a, b) => { const x = parts(a), y = parts(b); return y[0] - x[0] || y[1] - x[1] || y[2] - x[2]; });
+  return names.map(name => path.join(nvmRoot(home, env), name, 'bin'));
+}
+
 /** PATH order is retained; known native Claude and explicit paths stay visible.
  * No attempt is made to infer a wrapper's profile by reading its script body. */
 export function discoverHostExecutables({ home = os.homedir(), env = process.env, claudeBin, platform = process.platform } = {}) {
@@ -123,9 +134,14 @@ export function discoverHostExecutables({ home = os.homedir(), env = process.env
     for (const dir of (env.PATH ?? '').split(delimiter).filter(Boolean))
       for (const suffix of platform === 'win32' ? ['', '.exe', '.cmd', '.bat'] : ['']) add(path.resolve(dir, host + suffix), 'PATH');
     if (host === 'claude') add(path.join(home, '.local', 'bin', 'claude'), 'native-location');
+    if (host === 'codex' && platform !== 'win32') {
+      add(path.join(home, '.local', 'bin', 'codex'), 'native-location');
+      for (const dir of nvmBinDirs(home, env)) add(path.join(dir, 'codex'), 'nvm');
+    }
     const selected = host === 'claude' && claudeBin ? candidates.find(c => c.path === path.resolve(claudeBin)) ?? null
       : candidates.find(c => c.source === 'PATH') ?? candidates[0] ?? null;
     result[host] = { selected, candidates, explicit: host === 'claude' && Boolean(claudeBin),
+      ...(host === 'codex' && platform !== 'win32' ? { searched: ['PATH', path.join(home, '.local', 'bin'), path.join(nvmRoot(home, env), '*', 'bin')] } : {}),
       selectionState: selected ? 'selected' : claudeBin && host === 'claude' ? 'unavailable' : 'missing', profileMapping: 'unknown' };
   }
   return result;

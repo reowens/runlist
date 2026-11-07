@@ -20,6 +20,12 @@ All notable changes to `runlist` are documented here. Older releases predate thi
   temporary folder, so a fixture project in a temporary folder inside a Git
   repository, such as a home folder kept under Git, stays its own root. Before,
   it resolved to the enclosing repository and desktop and CLI tests failed.
+- `runlist update`, `runlist install codex` and the release's host step find
+  a Codex CLI that PATH does not name, in `~/.local/bin` or in any nvm Node
+  version's `bin` folder (newest first, `NVM_DIR` honoured). A release run
+  with another Node first on PATH stopped with "codex CLI not found" after the
+  plugin files were already updated. When none is found, the reason names
+  every place it looked.
 
 ## 0.104.5 — 2026-11-07
 

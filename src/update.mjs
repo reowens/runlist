@@ -228,10 +228,11 @@ export function verifyManagedHostUpdates(before, after, expectedVersion) {
   return failures;
 }
 
-function currentCodexStatus(version, { home = os.homedir(), env = process.env, run = spawnSync, binary } = {}) {
+function currentCodexStatus(version, { home = os.homedir(), env = process.env, run = spawnSync, binary, searched = ['PATH'] } = {}) {
   const source = codexStatus({ version, homedir: home, env });
   if (!source.exists || source.foreign) return source;
-  const installed = binary ? installedCodexStatus({ homedir: home, env, run, binary }) : { ok: false, reason: 'codex CLI not found; installed plugin is unverified' };
+  const installed = binary ? installedCodexStatus({ homedir: home, env, run, binary })
+    : { ok: false, reason: `codex CLI not found (looked in ${searched.join(', ')}); installed plugin is unverified` };
   return { ...source, installed, sourceStale: source.stale, stale: source.stale || !installed.ok || installed.version !== version };
 }
 
@@ -417,7 +418,7 @@ export async function runUpdate(argv, _config, opts = {}) {
   }
   const opencode = !cliOnly && selected('opencode') ? opencodeStatus({ version: pkg.version, homedir: home, env }) : null;
   const codex = !cliOnly && selected('codex') ? (dryRun ? codexStatus({ version: pkg.version, homedir: home, env })
-    : currentCodexStatus(pkg.version, { home, env, run, binary: inventory.codex.selected?.path })) : null;
+    : currentCodexStatus(pkg.version, { home, env, run, binary: inventory.codex.selected?.path, searched: inventory.codex.searched })) : null;
   const desktop = !host && !pluginOnly && process.platform === 'darwin' && process.arch === 'arm64' ? desktopLaunch([], { home, env }).app : null;
   // Keep the existing all-host planner; replace only its single-default-profile
   // Claude plan with the discovered stores and their explicit environments.
@@ -499,7 +500,7 @@ export async function runUpdate(argv, _config, opts = {}) {
   const currentVersion = opts.expectedVersion ?? JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')).version;
   if (!cliOnly) {
     const after = { opencode: opencode && opencodeStatus({ version: currentVersion, homedir: home, env }),
-      codex: codex && currentCodexStatus(currentVersion, { home, env, run, binary: inventory.codex.selected?.path }) };
+      codex: codex && currentCodexStatus(currentVersion, { home, env, run, binary: inventory.codex.selected?.path, searched: inventory.codex.searched }) };
     for (const reason of verifyManagedHostUpdates({ opencode, codex }, after, currentVersion)) {
       failures.push({ reason });
       process.stdout.write(yellow(`${reason}\n`));

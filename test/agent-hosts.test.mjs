@@ -99,6 +99,25 @@ test('retains missing and unreadable registry and settings states without throwi
   assert.equal(profile.registryState, 'unreadable');
 });
 
+test('finds a codex CLI that PATH does not name in ~/.local/bin or under nvm, newest Node first, and says where it looked', { skip: process.platform === 'win32' }, t => {
+  const f = fixture(t), wrappers = path.join(f.home, 'wrappers'), nvm = path.join(f.home, '.nvm/versions/node');
+  mkdirSync(wrappers, { recursive: true });
+  const older = f.binary(path.join(nvm, 'v9.11.2/bin/codex')), newer = f.binary(path.join(nvm, 'v22.23.4/bin/codex'));
+  let codex = discoverHostExecutables({ home: f.home, env: { PATH: wrappers } }).codex;
+  assert.equal(codex.selected.path, newer);
+  assert.equal(codex.selected.source, 'nvm');
+  assert.deepEqual(codex.candidates.map(c => c.path), [newer, older]);
+  assert.deepEqual(codex.searched, ['PATH', path.join(f.home, '.local/bin'), path.join(nvm, '*/bin')]);
+  const local = f.binary(path.join(f.home, '.local/bin/codex'));
+  assert.equal(discoverHostExecutables({ home: f.home, env: { PATH: wrappers } }).codex.selected.path, local);
+  const onPath = f.binary(path.join(wrappers, 'codex'));
+  assert.equal(discoverHostExecutables({ home: f.home, env: { PATH: wrappers } }).codex.selected.path, onPath);
+  const own = f.binary(path.join(f.home, 'nvm-elsewhere/versions/node/v20.0.0/bin/codex'));
+  codex = discoverHostExecutables({ home: f.home, env: { PATH: '', NVM_DIR: path.join(f.home, 'nvm-elsewhere') } }).codex;
+  assert.deepEqual(codex.candidates.map(c => c.path), [local, own]);
+  assert.equal(existsSync(path.join(f.home, 'MUST_NOT_EXECUTE')), false);
+});
+
 test('inventories PATH wrappers and native symlinks distinctly, preserves an explicit binary and never runs candidates', t => {
   const f = fixture(t), wrappers = path.join(f.home, 'wrappers'), nativeDir = path.join(f.home, 'native');
   const wrapper = f.binary(path.join(wrappers, 'claude'));

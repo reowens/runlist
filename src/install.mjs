@@ -11,6 +11,7 @@ import { LEGACY_PLUGIN_ID, readInstalledPlugin, readInstalledPluginRecords } fro
 import { executableName, which } from './util.mjs';
 import { installationReport, formatInstallationReport, persistentCliOnPath, PERSISTENT_CLI_WARNING } from './installation.mjs';
 import { codexStatus, installCodexPlugin, installedCodexStatus, removeCodexHooks } from './codex-integration.mjs';
+import { discoverHostExecutables } from './agent-hosts.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
@@ -129,16 +130,17 @@ function installCodex(argv, dryRun, json, prerequisites) {
   const selector = `runlist-codex@${result.marketplaceName}`;
   const trustLine = `Hooks written to ${result.hooksFile}. Start a new Codex thread and trust them in /hooks to enable the primer and guard; they stay trusted across runlist updates.\n`;
   const hooksAdded = result.hooksChanged && !result.hooksError;
-  if (!which('codex')) {
+  const codex = discoverHostExecutables().codex.selected?.path;
+  if (!codex) {
     if (json) process.stdout.write(JSON.stringify({ ...result, pluginAdd: 'codex-cli-unavailable' }, null, 2) + '\n');
     else process.stdout.write(`Install in Codex with: codex plugin add ${selector}\n${hooksAdded ? trustLine : ''}`);
     return;
   }
-  const added = spawnSync(executableName('codex'), ['plugin', 'add', selector], {
+  const added = spawnSync(codex, ['plugin', 'add', selector], {
     stdio: json ? 'pipe' : 'inherit', encoding: json ? 'utf8' : undefined,
-    shell: process.platform === 'win32',
+    shell: process.platform === 'win32' && /\.(?:cmd|bat)$/i.test(codex),
   });
-  const installed = added.status === 0 ? installedCodexStatus() : { ok: false, reason: added.error?.message ?? `codex plugin add exited ${added.status ?? '?'}` };
+  const installed = added.status === 0 ? installedCodexStatus({ binary: codex }) : { ok: false, reason: added.error?.message ?? `codex plugin add exited ${added.status ?? '?'}` };
   const verified = installed.ok && installed.version === pkg.version;
   if (json) process.stdout.write(JSON.stringify({ ...result, pluginAdd: verified ? 'installed' : 'failed', pluginAddExit: added.status,
     installedVersion: installed.version ?? null, ...(!verified ? { reason: installed.reason ?? `Codex has ${installed.version}, expected ${pkg.version}` } : {}) }, null, 2) + '\n');

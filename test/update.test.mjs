@@ -481,7 +481,7 @@ function writeNodeCommand(dir, name, body) {
   chmodSync(wrapper, 0o755);
 }
 
-test('self-update refreshes initially current hosts using the new CLI and assets, even with a different runlist on PATH', () => {
+for (const where of ['PATH', 'nvm']) test(`self-update refreshes initially current hosts using the new CLI and assets, even with a different runlist on PATH${where === 'nvm' ? ', and Codex only under nvm' : ''}`, { skip: where === 'nvm' && process.platform === 'win32' }, () => {
   withHome(home => {
     const root = path.resolve(import.meta.dirname, '..');
     const fixture = path.join(home, 'cli with spaces');
@@ -503,15 +503,17 @@ const plugin = root + '/plugins/runlist-codex/.codex-plugin/plugin.json';
 const manifest = JSON.parse(fs.readFileSync(plugin)); manifest.version = ${JSON.stringify(newVersion)};
 fs.writeFileSync(plugin, JSON.stringify(manifest));
 fs.appendFileSync(root + '/assets/opencode/plugin.js', '\\n// new release asset\\n');`);
-    writeNodeCommand(fakeBin, 'codex', `const fs = require('node:fs');
+    const codexBin = where === 'PATH' ? fakeBin : path.join(home, '.nvm/versions/node/v22.0.0/bin');
+    mkdirSync(codexBin, { recursive: true });
+    writeNodeCommand(codexBin, 'codex', `const fs = require('node:fs');
 const installed = ${JSON.stringify(installed)};
 if (process.argv[3] === 'add') fs.writeFileSync(installed, JSON.parse(fs.readFileSync(${JSON.stringify(path.join(home, 'plugins/runlist-codex/.codex-plugin/plugin.json'))})).version);
 if (process.argv[3] === 'list') console.log(JSON.stringify({installed: [{pluginId: 'runlist-codex@personal', installed: true, version: fs.readFileSync(installed, 'utf8')}]}));`);
     const sentinel = path.join(home, 'wrong-cli-used');
     writeNodeCommand(fakeBin, 'runlist', `require('node:fs').writeFileSync(${JSON.stringify(sentinel)}, 'wrong'); process.exitCode = 1;`);
     const result = spawnSync(process.execPath, [path.join(fixture, 'bin/runlist.mjs'), 'update'], {
-      cwd: home, encoding: 'utf8', env: { ...process.env, CLAUDE_CONFIG_DIR: undefined, HOME: home, USERPROFILE: home, OPENCODE_CONFIG_DIR: ocDir,
-        PATH: `${fakeBin}${path.delimiter}${hostPath}`, NO_COLOR: '1' },
+      cwd: home, encoding: 'utf8', env: { ...process.env, CLAUDE_CONFIG_DIR: undefined, NVM_DIR: undefined, HOME: home, USERPROFILE: home, OPENCODE_CONFIG_DIR: ocDir,
+        PATH: `${fakeBin}${path.delimiter}${hostPath.split(path.delimiter).filter(dir => !existsSync(path.join(dir, 'codex'))).join(path.delimiter)}`, NO_COLOR: '1' },
     });
     assert.equal(result.status, 0, result.stdout + result.stderr);
     assert.equal(installedVersion(oc.path), newVersion);
