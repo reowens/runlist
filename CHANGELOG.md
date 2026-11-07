@@ -2,6 +2,14 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- A release that reruns its failed publish run now waits for the rerun to
+  register before watching it, instead of reading the failed attempt and
+  stopping as incomplete.
+
 ## 0.104.5 — 2026-11-07
 
 ### Changed

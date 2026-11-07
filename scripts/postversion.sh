@@ -109,6 +109,11 @@ echo "→ watching publish run ${RID}"
 if ! gh run watch "${RID}" --exit-status; then
   echo "⚠ publish run ${RID} failed; rerunning failed jobs once" >&2
   gh run rerun "${RID}" --failed
+  # The rerun registers a few seconds later; watching at once sees the failed attempt.
+  for _ in $(seq 1 30); do
+    [ "$(gh run view "${RID}" --json status --jq .status 2>/dev/null)" != "completed" ] && break
+    sleep 2
+  done
   gh run watch "${RID}" --exit-status
 fi
 

@@ -285,5 +285,7 @@ describe('npm version lifecycle prepares release artifacts', () => {
     ok(!script.includes('--tags'), 'postversion must not push unrelated local tags');
     ok(script.includes('headBranch==\\"${TAG}\\"'), 'workflow lookup should match the release tag as well as SHA');
     ok(script.includes('gh run rerun "${RID}" --failed'), 'resume should be able to rerun a failed publish workflow');
+    ok(/gh run rerun "\$\{RID\}" --failed\n[\s\S]*?--json status[\s\S]*?gh run watch "\$\{RID\}" --exit-status/.test(script),
+      'after a rerun the watch waits for the new attempt instead of reading the failed one');
   });
 });
