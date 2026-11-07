@@ -218,7 +218,7 @@ export function verifyManagedHostUpdates(before, after, expectedVersion) {
     const current = after[host];
     if (host === 'codex' && current?.exists && !current.foreign && current.version === expectedVersion && current.hooks && current.hooks.state !== 'current') {
       failures.push(`Codex hooks in ${current.hooks.path} are ${current.hooks.state}${current.hooks.reason ? ` (${current.hooks.reason})` : ''}`);
-    } else if (!current?.exists || current.foreign || current.version !== expectedVersion || current.stale) {
+    } else if (!current?.exists || current.foreign || current.version !== expectedVersion || (host === 'codex' ? current.sourceStale : current.stale)) {
       failures.push(`${host} integration has ${current?.version ?? 'no managed installation'}, expected ${expectedVersion}`);
     }
     if (host === 'codex' && (!current?.installed?.ok || current.installed.version !== expectedVersion)) {
@@ -232,7 +232,7 @@ function currentCodexStatus(version, { home = os.homedir(), env = process.env, r
   const source = codexStatus({ version, homedir: home, env });
   if (!source.exists || source.foreign) return source;
   const installed = binary ? installedCodexStatus({ homedir: home, env, run, binary }) : { ok: false, reason: 'codex CLI not found; installed plugin is unverified' };
-  return { ...source, installed, stale: source.stale || !installed.ok || installed.version !== version };
+  return { ...source, installed, sourceStale: source.stale, stale: source.stale || !installed.ok || installed.version !== version };
 }
 
 function flagValues(argv, flag) {

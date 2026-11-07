@@ -467,6 +467,9 @@ test('managed host verification rejects no-op updates, disappeared installs and 
   assert.equal(verifyManagedHostUpdates(before, {}, '1.0.0').length, 3);
   assert.match(verifyManagedHostUpdates(before, { ...after, codex: { ...after.codex, stale: true, hooks: { path: '/h/hooks.json', state: 'unreadable', reason: 'bad' } } }, '1.0.0').join(), /Codex hooks in \/h\/hooks\.json are unreadable \(bad\)/);
   assert.deepEqual(verifyManagedHostUpdates({ opencode: { ...current, foreign: true } }, {}, '1.0.0'), []);
+  const unverified = { ...current, stale: true, sourceStale: false, installed: { ok: false, reason: 'codex CLI not found; installed plugin is unverified' } };
+  assert.deepEqual(verifyManagedHostUpdates(before, { ...after, codex: unverified }, '1.0.0'), ['Codex installed plugin codex CLI not found; installed plugin is unverified']);
+  assert.match(verifyManagedHostUpdates(before, { ...after, codex: { ...current, stale: true, sourceStale: true, installed: { ok: true, version: '1.0.0' } } }, '1.0.0').join(), /codex integration has 1.0.0, expected 1.0.0/);
 });
 
 function writeNodeCommand(dir, name, body) {

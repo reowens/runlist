@@ -6,6 +6,9 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ### Fixed
 
+- When the `codex` CLI cannot be found, host verification reports only that
+  the installed Codex plugin is unverified, not also "codex integration has
+  X, expected X" for a matching version.
 - The release no longer stops at "waiting for registry" while npm is still
   propagating the new version. The check asks the registry directly
   (`npm view --prefer-online`) instead of npm's local metadata cache, and waits
