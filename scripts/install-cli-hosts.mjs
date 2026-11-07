@@ -25,8 +25,13 @@ git archive "$commit" scripts/prepare-local-cli.mjs src/durable-rename.mjs | tar
 "$node" -e 'process.stdout.write(JSON.stringify({ repository: process.argv[1], commit: process.argv[2], version: process.argv[3] }))' "$PWD" "$commit" "$version" > "$work/request.json"
 "$node" "$work/scripts/prepare-local-cli.mjs" install "$work/request.json"`;
 
+// A non-interactive SSH shell skips the profile that puts ~/.local/bin on PATH,
+// where the install just linked runlist and where host CLIs such as codex sit.
 const REFRESH_SCRIPT = `const [entry, version] = process.argv.slice(1);
 const { pathToFileURL } = await import('node:url');
+const { homedir } = await import('node:os');
+const { delimiter, join } = await import('node:path');
+process.env.PATH = [join(homedir(), '.local', 'bin'), process.env.PATH].filter(Boolean).join(delimiter);
 const { updateInstalledHosts } = await import(new URL('../src/update.mjs', pathToFileURL(entry)));
 await updateInstalledHosts(version);`;
 

@@ -98,6 +98,7 @@ test('an unreachable or refusing host is reported as owed with the resume comman
       ['worker-a', false], ['worker-a', true], ['worker-b', false], ['worker-c', false], ['worker-d', false], ['worker-e', false], ['worker-e', true]]);
     assert.ok(calls[1].at(-1).startsWith('/opt/node/bin/node '), calls[1].at(-1));
     assert.ok(calls[1].at(-1).endsWith(' /x/bin/runlist.mjs 1.2.3'), calls[1].at(-1));
+    assert.ok(calls[1].at(-1).includes("join(homedir(), '.local', 'bin')"), 'the refresh sees the links the install selected');
     for (const call of calls) {
       assert.equal(call[0], 'ssh');
       assert.ok(call.includes('BatchMode=yes'));

@@ -17,7 +17,10 @@ All notable changes to `runlist` are documented here. Older releases predate thi
   over SSH. Plugins in every Claude config folder are found, including ones
   outside `~/.claude` such as `~/.claude-work`. A host whose refresh fails is
   reported as owed, and `npm run release:resume` retries it. No new host is
-  adopted.
+  adopted. The refresh puts `~/.local/bin` on PATH, since a non-interactive SSH
+  shell often leaves it out, and that folder holds the `runlist` links the
+  install just selected and host CLIs such as `codex`. Config folders that
+  share 1 plugin folder are updated once.
 - `runlist update` no longer refuses to update the Claude plugin when the first
   `claude` on PATH is a wrapper script and exactly 1 native Claude Code binary
   is known. It runs that native binary with each profile's

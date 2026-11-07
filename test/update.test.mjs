@@ -50,6 +50,9 @@ test('a PATH wrapper in front of exactly 1 native Claude updates each profile th
     if (step.cmd) assert.equal(step.cmd[0], native.path);
     assert.equal(step.profile, '/work-profile');
   }
+  // 2 config folders on 1 shared plugin store update that store once.
+  const shared = planClaudeProfileUpdates([profile, { ...profile, configDir: '/personal-profile' }], { selected: wrapper, candidates: [wrapper, native], explicit: false });
+  assert.deepEqual(shared, steps);
   const other = { ...native, path: '/usr/local/bin/claude', resolvedPath: '/usr/local/lib/claude/8' };
   const ambiguous = planClaudeProfileUpdates([profile], { selected: wrapper, candidates: [wrapper, native, other], explicit: false });
   assert.match(ambiguous[0].reason, /cannot establish wrapper-to-profile mapping/);
@@ -409,7 +412,7 @@ test('update --dry-run previews global commands without executing them', () => {
       }
     }
     const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
-    const result = spawnSync('node', [bin, 'update', '--dry-run'], {
+    const result = spawnSync(process.execPath, [bin, 'update', '--dry-run'], {
       cwd: home,
       encoding: 'utf8',
       env: { ...process.env, CLAUDE_CONFIG_DIR: undefined, HOME: home, USERPROFILE: home, PATH: `${fakeBin}${path.delimiter}${hostPath}` },
@@ -438,7 +441,7 @@ test('update runs every host step past a failed one, then exits 1 naming the fai
     assert.equal(installedVersion(stale.path), '0.1.0');
 
     const bin = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
-    const result = spawnSync('node', [bin, 'update', '--plugin-only'], {
+    const result = spawnSync(process.execPath, [bin, 'update', '--plugin-only'], {
       cwd: home,
       encoding: 'utf8',
       env: {
