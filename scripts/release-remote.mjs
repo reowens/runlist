@@ -24,7 +24,9 @@ const KEYCHAIN_NOTE = 'start tmux from the Mac\'s own login first; a tmux server
 
 // Prints what the release host's checkout and tmux server look like. With a
 // target commit it fetches origin/main and checks that the checkout can fast-
-// forward to it; with apply=1 and every other check passing it does.
+// forward to it. With every other check passing it does: apply=1 for a new
+// release, which needs no release intent, and apply=resume for a resume, which
+// needs one.
 const CHECK_SCRIPT = `set -uo pipefail
 checkout=$1 target=$2 apply=$3
 case $checkout in "~/"*) checkout="$HOME/$(printf '%s' "$checkout" | cut -c3-)" ;; esac
@@ -55,8 +57,10 @@ echo "intent=$intent"
 if ! git fetch --quiet origin main; then echo "sync=fetch-failed"
 elif [ "$(git rev-parse HEAD)" = "$target" ]; then echo "sync=current"
 elif ! git cat-file -e "$target^{commit}" 2>/dev/null; then echo "sync=missing"
+elif git merge-base --is-ancestor "$target" HEAD; then echo "sync=ahead"
 elif ! git merge-base --is-ancestor HEAD "$target"; then echo "sync=diverged"
-elif [ "$apply" != 1 ] || [ "$tmux" != running ] || [ -n "$held" ] || [ -n "$intent" ] || [ "$dirty" != 0 ] || [ "$branch" != main ]; then echo "sync=would-forward"
+elif [ "$tmux" != running ] || [ -n "$held" ] || [ "$dirty" != 0 ] || [ "$branch" != main ]; then echo "sync=would-forward"
+elif ! { [ "$apply" = 1 ] && [ -z "$intent" ]; } && ! { [ "$apply" = resume ] && [ -n "$intent" ]; }; then echo "sync=would-forward"
 elif git merge --quiet --ff-only "$target"; then echo "sync=forwarded"
 else echo "sync=failed"; fi`;
 
@@ -113,7 +117,7 @@ function remoteArgs(host, mode, script, args) {
 }
 
 export const remoteCheckArgs = (host, target = '', apply = false) =>
-  remoteArgs(host, 'release-host-check', CHECK_SCRIPT, [host.checkout, target, apply ? '1' : '0']);
+  remoteArgs(host, 'release-host-check', CHECK_SCRIPT, [host.checkout, target, apply === 'resume' ? 'resume' : apply ? '1' : '0']);
 export const remoteStartArgs = (host, log, command) => remoteArgs(host, 'release-host-start', START_SCRIPT, [log, command]);
 export const remoteFollowArgs = (host, log = '') => remoteArgs(host, 'release-host-follow', FOLLOW_SCRIPT, [log]);
 
@@ -189,7 +193,7 @@ function syncProblem(host, facts, target) {
   if (facts.sync === 'current' || facts.sync === 'forwarded' || facts.sync === 'would-forward') return null;
   if (facts.sync === 'fetch-failed') return `${host.ssh} cannot fetch origin/main`;
   if (facts.sync === 'missing') return `${host.ssh} fetched origin/main but does not have ${short}; retry`;
-  if (facts.sync === 'diverged') return `the checkout on ${host.ssh} has commits that are not on origin/main ${short}`;
+  if (facts.sync === 'diverged' || facts.sync === 'ahead') return `the checkout on ${host.ssh} has commits that are not on origin/main ${short}`;
   return `the checkout on ${host.ssh} could not fast-forward to ${short}`;
 }
 
@@ -311,19 +315,33 @@ export async function runRelease({ argv = [], root = process.cwd(), env = proces
       const recovered = runHere('node', ['scripts/recover-local-release.mjs'], io);
       return recovered === 0 ? runHere('bash', ['scripts/postversion.sh'], io) : recovered;
     }
-    const remote = inspectHost(host, { env });
+    // Commits pushed from here since the release began (a fix the resume
+    // needs) would make the release host's push a non-fast-forward, so it
+    // fast-forwards first. A version commit it has not pushed yet stays ahead.
+    const fetch = git(root, ['fetch', '--quiet', 'origin', 'main'], env);
+    const target = fetch.status === 0 ? git(root, ['rev-parse', 'FETCH_HEAD'], env).stdout.trim() : '';
+    const remote = inspectHost(host, { target, apply: options.dryRun ? false : 'resume', env });
     if (remote.failure) { say(`✗ ${remote.failure}`); return 1; }
-    const problems = sessionProblems(host, remote.facts);
+    const { facts } = remote;
+    const problems = sessionProblems(host, facts);
     if (!remote.intent) problems.push(`no incomplete release on this host or ${host.ssh}; start one with: npm run release`);
+    else if (!target) problems.push(fetch.stderr.trim() || 'cannot fetch origin/main');
+    else if (facts.sync === 'diverged') problems.push(`the checkout on ${host.ssh} and origin/main ${target.slice(0, 7)} have diverged; merge origin/main there, keeping the release tag, then resume`);
+    else if (facts.sync === 'would-forward' && !options.dryRun && !problems.length) problems.push(`the checkout on ${host.ssh} must be clean and on main to fast-forward to origin/main ${target.slice(0, 7)} (dirty=${facts.dirty}, branch=${facts.branch || 'detached'})`);
+    else if (facts.sync !== 'ahead') {
+      const sync = syncProblem(host, facts, target);
+      if (sync) problems.push(sync);
+    }
     for (const problem of problems) say(`✗ ${problem}`);
     if (problems.length) return 1;
-    const log = `${remote.facts.home}/runlist-release-${remote.intent.newVersion}-resume.log`;
+    const log = `${facts.home}/runlist-release-${remote.intent.newVersion}-resume.log`;
     say(`✓ ${host.ssh} holds incomplete release v${remote.intent.newVersion}`);
+    if (facts.sync === 'forwarded' || facts.sync === 'would-forward') say(`${facts.sync === 'forwarded' ? '✓' : '→'} ${host.ssh}: ${facts.checkout} ${facts.sync === 'forwarded' ? 'fast-forwarded' : 'would fast-forward'} to origin/main ${target.slice(0, 7)}`);
     if (options.dryRun) {
-      say(`would start on ${host.ssh}: ${releaseCommand(host, remote.facts, ['run', 'release:resume'], log)}`);
+      say(`would start on ${host.ssh}: ${releaseCommand(host, facts, ['run', 'release:resume'], log)}`);
       return 0;
     }
-    return startAndFollow(host, remote.facts, ['run', 'release:resume'], log, io);
+    return startAndFollow(host, facts, ['run', 'release:resume'], log, io);
   }
 
   const unqualified = hereQualification(root, env, platform, arch);

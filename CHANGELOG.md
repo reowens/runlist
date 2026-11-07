@@ -9,6 +9,11 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 - A release that reruns its failed publish run now waits for the rerun to
   register before watching it, instead of reading the failed attempt and
   stopping as incomplete.
+- `npm run release:resume` run from another host fast-forwards the release
+  host's checkout to origin/main before resuming, so a fix pushed from here
+  mid-release no longer makes its push a non-fast-forward. A version commit
+  the release host has not pushed stays as it is; a diverged checkout is
+  refused with what to merge.
 
 ## 0.104.5 — 2026-11-07
 

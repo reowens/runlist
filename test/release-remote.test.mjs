@@ -246,6 +246,35 @@ test('release:resume forwards to the release host when it holds the intent', pos
   assert.deepEqual(f.calls().slice(-3), ['worker-a release-host-check', 'worker-a release-host-start', 'worker-a release-host-follow']);
 });
 
+test('release:resume fast-forwards the release host past commits pushed from here', posixOnly, async t => {
+  const f = fixture(t);
+  writeFileSync(path.join(f.remote, '.git', 'runlist-release-intent.json'), JSON.stringify({ schemaVersion: 1, newVersion: '1.2.4' }, null, 2));
+  pushLocalCommit(f);
+  const dry = await f.run(['--resume', '--dry-run']);
+  assert.equal(dry.code, 0, dry.out);
+  assert.match(dry.out, /would fast-forward to origin\/main/);
+  assert.notEqual(git(f.remote, 'rev-parse', 'HEAD'), f.originHead());
+  const { code, out } = await f.run(['--resume']);
+  assert.equal(code, 0, out);
+  assert.match(out, /fast-forwarded to origin\/main/);
+  assert.equal(git(f.remote, 'rev-parse', 'HEAD'), f.originHead());
+});
+
+test('release:resume keeps an unpushed version commit and refuses a diverged release host', posixOnly, async t => {
+  const f = fixture(t);
+  writeFileSync(path.join(f.remote, '.git', 'runlist-release-intent.json'), JSON.stringify({ schemaVersion: 1, newVersion: '1.2.4' }, null, 2));
+  git(f.remote, '-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-q', '--allow-empty', '-m', '1.2.4');
+  const ahead = git(f.remote, 'rev-parse', 'HEAD');
+  const kept = await f.run(['--resume']);
+  assert.equal(kept.code, 0, kept.out);
+  assert.equal(git(f.remote, 'rev-parse', 'HEAD'), ahead);
+  pushLocalCommit(f);
+  const diverged = await f.run(['--resume']);
+  assert.equal(diverged.code, 1);
+  assert.match(diverged.out, /worker-a and origin\/main [0-9a-f]{7} have diverged; merge origin\/main there/);
+  assert.equal(git(f.remote, 'rev-parse', 'HEAD'), ahead);
+});
+
 test('on the qualified Mac the release runs npm version in place', posixOnly, async t => {
   const f = fixture(t);
   const { code } = await f.run(['minor'], { platform: 'darwin', arch: 'arm64', env: { PATH: [f.nodeBin, f.env.PATH].join(path.delimiter) } });
