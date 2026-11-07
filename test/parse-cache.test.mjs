@@ -1,6 +1,8 @@
 import { describe, it, afterEach } from 'node:test';
 import { strictEqual, ok, deepStrictEqual } from 'node:assert';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync, readFileSync, unlinkSync } from 'node:fs';
+import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import path from 'node:path';
 import os from 'node:os';
 import { buildIndex } from '../src/index.mjs';
@@ -131,5 +133,24 @@ describe('parse cache', () => {
     const config = await resolveConfig(tmpDir);
     strictEqual(buildIndex(config, { fast: true }).docs[0].summary, 'Real summary.');
     strictEqual(buildIndex(config, { fast: true }).docs[0].summary, 'Real summary.');
+  });
+
+  it('a warm full build reads again only the documents a shape check reads', async () => {
+    const docsDir = setup();
+    writeFileSync(path.join(docsDir, 'reference.md'), '---\ntype: doc\nstatus: reference\n---\n# Reference\n\n## Related Documents\n');
+    writeFileSync(path.join(docsDir, 'live.md'), '---\ntype: doc\nstatus: active\n---\n# Live\n\n## Related Documents\n');
+    writeFileSync(path.join(docsDir, 'plan.md'), '---\ntype: plan\nstatus: active\n---\n# Plan\n');
+    const config = await resolveConfig(tmpDir);
+    const cold = buildIndex(config);
+    const original = fs.readFileSync;
+    const read = [];
+    fs.readFileSync = (target, ...rest) => { read.push(path.basename(String(target))); return original(target, ...rest); };
+    syncBuiltinESMExports();
+    let warm;
+    try { warm = buildIndex(config); }
+    finally { fs.readFileSync = original; syncBuiltinESMExports(); }
+    deepStrictEqual(read.filter(name => name.endsWith('.md')).sort(), ['live.md', 'plan.md']);
+    strictEqual(JSON.stringify(warm.docs), JSON.stringify(cold.docs));
+    ok(warm.warnings.some(w => w.path === 'docs/live.md' && w.message.startsWith('Heading drift')));
   });
 });

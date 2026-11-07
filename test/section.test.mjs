@@ -412,3 +412,37 @@ describe('walkChecklist', () => {
     ]);
   });
 });
+
+describe('walkSections section bounds', () => {
+  // The bounds and bodies as the original nested scan computed them.
+  function reference(body) {
+    const lines = body.split('\n');
+    const sections = walkSections(body).map(({ level, heading, h2Ancestor, lineStart, bodyLineStart }) => ({ level, heading, h2Ancestor, lineStart, bodyLineStart }));
+    for (let i = 0; i < sections.length; i++) {
+      const next = sections.find((s, j) => j > i && s.level <= sections[i].level);
+      sections[i].lineEnd = next ? next.lineStart - 1 : lines.length;
+      sections[i].body = lines.slice(sections[i].bodyLineStart - 1, sections[i].lineEnd).join('\n').trim();
+    }
+    return sections;
+  }
+
+  it('ends each section at the next heading at its level or higher, fences ignored', () => {
+    const body = [
+      '# Title', 'intro', '## A', 'a text', '### A1', 'a1', '#### A1x', 'deep', '### A2', '```', '## not a heading', '```',
+      '## B', '### B1', 'b1', '# Second', '### Orphan', 'orphan', '## C', 'c', '',
+    ].join('\n');
+    const actual = walkSections(body).map(s => ({ ...s }));
+    deepStrictEqual(actual.map(({ level, heading, h2Ancestor, lineStart, bodyLineStart, lineEnd, body: text }) => ({ level, heading, h2Ancestor, lineStart, bodyLineStart, lineEnd, body: text })), reference(body));
+    deepStrictEqual(actual.map(s => [s.heading, s.lineEnd]), [
+      ['Title', 15], ['A', 12], ['A1', 8], ['A1x', 8], ['A2', 12], ['B', 15], ['B1', 15], ['Second', 21], ['Orphan', 18], ['C', 21],
+    ]);
+  });
+
+  it('reads each body on first use and keeps an assigned one', () => {
+    const [section] = walkSections('## A\n\ntext\n');
+    strictEqual(section.body, 'text');
+    strictEqual(JSON.parse(JSON.stringify(section)).body, 'text');
+    section.body = 'replaced';
+    strictEqual(section.body, 'replaced');
+  });
+});

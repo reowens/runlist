@@ -2717,7 +2717,8 @@ async function main() {
   const index = buildIndex(config, {
     autoHealIndex: AUTO_HEAL_INDEX_COMMANDS.has(command) && !checkHasPathScope && !dryRun,
     invokeHooks: !suppressSideEffects,
-    suggestions: PRINTS_ISSUE_MESSAGES.has(command) || args.includes('--json'),
+    // agent-context prints at most a few messages, so it ranks only those.
+    suggestions: command === 'agent-context' ? 'on-demand' : PRINTS_ISSUE_MESSAGES.has(command) || args.includes('--json'),
   });
 
   applyIndexFilters(index);

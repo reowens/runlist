@@ -64,8 +64,19 @@ describe('body link roots', () => {
     deepStrictEqual(result, ['ok', 'ok', 'missing', 'outside-repo', 'outside-repo',
       'ok', 'ok', 'missing', 'outside-repo', 'outside-repo']);
     strictEqual(calls.filter(entry => entry === repo || entry === path.join(repo, 'shared')).length, 0);
-    // Only links that exist inside an allowed lexical root reach the target lookup.
-    strictEqual(calls.length, 6);
+    // Only links that exist inside an allowed lexical root reach the target
+    // lookup, and each target only the first time it is linked.
+    strictEqual(calls.length, 3);
+  });
+
+  it('hands back a fresh result for a target it has already resolved', () => {
+    const { docs, repo, externalRoots } = setup();
+    const roots = bodyLinkRoots(repo, externalRoots);
+    const first = resolveBodyLinkTargetWithin(roots, LINKS[0], docs);
+    first.path = 'changed';
+    const again = resolveBodyLinkTargetWithin(roots, LINKS[0], docs);
+    deepStrictEqual(again, resolveBodyLinkTarget(LINKS[0], docs, repo, externalRoots));
+    strictEqual(again.ok, true);
   });
 
   it('reports links as unreadable when the repository root cannot be resolved', () => {

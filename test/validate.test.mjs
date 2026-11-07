@@ -998,6 +998,12 @@ describe('plan size', () => {
     deepStrictEqual(sizeIssues(doc), []);
   });
 
+  it('groups thousands in sizes over 999 KB', async () => {
+    const [issue] = sizeIssues(await check(sizedPlan(1100)));
+    ok(issue.message.startsWith('Plan is 1,100 KB, over the 100 KB problem limit'), issue.message);
+    ok(issue.message.includes('(line 10, 550 KB)'), issue.message);
+  });
+
   it('warns over 50 KB and names the largest sections, largest first', async () => {
     const raw = sizedPlan(70);
     const lineOf = heading => raw.split('\n').indexOf(heading) + 1;

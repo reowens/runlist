@@ -7,7 +7,7 @@ import { asString, normalizeStringList, normalizeBlockers, mergeUniqueStrings, t
 import { findLexicalDocsRoot } from './managed-path.mjs';
 import { managesFile, outsideHandoffs, outsideHandoffsLine } from './handoffs-scope.mjs';
 import { openParseCache, fileStamp, stampSize } from './parse-cache.mjs';
-import { validateDoc, validatePlanShape, validatePlanSize, validateDocShape, checkBidirectionalReferences, checkGitStaleness, checkRunlistBackPointers, checkCoordinationHubExecutionMode, checkRoadmapHubExecutionMode, computeDaysSinceUpdate, computeIsStale, computeChecklistCompletionRate, enrichRefErrorSuggestions } from './validate.mjs';
+import { validateDoc, validatePlanShape, validatePlanSize, validateDocShape, checkBidirectionalReferences, checkGitStaleness, checkRunlistBackPointers, checkCoordinationHubExecutionMode, checkRoadmapHubExecutionMode, computeDaysSinceUpdate, computeIsStale, computeChecklistCompletionRate, enrichRefErrorSuggestions, refSuggestionEnricher, liveTypeDirsForRoots, shapeChecksReadSource } from './validate.mjs';
 import { checkIndex } from './index-file.mjs';
 import { checkClaudeCommands } from './claude-commands.mjs';
 import { checkGlossaryConfig } from './glossary-check.mjs';
@@ -43,10 +43,11 @@ export function buildIndex(config, opts = {}) {
   const cache = openParseCache(config);
   const scanFailures = [];
   const linkRoots = fast ? undefined : bodyLinkRoots(config.repoRoot, config.externalBodyLinkRoots);
+  const liveTypeDirs = fast ? undefined : liveTypeDirsForRoots(config);
   const docs = collectDocFiles(config, { onError: (directory, err) => {
     scanFailures.push({ path: null, level: 'error', message: `Could not read scan directory ${toRepoPath(directory, config.repoRoot)}: ${err.message}`, meta: { kind: 'scan-failure' } });
   } }).flatMap(f => {
-    try { return [parseDocFile(f, config, { fast, cache, bodyLinkRoots: linkRoots })]; }
+    try { return [parseDocFile(f, config, { fast, cache, bodyLinkRoots: linkRoots, liveTypeDirs })]; }
     catch (err) {
       if (err.code !== 'ENOENT') throw err;
       scanFailures.push({ path: toRepoPath(f, config.repoRoot), level: 'warning', message: 'Document disappeared after discovery; it was not checked.', meta: { kind: 'scan-disappeared' } });
@@ -54,7 +55,21 @@ export function buildIndex(config, opts = {}) {
     }
   });
   if (cache && !config._execution?.suppressSideEffects) cache.save();
-  if (!fast && suggestions) {
+  // `suggestions: 'on-demand'` leaves the messages bare and gives the index an
+  // `enrichIssues(entries)` that adds the candidates to just the entries a
+  // caller is about to print, exactly as a full pass would have.
+  let enrichIssues = null;
+  if (!fast && suggestions === 'on-demand') {
+    const eligible = new Set(docs.flatMap(doc => [...doc.errors, ...doc.warnings]));
+    let enrich = null;
+    enrichIssues = entries => {
+      for (const entry of entries) {
+        if (!eligible.has(entry)) continue;
+        enrich ??= refSuggestionEnricher(docs, config);
+        enrich(entry);
+      }
+    };
+  } else if (!fast && suggestions) {
     // Per-file validation (validateDoc) ran during parse without sibling
     // visibility. Now that the full index is materialized, enrich
     // unresolved-ref entries with "Did you mean..." candidates drawn from the
@@ -218,7 +233,7 @@ export function buildIndex(config, opts = {}) {
     }
   }
 
-  return {
+  const index = {
     generatedAt: new Date().toISOString(),
     filingCoverage,
     docs: transformedDocs,
@@ -228,6 +243,8 @@ export function buildIndex(config, opts = {}) {
     errors,
     scanCoverage: { complete: scanFailures.length === 0, failures: scanFailures },
   };
+  if (enrichIssues) Object.defineProperty(index, 'enrichIssues', { value: enrichIssues });
+  return index;
 }
 
 export function collectDocFiles(config, { onError = null } = {}) {
@@ -338,6 +355,12 @@ function extractDocText(frontmatter, body) {
   };
 }
 
+function cachedDocNeedsSource(frontmatter, config) {
+  const type = asString(frontmatter.type) ?? null;
+  if (frontmatter.record_schema !== undefined && ['flag', 'decision'].includes(type)) return true;
+  return shapeChecksReadSource({ type, status: asString(frontmatter.status) ?? null }, config);
+}
+
 export function parseDocFile(filePath, config, opts = {}) {
   const { fast = false, cache = null } = opts;
   const relativePath = toRepoPath(filePath, config.repoRoot);
@@ -345,11 +368,12 @@ export function parseDocFile(filePath, config, opts = {}) {
   let text = stamp ? cache.get(relativePath, stamp) : null;
   // Older cache entries cannot distinguish blank ships from an empty YAML list.
   if (text && text.shipsMetadataVersion !== 1) text = null;
-  // Validation reads the body itself, so only a fast build can skip the read.
+  // Only the shape checks and native records read the text itself, so a
+  // cached document they would skip is not read again.
   let body = null;
   let bodyLineOffset = 0;
   let rawSource = null;
-  if (!text || !fast) {
+  if (!text || (!fast && cachedDocNeedsSource(text.parsedFrontmatter, config))) {
     const raw = opts.source ?? readFileSync(filePath, 'utf8');
     rawSource = raw;
     const extracted = extractFrontmatter(raw);
@@ -486,7 +510,7 @@ export function parseDocFile(filePath, config, opts = {}) {
       doc.errors.push(...native.diagnostics.map(d=>({path:relativePath,level:'error',message:`${d.path}: ${d.message}`})));
       return doc;
     }
-    validateDoc(doc, parsedFrontmatter, headingTitle, config, { bodyLinkRoots: opts.bodyLinkRoots });
+    validateDoc(doc, parsedFrontmatter, headingTitle, config, { bodyLinkRoots: opts.bodyLinkRoots, liveTypeDirs: opts.liveTypeDirs });
     validatePlanShape(doc, body, parsedFrontmatter, config, bodyLineOffset);
     validatePlanSize(doc, rawSource, config);
     validateDocShape(doc, body, parsedFrontmatter, config);

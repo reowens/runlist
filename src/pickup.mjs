@@ -70,7 +70,26 @@ function sameIdentity(left, right, fs = { statSync }) {
 // realpath may preserve caller-provided case on case-insensitive filesystems.
 // Recover the directory entry spelling at every level. The resulting identity
 // survives atomic replacement because it is path-based, not keyed by inode.
-export function canonicalizePathEntrySpelling(input, fs = { readdirSync, statSync }) {
+// Ownership checks spell every plan's ancestors, so each directory's listing
+// is kept while the directory's own times are unchanged.
+const directoryListings = new Map();
+
+function listDirectory(dir) {
+  let stamp;
+  try {
+    const s = statSync(dir, { bigint: true });
+    stamp = `${s.mtimeNs}:${s.ctimeNs}:${s.ino}`;
+  } catch { return readdirSync(dir); }
+  const cached = directoryListings.get(dir);
+  if (cached?.stamp === stamp) return cached.entries;
+  const entries = readdirSync(dir);
+  directoryListings.set(dir, { stamp, entries });
+  return entries;
+}
+
+const defaultSpellingFs = { readdirSync: listDirectory, statSync };
+
+export function canonicalizePathEntrySpelling(input, fs = defaultSpellingFs) {
   const absolute = path.resolve(input);
   const parsed = path.parse(absolute);
   const segments = absolute.slice(parsed.root.length).split(path.sep).filter(Boolean);

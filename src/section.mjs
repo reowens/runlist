@@ -43,13 +43,22 @@ export function walkSections(body) {
     if (level === 2) h2Ancestor = heading;
   });
 
-  for (let i = 0; i < sections.length; i++) {
-    const next = sections.find((s, j) => j > i && s.level <= sections[i].level);
-    sections[i].lineEnd = next ? next.lineStart - 1 : lines.length;
+  // A section ends where the next heading at its level or higher begins.
+  const open = [];
+  for (const s of sections) {
+    while (open.length && open.at(-1).level >= s.level) open.pop().lineEnd = s.lineStart - 1;
+    open.push(s);
   }
 
+  // Most callers read the bodies of a few sections, so each is joined on first read.
   for (const s of sections) {
-    s.body = lines.slice(s.bodyLineStart - 1, s.lineEnd).join('\n').trim();
+    let body;
+    Object.defineProperty(s, 'body', {
+      enumerable: true,
+      configurable: true,
+      get: () => body ??= lines.slice(s.bodyLineStart - 1, s.lineEnd).join('\n').trim(),
+      set: value => { body = value; },
+    });
   }
 
   return sections;

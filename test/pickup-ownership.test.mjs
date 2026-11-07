@@ -1,6 +1,7 @@
 import { afterEach, describe, it } from 'node:test';
 import { deepStrictEqual, match, ok, rejects, strictEqual, throws } from 'node:assert';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { spawn, spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -1372,5 +1373,29 @@ describe('taking over an unclaimed in-session plan', () => {
     const retry = run(['use', file], 'A');
     strictEqual(retry.status, 0, retry.stderr);
     strictEqual(warnings(retry.stderr), 0);
+  });
+});
+
+describe('path entry spelling', () => {
+  it('lists each directory again only after it changes', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'runlist-spelling-'));
+    try {
+      writeFileSync(path.join(dir, 'a.md'), 'a');
+      const original = fs.readdirSync;
+      const listed = [];
+      fs.readdirSync = (target, ...rest) => { listed.push(String(target)); return original(target, ...rest); };
+      syncBuiltinESMExports();
+      try {
+        strictEqual(canonicalizePathEntrySpelling(path.join(dir, 'a.md')), path.join(dir, 'a.md'));
+        strictEqual(canonicalizePathEntrySpelling(path.join(dir, 'a.md')), path.join(dir, 'a.md'));
+        strictEqual(listed.filter(entry => entry === dir).length, 1);
+        writeFileSync(path.join(dir, 'b.md'), 'b');
+        strictEqual(canonicalizePathEntrySpelling(path.join(dir, 'b.md')), path.join(dir, 'b.md'));
+        strictEqual(listed.filter(entry => entry === dir).length, 2);
+      } finally {
+        fs.readdirSync = original;
+        syncBuiltinESMExports();
+      }
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });

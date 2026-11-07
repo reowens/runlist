@@ -162,8 +162,17 @@ export function buildAgentContext(index, config, options = {}) {
 
   const issueSort = (a, b) => compareStrings(a.path ?? '', b.path ?? '')
     || compareStrings(a.message ?? '', b.message ?? '');
-  const errors = [...index.errors].sort(issueSort).map(issueItem);
-  const warnings = [...index.warnings].sort(issueSort).map(issueItem);
+  const sortedIssues = issues => {
+    const sorted = [...issues].sort(issueSort);
+    if (typeof index.enrichIssues !== 'function' || !sorted.length) return sorted;
+    // Issues sort by path first, so the shown ones all sit in the paths up to
+    // the last shown issue's; candidates there can reorder only those paths.
+    const lastPath = sorted[Math.min(sorted.length, LIMITS.issues) - 1].path ?? '';
+    index.enrichIssues(sorted.filter(issue => compareStrings(issue.path ?? '', lastPath) <= 0));
+    return sorted.sort(issueSort);
+  };
+  const errors = sortedIssues(index.errors).map(issueItem);
+  const warnings = sortedIssues(index.warnings).map(issueItem);
 
   const context = {
     schema: AGENT_CONTEXT_SCHEMA,

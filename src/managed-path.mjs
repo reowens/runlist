@@ -100,8 +100,32 @@ function lexicalOwner(input, roots) {
     .sort((a, b) => b.lexicalPath.length - a.lexicalPath.length)[0] ?? null;
 }
 
+// An index build asks this once per document, so the roots are resolved and
+// ordered longest first once per config and working directory. On POSIX a
+// resolved path lies inside a resolved root exactly when it starts with the
+// root and a separator; Windows compares paths without case, so it keeps
+// `contains`.
+const ownerLookups = new WeakMap();
+
+function lexicalOwnerLookup(config) {
+  const configured = config.docsRoots ?? [config.docsRoot];
+  const cwd = process.cwd();
+  const cached = ownerLookups.get(config);
+  if (cached && cached.cwd === cwd && cached.configured.length === configured.length
+    && cached.configured.every((entry, i) => entry === configured[i])) return cached.find;
+  const roots = lexicalRootsFor(config);
+  let find = input => lexicalOwner(input, roots);
+  if (path.sep === '/' && process.platform !== 'win32') {
+    const ordered = [...roots].sort((a, b) => b.lexicalPath.length - a.lexicalPath.length)
+      .map(root => ({ root, prefix: root.lexicalPath.endsWith('/') ? root.lexicalPath : `${root.lexicalPath}/` }));
+    find = input => ordered.find(({ root, prefix }) => input === root.lexicalPath || input.startsWith(prefix))?.root ?? null;
+  }
+  ownerLookups.set(config, { cwd, configured: [...configured], find });
+  return find;
+}
+
 export function findLexicalDocsRoot(input, config) {
-  return lexicalOwner(path.resolve(input), lexicalRootsFor(config))?.lexicalPath ?? null;
+  return lexicalOwnerLookup(config)(path.resolve(input))?.lexicalPath ?? null;
 }
 
 export function authorizeManagedSource(input, config, { kind = 'Managed mutation source', allowMissingRoots = false } = {}) {

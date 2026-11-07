@@ -9,6 +9,7 @@ import {
   authorizeManagedMove,
   authorizeManagedSource,
   authorizeRepoGeneratedPath,
+  findLexicalDocsRoot,
 } from '../src/managed-path.mjs';
 import { COMMAND_POLICIES, KNOWN_COMMANDS, MUTATION_CAPABLE_COMMANDS } from '../src/commands.mjs';
 
@@ -50,6 +51,30 @@ function run(repo, args) {
 afterEach(() => {
   for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true });
   tempDirs = [];
+});
+
+describe('findLexicalDocsRoot', () => {
+  it('names the longest configured root that holds the path', () => {
+    const repo = temp();
+    const docs = path.join(repo, 'docs');
+    const nested = path.join(docs, 'modules');
+    const cfg = config(repo, [docs, nested]);
+    strictEqual(findLexicalDocsRoot(path.join(nested, 'a.md'), cfg), nested);
+    strictEqual(findLexicalDocsRoot(path.join(docs, 'plans', 'b.md'), cfg), docs);
+    strictEqual(findLexicalDocsRoot(nested, cfg), nested);
+    strictEqual(findLexicalDocsRoot(path.join(repo, 'docs-other', 'c.md'), cfg), null);
+    strictEqual(findLexicalDocsRoot(path.join(docs, '..', 'docsx', 'd.md'), cfg), null);
+  });
+
+  it('follows a change to the configured roots on the same config', () => {
+    const repo = temp();
+    const docs = path.join(repo, 'docs');
+    const other = path.join(repo, 'notes');
+    const cfg = config(repo, [docs]);
+    strictEqual(findLexicalDocsRoot(path.join(other, 'a.md'), cfg), null);
+    cfg.docsRoots = [docs, other];
+    strictEqual(findLexicalDocsRoot(path.join(other, 'a.md'), cfg), other);
+  });
 });
 
 describe('managed path primitive', () => {

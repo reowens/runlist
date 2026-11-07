@@ -9,6 +9,18 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 - Updating the Codex plugin no longer fails with EACCES on a host that runs the
   CLI from a read-only package copy. The copied plugin keeps owner write
   permission, and an old read-only install is made writable before it is removed.
+- `agent-context`, `briefing`, `check` and the other commands that build the
+  full index are faster on a large corpus, with the same output. A warm build
+  no longer reads again a cached document that no shape check reads (closed
+  plans and docs, prompts, research); each body-link target is checked on disk
+  once per build instead of once per link; `walkSections` finds section ends in
+  1 pass and joins a section's body only when it is read; the docs-root lookup
+  orders the configured roots once per config; plan-size messages group
+  thousands without building a number formatter per call; the ownership check
+  lists each directory again only after it changes; and `agent-context` ranks
+  "Did you mean" candidates only for the issues it prints. On a corpus of about
+  7,600 documents, warm `agent-context` went from 1.6 to 0.8 s and `briefing`
+  from 1.4 to 0.85 s.
 
 ## 0.104.4 — 2026-11-07
 

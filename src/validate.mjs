@@ -1,5 +1,6 @@
 import path from 'node:path';
-import { asString, resolveRefPath, suggestCandidates } from './util.mjs';
+import { asString, isArchivedPath, resolveRefPath, suggestCandidates } from './util.mjs';
+import { statusMetadataFor } from './status-metadata.mjs';
 import { getGitLastModified, getGitLastModifiedBatch, getGitLastSubstantiveModifiedBatch } from './git.mjs';
 import { toRepoPath } from './util.mjs';
 import { detectMarker, isPhaseHeading, phaseMarkerConflict, walkSections } from './section.mjs';
@@ -21,7 +22,7 @@ const NOW = new Date();
 // their own `dir` would extend this; we hard-code the built-in dir names.
 const BUILTIN_TYPE_DIR_NAMES = ['plans', 'prompts'];
 
-function liveTypeDirsForRoots(config) {
+export function liveTypeDirsForRoots(config) {
   const set = new Set();
   const roots = config.docsRoots || (config.docsRoot ? [config.docsRoot] : []);
   // F15: filed-status bucket dirs are "live" too — a doc whose status is
@@ -246,7 +247,7 @@ export function validateDoc(doc, frontmatter, headingTitle, config, options = {}
   // `docs/plans/audit/<file>.md`) is in a non-conventional subdir and exempt.
   if (config.lifecycle.archiveStatuses.has(doc.status)) {
     const parentDir = path.dirname(doc.path);
-    const liveDirs = liveTypeDirsForRoots(config);
+    const liveDirs = options.liveTypeDirs ?? liveTypeDirsForRoots(config);
     if (liveDirs.has(parentDir)) {
       const expected = `${parentDir}/${config.archiveDir}/${path.basename(doc.path)}`;
       doc.errors.push({
@@ -278,14 +279,15 @@ export function validateDoc(doc, frontmatter, headingTitle, config, options = {}
     }
   }
 
-  // Historical documents still need navigable references. Their prose is a
-  // dated record, but links to moved or deleted files cannot be followed.
+  // An archived document keeps its dead links as a dated record: they are
+  // counted apart from the errors (`archivedBrokenRefCount`), never failed on.
+  const brokenRefs = isArchivedDoc(doc, config) ? (doc.archivedBrokenRefs = []) : doc.errors;
   const docDir = path.dirname(path.join(config.repoRoot, doc.path));
   const allRefFields = [...(config.referenceFields.bidirectional || []), ...(config.referenceFields.unidirectional || [])];
   for (const field of allRefFields) {
     for (const relPath of (doc.refFields[field] || [])) {
       if (!resolveRefPath(relPath, docDir, config.repoRoot)) {
-        doc.errors.push({
+        brokenRefs.push({
           path: doc.path,
           level: 'error',
           message: `${field} entry \`${relPath}\` does not resolve to an existing file.`,
@@ -302,7 +304,7 @@ export function validateDoc(doc, frontmatter, headingTitle, config, options = {}
     const resolution = resolveBodyLinkTargetWithin(linkRoots, link.href, docDir);
     if (!resolution.ok) {
       const shownHref = link.rawHref ?? link.href;
-      doc.errors.push({
+      brokenRefs.push({
         path: doc.path,
         level: 'error',
         message: resolution.reason === 'outside-repo'
@@ -320,6 +322,18 @@ export function validateDoc(doc, frontmatter, headingTitle, config, options = {}
       });
     }
   }
+}
+
+// Archived by the folder it lives in, or by an archive status its own type
+// declares (the repo-wide set only for a type that declares no statuses).
+export function isArchivedDoc(doc, config) {
+  if (isArchivedPath(doc.path, config)) return true;
+  const declared = statusMetadataFor(config, doc.type, doc.status);
+  return declared ? declared.archive : config.lifecycle.archiveStatuses.has(doc.status);
+}
+
+export function archivedBrokenRefCount(docs) {
+  return docs.reduce((count, doc) => count + (doc.archivedBrokenRefs?.length ?? 0), 0);
 }
 
 // Guess which doc type a ref field expects so suggestions don't propose
@@ -358,6 +372,16 @@ function candidatePathsForType(docs, type) {
 // can't see siblings). Filters candidates by ref-field type when the field
 // name implies one (e.g. `related_plans` → plans only).
 export function enrichRefErrorSuggestions(docs, config) {
+  const enrich = refSuggestionEnricher(docs, config);
+  for (const doc of docs) {
+    for (const e of (doc.errors || [])) enrich(e);
+    for (const w of (doc.warnings || [])) enrich(w);
+  }
+}
+
+// The same enrichment one entry at a time, for output that prints only a few
+// of the messages: the candidate lists and rankings are built on first use.
+export function refSuggestionEnricher(docs, config) {
   // One candidate list per inferred type, not per broken ref. The list is a
   // filter plus a ~2-per-doc Set build over the whole index, and it does not
   // depend on the entry — rebuilding it for each entry made this pass quadratic
@@ -388,11 +412,7 @@ export function enrichRefErrorSuggestions(docs, config) {
     if (suggestions.length === 0) return;
     entry.message = `${entry.message} Did you mean: ${suggestions.join(', ')}?`;
   };
-
-  for (const doc of docs) {
-    for (const e of (doc.errors || [])) enrich(e);
-    for (const w of (doc.warnings || [])) enrich(w);
-  }
+  return enrich;
 }
 
 export function checkBidirectionalReferences(docs, config) {
@@ -732,7 +752,19 @@ export function validatePlanShape(doc, body, frontmatter, config, bodyLineOffset
 }
 
 const KB = 1024;
-const formatSize = bytes => bytes < KB ? `${bytes} B` : `${Math.round(bytes / KB).toLocaleString('en-US')} KB`;
+// Grouped by hand: toLocaleString builds a number formatter on every call.
+const groupDigits = n => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+const formatSize = bytes => bytes < KB ? `${bytes} B` : `${groupDigits(Math.round(bytes / KB))} KB`;
+
+const closedForShape = (doc, config) => config.lifecycle.terminalStatuses.has(doc.status) || config.lifecycle.archiveStatuses.has(doc.status);
+
+// Whether validatePlanShape, validatePlanSize or validateDocShape would read
+// the document's text, so an index build can skip reading the rest.
+export function shapeChecksReadSource(doc, config) {
+  if (doc.type === 'plan') return !closedForShape(doc, config) && (Boolean(config.planSize) || !config.lifecycle.skipsWarnings(doc.status, doc.type));
+  if (doc.type === 'doc') return !closedForShape(doc, config) && !config.lifecycle.skipsWarnings(doc.status, doc.type);
+  return false;
+}
 
 // A plan too large for an agent to read: a warning over `planSize.warnKB`, a
 // problem over `planSize.problemKB`, with the largest sections named so the

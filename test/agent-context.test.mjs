@@ -5,6 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { resolveConfig } from '../src/config.mjs';
+import { buildIndex } from '../src/index.mjs';
 import { buildAgentContext, boundedCollection, DEFAULT_AGENT_CONTEXT_BYTES, parseAgentContextOptions } from '../src/agent-context.mjs';
 const BIN = path.resolve(import.meta.dirname, '..', 'bin/runlist.mjs');
 
@@ -24,6 +25,30 @@ function doc(pathName, type, status, extra = {}) {
 afterEach(() => { if (repo) rmSync(repo, { recursive: true, force: true }); });
 
 describe('agent context v1', () => {
+
+  it('ranks did-you-mean candidates for the shown issues only, with the text a full pass gives', async () => {
+    const config = await configFor();
+    writeFileSync(path.join(repo, 'docs', 'lantern-guide.md'), '---\ntype: doc\nstatus: active\nupdated: 2026-01-01\n---\n# Lantern guide\n');
+    // Same-path messages that differ only past a shared prefix, so the order
+    // inside a path depends on the suggestion text.
+    for (let i = 0; i < 14; i++) {
+      const refs = ['lantern-guid.md', 'lantern-guid.md.bak', 'lantern-guide.mdx', `missing-${i}.md`].map(ref => `  - ${ref}`).join('\n');
+      writeFileSync(path.join(repo, 'docs', `plan-${String(i).padStart(2, '0')}.md`),
+        `---\ntype: plan\nstatus: active\nupdated: 2026-01-01\nrelated_docs:\n${refs}\n---\n# Plan ${i}\n\nSee [guide](lantern-gide.md).\n`);
+    }
+    const full = buildIndex(config, { invokeHooks: false });
+    const onDemand = buildIndex(config, { invokeHooks: false, suggestions: 'on-demand' });
+    ok(full.errors.concat(full.warnings).some(issue => issue.message.includes('Did you mean')));
+    ok(!onDemand.errors.concat(onDemand.warnings).some(issue => issue.message.includes('Did you mean')));
+    strictEqual(Object.keys(onDemand).includes('enrichIssues'), false);
+    const options = { generatedAt: '2026-01-02T00:00:00.000Z' };
+    const fromFull = buildAgentContext(full, config, options);
+    const fromOnDemand = buildAgentContext(onDemand, config, options);
+    deepStrictEqual(fromOnDemand, fromFull);
+    ok(JSON.stringify(fromFull.issues).includes('Did you mean'));
+    const enriched = onDemand.errors.concat(onDemand.warnings).filter(issue => issue.message.includes('Did you mean'));
+    ok(enriched.length > 0 && enriched.length < full.errors.concat(full.warnings).filter(issue => issue.message.includes('Did you mean')).length);
+  });
 
   it('bounds a 5,000-document Unicode fixture while retaining the next prompt and first action', async () => {
     const config = await configFor();

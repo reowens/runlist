@@ -13,7 +13,9 @@ function canonical(entry) {
 // The roots a body link may resolve inside, canonicalized once. A caller that
 // checks many links (a whole index build) resolves them here and passes the
 // result to resolveBodyLinkTargetWithin, instead of canonicalizing the same
-// roots again for every link.
+// roots again for every link. The result also remembers each target it has
+// resolved, since many documents link the same few, so one build checks each
+// target on disk once.
 export function bodyLinkRoots(repoRoot, externalRoots = []) {
   const root = path.resolve(repoRoot);
   const allowedRoots = externalRoots.map(entry => path.resolve(root, entry));
@@ -22,6 +24,7 @@ export function bodyLinkRoots(repoRoot, externalRoots = []) {
     allowedRoots,
     canonicalRoot: canonical(root),
     canonicalAllowedRoots: allowedRoots.map(canonical).filter(entry => entry !== null),
+    resolved: new Map(),
   };
 }
 
@@ -35,8 +38,16 @@ export function resolveBodyLinkTarget(href, docDir, repoRoot, externalRoots = []
 export function resolveBodyLinkTargetWithin(roots, href, docDir) {
   if (!href) return { ok: false, reason: 'missing' };
 
-  const { root, allowedRoots, canonicalRoot, canonicalAllowedRoots } = roots;
   const candidate = path.resolve(docDir, href);
+  const known = roots.resolved?.get(candidate);
+  if (known) return { ...known };
+  const result = resolveCandidate(roots, candidate);
+  roots.resolved?.set(candidate, result);
+  return { ...result };
+}
+
+function resolveCandidate(roots, candidate) {
+  const { root, allowedRoots, canonicalRoot, canonicalAllowedRoots } = roots;
   const allowedLexically = isWithin(root, candidate) || allowedRoots.some(entry => isWithin(entry, candidate));
   if (!allowedLexically) return { ok: false, reason: 'outside-repo' };
   if (!existsSync(candidate)) return { ok: false, reason: 'missing' };
