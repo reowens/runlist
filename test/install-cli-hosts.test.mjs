@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { installCliHosts, readCliHosts, remoteInstallArgs } from '../scripts/install-cli-hosts.mjs';
+import { installCliHosts, readCliHosts, remoteInstallArgs, remoteRefreshArgs } from '../scripts/install-cli-hosts.mjs';
 import { installLocalCLI } from '../scripts/prepare-local-cli.mjs';
 
 const posixOnly = { skip: process.platform === 'win32' && 'release automation is POSIX-only' };
@@ -72,12 +72,16 @@ test('an unreachable or refusing host is reported as owed with the resume comman
       { ssh: 'worker-b', checkout: '/srv/runlist' },
       { ssh: 'worker-c', checkout: '/srv/runlist' },
       { ssh: 'worker-d', checkout: '/srv/runlist' },
+      { ssh: 'worker-e', checkout: '/srv/runlist' },
     ] });
     const calls = [];
     const lines = [];
     const commit = 'a'.repeat(40);
     const { owed } = installCliHosts({ root: dir, version: '1.2.3', commit, env, log: line => lines.push(line), run: (program, args) => {
       calls.push([program, ...args]);
+      const refresh = args.at(-1).includes('--input-type=module');
+      if (refresh && args.includes('worker-e')) return { status: 1, stdout: 'runlist plugin 0.1.0 behind\n', stderr: 'expected 1.2.3' };
+      if (refresh) return { status: 0, stdout: 'Installed host integrations verified against 1.2.3\n', stderr: '' };
       if (args.includes('worker-b')) return { status: 255, stdout: '', stderr: 'ssh: connect to host worker-b: No route to host' };
       if (args.includes('worker-c')) return { status: 1, stdout: '', stderr: 'Local CLI preparation refused: package changed' };
       if (args.includes('worker-d')) return { status: 0, stdout: '', stderr: '' };
@@ -87,8 +91,13 @@ test('an unreachable or refusing host is reported as owed with the resume comman
       { host: 'worker-b', reason: 'unreachable over SSH' },
       { host: 'worker-c', reason: 'install exited 1' },
       { host: 'worker-d', reason: 'install reported no selected links' },
+      { host: 'worker-e', reason: 'host integration refresh exited 1' },
     ]);
-    assert.equal(calls.length, 4);
+    // Only a host whose CLI install succeeded goes on to refresh its integrations.
+    assert.deepEqual(calls.map(call => [call.at(-2), call.at(-1).includes('--input-type=module')]), [
+      ['worker-a', false], ['worker-a', true], ['worker-b', false], ['worker-c', false], ['worker-d', false], ['worker-e', false], ['worker-e', true]]);
+    assert.ok(calls[1].at(-1).startsWith('/opt/node/bin/node '), calls[1].at(-1));
+    assert.ok(calls[1].at(-1).endsWith(' /x/bin/runlist.mjs 1.2.3'), calls[1].at(-1));
     for (const call of calls) {
       assert.equal(call[0], 'ssh');
       assert.ok(call.includes('BatchMode=yes'));
@@ -97,7 +106,9 @@ test('an unreachable or refusing host is reported as owed with the resume comman
     assert.ok(calls[0].at(-1).includes('"/srv/run list" v1.2.3 ' + commit + ' 1.2.3 /opt/node/bin/node'), calls[0].at(-1));
     const output = lines.join('\n');
     assert.match(output, /still owed on worker-b: unreachable over SSH\n {4}ssh: connect to host worker-b/);
-    assert.match(output, /3 CLI host\(s\) still owe 1\.2\.3.*npm run release:resume/);
+    assert.match(output, /still owed on worker-e: host integration refresh exited 1\n {4}expected 1\.2\.3/);
+    assert.match(output, / {2}Installed host integrations verified against 1\.2\.3/);
+    assert.match(output, /4 CLI host\(s\) still owe 1\.2\.3.*npm run release:resume/);
   });
 });
 
@@ -146,5 +157,32 @@ test('an existing preparation is revalidated, and an incomplete or mismatched on
     const incomplete = 'c'.repeat(40);
     mkdirSync(path.join(options.artifacts, incomplete));
     assert.throws(() => installLocalCLI({ ...options, commit: incomplete }), /incomplete preparation/);
+  });
+});
+
+// The refresh runs the installed CLI's own updater over a non-interactive SSH
+// shell: no CLAUDE_CONFIG_DIR and a bare PATH. Profiles are still found by
+// their folders in the home directory, and a stale one keeps the host owed.
+test('the remote refresh runs the installed updater with the exact version and fails while a profile is stale', posixOnly, () => {
+  withTemp(dir => {
+    const version = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8')).version;
+    const entry = path.join(repoRoot, 'bin', 'runlist.mjs');
+    const home = path.join(dir, 'home');
+    mkdirSync(home);
+    const run = (v) => spawnSync('sh', ['-c', remoteRefreshArgs({ ssh: 'worker-a', node: process.execPath }, v, entry).at(-1)],
+      { encoding: 'utf8', cwd: home, env: { HOME: home, PATH: '/usr/bin:/bin', NO_COLOR: '1' } });
+    const clean = run(version);
+    assert.equal(clean.status, 0, clean.stdout + clean.stderr);
+    assert.match(clean.stdout, new RegExp(`Installed host integrations verified against ${version.replace(/\./g, '\\.')}`));
+    const wrong = run('0.0.1');
+    assert.notEqual(wrong.status, 0);
+    assert.match(wrong.stderr, /host update requires this CLI version/);
+    const plugins = path.join(home, '.claude-work', 'plugins');
+    mkdirSync(plugins, { recursive: true });
+    writeFileSync(path.join(plugins, 'installed_plugins.json'), JSON.stringify({ version: 2, plugins: { 'runlist@runlist': [{ scope: 'user', version: '0.1.0' }] } }));
+    const stale = run(version);
+    assert.notEqual(stale.status, 0, stale.stdout);
+    assert.match(stale.stdout, /\.claude-work: runlist@runlist: user has 0\.1\.0, expected/);
+    assert.ok(!stale.stdout.includes('Installed host integrations verified'));
   });
 });

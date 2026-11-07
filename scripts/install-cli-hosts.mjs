@@ -2,8 +2,10 @@
 // Installs a released CLI on the other machines that run it. Each entry of
 // `cliHosts` in the private release config names an SSH destination and the
 // Runlist checkout there; the host fetches the release tag and runs that
-// commit's own `prepare-local-cli.mjs install`. A host that cannot be reached
-// or refuses is reported as owed, and the release stays resumable.
+// commit's own `prepare-local-cli.mjs install`, then the installed CLI refreshes
+// and verifies the host integrations already installed there (never new ones).
+// A host that cannot be reached, refuses or fails either step is reported as
+// owed, and the release stays resumable.
 // `--this-host` runs the same install on the release host itself.
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
@@ -22,6 +24,11 @@ trap 'rm -rf "$work"' EXIT
 git archive "$commit" scripts/prepare-local-cli.mjs src/durable-rename.mjs | tar -xf - -C "$work"
 "$node" -e 'process.stdout.write(JSON.stringify({ repository: process.argv[1], commit: process.argv[2], version: process.argv[3] }))' "$PWD" "$commit" "$version" > "$work/request.json"
 "$node" "$work/scripts/prepare-local-cli.mjs" install "$work/request.json"`;
+
+const REFRESH_SCRIPT = `const [entry, version] = process.argv.slice(1);
+const { pathToFileURL } = await import('node:url');
+const { updateInstalledHosts } = await import(new URL('../src/update.mjs', pathToFileURL(entry)));
+await updateInstalledHosts(version);`;
 
 export function readCliHosts(root, env = process.env) {
   const file = env.RUNLIST_RELEASE_CONFIG || path.join(root, '.runlist', 'release-config.json');
@@ -42,6 +49,11 @@ export function remoteInstallArgs(host, version, commit) {
   return ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', host.ssh, command];
 }
 
+export function remoteRefreshArgs(host, version, entry) {
+  const command = [host.node, '--input-type=module', '-e', REFRESH_SCRIPT, entry, version].map(shellQuote).join(' ');
+  return ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', host.ssh, command];
+}
+
 export function installCliHosts({ root, version, commit, env = process.env, run = spawnSync, log = console.log }) {
   if (!/^\d+\.\d+\.\d+/.test(version ?? '') || !/^[a-f0-9]{40}$/.test(commit ?? '')) throw new Error('usage: install-cli-hosts.mjs <version> <commit>');
   const hosts = readCliHosts(root, env);
@@ -57,12 +69,21 @@ export function installCliHosts({ root, version, commit, env = process.env, run 
     try { installed = JSON.parse(result.stdout); } catch { /* reported below */ }
     if (!result.error && result.status === 0 && Array.isArray(installed?.links) && installed.links.length) {
       logLinks(installed, log);
+      log(`→ refreshing and verifying installed host integrations on ${host.ssh}`);
+      const refresh = run('ssh', remoteRefreshArgs(host, version, installed.entry ?? installed.links[0].entry), { encoding: 'utf8', timeout: 600_000, maxBuffer: 8 * 1024 ** 2 });
+      for (const line of String(refresh.stdout ?? '').trimEnd().split('\n').filter(Boolean)) log(`  ${line}`);
+      if (!refresh.error && refresh.status === 0) continue;
+      owe(host, refresh, refresh.error ? refresh.error.message
+        : refresh.status === 255 ? 'unreachable over SSH'
+        : `host integration refresh exited ${refresh.status}`);
       continue;
     }
-    const reason = result.error ? result.error.message
+    owe(host, result, result.error ? result.error.message
       : result.status === 0 ? 'install reported no selected links'
       : result.status === 255 ? 'unreachable over SSH'
-      : `install exited ${result.status}`;
+      : `install exited ${result.status}`);
+  }
+  function owe(host, result, reason) {
     const detail = String(result.stderr ?? '').trim().split('\n').slice(-3).join('\n    ');
     owed.push({ host: host.ssh, reason });
     log(`✗ runlist ${version} is still owed on ${host.ssh}: ${reason}${detail ? `\n    ${detail}` : ''}`);

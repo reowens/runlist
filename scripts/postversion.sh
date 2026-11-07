@@ -163,7 +163,9 @@ if node scripts/update-installed-hosts.mjs "${VERSION}"; then
 fi
 
 # Every other machine listed as cliHosts in the private release config gets the
-# same version. One that cannot be reached stays owed, and the release resumable.
+# same version, then refreshes and verifies its own installed host integrations
+# the same way. One that cannot be reached or fails stays owed, and the release
+# resumable.
 CLI_HOSTS_INSTALLED=""
 if node scripts/install-cli-hosts.mjs "${VERSION}" "${SHA}"; then
   CLI_HOSTS_INSTALLED=1
@@ -177,11 +179,11 @@ if [ -z "${HOSTS_VERIFIED}" ] || [ -z "${CLI_HOSTS_INSTALLED}" ]; then
     echo "✗ installed host integrations remain incomplete; desktop publication completed." >&2
   fi
   if [ -z "${CLI_HOSTS_INSTALLED}" ]; then
-    echo "✗ the CLI is still owed on the cliHosts listed above; desktop publication completed." >&2
+    echo "✗ the CLI or its host integrations are still owed on the cliHosts listed above; desktop publication completed." >&2
   fi
   release_failed
   exit 1
 fi
 node scripts/release-intent.mjs clear
 trap - ERR
-echo "✓ released ${PACKAGE}@${VERSION}; CLI and desktop published, CLI installations on every listed host and host integrations updated"
+echo "✓ released ${PACKAGE}@${VERSION}; CLI and desktop published, CLI installations and host integrations updated on every listed host"

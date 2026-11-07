@@ -11,6 +11,18 @@ All notable changes to `runlist` are documented here. Older releases predate thi
   (`npm view --prefer-online`) instead of npm's local metadata cache, and waits
   up to 15 minutes (`RUNLIST_REGISTRY_WAIT_SECONDS`) with a progress line every
   10 seconds instead of about 2 minutes.
+- A release now refreshes and verifies the host integrations already installed
+  on every `cliHosts` machine, not only on the machine that ran it. After a
+  host's CLI install, the installed CLI runs the same exact-version host update
+  over SSH. Plugins in every Claude config folder are found, including ones
+  outside `~/.claude` such as `~/.claude-work`. A host whose refresh fails is
+  reported as owed, and `npm run release:resume` retries it. No new host is
+  adopted.
+- `runlist update` no longer refuses to update the Claude plugin when the first
+  `claude` on PATH is a wrapper script and exactly 1 native Claude Code binary
+  is known. It runs that native binary with each profile's
+  `CLAUDE_CONFIG_DIR`. An explicit `--claude-bin` wrapper, or more than 1
+  native binary, is still refused.
 
 ## 0.104.2 — 2026-11-05
 

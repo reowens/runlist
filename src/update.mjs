@@ -303,8 +303,15 @@ export function publishedClaudePluginStatus(plugin, profile) {
 export function planClaudeProfileUpdates(profiles, inventory) {
   const steps = [], seen = new Set();
   const selected = inventory?.selected;
-  const binary = typeof selected === 'string' ? selected : selected?.path;
-  const candidate = typeof selected === 'object' ? selected : inventory?.candidates?.find(item => item.path === binary);
+  let binary = typeof selected === 'string' ? selected : selected?.path;
+  let candidate = typeof selected === 'object' ? selected : inventory?.candidates?.find(item => item.path === binary);
+  const natives = (inventory?.candidates ?? []).filter((item, i, all) => item.kind?.startsWith('native')
+    && all.findIndex(other => other.kind?.startsWith('native') && (other.resolvedPath ?? other.path) === (item.resolvedPath ?? item.path)) === i);
+  // A PATH wrapper that picks an account is not trusted with the profile, but
+  // the one native Claude behind it honours the explicit CLAUDE_CONFIG_DIR.
+  if (binary && !inventory.explicit && !candidate?.kind?.startsWith('native') && natives.length === 1) {
+    candidate = natives[0]; binary = candidate.path;
+  }
   for (const profile of profiles) {
     if (profile.registryState === 'unreadable') {
       steps.push({ kind: 'refusal', reason: `${profile.registryPath}: Claude registry unreadable; no profile update attempted` });
@@ -324,7 +331,7 @@ export function planClaudeProfileUpdates(profiles, inventory) {
     }
     // A wrapper may hard-code a different CLAUDE_CONFIG_DIR. Merely exporting
     // the variable is not proof that it will target the selected profile.
-    if (binary && (!candidate?.kind?.startsWith('native') || (!inventory.explicit && inventory.candidates?.filter(item => item.kind.startsWith('native')).length > 1))) {
+    if (binary && (!candidate?.kind?.startsWith('native') || (!inventory.explicit && natives.length > 1))) {
       steps.push({ kind: 'refusal', reason: `cannot establish wrapper-to-profile mapping for ${binary} and ${profile.configDir}; use --claude-bin with a native executable path and --claude-config ${profile.configDir}` });
       continue;
     }
@@ -336,6 +343,20 @@ export function planClaudeProfileUpdates(profiles, inventory) {
     }
   }
   return steps;
+}
+
+// After a release installs this CLI: refresh and verify the host integrations
+// already installed on this machine against the exact release version. It
+// never adopts a new host. Release hosts and every listed CLI host run it.
+export async function updateInstalledHosts(expectedVersion, opts = {}) {
+  if (!expectedVersion || expectedVersion !== pkg.version) {
+    process.stderr.write(`host update requires this CLI version (${pkg.version}), got ${expectedVersion ?? 'no version'}\n`);
+    process.exitCode = 1;
+    return { ok: false };
+  }
+  const result = await runUpdate(['--plugin-only'], null, { ...opts, expectedVersion });
+  if (!process.exitCode) process.stdout.write(`Installed host integrations verified against ${expectedVersion}\n`);
+  return result;
 }
 
 export async function runUpdate(argv, _config, opts = {}) {

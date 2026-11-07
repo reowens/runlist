@@ -12,6 +12,11 @@ import { detectVersionDrift } from '../src/hud.mjs';
 import { verifyInstalledPluginVersion } from '../scripts/verify-installed-plugin.mjs';
 import { updateInstalledPluginVersion } from '../scripts/update-installed-plugin.mjs';
 
+// A fixture's PATH keeps node, npm and git but never this machine's own Claude,
+// which would otherwise be the one native binary the updater is allowed to run.
+const hostPath = (process.env.PATH ?? '').split(path.delimiter)
+  .filter(dir => !['claude', 'claude.exe', 'claude.cmd'].some(name => existsSync(path.join(dir, name)))).join(path.delimiter);
+
 function nativeInventory(binary) {
   const candidate = { path: binary, resolvedPath: binary, kind: 'native' };
   return { claude: { selected: candidate, candidates: [candidate], explicit: true },
@@ -30,6 +35,26 @@ test('unreadable selected marketplace or settings data never becomes an update c
     assert.equal(steps[0].kind, 'refusal');
     assert.equal(steps[0].cmd, undefined);
   }
+});
+
+test('a PATH wrapper in front of exactly 1 native Claude updates each profile through that native', () => {
+  const profile = { configDir: '/work-profile', storeKey: '/shared-store', registryState: 'readable',
+    installed: { id: 'runlist@runlist', marketplace: 'runlist', marketplaceRegistered: true, entries: [{ scope: 'user', version: '1.2.3' }] } };
+  const wrapper = { path: '/wrappers/claude', resolvedPath: '/tools/account.sh', kind: 'script-symlink', source: 'PATH' };
+  const native = { path: '/home/u/.local/bin/claude', resolvedPath: '/home/u/.local/share/claude/versions/9', kind: 'native-symlink', source: 'PATH' };
+  const alias = { ...native, path: '/opt/bin/claude', kind: 'native-symlink' };
+  const steps = planClaudeProfileUpdates([profile], { selected: wrapper, candidates: [wrapper, native, alias], explicit: false });
+  assert.ok(steps.length > 0);
+  for (const step of steps) {
+    assert.notEqual(step.kind, 'refusal', step.reason);
+    if (step.cmd) assert.equal(step.cmd[0], native.path);
+    assert.equal(step.profile, '/work-profile');
+  }
+  const other = { ...native, path: '/usr/local/bin/claude', resolvedPath: '/usr/local/lib/claude/8' };
+  const ambiguous = planClaudeProfileUpdates([profile], { selected: wrapper, candidates: [wrapper, native, other], explicit: false });
+  assert.match(ambiguous[0].reason, /cannot establish wrapper-to-profile mapping/);
+  const explicit = planClaudeProfileUpdates([profile], { selected: wrapper, candidates: [wrapper, native], explicit: true });
+  assert.match(explicit[0].reason, /cannot establish wrapper-to-profile mapping/);
 });
 
 async function capturedUpdate(argv, opts) {
@@ -353,7 +378,7 @@ if (args[1] === 'marketplace') {
       : `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`);
     chmodSync(wrapper, 0o755);
     const bin = path.resolve(import.meta.dirname, '..', 'bin', 'runlist.mjs');
-    const env = { ...process.env, CLAUDE_CONFIG_DIR: undefined, HOME: home, USERPROFILE: home, NO_COLOR: '1', PATH: `${fakeBin}${path.delimiter}${process.env.PATH}` };
+    const env = { ...process.env, CLAUDE_CONFIG_DIR: undefined, HOME: home, USERPROFILE: home, NO_COLOR: '1', PATH: `${fakeBin}${path.delimiter}${hostPath}` };
     for (const args of [['update', '--plugin-only'], ['install', 'claude']]) {
       writeInstalled(home, { 'runlist@runlist': entries }, args[0] === 'install' ? [] : ['runlist']);
       writeFileSync(trace, '');
@@ -387,7 +412,7 @@ test('update --dry-run previews global commands without executing them', () => {
     const result = spawnSync('node', [bin, 'update', '--dry-run'], {
       cwd: home,
       encoding: 'utf8',
-      env: { ...process.env, CLAUDE_CONFIG_DIR: undefined, HOME: home, USERPROFILE: home, PATH: `${fakeBin}${path.delimiter}${process.env.PATH}` },
+      env: { ...process.env, CLAUDE_CONFIG_DIR: undefined, HOME: home, USERPROFILE: home, PATH: `${fakeBin}${path.delimiter}${hostPath}` },
     });
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /\[dry-run\] Would run: npm i -g/);
@@ -418,7 +443,7 @@ test('update runs every host step past a failed one, then exits 1 naming the fai
       encoding: 'utf8',
       env: {
         ...process.env, CLAUDE_CONFIG_DIR: undefined, NO_COLOR: '1', HOME: home, USERPROFILE: home, OPENCODE_CONFIG_DIR: ocDir,
-        PATH: `${fakeBin}${path.delimiter}${process.env.PATH}`,
+        PATH: `${fakeBin}${path.delimiter}${hostPath}`,
       },
     });
     assert.equal(result.status, 1, result.stdout + result.stderr);
@@ -480,7 +505,7 @@ if (process.argv[3] === 'list') console.log(JSON.stringify({installed: [{pluginI
     writeNodeCommand(fakeBin, 'runlist', `require('node:fs').writeFileSync(${JSON.stringify(sentinel)}, 'wrong'); process.exitCode = 1;`);
     const result = spawnSync(process.execPath, [path.join(fixture, 'bin/runlist.mjs'), 'update'], {
       cwd: home, encoding: 'utf8', env: { ...process.env, CLAUDE_CONFIG_DIR: undefined, HOME: home, USERPROFILE: home, OPENCODE_CONFIG_DIR: ocDir,
-        PATH: `${fakeBin}${path.delimiter}${process.env.PATH}`, NO_COLOR: '1' },
+        PATH: `${fakeBin}${path.delimiter}${hostPath}`, NO_COLOR: '1' },
     });
     assert.equal(result.status, 0, result.stdout + result.stderr);
     assert.equal(installedVersion(oc.path), newVersion);
@@ -521,7 +546,7 @@ if (process.argv[3] === 'list') console.log(JSON.stringify({installed: [{pluginI
       const oc = installOpencodePlugin({ version: '0.1.0', env: { OPENCODE_CONFIG_DIR: ocDir }, homedir: home });
       const result = spawnSync(process.execPath, [path.join(root, 'scripts/update-installed-hosts.mjs'), version], {
         cwd: home, encoding: 'utf8', env: { ...process.env, CLAUDE_CONFIG_DIR: undefined, HOME: home, USERPROFILE: home, OPENCODE_CONFIG_DIR: ocDir,
-          PATH: `${fakeBin}${path.delimiter}${process.env.PATH}`, NO_COLOR: '1', CODEX_NOOP: noOp ? '1' : '0' },
+          PATH: `${fakeBin}${path.delimiter}${hostPath}`, NO_COLOR: '1', CODEX_NOOP: noOp ? '1' : '0' },
       });
       assert.equal(result.status, 1, result.stdout + result.stderr);
       assert.match(result.stdout, /cannot establish wrapper-to-profile mapping/);
@@ -555,7 +580,7 @@ if (name.endsWith('release-desktop.mjs')) process.exitCode = Number(process.env.
       assert.ok(executed.includes('scripts/release-desktop.mjs'));
       assert.equal(executed.includes('scripts/release-intent.mjs'), hosts === 0 && cli === 0 && desktop === 0);
       if (hosts || cli || desktop) assert.match(result.stderr, /resumable/);
-      if (cli) assert.match(result.stderr, /CLI is still owed/);
+      if (cli) assert.match(result.stderr, /CLI or its host integrations are still owed/);
     }
   });
 });
