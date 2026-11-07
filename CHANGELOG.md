@@ -2,6 +2,25 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- `npm run release [-- minor|major]` releases from any host. On the qualified
+  Apple Silicon Mac it runs `npm version` in place. Anywhere else it drives the
+  Mac named as `releaseHost` (`ssh`, `checkout`, optional `node` and `env`) in
+  the private release config: it checks that this checkout is clean, on `main`
+  and pushed, and that the Mac's checkout is clean, has no incomplete release
+  and fast-forwards to `origin/main`; it refuses while a release tmux session
+  runs there or when no tmux server does. It then starts `npm version` in a new
+  tmux session on the Mac, streams `~/runlist-release-<version>.log` until
+  `release-exit=`, exits with that code and, on success, fast-forwards this
+  checkout. `--attach` re-follows the release after a dropped connection,
+  `--dry-run` prints every check and the command it would start, and
+  `npm run release:resume` forwards to the Mac when the Mac holds the release
+  intent. `npm version` run directly off the Mac now fails in preflight with a
+  message naming `npm run release`.
+
 ## 0.104.3 — 2026-11-07
 
 ### Fixed

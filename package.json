@@ -51,7 +51,8 @@
     "preversion": "node scripts/release-preflight.mjs && npm test",
     "version": "node scripts/prepare-version-commit.mjs",
     "postversion": "bash scripts/postversion.sh",
-    "release:resume": "node scripts/recover-local-release.mjs && bash scripts/postversion.sh"
+    "release": "node scripts/release-remote.mjs",
+    "release:resume": "node scripts/release-remote.mjs --resume"
   },
   "engines": {
     "node": ">=20"

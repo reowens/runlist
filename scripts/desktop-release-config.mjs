@@ -48,7 +48,7 @@ export function notaryCredentials(env = process.env, { issuerSha256 = NOTARY_ISS
 
 export function preflightDesktopRelease(root, { env = process.env, platform = process.platform, arch = process.arch, issuerSha256 } = {}) {
   if (!existsSync(path.join(root, 'desktop/package.json'))) return;
-  if (platform !== 'darwin' || arch !== 'arm64') throw new Error('Product releases require the qualified Apple Silicon Mac desktop release host.');
+  if (platform !== 'darwin' || arch !== 'arm64') throw new Error('Product releases run on the qualified Apple Silicon Mac desktop release host. From any other host run `npm run release`, which drives that Mac over SSH (releaseHost in the private .runlist/release-config.json).');
   const signing = desktopReleaseEnvironment(root, env);
   for (const key of ['RUNLIST_SIGN_IDENTITY', 'RUNLIST_SIGN_TEAM']) {
     if (typeof signing[key] !== 'string' || !signing[key].trim()) {

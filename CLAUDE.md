@@ -346,7 +346,7 @@ npm test                           # run all tests (node:test)
 npm run check:linux                 # Linux desktop build and package checks in Docker
 node --test test/frontmatter.test.mjs  # run a single test file
 node bin/runlist.mjs <command>       # run CLI locally without installing
-npm version patch                  # release: test → bump → tag → push → publish
+npm run release                    # release: test → bump → tag → push → publish
 ```
 
 Run `runlist --help` or `runlist <command> --help` for the full command list and options.
@@ -359,12 +359,12 @@ when choosing, running and reporting checks for a change.
 **One command. That's it.**
 
 ```bash
-npm version patch    # bug fixes, small tweaks
-npm version minor    # new features
-npm version major    # breaking changes
+npm run release             # patch: bug fixes, small tweaks
+npm run release -- minor    # new features
+npm run release -- major    # breaking changes
 ```
 
-Everything is automated — do NOT manually `git push`, `git tag`, `npm publish`, or anything else. The single `npm version` command does all of this:
+On the qualified Apple Silicon Mac `npm run release` runs `npm version <bump>` in place; from any other host it drives that Mac (below). `npm version` run directly off the Mac fails in preflight and names `npm run release`. Everything is automated — do NOT manually `git push`, `git tag`, `npm publish`, or anything else. The single `npm version` command does all of this:
 
 1. Runs tests (blocks release if they fail)
 2. Bumps `package.json` + `package-lock.json`, promotes the changelog's `## Unreleased` heading to `## <version> — <date>`, commits, creates git tag
@@ -378,11 +378,7 @@ Write changelog entries under `## Unreleased` as you go — the version commit p
 
 Release preflight requires a clean `main` that descends from `origin/main`; `--force` cannot bypass it. On failure, run `npm run release:resume`: before publication it either recovers a missing tag for a completed version commit or restores an incomplete bump and prints the exact `npm version <version>` retry. Once the tag exists, never bump again; resume atomically retries only the intended branch+tag push, reuses/reruns the GitHub workflow, and finishes registry/global CLI/plugin verification.
 
-**Releasing from a session on another machine.** The release runs on the Apple Silicon Mac that holds the signing identity and the notary key (`.runlist/release-config.json`, see `desktop/README.md`). A plain SSH command there cannot read the login Keychain, so `codesign` fails; a new session of a tmux server started from the Mac's own login can. Put the release's Node and `claude` (for the plugin refresh) on `PATH`, write a log, and follow it:
-
-```bash
-ssh <mac> 'tmux new-session -d -s runlist-release "cd <checkout> && export PATH=<node 22 bin>:\$HOME/.local/bin:\$PATH && npm version patch > \$HOME/runlist-release.log 2>&1; echo release-exit=\$? >> \$HOME/runlist-release.log"'
-```
+**Releasing from a session on another machine.** The release runs on the Apple Silicon Mac that holds the signing identity and the notary key (`.runlist/release-config.json`, see `desktop/README.md`). Any other host names that Mac as `releaseHost` in its own private `.runlist/release-config.json`, for example `"releaseHost": { "ssh": "<mac>", "checkout": "~/<checkout>", "node": "<the Mac's Node 22 executable>", "env": { "TMPDIR": "/private/tmp" } }`, and runs the same `npm run release [-- minor|major]` (`scripts/release-remote.mjs`). It refuses before any bump unless this checkout is clean, on `main` and contained in `origin/main`, and the Mac's checkout is clean on `main`, holds no incomplete release intent and fast-forwards to `origin/main`. It also refuses while a `runlist-release` tmux session runs there, or when no tmux server runs: a plain SSH command cannot read the Mac's login Keychain, so `codesign` fails, while a new session of a tmux server started from the Mac's own login can. It then fast-forwards the Mac's checkout, starts `npm version <bump>` in tmux session `runlist-release` with `node`'s folder and `~/.local/bin` (for `claude`) first on `PATH` and `env` exported, streams `~/runlist-release-<version>.log` until `release-exit=`, exits with that code and, on 0, fast-forwards this checkout to the version commit. `npm run release -- --attach` re-follows the newest release log after a dropped connection; `npm run release:resume` runs locally when this checkout holds the intent and otherwise forwards to the Mac the same way (log `~/runlist-release-<version>-resume.log`). `--dry-run` runs every check, prints the command it would start and changes neither checkout.
 
 Notarization uses the API key, so a locked screen does not stop it. Release acceptance ends after automated build, test, signing, notarization and verified publication. Never add local app installation, manual opening, first-launch approval or installed-app diagnostics as release acceptance steps. Local installation and diagnostics run only when separately requested.
 

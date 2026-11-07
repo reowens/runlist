@@ -77,7 +77,7 @@ test('notarization saves the request before timeout and resumes without submitti
 
 test('release preflight rejects missing signing inputs before starting a product release',t=>{
  const root=fixture(t);mkdirSync(path.join(root,'desktop'));writeFileSync(path.join(root,'desktop/package.json'),'{}');
- assert.throws(()=>preflightDesktopRelease(root,{platform:'linux',arch:'arm64',env:{}}),/Apple Silicon/);
+ assert.throws(()=>preflightDesktopRelease(root,{platform:'linux',arch:'arm64',env:{}}),/Apple Silicon Mac[\s\S]*npm run release/);
  assert.throws(()=>preflightDesktopRelease(root,{platform:'darwin',arch:'arm64',env:{}}),/RUNLIST_SIGN_IDENTITY/);
  const key=path.join(root,'AuthKey_ABCDE12345.p8');writeFileSync(key,'fixture key');
  const issuerSha256=createHash('sha256').update('personal-issuer').digest('hex'),mac={platform:'darwin',arch:'arm64',issuerSha256};

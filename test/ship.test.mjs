@@ -260,7 +260,11 @@ describe('npm version lifecycle prepares release artifacts', () => {
       `version script must not force a successful exit, got: ${versionScript}`);
     ok(!versionScript.includes('.claude/commands'),
       `version script should not stage retired generated commands, got: ${versionScript}`);
-    strictEqual(pkg.scripts['release:resume'], 'node scripts/recover-local-release.mjs && bash scripts/postversion.sh');
+    strictEqual(pkg.scripts.release, 'node scripts/release-remote.mjs');
+    strictEqual(pkg.scripts['release:resume'], 'node scripts/release-remote.mjs --resume');
+    const remote = readFileSync(path.resolve(import.meta.dirname, '..', 'scripts', 'release-remote.mjs'), 'utf8');
+    ok(remote.includes("runHere('node', ['scripts/recover-local-release.mjs'], io);") && remote.includes("recovered === 0 ? runHere('bash', ['scripts/postversion.sh'], io)"),
+      'release:resume on the release host must still recover the local release, then run postversion');
     ok(pkg.scripts.preversion.startsWith('node scripts/release-preflight.mjs &&'),
       `preversion must refuse inherited staged files before tests, got: ${pkg.scripts.preversion}`);
   });

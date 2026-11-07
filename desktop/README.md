@@ -349,6 +349,14 @@ tag's commit under `~/.local/share/runlist/artifacts/<commit>` and points
 `~/.local/bin/runlist` and `~/.local/bin/rl` at it. A host that cannot be
 reached or refuses is printed as owed, and `npm run release:resume` retries it.
 
+A host other than the release Mac releases with `npm run release` once the same
+private file there names the Mac, for example
+`"releaseHost": { "ssh": "<mac>", "checkout": "~/<checkout>", "node": "<path to node>", "env": { "TMPDIR": "/private/tmp" } }`
+(`checkout` and `node` are absolute or `~/` paths; `node`'s folder goes first
+on the release's `PATH`; `env` names extra variables for the release). The
+release then runs on the Mac in a tmux session and streams its log back, as
+described in `CLAUDE.md` § Releasing.
+
 After npm publication, the release command builds and checks the matching Mac
 app, signs/notarizes it and publishes the exact verified installer. Release
 acceptance ends at verified publication; local installation, app launch and
