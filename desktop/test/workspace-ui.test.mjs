@@ -1,6 +1,7 @@
 // Real presentation controllers + shared checkout engine in a DOM, without a browser or OS input.
 import {test,afterEach} from 'node:test';
 import assert from 'node:assert/strict';
+import './helper-environment.mjs';
 import {parseHTML} from 'linkedom';
 import {mkdtempSync,mkdirSync,readFileSync,writeFileSync,rmSync} from 'node:fs';
 import path from 'node:path';

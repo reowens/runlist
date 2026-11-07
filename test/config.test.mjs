@@ -1,9 +1,10 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import { strictEqual, deepStrictEqual, ok, rejects } from 'node:assert';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, realpathSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { resolveConfig } from '../src/config.mjs';
+import { locateConfig, resolveConfig } from '../src/config.mjs';
+import { gitToplevel } from '../src/handoffs-mode.mjs';
 
 let tmpDir;
 
@@ -828,5 +829,26 @@ describe('terminal status is scoped to the declaring type', () => {
     const config = await resolveConfig(tmpDir);
     strictEqual(config.lifecycle.isTerminal('outdated', 'doc'), true);
     strictEqual(config.lifecycle.isTerminal('outdated', 'research'), true);
+  });
+});
+
+describe('repository root discovery', () => {
+  it('stops at GIT_CEILING_DIRECTORIES as git does, so a project in a temp folder inside a repository stays its own root', (t) => {
+    const outer = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'runlist-ceiling-')));
+    const saved = process.env.GIT_CEILING_DIRECTORIES;
+    t.after(() => { if (saved === undefined) delete process.env.GIT_CEILING_DIRECTORIES; else process.env.GIT_CEILING_DIRECTORIES = saved; rmSync(outer, { recursive: true, force: true }); });
+    const project = path.join(outer, 'tmp', 'project');
+    mkdirSync(path.join(outer, '.git'));
+    mkdirSync(path.join(project, 'docs'), { recursive: true });
+    writeFileSync(path.join(project, 'runlist.config.mjs'), "export const root = 'docs';\n");
+    delete process.env.GIT_CEILING_DIRECTORIES;
+    strictEqual(locateConfig(project).repoRoot, outer);
+    strictEqual(gitToplevel(project), outer);
+    process.env.GIT_CEILING_DIRECTORIES = path.join(outer, 'tmp');
+    strictEqual(locateConfig(project).repoRoot, project);
+    strictEqual(gitToplevel(project), null);
+    process.env.GIT_CEILING_DIRECTORIES = outer;
+    strictEqual(gitToplevel(project), null);
+    strictEqual(gitToplevel(outer), outer);
   });
 });

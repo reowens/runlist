@@ -6,9 +6,10 @@ import {createRequire,isBuiltin} from 'node:module';
 import {parse} from 'acorn';
 import {CONFIG_FILENAMES} from '../src/naming.mjs';
 import {isPathInside as inside} from '../src/path-containment.mjs';
+import {findGitRoot} from '../src/util.mjs';
 export function checkoutTrust(input) {
   let root=realpathSync(input); if(!lstatSync(root).isDirectory())throw new Error('Choose a checkout folder.');
-  for(let dir=root;;dir=path.dirname(dir)){if(existsSync(path.join(dir,'.git'))){root=dir;break;}if(dir===path.dirname(dir))break;}
+  root=findGitRoot(root)??root;
   const config=CONFIG_FILENAMES.map(name=>path.join(root,name)).find(existsSync)??null;
   const hash=createHash('sha256').update(root), files=new Set();let bytes=0,volatile=false;
   function inspectImportPath(file) {

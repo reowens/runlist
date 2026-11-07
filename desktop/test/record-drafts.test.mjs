@@ -1,5 +1,6 @@
 import {test,afterEach} from 'node:test';
 import assert from 'node:assert/strict';
+import './helper-environment.mjs';
 import {parseHTML} from 'linkedom';
 import {readFileSync,mkdtempSync,mkdirSync,writeFileSync,rmSync} from 'node:fs';
 import path from 'node:path';

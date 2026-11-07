@@ -11,6 +11,7 @@ import { canonicalPlanIdentity, readPlanOwnership } from './pickup.mjs';
 import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { nativePlanItems, parseNativeRecord } from './native-record.mjs';
 import { stateDir } from './naming.mjs';
+import { gitCeilings } from './util.mjs';
 import {getStageDefinitions, readPlanStage, readShipsFrontmatter} from './stages.mjs';
 import {withoutSourceStage} from '../assets/app/stage-source.mjs';
 
@@ -33,11 +34,12 @@ export function assertPrivateEditorStorage(repoRoot, directory) {
   // or worktree. Inspect physical ancestors without suppressing stat failures.
   let gitContext = Boolean(process.env.GIT_DIR || process.env.GIT_WORK_TREE || process.env.GIT_COMMON_DIR);
   try {
+    const ceilings = gitCeilings();
     for (let directory = realpathSync(repoRoot);;) {
       try { lstatSync(path.join(directory, '.git')); gitContext = true; break; }
       catch (error) { if (error.code !== 'ENOENT') throw error; }
       const parent = path.dirname(directory);
-      if (parent === directory) break;
+      if (parent === directory || ceilings.has(parent)) break;
       directory = parent;
     }
   } catch { fail('unsafe-local-state', 'Cannot inspect Git checkout markers before storing private editor state.'); }

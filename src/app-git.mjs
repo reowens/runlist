@@ -33,7 +33,7 @@ export function parseGitChanges(bytes) {
 
 export function gitEnvironment() {
   const result={};
-  for(const key of ['HOME','USER','LOGNAME','TMPDIR','USERPROFILE','USERNAME','HOMEDRIVE','HOMEPATH','APPDATA','LOCALAPPDATA','ProgramData','SystemRoot','WINDIR','TEMP','TMP','XDG_CONFIG_HOME','GNUPGHOME'])if(process.env[key])result[key]=process.env[key];
+  for(const key of ['HOME','USER','LOGNAME','TMPDIR','USERPROFILE','USERNAME','HOMEDRIVE','HOMEPATH','APPDATA','LOCALAPPDATA','ProgramData','SystemRoot','WINDIR','TEMP','TMP','XDG_CONFIG_HOME','GNUPGHOME','GIT_CEILING_DIRECTORIES'])if(process.env[key])result[key]=process.env[key];
   result.PATH=(process.env.PATH??'').split(path.delimiter).filter(value=>path.isAbsolute(value)).join(path.delimiter);
   return {...result,LANG:'C',LC_ALL:'C',GIT_TERMINAL_PROMPT:'0',GIT_OPTIONAL_LOCKS:'0',GIT_NO_LAZY_FETCH:'1'};
 }

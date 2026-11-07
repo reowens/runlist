@@ -8,7 +8,7 @@ import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { authorizeRepoGeneratedPath, inLegacyPromptFolder, legacyPromptFolderPlace } from './managed-path.mjs';
 import { CONFIG_FILENAMES, LEGACY_PROMPT_DIR, PROMPT_DIR } from './naming.mjs';
 import { dim } from './color.mjs';
-import { die } from './util.mjs';
+import { die, findGitRoot } from './util.mjs';
 
 // Handoffs-only mode: most people who try runlist want "save where we are" and
 // "pick up where we left off", not a planning system. So the first prompt saved
@@ -57,10 +57,7 @@ export const promptTracking = '${promptTracking}';
 // `.git` entry, file or directory), without spawning git on a hook path. Only
 // a hint: `verifyGitWorktree` is what the writing path trusts.
 export function gitToplevel(cwd) {
-  for (let dir = path.resolve(cwd); ; dir = path.dirname(dir)) {
-    if (existsSync(path.join(dir, '.git'))) return dir;
-    if (dir === path.parse(dir).root) return null;
-  }
+  return findGitRoot(cwd);
 }
 
 // Where an unconfigured repository may get a handoffs config, or why not.

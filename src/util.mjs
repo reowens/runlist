@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import os from 'node:os';
@@ -91,6 +91,25 @@ export function runlistVersion() {
 
 // Public compatibility alias for callers of older builds.
 export const dotmdVersion = runlistVersion;
+
+const physical = dir => { try { return realpathSync(dir); } catch { return path.resolve(dir); } };
+
+// Folders a repository search never steps up into, read from
+// GIT_CEILING_DIRECTORIES as git reads it, so runlist and git agree on the root.
+export function gitCeilings(env = process.env) {
+  return new Set((env.GIT_CEILING_DIRECTORIES ?? '').split(path.delimiter).filter(dir => path.isAbsolute(dir)).map(physical));
+}
+
+// The nearest folder at or above `start` with a `.git` entry, or null.
+export function findGitRoot(start, env = process.env) {
+  const ceilings = gitCeilings(env);
+  for (let dir = path.resolve(start); ;) {
+    if (existsSync(path.join(dir, '.git'))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir || (ceilings.size && ceilings.has(physical(parent)))) return null;
+    dir = parent;
+  }
+}
 
 // Is `bin` runnable from PATH? Used to decide whether runlist can drive a host's
 // own CLI or must print the in-session commands for the user to run instead.

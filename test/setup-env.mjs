@@ -13,6 +13,10 @@ import path from 'node:path';
 const temporaryRoot = realpathSync(os.tmpdir());
 if (process.platform === 'win32') { process.env.TEMP = temporaryRoot; process.env.TMP = temporaryRoot; }
 else process.env.TMPDIR = temporaryRoot;
+// A fixture project in the temporary folder must never resolve to a Git
+// repository that holds that folder, as when the temporary folder sits in a
+// home folder that is itself a repository.
+process.env.GIT_CEILING_DIRECTORIES = [temporaryRoot, process.env.GIT_CEILING_DIRECTORIES].filter(Boolean).join(path.delimiter);
 
 const OWNER_FLAG = 'RUNLIST_TEST_LOG_DIR_OWNER';
 

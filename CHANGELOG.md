@@ -14,6 +14,12 @@ All notable changes to `runlist` are documented here. Older releases predate thi
   mid-release no longer makes its push a non-fast-forward. A version commit
   the release host has not pushed stays as it is; a diverged checkout is
   refused with what to merge.
+- Repository root discovery honours `GIT_CEILING_DIRECTORIES` as git does: it
+  never steps up into a folder the variable names, so runlist and git agree
+  on the root. The root test preload and the desktop test helper set it to the
+  temporary folder, so a fixture project in a temporary folder inside a Git
+  repository, such as a home folder kept under Git, stays its own root. Before,
+  it resolved to the enclosing repository and desktop and CLI tests failed.
 
 ## 0.104.5 — 2026-11-07
 

@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { die, warn } from './util.mjs';
+import { die, findGitRoot, warn } from './util.mjs';
 import { CONFIG_FILENAMES } from './naming.mjs';
 import { validateStageDefinitions } from './stages.mjs';
 import { validateFilingConfig } from './filing.mjs';
@@ -494,11 +494,7 @@ export function locateConfig(cwd, explicitConfigPath) {
     ? path.resolve(cwd, explicitConfigPath)
     : findConfigFile(cwd);
   const configDir = configPath && existsSync(configPath) ? path.dirname(configPath) : cwd;
-  let repoRoot = configDir;
-  for (let dir = configDir; dir !== path.parse(dir).root; dir = path.dirname(dir)) {
-    if (existsSync(path.join(dir, '.git'))) { repoRoot = dir; break; }
-  }
-  return {configPath,configDir,repoRoot};
+  return {configPath,configDir,repoRoot:findGitRoot(configDir) ?? configDir};
 }
 
 // `options.exports` stands in for a config file that does not exist yet (a

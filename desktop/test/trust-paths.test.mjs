@@ -1,5 +1,6 @@
 import {test,afterEach} from 'node:test';
 import assert from 'node:assert/strict';
+import './helper-environment.mjs';
 import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync,symlinkSync,realpathSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
