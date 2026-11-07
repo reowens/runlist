@@ -31,8 +31,8 @@ All notable changes to `runlist` are documented here. Older releases predate thi
   thousands without building a number formatter per call; the ownership check
   lists each directory again only after it changes; and `agent-context` ranks
   "Did you mean" candidates only for the issues it prints. On a corpus of about
-  7,600 documents, warm `agent-context` went from 1.6 to 0.8 s and `briefing`
-  from 1.4 to 0.85 s.
+  7,600 documents, warm medians went from 1.74 to 0.94 s for `agent-context`,
+  1.46 to 0.87 s for `briefing` and 4.27 to 2.81 s for `check`.
 
 ## 0.104.4 — 2026-11-07
 
