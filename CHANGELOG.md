@@ -2,6 +2,14 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- Updating the Codex plugin no longer fails with EACCES on a host that runs the
+  CLI from a read-only package copy. The copied plugin keeps owner write
+  permission, and an old read-only install is made writable before it is removed.
+
 ## 0.104.4 — 2026-11-07
 
 ### Added

@@ -1,6 +1,6 @@
 // Codex's default personal marketplace is discovered without a CLI registration.
 // The npm package carries this plugin so installation does not need a Git checkout.
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
@@ -272,6 +272,19 @@ export function installedCodexStatus({ homedir = os.homedir(), run = spawnSync, 
   }
 }
 
+// The CLI may run from a read-only package copy, and cpSync keeps its modes. A
+// read-only tree cannot be removed by the next update, so the owner keeps write.
+function ownerWritable(dir) {
+  if (!existsSync(dir)) return;
+  const walk = (p) => {
+    const st = lstatSync(p);
+    if (st.isSymbolicLink()) return;
+    if ((st.mode & 0o200) === 0 || (st.isDirectory() && (st.mode & 0o700) !== 0o700)) chmodSync(p, st.mode | (st.isDirectory() ? 0o700 : 0o200));
+    if (st.isDirectory()) for (const name of readdirSync(p)) walk(path.join(p, name));
+  };
+  walk(dir);
+}
+
 export function installCodexPlugin({ version, homedir = os.homedir(), env, dryRun = false } = {}) {
   const sourceVersion = JSON.parse(readFileSync(path.join(SOURCE, '.codex-plugin', 'plugin.json'), 'utf8')).version;
   if (sourceVersion !== version) throw new Error(`Codex plugin source is ${sourceVersion}, CLI is ${version}`);
@@ -310,16 +323,18 @@ export function installCodexPlugin({ version, homedir = os.homedir(), env, dryRu
   let published = false;
   try {
     cpSync(SOURCE, stage, { recursive: true });
+    ownerWritable(stage);
     writeFileSync(path.join(stage, MARKER), JSON.stringify({ version }) + '\n');
     writeFileSync(marketStage, JSON.stringify(market, null, 2) + '\n');
     if (status.exists) { renameSync(status.plugin, backup); movedOld = true; }
     renameSync(stage, status.plugin);
     published = true;
     renameSync(marketStage, status.marketplace);
-    if (movedOld) rmSync(backup, { recursive: true, force: true });
+    if (movedOld) { ownerWritable(backup); rmSync(backup, { recursive: true, force: true }); }
   } catch (err) {
-    if (published) rmSync(status.plugin, { recursive: true, force: true });
+    if (published) { ownerWritable(status.plugin); rmSync(status.plugin, { recursive: true, force: true }); }
     if (movedOld) renameSync(backup, status.plugin);
+    ownerWritable(stage);
     rmSync(stage, { recursive: true, force: true });
     rmSync(marketStage, { force: true });
     throw err;

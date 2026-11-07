@@ -1,6 +1,6 @@
 import { afterEach, describe, it } from 'node:test';
 import { deepStrictEqual, strictEqual, match, ok } from 'node:assert';
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -33,6 +33,17 @@ describe('Codex plugin distribution', () => {
     writeFileSync(path.join(first.plugin, '.runlist-generated.json'), JSON.stringify({ version: '0.0.0' }));
     strictEqual(installCodexPlugin({ version, homedir: h }).action, 'updated');
     strictEqual(codexStatus({ version, homedir: h }).stale, false);
+  });
+
+  it('updates over an install copied from a read-only package', { skip: process.platform === 'win32' }, () => {
+    const h = fresh();
+    const first = installCodexPlugin({ version, homedir: h });
+    writeFileSync(path.join(first.plugin, '.runlist-generated.json'), JSON.stringify({ version: '0.0.0' }));
+    const lock = (p) => { for (const name of readdirSync(p, { withFileTypes: true })) if (name.isDirectory()) lock(path.join(p, name.name)); chmodSync(p, 0o555); };
+    lock(first.plugin);
+    strictEqual(installCodexPlugin({ version, homedir: h }).action, 'updated');
+    deepStrictEqual(readdirSync(path.dirname(first.plugin)).filter((n) => n.startsWith('.runlist-codex-stage-')), []);
+    ok((statSync(path.join(first.plugin, 'skills')).mode & 0o200) !== 0);
   });
 
   it('adds its hooks after the user\'s, without moving or changing them', () => {
