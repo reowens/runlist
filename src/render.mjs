@@ -8,6 +8,7 @@ import { categorizeWarnings } from './check-collapse.mjs';
 import { buildCoordinationIndex, isRoadmapHub } from './runlist.mjs';
 import { resolveStatusMetadata, statusMetadataFor } from './status-metadata.mjs';
 import { readPlanStage } from './stages.mjs';
+import { archivedBrokenRefCount } from './validate.mjs';
 import { scopeFilingCoverage } from './filing.mjs';
 
 // Render `currentState` with an `(auto)` prefix when the value was body-scraped
@@ -536,6 +537,8 @@ function _renderCheck(index, config, opts = {}) {
   lines.push(`- errors: ${index.errors.length}`);
   lines.push(`- warnings: ${index.warnings.length}`);
   lines.push(`- reference validation: ${referenceValidation.checkedDocs} docs checked; ${referenceValidation.terminalDocsSkipped} terminal docs skipped`);
+  const archivedBroken = archivedBrokenRefCount(index.docs);
+  if (archivedBroken > 0) lines.push(`- ${archivedBroken} broken reference${archivedBroken === 1 ? '' : 's'} in archived documents, not checked`);
   lines.push('');
 
   if (index.errors.length > 0) {

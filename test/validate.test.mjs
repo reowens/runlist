@@ -590,7 +590,7 @@ describe('reference path resolution', () => {
   });
 });
 
-// Archived docs suppress taxonomy noise but still need navigable links.
+// Archived docs suppress taxonomy noise and keep their dead links as dated records.
 describe('archived status validation', () => {
   function setupArchivedProject() {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-archnoise-'));
@@ -638,24 +638,54 @@ describe('archived status validation', () => {
       `did-you-mean should propose 'frontend' for typo 'frontent'. stdout: ${result.stdout}`);
   });
 
-  it('fails on broken body links in archived docs', () => {
+  it('counts broken references in archived docs apart and passes', () => {
     const root = setupArchivedProject();
     writeFileSync(path.join(root, 'docs', 'archived', 'old.md'),
-      '---\ntype: plan\nstatus: archived\nupdated: 2025-01-01\n---\n# Old\n\nSee [gone](./deleted.md).\n');
+      '---\ntype: plan\nstatus: archived\nupdated: 2025-01-01\nrelated_plans:\n  - ./gone-forever.md\n---\n# Old\n\nSee [gone](./deleted.md).\n');
     const result = run(['check', '--verbose']);
-    strictEqual(result.status, 1);
-    ok(result.stdout.includes('body link'),
-      `archived doc body link to deleted target should fail. stdout: ${result.stdout}`);
+    strictEqual(result.status, 0, `archived dead links must not fail. stdout: ${result.stdout}`);
+    ok(!result.stdout.includes('does not resolve'), result.stdout);
+    ok(result.stdout.includes('- errors: 0'), result.stdout);
+    ok(result.stdout.includes('2 broken references in archived documents, not checked'), result.stdout);
+
+    const json = run(['check', '--json']);
+    strictEqual(json.status, 0, json.stderr);
+    const parsed = JSON.parse(json.stdout);
+    strictEqual(parsed.errorCount, 0);
+    strictEqual(parsed.archivedBrokenRefCount, 2);
+    strictEqual(parsed.passed, true);
   });
 
-  it('fails on unresolved ref-field entries in archived docs', () => {
+  it('treats an archive status outside the archive folder, and an archived prompt, as archived', () => {
+    const root = setupArchivedProject();
+    writeFileSync(path.join(root, 'docs', 'closed.md'),
+      '---\ntype: plan\nstatus: archived\nupdated: 2025-01-01\n---\n# Closed\n\nSee [gone](./deleted.md).\n');
+    mkdirSync(path.join(root, 'docs', 'prompts', 'archived'), { recursive: true });
+    writeFileSync(path.join(root, 'docs', 'prompts', 'archived', 'old-prompt.md'),
+      '---\ntype: prompt\nstatus: archived\ncreated: 2025-01-01\n---\n# Old prompt\n\nSee [gone](../../deleted.md).\n');
+    const parsed = JSON.parse(run(['check', '--json']).stdout);
+    strictEqual(parsed.errors.filter(e => /does not resolve/.test(e.message)).length, 0, JSON.stringify(parsed.errors));
+    strictEqual(parsed.archivedBrokenRefCount, 2);
+  });
+
+  it('still fails a live doc broken link, and a live link to an archived doc is unchanged', () => {
     const root = setupArchivedProject();
     writeFileSync(path.join(root, 'docs', 'archived', 'old.md'),
-      '---\ntype: plan\nstatus: archived\nupdated: 2025-01-01\nrelated_plans:\n  - ./gone-forever.md\n---\n# Old\n');
-    const result = run(['check', '--verbose']);
-    ok(result.stdout.includes('does not resolve'),
-      `archived doc ref-field to deleted target should fail. stdout: ${result.stdout}`);
-    strictEqual(result.status, 1);
+      '---\ntype: plan\nstatus: archived\nupdated: 2025-01-01\n---\n# Old\n');
+    writeFileSync(path.join(root, 'docs', 'live.md'),
+      '---\ntype: plan\nstatus: active\nupdated: 2025-01-01\ncurrent_state: x\nnext_step: y\nrelated_plans:\n  - ./archived/old.md\n  - ./archived/missing.md\n---\n# Live\n\nSee [old](./archived/old.md) and [gone](./deleted.md).\n');
+    const result = run(['check', '--json']);
+    strictEqual(result.status, 1, result.stdout);
+    const parsed = JSON.parse(result.stdout);
+    const broken = parsed.errors.filter(e => e.path === 'docs/live.md' && /does not resolve/.test(e.message)).map(e => e.message);
+    strictEqual(broken.length, 2, JSON.stringify(broken));
+    ok(broken.some(m => m.includes('./archived/missing.md')), JSON.stringify(broken));
+    ok(broken.some(m => m.includes('./deleted.md')), JSON.stringify(broken));
+    ok(!broken.some(m => m.includes('`./archived/old.md`')), JSON.stringify(broken));
+    strictEqual(parsed.archivedBrokenRefCount, 0);
+    const text = run(['check']);
+    strictEqual(text.status, 1);
+    ok(!text.stdout.includes('in archived documents, not checked'), text.stdout);
   });
 
   it('still errors on unresolved ref-field entries in live docs', () => {

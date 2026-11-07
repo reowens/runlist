@@ -4,6 +4,18 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ## Unreleased
 
+### Changed
+
+- `check` no longer fails on broken references inside archived documents and
+  prompts. A document is archived when it lives in the archive folder or carries
+  an archive status its type declares. Its dead frontmatter refs and body links
+  stay as dated records: they leave the error list, the exit code and every
+  command that counts errors (`doctor`, `fix-refs`, `agent-context`, `briefing`,
+  `hud`, `stats`, `check --flag`), and `check` prints their count on 1 line
+  ("N broken references in archived documents, not checked"), with
+  `archivedBrokenRefCount` in `check --json`. A live document's broken link
+  still fails, including a link to a missing file in the archive.
+
 ### Fixed
 
 - Updating the Codex plugin no longer fails with EACCES on a host that runs the

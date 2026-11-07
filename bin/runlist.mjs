@@ -2758,7 +2758,7 @@ async function main() {
     const minDocsOverride = minDocsRaw == null ? null : Number(minDocsRaw);
     const minDocsValueIdx = minDocsFlagIdx === -1 ? -1 : minDocsFlagIdx + 1;
     const checkTargets = restArgs.filter((arg, i) => !arg.startsWith('-') && i !== minDocsValueIdx);
-    const { applyScanFloor } = await import('../src/validate.mjs');
+    const { applyScanFloor, archivedBrokenRefCount } = await import('../src/validate.mjs');
     const scanFloorConfig = minDocsOverride == null ? config : { ...config, minDocs: minDocsOverride };
     const applyFloor = (idx) => applyScanFloor(idx, scanFloorConfig, { scoped: checkTargets.length > 0 });
     const skippedCheckHooks = config._execution?.suppressSideEffects
@@ -2794,6 +2794,7 @@ async function main() {
         warnings: errorsOnly ? [] : checkIndex.warnings,
         errorCount: checkIndex.errors.length,
         warningCount: checkIndex.warnings.length,
+        archivedBrokenRefCount: archivedBrokenRefCount(checkIndex.docs),
         referenceValidation: buildReferenceValidationCoverage(checkIndex, config),
         passed: complete ? builtInPassed : null,
         ...(complete ? {} : {
