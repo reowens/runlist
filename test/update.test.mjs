@@ -575,20 +575,23 @@ test('release attempts desktop after a host or CLI host failure and clears inten
 const name = process.argv[2]; fs.appendFileSync(${JSON.stringify(calls)}, name + '\\n');
 if (name.endsWith('update-installed-hosts.mjs')) process.exitCode = Number(process.env.HOST_EXIT);
 if (name.endsWith('install-cli-hosts.mjs')) process.exitCode = Number(process.env.CLI_EXIT);
+if (name.endsWith('check-cli-copies.mjs')) process.exitCode = Number(process.env.COPIES_EXIT);
 if (name.endsWith('release-desktop.mjs')) process.exitCode = Number(process.env.DESKTOP_EXIT);`);
-    for (const [hosts, cli, desktop] of [[1, 0, 0], [0, 1, 0], [0, 0, 1], [0, 0, 0]]) {
+    for (const [hosts, cli, desktop, copies] of [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1], [0, 0, 0, 0]]) {
       writeFileSync(calls, '');
       const result = spawnSync('bash', ['-c', `set -euo pipefail\nrelease_failed() { echo resumable >&2; }\ntrap release_failed ERR\nVERSION=1.0.0\nSHA=fixture\nPACKAGE=runlist\n${phase}`], {
-        encoding: 'utf8', env: { ...process.env, PATH: `${home}${path.delimiter}${process.env.PATH}`, HOST_EXIT: String(hosts), CLI_EXIT: String(cli), DESKTOP_EXIT: String(desktop) },
+        encoding: 'utf8', env: { ...process.env, PATH: `${home}${path.delimiter}${process.env.PATH}`, HOST_EXIT: String(hosts), CLI_EXIT: String(cli), DESKTOP_EXIT: String(desktop), COPIES_EXIT: String(copies) },
       });
-      assert.equal(result.status, hosts || cli || desktop ? 1 : 0, result.stdout + result.stderr);
+      assert.equal(result.status, hosts || cli || desktop || copies ? 1 : 0, result.stdout + result.stderr);
       const executed = readFileSync(calls, 'utf8');
       assert.ok(executed.includes('scripts/update-installed-hosts.mjs'));
       assert.ok(executed.includes('scripts/install-cli-hosts.mjs'));
+      assert.ok(executed.includes('scripts/check-cli-copies.mjs'));
       assert.ok(executed.includes('scripts/release-desktop.mjs'));
-      assert.equal(executed.includes('scripts/release-intent.mjs'), hosts === 0 && cli === 0 && desktop === 0);
-      if (hosts || cli || desktop) assert.match(result.stderr, /resumable/);
+      assert.equal(executed.includes('scripts/release-intent.mjs'), hosts === 0 && cli === 0 && desktop === 0 && copies === 0);
+      if (hosts || cli || desktop || copies) assert.match(result.stderr, /resumable/);
       if (cli) assert.match(result.stderr, /CLI or its host integrations are still owed/);
+      if (copies) assert.match(result.stderr, /reads another version than 1\.0\.0/);
     }
   });
 });

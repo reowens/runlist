@@ -2,6 +2,20 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- After a release installs the CLI, it finds every `runlist` and `rl` that
+  the host's interactive login shell, its non-interactive SSH shell or the
+  release process can run, plus those in each npm global prefix on those
+  PATHs, under every nvm Node version and in `~/.local/bin`, and reads each
+  one's version. This runs on the release host and on each `cliHosts` entry.
+  A copy at another version, or a shell that runs neither, keeps the host owed
+  and the release resumable, and the report names each stale path with the
+  command that removes it; nothing is removed. `node
+  scripts/check-cli-copies.mjs <version> [--host <ssh>]` runs it on its own.
+
 ## 0.104.7 — 2026-11-07
 
 ### Added

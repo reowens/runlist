@@ -77,7 +77,7 @@ test('an unreachable or refusing host is reported as owed with the resume comman
     const calls = [];
     const lines = [];
     const commit = 'a'.repeat(40);
-    const { owed } = installCliHosts({ root: dir, version: '1.2.3', commit, env, log: line => lines.push(line), run: (program, args) => {
+    const { owed } = installCliHosts({ root: dir, version: '1.2.3', commit, env, log: line => lines.push(line), checkCopies: () => ({ ok: true }), run: (program, args) => {
       calls.push([program, ...args]);
       const refresh = args.at(-1).includes('--input-type=module');
       if (refresh && args.includes('worker-e')) return { status: 1, stdout: 'runlist plugin 0.1.0 behind\n', stderr: 'expected 1.2.3' };

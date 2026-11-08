@@ -167,6 +167,16 @@ if node scripts/update-installed-hosts.mjs "${VERSION}"; then
   HOSTS_VERIFIED=1
 fi
 
+# The install above sets and checks only the copies the release manages. Every
+# other runlist and rl a shell here can reach (a pinned link, an npm global
+# under another Node, on PATH or not) must read this version too. One that does
+# not is reported with the command that removes it, and the release stays
+# resumable; nothing is removed.
+LOCAL_COPIES_CURRENT=""
+if node scripts/check-cli-copies.mjs "${VERSION}"; then
+  LOCAL_COPIES_CURRENT=1
+fi
+
 # Every other machine listed as cliHosts in the private release config gets the
 # same version, then refreshes and verifies its own installed host integrations
 # the same way. One that cannot be reached or fails stays owed, and the release
@@ -179,7 +189,10 @@ fi
 # A host failure must not strand the independent desktop release. Complete
 # that phase too, then retain release intent if either phase is incomplete.
 node scripts/release-desktop.mjs "${VERSION}" "${SHA}"
-if [ -z "${HOSTS_VERIFIED}" ] || [ -z "${CLI_HOSTS_INSTALLED}" ]; then
+if [ -z "${HOSTS_VERIFIED}" ] || [ -z "${CLI_HOSTS_INSTALLED}" ] || [ -z "${LOCAL_COPIES_CURRENT}" ]; then
+  if [ -z "${LOCAL_COPIES_CURRENT}" ]; then
+    echo "✗ a runlist or rl on this host reads another version than ${VERSION}, or a shell here runs none (listed above); desktop publication completed." >&2
+  fi
   if [ -z "${HOSTS_VERIFIED}" ]; then
     echo "✗ installed host integrations remain incomplete; desktop publication completed." >&2
   fi

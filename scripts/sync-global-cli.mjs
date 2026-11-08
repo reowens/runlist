@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 const PACKAGE = 'runlist';
 const LEGACY_PACKAGE = 'dotmd-cli';
+const BIN_NAMES = ['dotmd', 'runlist', 'rl'];
 
 export function parseExecutablePaths(output) {
   return [...new Set(String(output ?? '')
@@ -26,16 +27,20 @@ export function buildSyncPlan(entries, targetVersion) {
   }));
 }
 
-function discoverDotmdPaths() {
-  const names = process.platform === 'win32' ? ['dotmd.cmd', 'dotmd.exe', 'dotmd'] : ['dotmd'];
+export function discoverExecutables(names, pathValue = process.env.PATH ?? '', exists = existsSync) {
   const paths = [];
-  for (const dir of (process.env.PATH ?? '').split(delimiter).filter(Boolean)) {
+  for (const dir of new Set(String(pathValue).split(delimiter).filter(Boolean))) {
     for (const name of names) {
       const candidate = path.join(dir, name);
-      if (existsSync(candidate)) paths.push(candidate);
+      if (exists(candidate)) paths.push(candidate);
     }
   }
   return [...new Set(paths)];
+}
+
+function discoverDotmdPaths() {
+  const names = process.platform === 'win32' ? ['dotmd.cmd', 'dotmd.exe', 'dotmd'] : ['dotmd'];
+  return discoverExecutables(names, process.env.PATH ?? '');
 }
 
 function readVersion(dotmdPath) {
@@ -92,8 +97,8 @@ export function npmManagedPackageForPath(dotmdPath, prefix, globalRoot, opts = {
   const normalize = value => process.platform === 'win32' ? value.toLowerCase() : value;
   const actual = normalize(path.resolve(dotmdPath));
   const candidates = process.platform === 'win32'
-    ? ['dotmd', 'dotmd.cmd', 'dotmd.ps1'].map(name => normalize(path.resolve(prefix, name)))
-    : [path.resolve(prefix, 'bin', 'dotmd')];
+    ? BIN_NAMES.flatMap(bin => [bin, `${bin}.cmd`, `${bin}.ps1`]).map(name => normalize(path.resolve(prefix, name)))
+    : BIN_NAMES.map(bin => path.resolve(prefix, 'bin', bin));
   if (!candidates.includes(actual)) return null;
 
   const packages = [PACKAGE, LEGACY_PACKAGE];

@@ -3,8 +3,9 @@
 // `cliHosts` in the private release config names an SSH destination and the
 // Runlist checkout there; the host fetches the release tag and runs that
 // commit's own `prepare-local-cli.mjs install`, then the installed CLI refreshes
-// and verifies the host integrations already installed there (never new ones).
-// A host that cannot be reached, refuses or fails either step is reported as
+// and verifies the host integrations already installed there (never new ones),
+// then every runlist and rl its shells can reach must read the release version
+// (`check-cli-copies.mjs`). A host that cannot be reached, refuses or fails either step is reported as
 // owed, and the release stays resumable.
 // `--this-host` runs the same install on the release host itself.
 import { spawnSync } from 'node:child_process';
@@ -35,6 +36,17 @@ process.env.PATH = [join(homedir(), '.local', 'bin'), process.env.PATH].filter(B
 const { updateInstalledHosts } = await import(new URL('../src/update.mjs', pathToFileURL(entry)));
 await updateInstalledHosts(version);`;
 
+// The copy check runs these files from this tree, so a host whose own checkout
+// predates the check runs this version of it.
+export const SHIPPED_FILES = ['scripts/check-cli-copies.mjs', 'scripts/sync-global-cli.mjs', 'src/util.mjs', 'src/color.mjs'];
+
+const COPIES_SCRIPT = `set -euo pipefail
+node=$1 version=$2
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+tar -xf - -C "$work"
+"$node" "$work/scripts/check-cli-copies.mjs" --ssh "$version"`;
+
 export function readCliHosts(root, env = process.env) {
   const file = env.RUNLIST_RELEASE_CONFIG || path.join(root, '.runlist', 'release-config.json');
   if (!existsSync(file)) return [];
@@ -59,7 +71,31 @@ export function remoteRefreshArgs(host, version, entry) {
   return ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', host.ssh, command];
 }
 
-export function installCliHosts({ root, version, commit, env = process.env, run = spawnSync, log = console.log }) {
+export function remoteCheckArgs(host, version) {
+  const command = ['bash', '-c', COPIES_SCRIPT, 'runlist-check', host.node, version].map(shellQuote).join(' ');
+  return ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', host.ssh, command];
+}
+
+// The host's own report is relayed line by line; exit 1 there means owed.
+export function checkRemoteCliCopies({ host, version, root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'), run = spawnSync, log = console.log }) {
+  const bundle = run('tar', ['-cf', '-', '-C', root, ...SHIPPED_FILES], { env: { ...process.env, COPYFILE_DISABLE: '1' }, maxBuffer: 32 * 1024 ** 2 });
+  if (bundle.error || bundle.status !== 0) {
+    return { ok: false, result: bundle, reason: `could not pack the copy check (${bundle.error?.message ?? `tar exited ${bundle.status}`})` };
+  }
+  const result = run('ssh', remoteCheckArgs(host, version), { input: bundle.stdout, encoding: 'utf8', timeout: 300_000, maxBuffer: 8 * 1024 ** 2 });
+  for (const line of String(result.stdout ?? '').trimEnd().split('\n').filter(Boolean)) log(`  ${line}`);
+  if (!result.error && result.status === 0) return { ok: true, result };
+  return {
+    ok: false,
+    result,
+    reason: result.error ? result.error.message
+      : result.status === 255 ? 'unreachable over SSH'
+      : result.status === 1 ? 'a runlist or rl copy reads another version, or a shell runs none'
+      : `copy check exited ${result.status}`,
+  };
+}
+
+export function installCliHosts({ root, version, commit, env = process.env, run = spawnSync, log = console.log, checkCopies = checkRemoteCliCopies }) {
   if (!/^\d+\.\d+\.\d+/.test(version ?? '') || !/^[a-f0-9]{40}$/.test(commit ?? '')) throw new Error('usage: install-cli-hosts.mjs <version> <commit>');
   const hosts = readCliHosts(root, env);
   if (!hosts.length) {
@@ -77,7 +113,13 @@ export function installCliHosts({ root, version, commit, env = process.env, run 
       log(`→ refreshing and verifying installed host integrations on ${host.ssh}`);
       const refresh = run('ssh', remoteRefreshArgs(host, version, installed.entry ?? installed.links[0].entry), { encoding: 'utf8', timeout: 600_000, maxBuffer: 8 * 1024 ** 2 });
       for (const line of String(refresh.stdout ?? '').trimEnd().split('\n').filter(Boolean)) log(`  ${line}`);
-      if (!refresh.error && refresh.status === 0) continue;
+      if (!refresh.error && refresh.status === 0) {
+        log(`→ checking every runlist and rl on ${host.ssh}`);
+        const copies = checkCopies({ host, version, run, log });
+        if (copies.ok) continue;
+        owe(host, copies.result ?? {}, copies.reason);
+        continue;
+      }
       owe(host, refresh, refresh.error ? refresh.error.message
         : refresh.status === 255 ? 'unreachable over SSH'
         : `host integration refresh exited ${refresh.status}`);
