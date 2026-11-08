@@ -325,8 +325,8 @@ resolved. Removing the desktop app does not uninstall the npm CLI.
 ## Product release workflow
 
 `npm version patch` now stamps CLI, plugin and desktop manifests plus both
-current-version documentation blocks. Preflight requires the qualified Apple
-Silicon Mac host, the existing signing identity/team and the signing team's
+current-version documentation blocks. On the qualified Apple Silicon Mac host,
+preflight requires the existing signing identity/team and the signing team's
 App Store Connect API key. Set `RUNLIST_SIGN_IDENTITY`, `RUNLIST_SIGN_TEAM`,
 `RUNLIST_NOTARY_KEY` (the `AuthKey_<id>.p8` path), `RUNLIST_NOTARY_KEY_ID` and
 `RUNLIST_NOTARY_ISSUER`, or save `signIdentity`, `signTeam`, `notaryKey`,
@@ -337,7 +337,27 @@ and a notarytool Keychain profile is refused because its team cannot be
 checked. The key needs no Keychain, so a release runs with the Mac's screen
 locked. `RUNLIST_RELEASE_CONFIG` can select that private
 file from a clean release checkout. The privacy scanner also needs its local
-key or `RUNLIST_PUBLIC_CHECK_KEY`.
+key or `RUNLIST_PUBLIC_CHECK_KEY`. Wherever that key is present, preflight
+runs `check:public` on the tree, so a private name stops the release before
+the tag is cut.
+
+A host other than the Mac releases the CLI itself and hands only the Mac app's
+build, signing, notarization and publication to a remote desktop release host
+once its private file names the command, for example
+`"desktopReleaseCommand": ["<command>", "<arg>"]` (an argv array; the
+`RUNLIST_DESKTOP_RELEASE_COMMAND` variable overrides it and is split on
+whitespace, with no quoting). Preflight there skips the signing and notary
+checks, and needs the privacy key only to run `check:public`. After npm
+publication `scripts/release-desktop.mjs` checks the exact commit's CI or
+Publish run and any existing `desktop-v<version>` release, takes its lock, runs
+the command from the release checkout with `<version> <sha>` appended and
+stdio inherited, then downloads the published `release-manifest.json`,
+validates it against the version, commit and accepted notarizations and checks
+that the public installer's SHA-256 matches it. Exit 0 must mean the app is
+built, signed, notarized and published on GitHub; exit 112 means the remote
+host has no desktop session that can sign; any non-zero exit fails the phase
+and keeps the release intent. Only the version and commit are sent, never a
+credential. On the Mac the setting is ignored.
 
 Other machines that run the CLI from a checkout rather than an npm global copy
 are listed in the same private file, for example
@@ -349,16 +369,19 @@ tag's commit under `~/.local/share/runlist/artifacts/<commit>` and points
 `~/.local/bin/runlist` and `~/.local/bin/rl` at it. A host that cannot be
 reached or refuses is printed as owed, and `npm run release:resume` retries it.
 
-A host other than the release Mac releases with `npm run release` once the same
-private file there names the Mac, for example
+A host with no `desktopReleaseCommand` can instead drive the whole release on
+the Mac with `npm run release` once the same private file there names the Mac,
+for example
 `"releaseHost": { "ssh": "<mac>", "checkout": "~/<checkout>", "node": "<path to node>", "env": { "TMPDIR": "/private/tmp" } }`
 (`checkout` and `node` are absolute or `~/` paths; `node`'s folder goes first
 on the release's `PATH`; `env` names extra variables for the release). The
 release then runs on the Mac in a tmux session and streams its log back, as
 described in `CLAUDE.md` § Releasing.
 
-After npm publication, the release command builds and checks the matching Mac
-app, signs/notarizes it and publishes the exact verified installer. Release
+After npm publication, the release command on the Mac builds and checks the
+matching Mac app, signs/notarizes it and publishes the exact verified
+installer; any other host hands that to its remote desktop release command and
+verifies the result. Release
 acceptance ends at verified publication; local installation, app launch and
 macOS first-launch approval are not release requirements. A failure retains the
 release intent: use `npm run release:resume` for the same version. Apple request

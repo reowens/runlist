@@ -2,6 +2,22 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- A host other than the release Mac can run the whole release itself and
+  hand only the Mac app's build, signing, notarization and publication to a
+  remote desktop release host, named as `desktopReleaseCommand` (an argv
+  array) in the private release config or as
+  `RUNLIST_DESKTOP_RELEASE_COMMAND`. The command gets the version and commit;
+  this host then verifies the public release against its downloaded manifest.
+  A non-zero exit keeps the release resumable, and exit 112 is reported as no
+  desktop session on that host. On the Mac nothing changes.
+- With the private public-content key present, release preflight runs
+  `check:public` on the tree, so a private name stops the release before the
+  tag is cut instead of in the publish workflow after it.
+
 ## 0.104.6 — 2026-11-07
 
 ### Fixed

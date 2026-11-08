@@ -4,16 +4,17 @@ import { fileURLToPath } from 'node:url';
 import { assertGitIndex } from '../src/git.mjs';
 import { readReleaseIntent } from './release-intent.mjs';
 import { validatePluginManifests } from './sync-plugin-version.mjs';
-import { preflightDesktopRelease } from './desktop-release-config.mjs';
+import { preflightDesktopRelease, remoteDesktopRelease } from './desktop-release-config.mjs';
 import { prepareDesktopVersionUpdates } from '../desktop/scripts/version.mjs';
 import { prepareReleaseDocUpdates } from './stamp-release-docs.mjs';
 import { privateVocabularyAvailable } from './public-content.mjs';
+import { checkPublic as checkPublicContent } from './check-public.mjs';
 
 function git(projectRoot, args) {
   return spawnSync('git', args, { cwd: projectRoot, encoding: 'utf8' });
 }
 
-export function runReleasePreflight(projectRoot = process.cwd()) {
+export function runReleasePreflight(projectRoot = process.cwd(), { env = process.env, platform = process.platform, arch = process.arch } = {}) {
   const pending = readReleaseIntent(projectRoot);
   if (pending) {
     throw new Error(`release v${pending.newVersion} is incomplete; run \`npm run release:resume\` before starting another bump`);
@@ -38,10 +39,24 @@ export function runReleasePreflight(projectRoot = process.cwd()) {
   const version = JSON.parse((git(projectRoot, ['show', 'HEAD:package.json'])).stdout).version;
   prepareDesktopVersionUpdates(projectRoot, version);
   prepareReleaseDocUpdates(projectRoot, version);
-  if (preflightDesktopRelease(projectRoot) && !privateVocabularyAvailable) {
+  preflightDesktopPublication(projectRoot, { env, platform, arch });
+}
+
+// With the private key here, a private name in the tree stops the release
+// before the tag is cut rather than in publish.yml after it. The Mac also
+// needs the key to scan the app bundle; a host that hands the app to a remote
+// desktop release host does not.
+export function preflightDesktopPublication(projectRoot, {
+  env = process.env, platform = process.platform, arch = process.arch,
+  vocabulary = privateVocabularyAvailable, checkPublic = checkPublicContent, issuerSha256,
+} = {}) {
+  if (!preflightDesktopRelease(projectRoot, { env, platform, arch, issuerSha256 })) return;
+  if (vocabulary) checkPublic(projectRoot);
+  else if (!remoteDesktopRelease(projectRoot, { env, platform, arch })) {
     throw new Error('Desktop publication requires the private public-content key before versioning.');
   }
 }
+
 
 if (path.resolve(process.argv[1] || '') === fileURLToPath(import.meta.url)) {
   try {

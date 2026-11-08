@@ -275,6 +275,14 @@ test('release:resume keeps an unpushed version commit and refuses a diverged rel
   assert.equal(git(f.remote, 'rev-parse', 'HEAD'), ahead);
 });
 
+test('off the Mac a remote desktop release command releases here, before and instead of releaseHost', posixOnly, async t => {
+  const f = fixture(t);
+  const { code } = await f.run(['minor'], { env: { RUNLIST_DESKTOP_RELEASE_COMMAND: 'desktop-release --host fixture', PATH: [f.nodeBin, f.env.PATH].join(path.delimiter) } });
+  assert.equal(code, 0);
+  assert.match(readFileSync(f.env.NPM_LOG, 'utf8'), /^npm version minor /);
+  assert.deepEqual(f.calls(), []);
+});
+
 test('on the qualified Mac the release runs npm version in place', posixOnly, async t => {
   const f = fixture(t);
   const { code } = await f.run(['minor'], { platform: 'darwin', arch: 'arm64', env: { PATH: [f.nodeBin, f.env.PATH].join(path.delimiter) } });

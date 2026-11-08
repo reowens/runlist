@@ -7,7 +7,7 @@ import { selectDesktopRelease } from '../src/desktop-install.mjs';
 import { privateBuildEnvironment } from '../desktop/scripts/build-environment.mjs';
 import { checkPublicBundle } from '../desktop/scripts/check-public-bundle.mjs';
 import { saveReceipt } from '../desktop/scripts/notarize.mjs';
-import { preflightDesktopRelease } from './desktop-release-config.mjs';
+import { preflightDesktopRelease, remoteDesktopRelease } from './desktop-release-config.mjs';
 
 export function validateDesktopManifest(manifest, version, source) {
   if (manifest?.version !== version || manifest.sourceCommit !== source || manifest.architecture !== 'arm64'
@@ -19,11 +19,17 @@ export function validateDesktopManifest(manifest, version, source) {
   }
 }
 
+// The remote desktop release command's exit when its host has no desktop
+// session that can sign.
+export const NO_DESKTOP_SESSION = 112;
+
 export async function releaseDesktop(root = process.cwd(), version, source, {
   environment = process.env, exec = execFileSync, preflight = preflightDesktopRelease, checkBundle = checkPublicBundle,
+  platform = process.platform, arch = process.arch,
 } = {}) {
-  const env = preflight(root, { env: environment });
+  const env = preflight(root, { env: environment, platform, arch });
   if (!env) throw new Error('The selected desktop release checkout is missing its desktop sources.');
+  const remote = remoteDesktopRelease(root, { env: environment, platform, arch });
   const capture = (command, args) => exec(command, args, { cwd: root, env, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
   const run = (command, args, extraEnv = env) => exec(command, args, { cwd: root, env: extraEnv, stdio: 'inherit' });
   const head = capture('git', ['rev-parse', 'HEAD']).trim();
@@ -34,7 +40,11 @@ export async function releaseDesktop(root = process.cwd(), version, source, {
     throw new Error('Desktop release must use the exact stable CLI release commit and version.');
   }
   if (capture('git', ['status', '--porcelain=v1', '--untracked-files=all']).trim()) throw new Error('Desktop release source must be clean.');
-  if (source !== head) {
+  if (source !== head && remote) {
+    // The remote host checks out the tag itself; here it only has to be this
+    // checkout's history.
+    capture('git', ['merge-base', '--is-ancestor', source, head]);
+  } else if (source !== head) {
     // Recovery may need newer release tooling after the immutable CLI tag was
     // published. Build that tag in its own checkout, never newer app sources.
     capture('git', ['merge-base', '--is-ancestor', source, head]);
@@ -46,7 +56,7 @@ export async function releaseDesktop(root = process.cwd(), version, source, {
     if (!existsSync(path.join(selected, '.git')) || capture('git', ['-C', selected, 'rev-parse', 'HEAD']).trim() !== source) {
       throw new Error('The recovery checkout is incomplete or belongs to different source; preserve it for inspection.');
     }
-    return releaseDesktop(selected, version, source, { environment: env, exec, preflight, checkBundle });
+    return releaseDesktop(selected, version, source, { environment: env, exec, preflight, checkBundle, platform, arch });
   }
   let verified = false;
   for (const workflow of ['publish.yml', 'ci.yml']) {
@@ -75,7 +85,15 @@ export async function releaseDesktop(root = process.cwd(), version, source, {
   const save = () => saveReceipt(stateFile, state);
   const app = path.join(env.CARGO_TARGET_DIR || path.join(root, 'desktop/src-tauri/target'), 'release/bundle/macos/Runlist.app');
   const manifestFile = path.join(directory, 'release-manifest.json');
-  if (!published || published.isDraft) {
+  if (remote && (!published || published.isDraft)) {
+    console.log(`→ handing the desktop build, signing, notarization and publication of ${version} to ${remote[0]}`);
+    try { run(remote[0], [...remote.slice(1), version, source]); }
+    catch (error) {
+      if (error.status === NO_DESKTOP_SESSION) throw new Error(`The remote desktop release host has no desktop session (exit ${NO_DESKTOP_SESSION}), so it cannot sign. Log in on it, then run \`npm run release:resume\`.`);
+      throw new Error(`The remote desktop release command ${error.status == null ? `failed: ${error.message}` : `exited ${error.status}`}; run \`npm run release:resume\` to retry.`);
+    }
+    published = JSON.parse(capture('gh', ['release', 'view', tag, '--json', 'isDraft,targetCommitish,assets']));
+  } else if (!published || published.isDraft) {
     if (!state.built) {
       run('npm', ['ci', '--prefix', 'desktop']);
       run('npm', ['--prefix', 'desktop', 'test']);
@@ -110,6 +128,11 @@ export async function releaseDesktop(root = process.cwd(), version, source, {
     ...asset, browser_download_url: asset.url,
   })) }]);
   if (installer?.version !== version) throw new Error('The matching desktop release is not publicly downloadable.');
+  if (remote) {
+    if (published.targetCommitish !== source) throw new Error('The published desktop release belongs to a different source commit.');
+    capture('gh', ['release', 'download', tag, '--pattern', 'release-manifest.json', '--dir', directory, '--clobber']);
+    validateDesktopManifest(JSON.parse(readFileSync(manifestFile, 'utf8')), version, source);
+  }
   if (existsSync(manifestFile) && JSON.parse(readFileSync(manifestFile, 'utf8')).sha256 !== installer.sha256) throw new Error('Published desktop bytes differ from the qualified installer.');
   state.published = true; save();
   console.log(`Desktop ${version} published.`);

@@ -9,10 +9,13 @@ const SIGN_TEAM = '7GSPYYN5X8';
 // team, so a key from any other team is refused here.
 export const NOTARY_ISSUER_SHA256 = 'e7be6dfa3fbf7f28b2cc9d1d0a7dd95d243611711c8b7acd442381bd3af93db2';
 
+const configFile = (root, env) => env.RUNLIST_RELEASE_CONFIG || path.join(root, '.runlist', 'release-config.json');
+const readConfig = file => (existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {});
+const appleSilicon = (platform, arch) => platform === 'darwin' && arch === 'arm64';
+
 export function desktopReleaseEnvironment(root, env = process.env) {
   env = cleanNpmEnv(path.dirname(process.execPath), env);
-  const file = env.RUNLIST_RELEASE_CONFIG || path.join(root, '.runlist', 'release-config.json');
-  const config = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {};
+  const config = readConfig(configFile(root, env));
   return {
     ...env,
     RUNLIST_SIGN_IDENTITY: env.RUNLIST_SIGN_IDENTITY || config.signIdentity,
@@ -46,9 +49,33 @@ export function notaryCredentials(env = process.env, { issuerSha256 = NOTARY_ISS
   return { key, keyId, issuer };
 }
 
+// The command a host other than the release Mac runs for the desktop phase,
+// with the version and source commit appended: an argv array as
+// desktopReleaseCommand in the private release config, or a whitespace-split
+// RUNLIST_DESKTOP_RELEASE_COMMAND, which wins.
+export function desktopReleaseCommand(root, env = process.env) {
+  const fromEnv = env.RUNLIST_DESKTOP_RELEASE_COMMAND?.trim();
+  if (fromEnv) return fromEnv.split(/\s+/);
+  const file = configFile(root, env);
+  const command = readConfig(file).desktopReleaseCommand;
+  if (command === undefined) return null;
+  if (!Array.isArray(command) || !command.length || command.some(arg => typeof arg !== 'string' || !arg)) {
+    throw new Error(`desktopReleaseCommand in ${file} must be a non-empty array of non-empty strings`);
+  }
+  return command;
+}
+
+// Null on the release Mac, which builds the app itself.
+export function remoteDesktopRelease(root, { env = process.env, platform = process.platform, arch = process.arch } = {}) {
+  return appleSilicon(platform, arch) ? null : desktopReleaseCommand(root, env);
+}
+
 export function preflightDesktopRelease(root, { env = process.env, platform = process.platform, arch = process.arch, issuerSha256 } = {}) {
   if (!existsSync(path.join(root, 'desktop/package.json'))) return;
-  if (platform !== 'darwin' || arch !== 'arm64') throw new Error('Product releases run on the qualified Apple Silicon Mac desktop release host. From any other host run `npm run release`, which drives that Mac over SSH (releaseHost in the private .runlist/release-config.json).');
+  if (!appleSilicon(platform, arch)) {
+    if (desktopReleaseCommand(root, env)) return desktopReleaseEnvironment(root, env);
+    throw new Error('Product releases run on the qualified Apple Silicon Mac desktop release host. From any other host run `npm run release`, which drives that Mac over SSH (releaseHost in the private .runlist/release-config.json), or name a remote desktop release command as desktopReleaseCommand there so this host releases the CLI and hands only the Mac app to it.');
+  }
   const signing = desktopReleaseEnvironment(root, env);
   for (const key of ['RUNLIST_SIGN_IDENTITY', 'RUNLIST_SIGN_TEAM']) {
     if (typeof signing[key] !== 'string' || !signing[key].trim()) {

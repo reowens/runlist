@@ -1,12 +1,13 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,mkdirSync,readFileSync,writeFileSync,rmSync} from 'node:fs';
+import {existsSync,mkdtempSync,mkdirSync,readFileSync,writeFileSync,rmSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {notarizeArtifact} from '../desktop/scripts/notarize.mjs';
-import {desktopReleaseEnvironment,preflightDesktopRelease,notaryCredentials,NOTARY_ISSUER_SHA256} from '../scripts/desktop-release-config.mjs';
-import {releaseDesktop,validateDesktopManifest} from '../scripts/release-desktop.mjs';
+import {desktopReleaseCommand,desktopReleaseEnvironment,preflightDesktopRelease,notaryCredentials,NOTARY_ISSUER_SHA256} from '../scripts/desktop-release-config.mjs';
+import {preflightDesktopPublication} from '../scripts/release-preflight.mjs';
+import {releaseDesktop,validateDesktopManifest,NO_DESKTOP_SESSION} from '../scripts/release-desktop.mjs';
 import {prepareReleaseDocUpdates} from '../scripts/stamp-release-docs.mjs';
 import {planUpdate} from '../src/update.mjs';
 
@@ -43,7 +44,7 @@ test('desktop publication completes without installing or launching a local app'
   if(args.some(arg=>arg.includes('check-installed.mjs')))throw new Error('Release must not execute installed-app diagnostics');
   return '';
  };
- const options={environment:{},exec,preflight:()=>({}),checkBundle:()=>{bundleChecks++;return {files:1};}};
+ const options={environment:{RUNLIST_DESKTOP_RELEASE_COMMAND:'never-run-on-the-mac'},exec,preflight:()=>({}),platform:'darwin',arch:'arm64',checkBundle:()=>{bundleChecks++;return {files:1};}};
  await releaseDesktop(root,version,source,options);
  const state=JSON.parse(readFileSync(path.join(directory,'state.json')));
  assert.equal(state.published,true);assert.ok(!Object.hasOwn(state,'installed'));
@@ -53,6 +54,105 @@ test('desktop publication completes without installing or launching a local app'
  commands.length=0;
  await releaseDesktop(root,version,source,options);
  assert.ok(commands.every(command=>['git','gh'].includes(command[0])));
+});
+
+// A host that is not the release Mac, with a remote desktop release command:
+// the command publishes the release on GitHub, then this host verifies it.
+function remoteFixture(t,{exit=0}={}){
+ const root=fixture(t),version='0.99.2',source='b'.repeat(40),bytes=Buffer.from('remotely signed installer');
+ const artifact=`Runlist-${version}-macOS-arm64.dmg`,sha256=createHash('sha256').update(bytes).digest('hex');
+ const directory=path.join(root,'.runlist/desktop-release',version);
+ writeFileSync(path.join(root,'package.json'),JSON.stringify({version}));
+ const manifest={version,sourceCommit:source,architecture:'arm64',protocol:1,team:'7GSPYYN5X8',notarized:true,sha256,artifact,submissions:[{status:'Accepted'},{status:'Accepted'}]};
+ const commands=[];let published=false;
+ t.mock.method(console,'log',()=>{});
+ const exec=(program,args,opts)=>{
+  commands.push([program,...args]);
+  if(program==='git'){
+   if(args.join(' ')==='rev-parse HEAD')return source;
+   if(args[0]==='status')return '';
+   throw new Error('Unexpected Git operation');
+  }
+  if(program==='gh'){
+   if(args[0]==='api')return JSON.stringify(args[1].includes('/workflows/')?{workflow_runs:[{head_sha:source,event:'push',conclusion:'success'}]}:[]);
+   if(args[1]==='view'){
+    if(!published)throw new Error('Release is absent');
+    return JSON.stringify({isDraft:false,targetCommitish:source,assets:[{name:artifact,state:'uploaded',size:bytes.length,digest:`sha256:${sha256}`,url:`https://github.com/reowens/runlist/releases/download/desktop-v${version}/${artifact}`}]});
+   }
+   if(args[1]==='download'){writeFileSync(path.join(args[args.indexOf('--dir')+1],'release-manifest.json'),JSON.stringify(fixtureManifest.value));return '';}
+   throw new Error(`Unexpected gh ${args.join(' ')}`);
+  }
+  if(program==='desktop-release'){
+   assert.equal(opts.cwd,root);assert.equal(opts.stdio,'inherit');
+   if(exit){const error=new Error(`Command failed: ${program}`);error.status=exit;throw error;}
+   published=true;return '';
+  }
+  throw new Error(`Unexpected ${program}`);
+ };
+ const fixtureManifest={value:manifest};
+ const options={environment:{RUNLIST_DESKTOP_RELEASE_COMMAND:'desktop-release --host fixture'},exec,preflight:()=>({}),platform:'linux',arch:'x64',checkBundle:()=>{throw new Error('No local bundle scan off the Mac');}};
+ return {root,version,source,directory,commands,options,fixtureManifest};
+}
+
+test('off the Mac the remote desktop release command builds and publishes, then this host verifies the public release',async t=>{
+ const f=remoteFixture(t);
+ await releaseDesktop(f.root,f.version,f.source,f.options);
+ assert.ok(f.commands.some(command=>command.join(' ')===`desktop-release --host fixture ${f.version} ${f.source}`));
+ assert.ok(f.commands.every(command=>['git','gh','desktop-release'].includes(command[0])));
+ assert.ok(f.commands.some(command=>command[0]==='gh'&&command[2]==='download'));
+ const state=JSON.parse(readFileSync(path.join(f.directory,'state.json')));
+ assert.equal(state.published,true);assert.ok(!Object.hasOwn(state,'built'));
+ f.commands.length=0;
+ await releaseDesktop(f.root,f.version,f.source,f.options);
+ assert.ok(!f.commands.some(command=>command[0]==='desktop-release'),'a published release is verified, not handed over again');
+});
+
+test('off the Mac a published manifest for other bytes fails verification',async t=>{
+ const f=remoteFixture(t);f.fixtureManifest.value={...f.fixtureManifest.value,sha256:'c'.repeat(64)};
+ await assert.rejects(releaseDesktop(f.root,f.version,f.source,f.options),/differ from the qualified installer/);
+ assert.ok(!existsSync(path.join(f.directory,'release.lock')));
+});
+
+test('a failing remote desktop release command fails the phase and keeps it resumable',async t=>{
+ for(const [exit,message] of [[1,/remote desktop release command exited 1[\s\S]*release:resume/],[NO_DESKTOP_SESSION,/no desktop session \(exit 112\)[\s\S]*release:resume/]]){
+  const f=remoteFixture(t,{exit});
+  await assert.rejects(releaseDesktop(f.root,f.version,f.source,f.options),message);
+  assert.ok(!existsSync(path.join(f.directory,'release.lock')));
+  const stateFile=path.join(f.directory,'state.json');
+  assert.ok(!existsSync(stateFile)||!JSON.parse(readFileSync(stateFile)).published);
+ }
+});
+
+test('the remote desktop release command comes from the environment or the private release config',t=>{
+ const root=fixture(t),file=path.join(root,'release-config.json'),env={RUNLIST_RELEASE_CONFIG:file};
+ assert.equal(desktopReleaseCommand(root,env),null);
+ writeFileSync(file,JSON.stringify({desktopReleaseCommand:['/opt/release/desktop','--tool','runlist']}));
+ assert.deepEqual(desktopReleaseCommand(root,env),['/opt/release/desktop','--tool','runlist']);
+ assert.deepEqual(desktopReleaseCommand(root,{...env,RUNLIST_DESKTOP_RELEASE_COMMAND:' other  --flag '}),['other','--flag']);
+ for(const value of ['desktop',[],['desktop',''],[1]]){
+  writeFileSync(file,JSON.stringify({desktopReleaseCommand:value}));
+  assert.throws(()=>desktopReleaseCommand(root,env),/desktopReleaseCommand[\s\S]*non-empty array/);
+ }
+});
+
+test('release preflight scans the tree when the private key is here and hands the app off only off the Mac',t=>{
+ const root=fixture(t);mkdirSync(path.join(root,'desktop'));writeFileSync(path.join(root,'desktop/package.json'),'{}');
+ const scanned=[],checkPublic=dir=>{scanned.push(dir);},none=path.join(root,'none.json');
+ const linux={platform:'linux',arch:'x64',checkPublic},remote={RUNLIST_RELEASE_CONFIG:none,RUNLIST_DESKTOP_RELEASE_COMMAND:'desktop-release'};
+ assert.throws(()=>preflightDesktopPublication(root,{...linux,env:{RUNLIST_RELEASE_CONFIG:none},vocabulary:true}),/Apple Silicon Mac/);
+ assert.doesNotThrow(()=>preflightDesktopPublication(root,{...linux,env:remote,vocabulary:false}));
+ assert.deepEqual(scanned,[]);
+ preflightDesktopPublication(root,{...linux,env:remote,vocabulary:true});
+ assert.deepEqual(scanned,[root]);
+ assert.throws(()=>preflightDesktopPublication(root,{...linux,env:remote,vocabulary:true,checkPublic:()=>{throw new Error('Public content check failed');}}),/Public content check failed/);
+ assert.throws(()=>preflightDesktopPublication(root,{platform:'darwin',arch:'arm64',env:remote,vocabulary:false,checkPublic}),/RUNLIST_SIGN_IDENTITY/);
+ const key=path.join(root,'AuthKey_ABCDE12345.p8');writeFileSync(key,'fixture key');
+ const mac={RUNLIST_SIGN_IDENTITY:'fixture identity',RUNLIST_SIGN_TEAM:'7GSPYYN5X8',RUNLIST_NOTARY_KEY:key,RUNLIST_NOTARY_KEY_ID:'ABCDE12345',RUNLIST_NOTARY_ISSUER:'personal-issuer',RUNLIST_RELEASE_CONFIG:none};
+ const darwin={platform:'darwin',arch:'arm64',env:mac,checkPublic,issuerSha256:createHash('sha256').update('personal-issuer').digest('hex')};
+ assert.throws(()=>preflightDesktopPublication(root,{...darwin,vocabulary:false}),/private public-content key/);
+ assert.equal(scanned.length,1);
+ const fresh=fixture(t);assert.doesNotThrow(()=>preflightDesktopPublication(fresh,{...linux,env:{RUNLIST_RELEASE_CONFIG:none},vocabulary:true}));
+ assert.equal(scanned.length,1,'a tree without desktop sources is not scanned');
 });
 
 test('notarization saves the request before timeout and resumes without submitting again',t=>{
@@ -77,7 +177,10 @@ test('notarization saves the request before timeout and resumes without submitti
 
 test('release preflight rejects missing signing inputs before starting a product release',t=>{
  const root=fixture(t);mkdirSync(path.join(root,'desktop'));writeFileSync(path.join(root,'desktop/package.json'),'{}');
- assert.throws(()=>preflightDesktopRelease(root,{platform:'linux',arch:'arm64',env:{}}),/Apple Silicon Mac[\s\S]*npm run release/);
+ assert.throws(()=>preflightDesktopRelease(root,{platform:'linux',arch:'arm64',env:{RUNLIST_RELEASE_CONFIG:path.join(root,'none.json')}}),/Apple Silicon Mac[\s\S]*npm run release[\s\S]*desktopReleaseCommand/);
+ const offMac=preflightDesktopRelease(root,{platform:'linux',arch:'x64',env:{RUNLIST_DESKTOP_RELEASE_COMMAND:'desktop-release',PATH:'/fixture/bin'}});
+ assert.equal(offMac.CARGO_BUILD_JOBS,'1');assert.equal(offMac.RUNLIST_SIGN_IDENTITY,undefined);
+ assert.throws(()=>preflightDesktopRelease(root,{platform:'darwin',arch:'arm64',env:{RUNLIST_DESKTOP_RELEASE_COMMAND:'desktop-release'}}),/RUNLIST_SIGN_IDENTITY/);
  assert.throws(()=>preflightDesktopRelease(root,{platform:'darwin',arch:'arm64',env:{}}),/RUNLIST_SIGN_IDENTITY/);
  const key=path.join(root,'AuthKey_ABCDE12345.p8');writeFileSync(key,'fixture key');
  const issuerSha256=createHash('sha256').update('personal-issuer').digest('hex'),mac={platform:'darwin',arch:'arm64',issuerSha256};

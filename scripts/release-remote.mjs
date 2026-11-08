@@ -13,7 +13,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { shellQuote } from '../src/util.mjs';
-import { preflightDesktopRelease } from './desktop-release-config.mjs';
+import { preflightDesktopRelease, remoteDesktopRelease } from './desktop-release-config.mjs';
 import { readReleaseIntent } from './release-intent.mjs';
 import { runReleasePreflight } from './release-preflight.mjs';
 
@@ -277,7 +277,9 @@ function runHere(command, args, { root, env }) {
 }
 
 function hereQualification(root, env, platform, arch) {
-  if (platform !== 'darwin' || arch !== 'arm64') return 'this host is not an Apple Silicon Mac';
+  // A host with a remote desktop release command releases here and hands only
+  // the Mac app to that command.
+  if ((platform !== 'darwin' || arch !== 'arm64') && !remoteDesktopRelease(root, { env, platform, arch })) return 'this host is not an Apple Silicon Mac';
   try {
     preflightDesktopRelease(root, { env, platform, arch });
     return null;
@@ -347,14 +349,14 @@ export async function runRelease({ argv = [], root = process.cwd(), env = proces
   const unqualified = hereQualification(root, env, platform, arch);
   if (!unqualified) {
     if (options.dryRun) {
-      runReleasePreflight(root);
+      runReleasePreflight(root, { env, platform, arch });
       say(`✓ release preflight passes; would run \`npm version ${options.bump}\` here`);
       return 0;
     }
     return runHere('npm', ['version', options.bump], io);
   }
   if (!host) {
-    throw new Error(`releases run on the qualified Apple Silicon Mac (${unqualified}); name that Mac as "releaseHost": { "ssh": "<destination>", "checkout": "<its checkout>", "node": "<its Node executable>" } in ${file}`);
+    throw new Error(`releases run on the qualified Apple Silicon Mac (${unqualified}); name that Mac as "releaseHost": { "ssh": "<destination>", "checkout": "<its checkout>", "node": "<its Node executable>" } in ${file}, or release from here with a remote desktop release command as "desktopReleaseCommand": ["<command>", "<args>"]`);
   }
 
   const local = localChecks(root, env);
