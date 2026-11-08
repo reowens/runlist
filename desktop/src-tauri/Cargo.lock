@@ -2977,7 +2977,7 @@ dependencies = [
 
 [[package]]
 name = "runlist-desktop"
-version = "0.104.6"
+version = "0.104.7"
 dependencies = [
  "dunce",
  "libc",
