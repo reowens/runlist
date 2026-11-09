@@ -1,6 +1,6 @@
 [package]
 name = "runlist-desktop"
-version = "0.104.7"
+version = "0.104.8"
 description = "Local Markdown plans and documents"
 authors = ["Robert Owens"]
 license = "MIT"
