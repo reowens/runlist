@@ -14,6 +14,8 @@ All notable changes to `runlist` are documented here. Older releases predate thi
   another session holds is refused exactly as a status change is. They do not
   combine with `in-session` or an archive status. `runlist set <file>
   <status>` now says the status comes first.
+- `runlist baton --done --next-step` and `--current-state` now check the
+  same 800 and 1500 character caps before writing.
 - `runlist show --section` takes a heading by its leading number (`6.4`,
   `6.4.`, `Phase 3.5`, `A4`), and ignores trailing `[n/m]` box tallies, so a
   heading copied from the outline matches. A number, prefix or substring
