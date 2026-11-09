@@ -161,6 +161,39 @@ test('cat of a prompt warns and nudges to runlist use', () => {
   assert.match(r.reason, /runlist use docs\/prompts\/foo\.md/);
 });
 
+test('sed, awk, grep and rg reads of a prompt warn and point at runlist prompts show', () => {
+  for (const command of [
+    'sed -n 1,30p docs/prompts/foo.md | cut -c1-500',
+    "awk 'NR<=12' docs/prompts/foo.md",
+    'grep -n plan: docs/prompts/foo.md',
+    'rg -n next docs/prompts/foo.md',
+  ]) {
+    const r = evaluateGuard({ tool_name: 'Bash', tool_input: { command } }, config, notIncluded);
+    assert.equal(r?.rule, 'cat-prompt', command);
+    assert.match(r.reason, /runlist prompts show docs\/prompts\/foo\.md/);
+  }
+});
+
+test('sed -i on a prompt is an edit, not a read', () => {
+  const r = evaluateGuard(
+    { tool_name: 'Bash', tool_input: { command: "sed -i 's/teh/the/' docs/prompts/foo.md" } },
+    config, notIncluded,
+  );
+  assert.equal(r, null);
+});
+
+test("another repo's prompt is not this repo's trip", () => {
+  for (const command of [
+    'cat $OTHER/docs/prompts/foo.md',
+    'head ~/elsewhere/docs/prompts/foo.md',
+    'cat /elsewhere/docs/prompts/foo.md',
+    'cd /elsewhere && head docs/prompts/foo.md',
+  ]) {
+    assert.equal(evaluateGuard({ tool_name: 'Bash', tool_input: { command } }, config, notIncluded), null, command);
+  }
+  assert.equal(evaluateGuard({ tool_name: 'Bash', tool_input: { command: 'cat /repo/docs/prompts/foo.md' } }, config, notIncluded)?.rule, 'cat-prompt');
+});
+
 test('Read tool on a prompt warns', () => {
   const r = evaluateGuard(
     { tool_name: 'Read', tool_input: { file_path: 'docs/prompts/foo.md' } },

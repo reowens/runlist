@@ -72,21 +72,55 @@ export function findSection(sections, name) {
   return sections.find(s => norm(s.heading) === target) ?? null;
 }
 
-// Every section whose heading matches `query`, best first: exact, then prefix,
-// then substring, document order within each. Case-insensitive; leading `#`s
-// and trailing markers are ignored on both sides, as in findSection.
-export function matchSections(sections, query) {
-  const norm = (s) => s.toLowerCase().replace(/^#+\s*/, '').replace(/[^\w\s]+$/, '').replace(/\s+/g, ' ').trim();
-  const q = norm(query);
-  if (!q) return [];
-  const tiers = [[], [], []];
-  for (const s of sections) {
-    const h = norm(s.heading);
-    if (h === q) tiers[0].push(s);
-    else if (h.startsWith(q)) tiers[1].push(s);
-    else if (h.includes(q)) tiers[2].push(s);
+// A heading as matching sees it: lowercase, no leading `#`s, and no trailing
+// markers or `[3/7]` box tallies (the outline prints one after the heading,
+// so a heading copied from it may carry two).
+const TALLY_TAIL = /(?:\s*\[\d+\/\d+\])+\s*$/;
+function headingKey(text) {
+  let t = text.toLowerCase().replace(/^#+\s*/, '').trim();
+  for (let prev; prev !== t;) {
+    prev = t;
+    t = t.replace(TALLY_TAIL, '').replace(/[^\w\s]+$/u, '').trim();
   }
-  return tiers.flat();
+  return t.replace(/\s+/g, ' ');
+}
+
+export function stripTally(heading) {
+  return heading.replace(TALLY_TAIL, '');
+}
+
+// The leading number of a heading key: `6.4`, `6.4.`, `Phase 3.5`, `A4`,
+// after any glyphs. `word` is the label before it (phase, step), when there is one.
+const NUMBER_RE = /^(?:(phase|step|part|section|stage|wave|lane|item)\s+)?([a-z]?\d+(?:\.\d+)*)\.?(?=[\s:)—–-]|$)/u;
+function leadingNumber(key) {
+  const m = key.replace(/^[^\p{L}\p{N}]+/u, '').match(NUMBER_RE);
+  if (!m) return null;
+  const rest = key.replace(/^[^\p{L}\p{N}]+/u, '').slice(m[0].length).replace(/^[^\p{L}\p{N}]+/u, '');
+  return { word: m[1] ?? null, number: m[2], rest };
+}
+
+// Sections whose heading matches `query`, in 4 tiers: exact, the same leading
+// number (and the query's words starting the rest), prefix, then substring;
+// document order within each, and each section in its best tier only.
+export function rankSections(sections, query) {
+  const q = headingKey(query);
+  const tiers = [[], [], [], []];
+  if (!q) return tiers;
+  const qn = leadingNumber(q);
+  for (const s of sections) {
+    const h = headingKey(s.heading);
+    const hn = qn && leadingNumber(h);
+    if (h === q) tiers[0].push(s);
+    else if (hn && hn.number === qn.number && (!qn.word || qn.word === hn.word) && hn.rest.startsWith(qn.rest)) tiers[1].push(s);
+    else if (h.startsWith(q)) tiers[2].push(s);
+    else if (h.includes(q)) tiers[3].push(s);
+  }
+  return tiers;
+}
+
+// Every section whose heading matches `query`, best first (rankSections).
+export function matchSections(sections, query) {
+  return rankSections(sections, query).flat();
 }
 
 // Checklist boxes outside code fences, with body-relative 1-indexed lines.

@@ -53,6 +53,8 @@ describe('corrective command guidance', () => {
     const cases = [
       [['edit', '--help'], /runlist set <status> <file>/],
       [['claims', '--help'], /runlist doctor --claims/],
+      [['docs'], /runlist query --type doc/],
+      [['docs', '--help'], /runlist new doc <name>/],
       [['claims', '--help'], /read-only/],
       [['link', 'docs/plans/example.md', 'docs/prompts/resume-example.md'], /runlist xref <file>/],
       [['show', 'docs/plans/example.md', '--section', 'Phase 1', '--from', '93', '--lines', '12'], /Drop --lines/],

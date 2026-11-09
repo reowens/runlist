@@ -30,6 +30,9 @@ const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 
 //            than block.
 
 const SHELL_READERS = new Set(['cat', 'less', 'more', 'head', 'tail', 'bat', 'view', 'open']);
+// Read a slice of a file (`sed -n 1,12p`, `awk 'NR<=12'`, `grep -n x`). sed and
+// awk count only when they are not editing in place: Rule C owns those.
+const SLICE_READERS = new Set(['sed', 'awk', 'gawk', 'grep', 'egrep', 'rg']);
 
 // Normalize path separators so the guard's `/`-based matching also fires on
 // Windows backslash paths (`docs\prompts\foo.md`). Without this the PreToolUse
@@ -285,6 +288,17 @@ function promptReadDecision(filePath, config, deps = {}) {
   } catch { return 'warn'; }
 }
 
+// A prompt token counts for this repo only when it resolves inside it: another
+// repo's prompt, or a path behind an unexpanded variable, is that repo's own
+// guard's business and must not be logged against this one. A relative path
+// read from the hook's own folder is taken as this repo's.
+function insideRepo(token, cwd, baseCwd, config) {
+  if (/[$~]/.test(token)) return false;
+  if (!config?.repoRoot || (!path.isAbsolute(token) && cwd === baseCwd)) return true;
+  const relative = path.relative(path.resolve(config.repoRoot), path.resolve(cwd ?? config.repoRoot, token));
+  return relative !== '' && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
+
 function evalBash(command, config, inspectGitPaths, baseCwd, deps = {}) {
   const segments = shellSegments(command);
   let cwd = baseCwd;
@@ -294,7 +308,7 @@ function evalBash(command, config, inspectGitPaths, baseCwd, deps = {}) {
     if (!segTokens.length) continue;
     const commandIndex = executableIndex(segTokens);
     const cmd0 = path.basename(segTokens[commandIndex] ?? '');
-    const promptTokens = segTokens.filter(token => isPromptPath(token, config));
+    const promptTokens = segTokens.filter(token => isPromptPath(token, config) && insideRepo(token, cwd, baseCwd, config));
     if (cmd0 === 'cd' && segTokens[commandIndex + 1]) {
       cwd = path.resolve(cwd, segTokens[commandIndex + 1]);
       continue;
@@ -325,7 +339,9 @@ function evalBash(command, config, inspectGitPaths, baseCwd, deps = {}) {
     }
 
     // Rule B — reading a prompt through the shell instead of consuming it.
-    if (SHELL_READERS.has(cmd0) && promptTokens.length) {
+    const reads = SHELL_READERS.has(cmd0)
+      || (SLICE_READERS.has(cmd0) && !STREAM_EDITOR_INPLACE.some(re => re.test(seg)));
+    if (reads && promptTokens.length) {
       return {
         decision: promptReadDecision(promptTokens[0], config, { ...deps, gitCwd: cwd }),
         rule: 'cat-prompt',

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { extractFrontmatter, parseSimpleFrontmatter, normalizeEol } from './frontmatter.mjs';
+import { extractFrontmatter, parseSimpleFrontmatter, normalizeEol, replaceFrontmatter } from './frontmatter.mjs';
+import { replaceFrontmatterField } from './frontmatter-fix.mjs';
 import { asString, toRepoPath, die, warn, resolveDocPath, resolveRefPath, escapeRegex, nowIso, suggestCandidates, emitFilesFooter, isArchivedPath, currentSessionId } from './util.mjs';
 import { readJournalEntries } from './journal.mjs';
 import { captureGitIndexGeneration, getGitLastModifiedBatch, getGitLastSubstantiveModifiedBatch, isTracked } from './git.mjs';
@@ -66,6 +67,41 @@ export function renderLifecycleMutation(raw, updates, historyEntry, { createSect
     }
   }
   return `---\n${frontmatter}\n---\n${body}`;
+}
+
+// next_step and current_state as `runlist set` and `runlist baton --done`
+// write them: one line each, within the caps `runlist check` reports
+// (src/validate.mjs).
+export const PLAN_FIELD_FLAGS = Object.freeze({ '--next-step': 'next_step', '--current-state': 'current_state' });
+const PLAN_FIELD_CAPS = Object.freeze({ next_step: 800, current_state: 1500 });
+
+// Whitespace runs collapse to one space: that is what the folded scalar the
+// writer emits reads back as.
+export function normalizeFieldValue(value) {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+// A newline is refused rather than folded away: the writer emits a folded
+// scalar, which would silently join the lines, and a value that needs several
+// lines belongs in the plan body.
+export function checkedFieldValue(flag, value) {
+  if (typeof value !== 'string' || !value.trim()) die(`${flag} needs a nonempty value, e.g. ${flag} "<text>".`);
+  if (/[\r\n]/.test(value)) die(`${flag} takes one line; put anything longer in the plan body.`);
+  const normalized = normalizeFieldValue(value);
+  const cap = PLAN_FIELD_CAPS[PLAN_FIELD_FLAGS[flag]];
+  if (cap && normalized.length > cap) {
+    die(`${flag} is ${normalized.length} characters (cap ${cap}). Keep it a short pointer and put the detail in the plan body.`);
+  }
+  return normalized;
+}
+
+// Writes each field as a folded scalar, replacing a multi-line value whole.
+export function applyFieldUpdates(raw, fields) {
+  const { frontmatter } = extractFrontmatter(raw);
+  if (!frontmatter) throw new Error('the document has no frontmatter block');
+  let next = frontmatter;
+  for (const [key, value] of Object.entries(fields)) next = replaceFrontmatterField(next, key, value);
+  return replaceFrontmatter(raw, next);
 }
 
 function commitLifecycleMutation(filePath, targetPath, config, updates, historyForOldStatus, options = {}) {
@@ -542,6 +578,7 @@ export async function runStatus(argv, config, opts = {}) {
     return note ? `${currentTransition} — ${note}` : `${currentTransition}.`;
   }, {
     createSection: Boolean(note),
+    sourceTransform: opts.sourceTransform,
     additionalUpdates: opts.additionalUpdates,
     creations: opts.creations,
     guards: opts.guards,
@@ -978,6 +1015,29 @@ function batonSavedThisSession(config) {
   return false;
 }
 
+const SET_USAGE = 'Usage: runlist set <status> [<file>] [--next-step "<text>"] [--current-state "<text>"]\n       runlist set [<file>] --next-step "<text>" [--current-state "<text>"]';
+
+function isKnownStatus(config, word) {
+  if (!word) return false;
+  if (config.validStatuses?.has(word)) return true;
+  for (const statuses of config.typeStatuses?.values() ?? []) if (statuses.has(word)) return true;
+  for (const statuses of config.rootValidStatuses?.values() ?? []) if (statuses.has(word)) return true;
+  return false;
+}
+
+function writeDocFields(filePath, repoPath, fields, config, { dryRun = false, note = null } = {}) {
+  const names = Object.keys(fields).join(' and ');
+  if (dryRun) {
+    for (const [key, value] of Object.entries(fields)) process.stdout.write(`${dim('[dry-run]')} Would write ${key}: ${value}\n`);
+    if (note) process.stdout.write(`${dim('[dry-run]')} Would append Version History: ${names} — ${note}\n`);
+    return { dryRun: true, oldRepoPath: repoPath, newRepoPath: repoPath, written: fields };
+  }
+  mutateFile(filePath, { repoRoot: config.repoRoot }, raw =>
+    renderLifecycleMutation(applyFieldUpdates(raw, fields), { updated: nowIso() }, note ? `Updated ${names} — ${note}` : null, { createSection: Boolean(note) }));
+  process.stdout.write(`${green(repoPath)}: wrote ${names}\n`);
+  return { oldRepoPath: repoPath, newRepoPath: repoPath, written: fields };
+}
+
 export async function runSet(argv, config, opts = {}) {
   const { dryRun } = opts;
   const noIndex = argv.includes('--no-index');
@@ -992,13 +1052,39 @@ export async function runSet(argv, config, opts = {}) {
     argv = argv.filter((_, i) => i !== noteIdx && i !== noteIdx + 1);
   }
 
-  const newStatus = argv[0];
-  let input = argv[1];
+  const fields = {};
+  for (const [flag, key] of Object.entries(PLAN_FIELD_FLAGS)) {
+    const idx = argv.indexOf(flag);
+    if (idx === -1) continue;
+    const value = argv[idx + 1];
+    if (value === undefined || value.startsWith('--')) die(`${flag} needs a value: ${flag} "<text>"`);
+    fields[key] = checkedFieldValue(flag, value);
+    argv = argv.filter((_, i) => i !== idx && i !== idx + 1);
+  }
+  const writingFields = Object.keys(fields).length > 0;
 
-  if (!newStatus) die('Usage: runlist set <status> [<path>]');
+  let newStatus = argv[0] ?? null;
+  let input = argv[1];
+  // With a field flag the status is optional, so a lone word that is not a
+  // status names the document.
+  if (writingFields && argv.length === 1 && !isKnownStatus(config, newStatus)) {
+    input = newStatus;
+    newStatus = null;
+  }
+
+  if (!newStatus && !writingFields) die(SET_USAGE);
+  if (!writingFields && argv.length === 2 && !isKnownStatus(config, argv[0]) && isKnownStatus(config, argv[1])) {
+    die(`The status comes first: runlist set ${argv[1]} ${argv[0]}\n${SET_USAGE}`);
+  }
+  if (writingFields && newStatus === 'in-session') {
+    die('--next-step and --current-state do not combine with in-session. Claim the plan with `runlist set in-session <file>`, then write the fields with `runlist set <file> --next-step "<text>"`.');
+  }
+  if (writingFields && config.lifecycle.archiveStatuses.has(newStatus)) {
+    die(`--next-step and --current-state do not combine with ${newStatus}; an archived plan has no next step.`);
+  }
   let sessionId = null;
   // Where planning is off there is no claimed plan to default to.
-  if (!input && config.mode === 'handoffs') die(`Name the prompt to change: runlist set ${newStatus} <prompt>`);
+  if (!input && config.mode === 'handoffs') die(`Name the prompt to change: runlist set ${newStatus ?? '<status>'} <prompt>`);
   if (!input) {
     sessionId = authoritativeSessionId();
     const owned = listOwnedPlans(config, sessionId);
@@ -1024,8 +1110,20 @@ export async function runSet(argv, config, opts = {}) {
   let oldFm = null;
   try { oldFm = parseSimpleFrontmatter(extractFrontmatter(readFileSync(filePath, 'utf8')).frontmatter); } catch { /* runStatus reports malformed docs */ }
   const oldOwnership = asString(oldFm?.type) === 'plan' ? readPlanOwnership(repoPath, config) : null;
-  const releasing = asString(oldFm?.type) === 'plan'
+  const claimed = asString(oldFm?.type) === 'plan'
     && (asString(oldFm?.status) === 'in-session' || oldOwnership?.state === 'owned' || oldOwnership?.corrupt);
+
+  // Fields with no status change write in place and keep any claim: the same
+  // ownership check a release makes, and nothing released.
+  if (writingFields && (!newStatus || newStatus === asString(oldFm?.status))) {
+    if (claimed) {
+      sessionId ??= opts.sessionId ?? authoritativeSessionId();
+      assertPlanMutationAuthorized(repoPath, config, { sessionId, force });
+    }
+    return writeDocFields(filePath, repoPath, fields, config, { dryRun, note });
+  }
+
+  const releasing = claimed;
   if (releasing) {
     // opts.sessionId lets a repair caller supply the operator identity. Only
     // `doctor --claims` passes it: releasing a claim stamps the id into the
@@ -1101,10 +1199,14 @@ export async function runSet(argv, config, opts = {}) {
   const releaseUpdate = releasing
     ? prepareOwnershipRelease(repoPath, config, { sessionId, force })
     : null;
+  if (writingFields && dryRun) {
+    for (const [key, value] of Object.entries(fields)) process.stdout.write(`${dim('[dry-run]')} Would write ${key}: ${value}\n`);
+  }
   const result = await runStatus(statusArgs, config, {
     dryRun,
     suppressDeprecation: true,
     note,
+    sourceTransform: writingFields ? raw => applyFieldUpdates(raw, fields) : undefined,
     additionalUpdates: [...(opts.additionalUpdates ?? []), ...(releaseUpdate ? [releaseUpdate] : [])],
     creations: opts.creations,
     guards: opts.guards,

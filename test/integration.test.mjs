@@ -382,7 +382,7 @@ describe('runlist set asked to change a frontmatter field', () => {
     if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('says how to change next_step and leaves the file alone', () => {
+  it('points a positional next_step at the flags and leaves the file alone', () => {
     const docsDir = setupProject();
     const file = writeDoc(docsDir, 'field.md', 'type: plan\nstatus: active\nnext_step: First', '# Field\n');
     const before = readFileSync(file, 'utf8');
@@ -393,10 +393,74 @@ describe('runlist set asked to change a frontmatter field', () => {
     ]) {
       const result = run(args);
       strictEqual(result.status, 1);
-      ok(result.stderr.includes('changes status only'), result.stderr);
+      ok(result.stderr.includes('runlist set <file> --next-step'), result.stderr);
       ok(result.stderr.includes('baton --done --next-step'), result.stderr);
     }
     strictEqual(readFileSync(file, 'utf8'), before);
-    ok(run(['set', '--help']).stdout.includes('changes status only'));
+    ok(run(['set', '--help']).stdout.includes('--next-step "<text>"   Write next_step'));
+  });
+
+  it('writes next_step and current_state in place, with or without a status change', () => {
+    const docsDir = setupProject();
+    const file = writeDoc(docsDir, 'field.md', 'type: plan\nstatus: active\nnext_step: >\n  First\n  and more\ncurrent_state: Old', '# Field\n');
+    const env = { ...process.env, NO_COLOR: '1', RUNLIST_SESSION_ID: 'writer' };
+
+    const inPlace = run(['set', 'field', '--next-step', 'Second: fit the hinge', '--current-state', 'Frame built'], { env });
+    strictEqual(inPlace.status, 0, inPlace.stderr);
+    let text = readFileSync(file, 'utf8');
+    ok(text.includes('status: active\n'), text);
+    ok(text.includes('next_step: >\n  Second: fit the hinge\ncurrent_state: >\n  Frame built\n'), text);
+    ok(!text.includes('and more'), text);
+
+    const withStatus = run(['set', 'paused', 'field', '--next-step', 'Third'], { env });
+    strictEqual(withStatus.status, 0, withStatus.stderr);
+    text = readFileSync(file, 'utf8');
+    ok(text.includes('status: paused\n') && text.includes('next_step: >\n  Third\n'), text);
+
+    const sameStatus = run(['set', 'paused', 'field', '--next-step', 'Fourth'], { env });
+    strictEqual(sameStatus.status, 0, sameStatus.stderr);
+    ok(readFileSync(file, 'utf8').includes('next_step: >\n  Fourth\n'));
+
+    const before = readFileSync(file, 'utf8');
+    const preview = run(['set', 'field', '--next-step', 'Fifth', '--dry-run'], { env });
+    strictEqual(preview.status, 0, preview.stderr);
+    ok(preview.stdout.includes('Would write next_step: Fifth'), preview.stdout);
+    for (const args of [
+      ['set', 'field', '--next-step', 'x'.repeat(801)],
+      ['set', 'field', '--next-step', 'one\ntwo'],
+      ['set', 'archived', 'field', '--next-step', 'Done'],
+      ['set', 'in-session', 'field', '--next-step', 'Go'],
+    ]) {
+      const refused = run(args, { env });
+      strictEqual(refused.status, 1, `${args.join(' ')} should be refused`);
+    }
+    strictEqual(readFileSync(file, 'utf8'), before);
+  });
+
+  it('keeps a claim through a field write and refuses another session the same way a status change is refused', () => {
+    const docsDir = setupProject();
+    const file = writeDoc(docsDir, 'held.md', 'type: plan\nstatus: active\nnext_step: First', '# Held\n');
+    const as = session => ({ env: { ...process.env, NO_COLOR: '1', RUNLIST_SESSION_ID: session } });
+    strictEqual(run(['set', 'in-session', 'held'], as('owner')).status, 0);
+
+    const own = run(['set', 'held', '--next-step', 'Second'], as('owner'));
+    strictEqual(own.status, 0, own.stderr);
+    ok(readFileSync(file, 'utf8').includes('status: in-session\n'));
+
+    const before = readFileSync(file, 'utf8');
+    for (const args of [['set', 'held', '--next-step', 'Peer'], ['set', 'active', 'held', '--next-step', 'Peer']]) {
+      const peer = run(args, as('peer'));
+      strictEqual(peer.status, 1);
+      ok(peer.stderr.includes('busy in another session'), peer.stderr);
+    }
+    strictEqual(readFileSync(file, 'utf8'), before);
+  });
+
+  it('says the status comes first when the arguments are swapped', () => {
+    const docsDir = setupProject();
+    writeDoc(docsDir, 'order.md', 'type: plan\nstatus: active', '# Order\n');
+    const swapped = run(['set', 'order', 'paused']);
+    strictEqual(swapped.status, 1);
+    ok(swapped.stderr.includes('The status comes first: runlist set paused order'), swapped.stderr);
   });
 });

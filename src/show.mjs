@@ -4,6 +4,7 @@ import { extractFrontmatter, normalizeEol, parseSimpleFrontmatter } from './fron
 import { buildBrief, collapseFrontmatter, cut, LIMITS, readSection, SURVEY_LIMITS } from './brief.mjs';
 import { parseDocFile, resolveDocArg } from './index.mjs';
 import { resolveBodyLinkTarget } from './body-link.mjs';
+import { stripTally } from './section.mjs';
 import { die, normalizeStringList, resolveRefPath, shellQuote, toRepoPath } from './util.mjs';
 
 // `runlist show <file...>` — one document's card as data: its title, status,
@@ -124,11 +125,22 @@ function runSection(target, opts, config) {
   const again = from => `runlist show ${shellQuote(rel)} --section ${shellQuote(opts.section)} --from ${from}`;
   if (opts.json) {
     const { headings, ...rest } = r;
+    const brief = ({ line, level, heading }) => ({ line, level, heading });
     const out = r.found
       ? { path: rel, ...rest, ...(r.next ? { continue: again(r.next) } : {}) }
-      : { path: rel, error: 'no heading matches', query: r.query, headings: headings.map(({ line, level, heading }) => ({ line, level, heading })) };
+      : r.ambiguous
+        ? { path: rel, error: 'more than one heading matches', query: r.query, candidates: r.candidates.map(brief) }
+        : { path: rel, error: 'no heading matches', query: r.query, headings: headings.map(brief) };
     process.stdout.write(`${JSON.stringify(out, null, 2)}\n`);
     if (!r.found || r.past) process.exitCode = 1;
+    return;
+  }
+  if (r.ambiguous) {
+    const list = r.candidates.slice(0, 20).map(h => `  ${h.line}  ${cut(`${'#'.repeat(h.level)} ${h.heading}`)}`);
+    if (r.candidates.length > 20) list.push(`  (+${r.candidates.length - 20} more)`);
+    process.stderr.write([`"${opts.section}" matches ${r.candidates.length} headings in ${rel}; name one:`, ...list,
+      `Then: runlist show ${shellQuote(rel)} --section ${shellQuote(sectionQuery(r.candidates[0].heading))}`].join('\n') + '\n');
+    process.exitCode = 1;
     return;
   }
   if (!r.found) {
@@ -155,9 +167,12 @@ function runSection(target, opts, config) {
 
 // `[3/7]` for a phase with boxes, and the contradiction between its marker and
 // its boxes when there is one.
-function phaseNote(phase) {
+// A heading that already ends in the same tally does not get a second one.
+function phaseNote(phase, heading = '') {
   if (!phase) return '';
-  let note = phase.total ? `  [${phase.done}/${phase.total}]` : '';
+  const own = heading.match(/\[(\d+)\/(\d+)\]\s*$/);
+  const sameTally = own && Number(own[1]) === phase.done && Number(own[2]) === phase.total;
+  let note = phase.total && !sameTally ? `  [${phase.done}/${phase.total}]` : '';
   if (phase.conflict) {
     note += phase.conflict.declared === 'shipped'
       ? `  (marked shipped; ${phase.total - phase.done} open)`
@@ -166,9 +181,9 @@ function phaseNote(phase) {
   return note;
 }
 
-// A heading as a --section query: trailing markers dropped, which the matcher
-// ignores anyway, so the suggested command reads cleanly.
-const sectionQuery = heading => heading.replace(/[^\w\s]+$/u, '').trim() || heading;
+// A heading as a --section query: trailing markers and box tallies dropped,
+// which the matcher ignores anyway, so the suggested command reads cleanly.
+const sectionQuery = heading => stripTally(heading).replace(/[^\w\s]+$/u, '').trim() || heading;
 
 function renderBrief(card, brief) {
   const out = [];
@@ -178,7 +193,7 @@ function renderBrief(card, brief) {
   if (!brief.outline.length) out.push('  (no headings)');
   for (const h of brief.outline) {
     const gutter = h.phase?.active ? '→ ' : '  ';
-    out.push(`${gutter}${pad(h.line, width)}  ${cut(`${'#'.repeat(h.level)} ${h.heading}`)}${phaseNote(h.phase)}`);
+    out.push(`${gutter}${pad(h.line, width)}  ${cut(`${'#'.repeat(h.level)} ${h.heading}`)}${phaseNote(h.phase, h.heading)}`);
   }
   if (brief.outlineOmitted) out.push(`  (+${brief.outlineOmitted} deeper headings not shown; a --section read shows them)`);
   const total = brief.boxes.open + brief.boxes.done;
@@ -228,11 +243,22 @@ export function runShow(args, config) {
     process.stdout.write(`${JSON.stringify(cards, null, 2)}\n`);
     return;
   }
+  // One card's pointer to its next section sits under the card's own lines,
+  // above the outline, so a reader that keeps only the top still gets it.
+  const single = cards.length === 1 && !opts.card;
+  const pointer = card => {
+    const active = card.brief?.activePhase;
+    const file = shellQuote(card.path);
+    return active
+      ? `Next: runlist show ${file} --section ${shellQuote(sectionQuery(active.heading))}`
+      : `One section: runlist show ${file} --section "<heading>"`;
+  };
   cards.forEach((c, n) => {
     if (n) process.stdout.write('\n');
     const out = [`${c.title}  (${c.status ?? 'no status'})`, c.path];
     if (c.nextStep) out.push(`Next: ${c.brief ? cut(c.nextStep, NEXT_STEP_WIDTH) : c.nextStep}`);
     for (const b of c.blockers) out.push(`Blocker: ${b}`);
+    if (single && c.brief) out.push(pointer(c));
     // The brief's open-box line carries the same count, read outside code fences.
     if (c.checklist?.total && !c.brief) out.push(`Checklist: ${c.checklist.completed} of ${c.checklist.total} done`);
     // With the brief, each related field and the body links show their first
@@ -253,11 +279,7 @@ export function runShow(args, config) {
     if (c.brief) out.push(...renderBrief(c, c.brief));
     process.stdout.write(out.join('\n') + '\n');
   });
-  if (!opts.card) {
-    const active = cards.length === 1 ? cards[0].brief?.activePhase : null;
-    const file = cards.length === 1 ? shellQuote(cards[0].path) : '<file>';
-    process.stdout.write(active
-      ? `\nNext: runlist show ${file} --section ${shellQuote(sectionQuery(active.heading))}\n`
-      : `\nOne section: runlist show ${file} --section "<heading>"\n`);
+  if (!opts.card && !(single && cards[0].brief)) {
+    process.stdout.write('\nOne section: runlist show <file> --section "<heading>"\n');
   }
 }

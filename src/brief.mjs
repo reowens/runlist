@@ -1,5 +1,5 @@
 import { extractFrontmatter, normalizeEol } from './frontmatter.mjs';
-import { detectMarker, findActivePhase, isPhaseHeading, matchSections, phaseMarkerConflict, phaseTally, walkChecklist, walkSections } from './section.mjs';
+import { detectMarker, findActivePhase, isPhaseHeading, phaseMarkerConflict, phaseTally, rankSections, walkChecklist, walkSections } from './section.mjs';
 
 // A document in a few KB, for an agent to read in place of the whole file: a
 // heading outline and the open checklist boxes, both with file line numbers,
@@ -189,10 +189,14 @@ export function readSection(raw, query, { from = null, limits = LIMITS } = {}) {
   const { body, bodyLineOffset } = extractFrontmatter(text);
   const lines = fileLines(text);
   const headings = headingsOf(body, bodyLineOffset, lines.length);
-  const matches = matchSections(headings, query);
-  if (!matches.length) return { found: false, query, headings };
+  const tiers = rankSections(headings, query);
+  const best = tiers.find(tier => tier.length);
+  if (!best) return { found: false, query, headings };
+  // Repeated exact headings read the first; anything looser has to be unique.
+  if (best !== tiers[0] && best.length > 1) return { found: false, ambiguous: true, query, headings, candidates: best };
 
-  const [match, ...others] = matches;
+  const match = best[0];
+  const others = tiers.flat().filter(h => h !== match);
   const start = from == null ? match.line : Math.max(from, match.line);
   if (start > match.end) {
     return { found: true, past: true, query, heading: match, from: start, others };

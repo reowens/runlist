@@ -175,7 +175,7 @@ const definitions = [
     form('[host]', { args: positionals(0, 1), options: [flag('--remove'), flag('--force'), flag('--json'), value('--path')] }),
   ]),
   command('status', mutates('managed source and same-root destination'), 'mutate', [form('<file> [status]', { args: positionals(1, 2), options: LIFECYCLE_OPTIONS })]),
-  command('set', mutates('managed source and same-root destination'), 'mutate', [form('<status> [file]', { args: positionals(1, 2), options: LIFECYCLE_OPTIONS })]),
+  command('set', mutates('managed source and same-root destination'), 'mutate', [form('<status> [file]', { args: positionals(0, 2), options: [...LIFECYCLE_OPTIONS, value('--next-step'), value('--current-state')] })]),
   command('ship', mutates('repository release/index paths and global release tooling'), 'mutate', [form('[patch|minor|major]', { args: positionals(0, 1) })]),
   command('archive', mutates('managed source and same-root destination'), 'mutate', [form('<file>', { args: positionals(1, 1), options: [...LIFECYCLE_OPTIONS, flag('--closeout-template'), flag('--fix-refs'), flag('--strings')] })]),
   command('bulk', mutates('managed source sweep; archive destinations preserve roots'), 'mutate', [
@@ -419,7 +419,7 @@ export function validateCommandArgs(name, argv, { preset = false } = {}) {
   const positional = scanArgs(canonical, normalized, selectedOptions, selected.passthrough, selected.dashPositionalsAfter);
   const args = selected.subcommands.includes(positional[0]) ? positional.slice(1) : positional;
   if (canonical === 'set' && args.some(arg => /^(next_step|current_state)(=|$)/.test(arg))) {
-    throw new Error('`runlist set` changes status only. To change next_step or current_state, edit those frontmatter lines in your file editor; during a handoff, use `runlist baton --done --next-step "…"`.');
+    throw new Error('`runlist set` writes next_step and current_state through flags: `runlist set <file> --next-step "<text>" [--current-state "<text>"]`, or with a status change `runlist set <status> <file> --next-step "<text>"`. During a handoff, `runlist baton --done --next-step "<text>"` writes it and confirms the handoff.');
   }
   if (args.length < selected.positionals.min || args.length > selected.positionals.max) {
     throw new Error(`Usage: ${commandUsage(canonical)}`);

@@ -9,6 +9,10 @@ export function unsupportedCommandHelp(command) {
     case 'claims':
       return 'Inspect ownership with `runlist doctor --claims` (read-only).\n'
         + 'Do not add --apply or --force merely to inspect another session\'s claim.';
+    case 'docs':
+      return 'List reference docs with `runlist query --type doc` (add --all for every one).\n'
+        + 'Create one with `runlist new doc <name> @<draft-file>`; read one with `runlist show <file>`.\n'
+        + 'A briefing across every document type: `runlist context`.';
     case 'link':
       return 'Inspect references with `runlist xref <file>`. Edit ordinary reference fields with your file editor.\n'
         + 'For ordered plan membership, use `runlist runlist add <hub> <child>`.\n'

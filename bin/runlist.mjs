@@ -619,6 +619,7 @@ Network failures after the version tag exists are resumed with
 \`npm run release:resume\`. Never push tags or publish manually.`,
 
   set: `runlist set <status> [<file-or-slug>] — change a document's status
+runlist set [<file-or-slug>] --next-step "…" [--current-state "…"] — write its next step
 
 Writes the new status into the file's frontmatter. In-session plans carry a
 local, gitignored ownership record under .runlist/ so one session cannot release
@@ -643,18 +644,25 @@ Options:
                          the status-change + worklog-edit round-trip.
   --no-index             Skip index regen (see \`runlist archive --help\`).
   --show-files           Append \`files: …\` footer.
+  --next-step "<text>"   Write next_step (status optional).
+  --current-state "<text>"  Write current_state (status optional).
   --force                Recover another session's plan (explicit path required).
   --dry-run, -n          Preview without writing.
 
 Examples:
   runlist set in-session docs/plans/x  # mark a plan in-session
+  runlist set docs/plans/x --next-step "Wire the retry path"
+  runlist set active docs/plans/x --next-step "Review the parser" --current-state "Parser merged"
   runlist set partial docs/plans/x --note "tail tracked in y.md"
   runlist set archived docs/plans/x    # archive a specific plan
   runlist set active                   # release this session's sole owned plan
 
-\`set\` changes status only. To change next_step or current_state, edit those
-frontmatter lines in your file editor; during a handoff, use
-\`runlist baton --done --next-step "…"\`.
+Fields: --next-step and --current-state write next_step and current_state
+(one line each, caps 800 and 1500 characters). With no status they write in
+place and leave the status and any claim as they are; a plan another session
+holds is refused as a status change is. They do not combine with in-session
+or an archive status. During a handoff, \`runlist baton --done --next-step "…"\`
+writes next_step and confirms the handoff.
 
 To open a plan (mark in-session AND print its body), use \`runlist use <file>\`.`,
 

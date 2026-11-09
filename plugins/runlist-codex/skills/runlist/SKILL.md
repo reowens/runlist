@@ -33,6 +33,7 @@ These apply where `runlist plans` shows a dashboard (a `runlist.config.mjs` or `
 - Read a plan or long doc with `runlist show <file>` (card, outline and open boxes with line numbers, the active phase), then `runlist show <file> --section "<heading>"` one section at a time; never read a plan whole.
 - Start plan work with `runlist use <plan-file>`. It claims the plan, marks it `in-session`, and prints the card.
 - Change status with `runlist set <status> <file> [--note "why"]`; this runs validation, lifecycle hooks, ref repairs, and index updates. Never hand-edit a `status:` field.
+- Write `next_step` and `current_state` with `runlist set <file> --next-step "…" [--current-state "…"]`; the status is optional, and a plan another session holds is refused.
 - Close a shipped plan with `runlist archive <file>`; use `partial`, `active`, `awaiting`, or `blocked` when those match the actual state. Valid statuses are repository and type specific: `runlist statuses list --type plan`.
 - For a plan handoff, `runlist baton @<draft-file>` releases the plan this session owns, and `runlist baton <plan-file> @<draft-file>` hands off a named one. If baton says `Handoff not done yet`, update the plan body, then run `runlist baton --done --next-step "<next move>"`. Baton prints a commit hint for the plan/source files only.
 - Record a decision with `runlist new decision <plan> --question "…" @<record-file>`; configured registers may also require `--answers`.

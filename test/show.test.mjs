@@ -72,10 +72,9 @@ describe('runlist show', () => {
 
     const text = run(['show', 'porch']);
     strictEqual(text.status, 0, text.stderr);
-    match(text.stdout, /^Porch {2}\(active\)\ndocs\/plans\/porch\.md\n\nOutline: 16 lines, 1 KB \(line, heading\)\n {3}7 {2}# Porch\n {3}9 {2}## Steps\n  15 {2}## Notes\n/);
+    match(text.stdout, /^Porch {2}\(active\)\ndocs\/plans\/porch\.md\nOne section: runlist show docs\/plans\/porch\.md --section "<heading>"\n\nOutline: 16 lines, 1 KB \(line, heading\)\n {3}7 {2}# Porch\n {3}9 {2}## Steps\n  15 {2}## Notes\n/);
     match(text.stdout, /Open boxes: 1 of 2 \(line, text\)\n  11 {2}Set joists\n/);
     match(text.stdout, /Other fields: type, owner, updated \(--frontmatter prints them\)/);
-    match(text.stdout, /One section: runlist show docs\/plans\/porch\.md --section "<heading>"\n$/);
     strictEqual(/Checklist:/.test(text.stdout), false);
 
     const [card] = JSON.parse(run(['show', 'porch', '--json']).stdout);
@@ -109,6 +108,31 @@ describe('runlist show', () => {
     strictEqual(run(['show', 'porch', '--from', '3']).status, 1);
   });
 
+  it('reads a section by its leading number or a heading copied from the outline, and lists candidates when more than one matches', () => {
+    setup();
+    write('docs/plans/yard.md', [
+      '---', 'type: plan', 'status: active', '---', '# Yard', // 1-5
+      '## 6. Beds', '## 6.4 Watering the beds and the lawn', '- [ ] Run the hose', // 6-8
+      '## 6.41 Hoses', '### ✅ Phase B2: lay the path  [1/1]', '- [x] Gravel', // 9-11
+      '## Paths north', '## Paths south', '',
+    ].join('\n'));
+    const heading = res => res.stdout.split('\n')[0];
+
+    strictEqual(heading(run(['show', 'yard', '--section', '6.4'])), 'docs/plans/yard.md lines 7 to 8 (## 6.4 Watering the beds and the lawn):');
+    strictEqual(heading(run(['show', 'yard', '--section', '6.4. Watering'])), 'docs/plans/yard.md lines 7 to 8 (## 6.4 Watering the beds and the lawn):');
+    strictEqual(heading(run(['show', 'yard', '--section', 'Phase B2'])), 'docs/plans/yard.md lines 10 to 11 (### ✅ Phase B2: lay the path  [1/1]):');
+
+    const outline = run(['show', 'yard']).stdout;
+    match(outline, /10 {2}### ✅ Phase B2: lay the path {2}\[1\/1\]\n/);
+    strictEqual(heading(run(['show', 'yard', '--section', '✅ Phase B2: lay the path  [1/1]  [1/1]'])), 'docs/plans/yard.md lines 10 to 11 (### ✅ Phase B2: lay the path  [1/1]):');
+
+    const many = run(['show', 'yard', '--section', 'paths']);
+    strictEqual(many.status, 1);
+    match(many.stderr, /^"paths" matches 2 headings in docs\/plans\/yard\.md; name one:\n {2}12 {2}## Paths north\n {2}13 {2}## Paths south\n/);
+    const json = JSON.parse(run(['show', 'yard', '--section', 'paths', '--json']).stdout);
+    deepStrictEqual(json.candidates.map(c => c.line), [12, 13]);
+  });
+
   it('reads any Markdown file in the repo, with or without frontmatter', () => {
     setup();
     write('NOTES.md', '# Notes\n\n- [ ] Call the roofer\n');
@@ -127,7 +151,7 @@ describe('runlist show', () => {
     strictEqual(res.status, 0, res.stderr);
     match(res.stdout, /\n {3}7 {2}### Phase 1 — Frame ✅ {2}\[1\/2\] {2}\(marked shipped; 1 open\)\n→ 10 {2}### Phase 2 — Boards ⬜ {2}\[0\/1\]\n/);
     match(res.stdout, /Open boxes: 2 of 3 \(line, text\)\n {2}Phase 1 — Frame ✅\n {5}9 {2}Blocking\n {2}Phase 2 — Boards ⬜\n {4}11 {2}Lay boards\n/);
-    match(res.stdout, /\nNext: runlist show docs\/plans\/deck\.md --section "Phase 2 — Boards"\n$/);
+    match(res.stdout, /^Deck {2}\(active\)\ndocs\/plans\/deck\.md\nNext: runlist show docs\/plans\/deck\.md --section "Phase 2 — Boards"\n\nOutline:/);
     const [card] = JSON.parse(run(['show', 'deck', '--json']).stdout);
     deepStrictEqual(card.brief.activePhase, { line: 10, heading: 'Phase 2 — Boards ⬜' });
   });

@@ -101,10 +101,18 @@ describe('readSection', () => {
     strictEqual(r.next, null);
   });
 
-  it('takes the first match in document order and names the others', () => {
-    const r = readSection(PLAN, '## phase');
+  it('takes a unique best match and names the others', () => {
+    const r = readSection(PLAN, '## phases');
     strictEqual(r.heading.heading, 'Phases');
-    deepStrictEqual(r.others.map(o => o.line), [15, 19, 22]);
+    deepStrictEqual(r.others.map(o => o.line), []);
+    strictEqual(readSection(PLAN, 'phase 2').heading.line, 19);
+  });
+
+  it('refuses a loose match that more than one heading meets, naming them', () => {
+    const r = readSection(PLAN, '## phase');
+    strictEqual(r.found, false);
+    strictEqual(r.ambiguous, true);
+    deepStrictEqual(r.candidates.map(c => c.line), [14, 15, 19, 22]);
   });
 
   it('cuts a long section and says where to continue', () => {

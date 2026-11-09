@@ -387,9 +387,21 @@ it('keeps a partial glyph unfinished even when its prose says local work is comp
 describe('matchSections', () => {
   const sections = walkSections(['## Phase 10 — Paint', '## Phase 1', '## Phase 1 — Prime ⬜', '## Notes on phase 1'].join('\n'));
 
-  it('ranks exact, then prefix, then substring, in document order within each', () => {
+  it('ranks exact, then the same leading number, then prefix, then substring, in document order within each', () => {
     deepStrictEqual(matchSections(sections, 'phase 1').map(s => s.heading),
-      ['Phase 1', 'Phase 10 — Paint', 'Phase 1 — Prime ⬜', 'Notes on phase 1']);
+      ['Phase 1', 'Phase 1 — Prime ⬜', 'Phase 10 — Paint', 'Notes on phase 1']);
+  });
+
+  it('ranks a heading with the same leading number above longer numbers it prefixes', () => {
+    const numbered = walkSections(['## 6.4 Lawn', '## 6.4.1 Edges', '## 6.41 Hoses', '## ✅ Phase 6.4: later'].join('\n'));
+    deepStrictEqual(matchSections(numbered, '6.4.').map(s => s.heading), ['6.4 Lawn', '✅ Phase 6.4: later', '6.4.1 Edges', '6.41 Hoses']);
+    deepStrictEqual(matchSections(numbered, 'Phase 6.4').map(s => s.heading), ['✅ Phase 6.4: later']);
+  });
+
+  it('ignores trailing box tallies, one or two of them', () => {
+    const tallied = walkSections('## ✅ Phase 3: deck  [2/2]');
+    strictEqual(matchSections(tallied, '✅ Phase 3: deck  [2/2]  [2/2]')[0].heading, '✅ Phase 3: deck  [2/2]');
+    strictEqual(matchSections(tallied, 'Phase 3: deck').length, 1);
   });
 
   it('ignores leading hashes in the query and trailing markers on the heading', () => {

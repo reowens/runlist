@@ -2,6 +2,38 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- `runlist set` writes `next_step` and `current_state`: `runlist set <file>
+  --next-step "…" [--current-state "…"]` writes them in place and leaves the
+  status and any claim alone, and `runlist set <status> <file> --next-step "…"`
+  writes them in the same step as the status change. Each takes one line
+  within the caps `runlist check` reports (800 and 1500 characters). A plan
+  another session holds is refused exactly as a status change is. They do not
+  combine with `in-session` or an archive status. `runlist set <file>
+  <status>` now says the status comes first.
+- `runlist show --section` takes a heading by its leading number (`6.4`,
+  `6.4.`, `Phase 3.5`, `A4`), and ignores trailing `[n/m]` box tallies, so a
+  heading copied from the outline matches. A number, prefix or substring
+  that more than one heading meets is refused with the candidates listed;
+  repeated exact headings still read the first.
+- `runlist docs` names the commands for reference docs instead of a generic
+  unknown-command error.
+
+### Fixed
+
+- `runlist show` prints the pointer to the active phase's section (`Next:
+  runlist show … --section …`) under the card, above the outline, so `| head`
+  keeps it. A heading that already ends in its own box tally no longer gets a
+  second one in the outline.
+- The prompt guard also catches `sed`, `awk`, `grep` and `rg` reads of a
+  saved prompt and points to `runlist prompts show`; `sed -i` stays an edit.
+  A prompt path outside the repo, or behind an unexpanded `$` or `~`, is no
+  longer logged as this repo's trip, so the SessionStart misuse recap counts
+  only this repo's.
+
 ## 0.104.8 — 2026-11-08
 
 ### Added

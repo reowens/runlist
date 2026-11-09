@@ -2,9 +2,8 @@ import { mkdirStateSync as mkdirSync } from './state-directory.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { extractFrontmatter, parseSimpleFrontmatter, replaceFrontmatter } from './frontmatter.mjs';
-import { replaceFrontmatterField } from './frontmatter-fix.mjs';
-import { renderLifecycleMutation } from './lifecycle.mjs';
+import { extractFrontmatter, parseSimpleFrontmatter } from './frontmatter.mjs';
+import { applyFieldUpdates, checkedFieldValue, normalizeFieldValue, renderLifecycleMutation } from './lifecycle.mjs';
 import { mutateFile, withPathLocks } from './atomic-mutation.mjs';
 import { commitRename } from './durable-rename.mjs';
 import { authorizeManagedSource } from './managed-path.mjs';
@@ -109,13 +108,6 @@ export function handoffNotDoneLine(record, doneCommand = 'runlist baton --done')
   return `Handoff not done yet: the prompt is saved, and ${record.plan} still needs bringing up to date. Update the plan body first, then run \`${doneCommand} --next-step "<next move>"\` (add \`--current-state "<where it stands>"\` if that changed): it writes the frontmatter and confirms the handoff.`;
 }
 
-// Whitespace runs collapse to one space: that is what the folded scalar the
-// writer emits reads back as, so a value differing only in spacing is the same
-// next_step and must not pass the gate.
-function normalizeFieldValue(value) {
-  return value.replace(/\s+/g, ' ').trim();
-}
-
 // Every completion path compares the same way: a string next_step after
 // whitespace normalisation, anything else (a list, a boolean) as parsed.
 function comparableNextStep(json) {
@@ -129,21 +121,10 @@ function stillAsRecorded(record, content) {
   return present && comparableNextStep(value) === comparableNextStep(record.nextStep);
 }
 
-// One line of prose per field. A newline is refused rather than folded away:
-// the writer emits a folded scalar, which would silently join the lines, and a
-// next_step that needs several lines belongs in the plan body.
-function checkedFieldValue(flag, value) {
-  if (typeof value !== 'string' || !value.trim()) die(`${flag} needs a nonempty value, e.g. ${flag} "<text>".`);
-  if (/[\r\n]/.test(value)) die(`${flag} takes one line; put anything longer in the plan body.`);
-  return normalizeFieldValue(value);
-}
-
+// A value differing only in spacing is the same next_step and must not pass
+// the gate, so values compare after normalizeFieldValue.
 function renderFieldUpdates(raw, fields) {
-  const { frontmatter } = extractFrontmatter(raw);
-  if (!frontmatter) throw new Error('the plan has no frontmatter block');
-  let next = frontmatter;
-  for (const [key, value] of Object.entries(fields)) next = replaceFrontmatterField(next, key, value);
-  return renderLifecycleMutation(replaceFrontmatter(raw, next), { updated: nowIso() }, null);
+  return renderLifecycleMutation(applyFieldUpdates(raw, fields), { updated: nowIso() }, null);
 }
 
 
