@@ -2,6 +2,20 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- `runlist tick <file> <line|text>` closes one checklist box (`- [ ]` or
+  `- [~]` to `- [x]`), named by the line number `runlist show` prints or by a
+  piece of its text. `--undo` reopens a box and `--note "<text>"` appends the
+  evidence to the box line. It writes the working tree only and never stages or
+  commits. A missing or ambiguous item is refused with the candidate boxes.
+- Per-status `requiresClosedBoxes` in `types.<type>.statuses`: `runlist set`
+  (and the deprecated `status`) refuses that status while the document has an
+  open box, naming the count. A string value is the line the refusal prints,
+  with `{slug}` and `{path}` filled in. `--force` sets the status anyway.
+
 ## 0.106.0 — 2026-11-09
 
 ### Added

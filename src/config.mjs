@@ -209,6 +209,10 @@ function normalizeRichStatuses(config, userConfig) {
     staleDays: {},
     statusOrder: [],
     context: { expanded: [], listed: [], counted: [] },
+    // type → status → the line a refusal prints (null for the default line).
+    // A status with `requiresClosedBoxes` refuses `set` while the document has
+    // an open checklist box.
+    closedBoxesByType: {},
   };
 
   let hasRich = false;
@@ -269,6 +273,11 @@ function normalizeRichStatuses(config, userConfig) {
         derived.terminalStatusesByType[typeName].push(name);
       }
       if (p.requiresModule && !derived.moduleRequiredFor.includes(name)) derived.moduleRequiredFor.push(name);
+      if (p.requiresClosedBoxes === true || (typeof p.requiresClosedBoxes === 'string' && p.requiresClosedBoxes.trim())) {
+        (derived.closedBoxesByType[typeName] ??= {})[name] = p.requiresClosedBoxes === true ? null : p.requiresClosedBoxes.trim();
+      } else if (p.requiresClosedBoxes != null && p.requiresClosedBoxes !== false) {
+        warn(`runlist config: status "${typeName}.${name}" has requiresClosedBoxes: ${JSON.stringify(p.requiresClosedBoxes)}; use true, false, or the line a refusal prints.`);
+      }
       if (p.filed && !derived.filedStatuses[name]) {
         // dirName defaults to the status name; users can override with
         // `filed: 'custom-dir'` (string form) instead of `filed: true`.
@@ -568,6 +577,7 @@ export async function resolveConfig(cwd, explicitConfigPath, options = {}) {
   // Normalize rich status definitions (object form → array + derived config)
   const derived = normalizeRichStatuses(config, userConfig);
   if (derived) applyDerivedConfig(config, userConfig, derived);
+  const closedBoxesByType = derived?.closedBoxesByType ?? {};
 
   const rootPaths = Array.isArray(config.root) ? config.root : [config.root];
   const docsRoots = rootPaths.map(r => path.resolve(configDir, r));
@@ -660,6 +670,17 @@ export async function resolveConfig(cwd, explicitConfigPath, options = {}) {
     const own = type != null ? terminalStatusesByType.get(type) : undefined;
     return own ? own.has(status) : terminalStatuses.has(status);
   };
+  // Does moving a doc of this type to `status` need every checklist box closed?
+  // Returns { hint } (hint null for the default line) or null. A type that
+  // declared rich statuses answers for itself; a doc with no type reads any
+  // type's rule for that status name.
+  const closedBoxesRule = (status, type) => {
+    const own = type != null ? closedBoxesByType[type] : undefined;
+    if (own) return Object.hasOwn(own, status) ? { hint: own[status] } : null;
+    if (type != null && config.types?.[type]) return null;
+    for (const rules of Object.values(closedBoxesByType)) if (Object.hasOwn(rules, status)) return { hint: rules[status] };
+    return null;
+  };
   // F15: filedStatuses keyed by status name, value = directory name. Empty
   // object when no status opts in via `filed: true` (or `filed: '<dirname>'`).
   const filedStatuses = new Map(Object.entries(lifecycle.filedStatuses ?? {}));
@@ -733,7 +754,7 @@ export async function resolveConfig(cwd, explicitConfigPath, options = {}) {
     rootValidStatuses,
     staleDaysByStatus,
 
-    lifecycle: { archiveStatuses, startableStatuses, skipStaleFor, skipWarningsFor, skipWarningsForByType, skipsWarnings, terminalStatuses, terminalStatusesByType, isTerminal, filedStatuses, archiveNestedTypes },
+    lifecycle: { archiveStatuses, startableStatuses, skipStaleFor, skipWarningsFor, skipWarningsForByType, skipsWarnings, terminalStatuses, terminalStatusesByType, isTerminal, filedStatuses, archiveNestedTypes, closedBoxesRule },
 
     validSurfaces,
     validModules,

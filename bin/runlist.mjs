@@ -154,6 +154,7 @@ Common commands:
   briefing              Full briefing with plan counts + next steps
   agent-context         Compact bounded JSON context for agents
   set <status> [file]   Transition status (start work, finish, archive — all via target status)
+  tick <file> <item>    Close a checklist box by line number or text (--undo reopens)
   new <type> <name>     Create plan/doc/prompt (pipe stdin or @path for body)
   use [<file-or-slug>]  Open a doc by type: prompt → consume, plan → start, doc → read
                         (no file: consume oldest pending prompt; outside an
@@ -363,6 +364,7 @@ Validate & Fix:
 Lifecycle:
   use <file>                        Open a plan (mark in-session + print it) or consume a prompt
   set <status> <file>               Change a document's status (frontmatter write; archive also moves the file)
+  tick <file> <line|text>           Close a checklist box (--undo reopens it; --note appends evidence); writes the working tree only
   runlist <hub> [next|add|remove|reorder]   Show, walk, or mutate an ordered group of plans (see \`runlist help runlist\`)
   runlists                          List coordination-hub runlists (the Runlists dashboard)
   roadmap [<hub>] [next]            Tier-3: show a roadmap (runlists + rolled-up progress), or pick up its next action
@@ -646,7 +648,8 @@ Options:
   --show-files           Append \`files: …\` footer.
   --next-step "<text>"   Write next_step (status optional).
   --current-state "<text>"  Write current_state (status optional).
-  --force                Recover another session's plan (explicit path required).
+  --force                Recover another session's plan (explicit path required),
+                         or set a closed-box status while boxes are open.
   --dry-run, -n          Preview without writing.
 
 Examples:
@@ -664,7 +667,38 @@ holds is refused as a status change is. They do not combine with in-session
 or an archive status. During a handoff, \`runlist baton --done --next-step "…"\`
 writes next_step and confirms the handoff.
 
+Closed boxes: a status declared with \`requiresClosedBoxes: true\` in the
+config's \`types.<type>.statuses\` refuses this command while the document
+has an open box, naming the count. A string value is the line the refusal
+prints, with {slug} and {path} filled in. --force sets the status anyway.
+
 To open a plan (mark in-session AND print its body), use \`runlist use <file>\`.`,
+
+  tick: `runlist tick <file-or-slug> <line|text> — close one checklist box
+
+Turns \`- [ ]\` (or a partial \`- [~]\`) into \`- [x]\` and bumps \`updated\`.
+<line|text> is the box's line number as \`runlist show\` prints it, or a piece
+of the box's text (case-insensitive) that names one box. Boxes inside code
+fences are not boxes, as in \`show\`. A missing or ambiguous item is refused
+with the candidate boxes listed; a box already in the target state is left
+alone.
+
+It writes the working tree only and never stages or commits, so the change
+rides the next commit of the work it records. Like hand edits, it does not
+check which session holds the plan.
+
+Options:
+  --undo                 Reopen a ticked box (\`- [x]\` → \`- [ ]\`).
+  --note "<text>"        Append the evidence to the box line (one line).
+  --dry-run, -n          Print the line it would write.
+
+Examples:
+  runlist tick docs/plans/x 42
+  runlist tick docs/plans/x "retry budget" --note "(commit abc1234; 12 tests pass)"
+  runlist tick docs/plans/x 42 --undo
+
+A status configured with \`requiresClosedBoxes\` refuses \`runlist set\` while
+any box is open; see \`runlist set --help\`.`,
 
   status: `runlist status <file> <new-status> — transition document status
 
@@ -2096,7 +2130,7 @@ function positionalTypeSelector(command, args) {
 
 // The verbs that can change a document, for the carry that runs before them
 // in a repository with no config (src/handoffs-mode.mjs carryBeforeChange).
-const DOCUMENT_CHANGES = new Set(['use', 'next', 'archive', 'set', 'status', 'bulk', 'bulk-tag', 'touch', 'rename', 'migrate', 'fix-refs', 'sync-status', 'fix-membership', 'record', 'decision']);
+const DOCUMENT_CHANGES = new Set(['use', 'next', 'archive', 'set', 'tick', 'status', 'bulk', 'bulk-tag', 'touch', 'rename', 'migrate', 'fix-refs', 'sync-status', 'fix-membership', 'record', 'decision']);
 function changesDocuments(command, args) {
   if (DOCUMENT_CHANGES.has(command)) return true;
   if (command === 'prompts') return ['use', 'resume', 'next', 'archive', 'link', 'hold', 'shelve', 'unhold', 'unshelve'].includes(args[0]);
@@ -2664,6 +2698,7 @@ async function main() {
   if (command === 'handoff') { die('`runlist handoff` was removed in 0.31.0. Use `runlist prompts new <name>` to create a saved prompt instead. The .dotmd/handoffs/ sidecar mechanism no longer exists; see CHANGELOG.'); }
   if (command === 'status') { const { runStatus } = await import('../src/lifecycle.mjs'); await runStatus(restArgs, config, { dryRun }); return; }
   if (command === 'set') { const { runSet } = await import('../src/lifecycle.mjs'); await runSet(restArgs, config, { dryRun }); return; }
+  if (command === 'tick') { const { runTick } = await import('../src/tick.mjs'); runTick(restArgs, config, { dryRun }); return; }
   if (command === 'ship') { const { runShip } = await import('../src/ship.mjs'); await runShip(restArgs, config, { dryRun }); return; }
   if (command === 'archive') { const { runArchive } = await import('../src/lifecycle.mjs'); runArchive(restArgs, config, { dryRun }); return; }
   if (command === 'bulk' && restArgs[0] === 'archive') { const { runBulkArchive } = await import('../src/lifecycle.mjs'); runBulkArchive(restArgs.slice(1), config, { dryRun }); return; }

@@ -176,6 +176,7 @@ const definitions = [
   ]),
   command('status', mutates('managed source and same-root destination'), 'mutate', [form('<file> [status]', { args: positionals(1, 2), options: LIFECYCLE_OPTIONS })]),
   command('set', mutates('managed source and same-root destination'), 'mutate', [form('<status> [file]', { args: positionals(0, 2), options: [...LIFECYCLE_OPTIONS, value('--next-step'), value('--current-state')] })]),
+  command('tick', mutates('managed source'), 'mutate', [form('<file> <item>', { args: positionals(2, 2), options: [flag('--undo'), value('--note')] })], ACTION),
   command('ship', mutates('repository release/index paths and global release tooling'), 'mutate', [form('[patch|minor|major]', { args: positionals(0, 1) })]),
   command('archive', mutates('managed source and same-root destination'), 'mutate', [form('<file>', { args: positionals(1, 1), options: [...LIFECYCLE_OPTIONS, flag('--closeout-template'), flag('--fix-refs'), flag('--strings')] })]),
   command('bulk', mutates('managed source sweep; archive destinations preserve roots'), 'mutate', [

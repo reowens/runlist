@@ -11,7 +11,7 @@ import { writeRenderedIndex } from './index-file.mjs';
 import { green, dim } from './color.mjs';
 import { isInteractive, promptChoice } from './prompt.mjs';
 import { buildCard, renderCard } from './pickup-card.mjs';
-import { walkSections, findSection } from './section.mjs';
+import { walkSections, findSection, walkChecklist } from './section.mjs';
 import { authorizeManagedDestination, authorizeManagedSource, authorizeManagedSweep } from './managed-path.mjs';
 import { withPathLocks, snapshotFile, replaceSnapshot, moveFileAtomic, mutateFile, mutateFileSet } from './atomic-mutation.mjs';
 import { configuredReferenceFields, createReferenceIdentitySet, rewriteDocumentReferences } from './reference-planner.mjs';
@@ -1045,6 +1045,23 @@ function writeDocFields(filePath, repoPath, fields, config, { dryRun = false, no
   return { oldRepoPath: repoPath, newRepoPath: repoPath, written: fields };
 }
 
+// A status configured with `requiresClosedBoxes` (src/config.mjs) is refused
+// while the document has an open box, counted as `runlist show` counts them.
+function assertClosedBoxes(filePath, repoPath, newStatus, docType, config, { force = false } = {}) {
+  const rule = config.lifecycle.closedBoxesRule?.(newStatus, docType ?? null);
+  if (!rule) return;
+  const { body } = extractFrontmatter(normalizeEol(readFileSync(filePath, 'utf8')));
+  const open = walkChecklist(body).filter(box => box.open).length;
+  if (!open) return;
+  if (force) {
+    warn(`${repoPath} has ${open} open box${open === 1 ? '' : 'es'}; setting ${newStatus} anyway (--force).`);
+    return;
+  }
+  const slug = path.basename(filePath, '.md');
+  const hint = (rule.hint ?? 'Close the open boxes first.').replaceAll('{slug}', slug).replaceAll('{path}', repoPath);
+  die(`${repoPath} has ${open} open box${open === 1 ? '' : 'es'}; ${newStatus} needs every box closed. Nothing was changed.\n${hint}\nList them with \`runlist show ${repoPath}\`; --force sets it anyway.`);
+}
+
 export async function runSet(argv, config, opts = {}) {
   const { dryRun } = opts;
   const noIndex = argv.includes('--no-index');
@@ -1129,6 +1146,8 @@ export async function runSet(argv, config, opts = {}) {
     }
     return writeDocFields(filePath, repoPath, fields, config, { dryRun, note });
   }
+
+  if (newStatus && newStatus !== asString(oldFm?.status)) assertClosedBoxes(filePath, repoPath, newStatus, asString(oldFm?.type), config, { force });
 
   const releasing = claimed;
   if (releasing) {
