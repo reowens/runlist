@@ -1,3 +1,4 @@
+import { createGateReader, gateSummary } from './gates.mjs';
 import { buildRoadmapIndex, hubLabel } from './runlist.mjs';
 import { resolveDocArg } from './index.mjs';
 import { toRepoPath, die } from './util.mjs';
@@ -180,5 +181,6 @@ export async function runRoadmapNext(index, argv, config, opts = {}) {
   if (argv.includes('--full')) startArgs.push('--full');
   if (argv.includes('--no-index')) startArgs.push('--no-index');
   if (json) startArgs.push('--json');
-  await startPlan(startArgs, config, opts);
+  const gates = gateSummary(createGateReader(index.docs, config)(target.nextPath));
+  await startPlan(startArgs, config, {...opts, gates});
 }

@@ -2,6 +2,25 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Added
+
+- Explicit Markdown gate diagnostics in `deps`, `unblocks`, `show`, bounded
+  `agent-context`, and ranked pickup output. `dependencyField` defaults to
+  `depends_on`, separate from context reference fields. Plan fragments and
+  linked decision records remain identifiable; unknown and external requirements
+  remain unevaluated. Empty metadata differs from an explicit `none: reason`.
+- Typed gate paths participate in rename/archive reference repair without
+  rewriting external descriptions or introducing reciprocal prerequisites.
+
+### Fixed
+
+- Dependency trees expand each shared node once and bound traversal/output,
+  reporting shared references and explicit truncation. Depth accepts 0 through
+  64 and rejects invalid values. Existing JSON relationship keys retain their
+  meanings; gates and truncation metadata are additive.
+
 ## 0.105.0 — 2026-11-08
 
 ### Added

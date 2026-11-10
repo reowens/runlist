@@ -1,3 +1,5 @@
+import { createGateReader, gateLines } from './gates.mjs';
+import { dependencyTree, boundedOutput } from './dependency-tree.mjs';
 import path from 'node:path';
 import { buildGraph } from './graph.mjs';
 import { buildIndex, resolveDocArg } from './index.mjs';
@@ -11,7 +13,7 @@ export function runDeps(argv, config) {
 
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--json') { json = true; continue; }
-    if (argv[i] === '--depth' && argv[i + 1]) { maxDepth = Number.parseInt(argv[++i], 10) || 5; continue; }
+    if (argv[i] === '--depth') { const raw = argv[++i]; maxDepth = Number(raw); if (!/^\d+$/.test(raw ?? '') || !Number.isSafeInteger(maxDepth) || maxDepth > 64) die('--depth takes an integer from 0 to 64.'); continue; }
     if (argv[i] === '--config') { i++; continue; }
     if (argv[i].startsWith('-')) continue;
     positional.push(argv[i]);
@@ -20,6 +22,7 @@ export function runDeps(argv, config) {
   const index = buildIndex(config);
   const graph = buildGraph(index, config);
   const docByPath = new Map(index.docs.map(d => [d.path, d]));
+  const readGates = createGateReader(index.docs, config);
 
   // Build adjacency maps
   const forwardMap = new Map(); // source → [{target, field, broken}]
@@ -44,9 +47,10 @@ export function runDeps(argv, config) {
     if (!doc) die(`Doc not in index: ${repoPath}`);
 
     if (json) {
-      renderTreeJson(doc, forwardMap, reverseMap, docByPath, maxDepth);
+      renderTreeJson(doc, forwardMap, reverseMap, docByPath, maxDepth, readGates(doc.path));
     } else {
       renderTree(doc, forwardMap, reverseMap, docByPath, maxDepth);
+      process.stdout.write(gateLines(boundedOutput(readGates(doc.path))).join("\n") + "\n");
     }
   } else {
     // Flat overview
@@ -60,171 +64,43 @@ export function runDeps(argv, config) {
 
 // ── Tree view ──────────────────────────────────────────────────────────
 
-function renderTree(doc, forwardMap, reverseMap, docByPath, maxDepth) {
-  const slug = path.basename(doc.path, '.md');
-  process.stdout.write(`${bold(slug)} ${dim(`(${doc.status})`)}\n`);
-
-  const forward = forwardMap.get(doc.path) || [];
-  const reverse = reverseMap.get(doc.path) || [];
-
-  if (forward.length > 0) {
-    process.stdout.write(`\n${bold('Depends on:')}\n`);
-    for (const edge of forward) {
-      printTreeNode(edge.target, edge.field, edge.broken, forwardMap, docByPath, maxDepth, 1, new Set([doc.path]));
-    }
-  }
-
-  if (reverse.length > 0) {
-    process.stdout.write(`\n${bold('Depended on by:')}\n`);
-    for (const edge of reverse) {
-      const targetSlug = path.basename(edge.source, '.md');
-      const targetDoc = docByPath.get(edge.source);
-      const status = targetDoc?.status ?? 'unknown';
-      process.stdout.write(`  ${targetSlug} ${dim(`(${status})`)}  ${dim(`via ${edge.field}`)}\n`);
-    }
-  }
-
-  if (doc.blockers?.length > 0) {
-    process.stdout.write(`\n${bold('Blockers:')}\n`);
-    for (const b of doc.blockers) {
-      process.stdout.write(`  - ${b}\n`);
-    }
-  }
-
-  if (forward.length === 0 && reverse.length === 0 && !doc.blockers?.length) {
-    process.stdout.write(`\n${dim('No dependencies found.')}\n`);
-  }
-
-  process.stdout.write('\n');
+function renderTree(doc, forward, reverse, docs, maxDepth) {
+  const tree = boundedOutput(dependencyTree(doc, forward, reverse, docs, maxDepth));
+  const lines = [`${tree.slug} (${tree.status})`, 'Document connections (Depends on / Depended on by are reference links):'];
+  const visit = (nodes, level) => { for (const n of (nodes ?? []).filter(Boolean)) {
+    lines.push(`${'  '.repeat(level)}${n.slug} (${n.status}) via ${n.field}${n.cycle ? ' [cycle]' : n.shared ? ' [shared]' : n.broken ? ' [broken]' : ''}`);
+    visit(n.dependsOn, level + 1);
+  }};
+  visit(tree.dependsOn, 1);
+  for (const n of tree.dependedOnBy ?? []) lines.push(`  Referenced by: ${n.slug} via ${n.field}`);
+  if (tree.blockers?.length) lines.push('Blockers:', ...tree.blockers.map(b => `  - ${b}`));
+  if (!tree.dependsOn?.length && !tree.dependedOnBy?.length && !tree.blockers?.length) lines.push('No dependencies found.');
+  if (tree.truncated) lines.push(`Truncated: ${tree.truncationReasons.join(', ')}`);
+  process.stdout.write(lines.join('\n') + '\n');
 }
 
-function printTreeNode(targetPath, field, broken, forwardMap, docByPath, maxDepth, depth, visited) {
-  const indent = '  '.repeat(depth);
-  const targetSlug = path.basename(targetPath, '.md');
-  const targetDoc = docByPath.get(targetPath);
-  const status = targetDoc?.status ?? 'unknown';
-
-  let suffix = dim(`  via ${field}`);
-  if (broken) suffix += '  ' + dim('[broken]');
-  if (visited.has(targetPath)) {
-    process.stdout.write(`${indent}${targetSlug} ${dim(`(${status})`)}${suffix}  ${dim('[cycle]')}\n`);
-    return;
-  }
-
-  process.stdout.write(`${indent}${targetSlug} ${dim(`(${status})`)}${suffix}\n`);
-
-  if (depth >= maxDepth) return;
-
-  const children = forwardMap.get(targetPath) || [];
-  const nextVisited = new Set(visited);
-  nextVisited.add(targetPath);
-  for (const child of children) {
-    printTreeNode(child.target, child.field, child.broken, forwardMap, docByPath, maxDepth, depth + 1, nextVisited);
-  }
-}
-
-function renderTreeJson(doc, forwardMap, reverseMap, docByPath, maxDepth) {
-  const slug = path.basename(doc.path, '.md');
-
-  function walkForward(docPath, depth, visited) {
-    const edges = forwardMap.get(docPath) || [];
-    return edges.map(e => {
-      const d = docByPath.get(e.target);
-      const node = {
-        path: e.target,
-        slug: path.basename(e.target, '.md'),
-        status: d?.status ?? 'unknown',
-        field: e.field,
-        broken: e.broken || false,
-        cycle: visited.has(e.target),
-      };
-      if (!node.cycle && !node.broken && depth < maxDepth) {
-        const next = new Set(visited);
-        next.add(e.target);
-        node.dependsOn = walkForward(e.target, depth + 1, next);
-      }
-      return node;
-    });
-  }
-
-  const result = {
-    path: doc.path,
-    slug,
-    status: doc.status,
-    dependsOn: walkForward(doc.path, 1, new Set([doc.path])),
-    dependedOnBy: (reverseMap.get(doc.path) || []).map(e => {
-      const d = docByPath.get(e.source);
-      return { path: e.source, slug: path.basename(e.source, '.md'), status: d?.status ?? 'unknown', field: e.field };
-    }),
-    blockers: doc.blockers || [],
-  };
-
-  process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+function renderTreeJson(doc, forward, reverse, docs, maxDepth, gates) {
+  process.stdout.write(JSON.stringify(boundedOutput({...dependencyTree(doc, forward, reverse, docs, maxDepth), gates}), null, 2) + '\n');
 }
 
 // ── Flat overview ──────────────────────────────────────────────────────
 
-function renderFlat(graph, forwardMap, reverseMap, docByPath) {
-  process.stdout.write(bold('Deps') + dim(` — ${graph.stats.nodeCount} docs, ${graph.stats.edgeCount} edges`) + '\n\n');
-
-  if (graph.stats.edgeCount === 0) {
-    process.stdout.write(dim('No dependencies found. Add referenceFields to your config.') + '\n');
-    return;
-  }
-
-  // Most blocking: nodes with the most reverse edges
-  const blockingCounts = [...reverseMap.entries()]
-    .map(([p, edges]) => ({ path: p, count: edges.length }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 10);
-
-  if (blockingCounts.length > 0) {
-    process.stdout.write(bold('Most blocking') + dim(' (depended on by the most docs):') + '\n');
-    for (const { path: p, count } of blockingCounts) {
-      const doc = docByPath.get(p);
-      const slug = path.basename(p, '.md').padEnd(24);
-      process.stdout.write(`  ${slug} ${dim(`(${doc?.status ?? '?'})`)}  blocks ${count}\n`);
-    }
-    process.stdout.write('\n');
-  }
-
-  // Most blocked: nodes with the most forward edges
-  const blockedCounts = [...forwardMap.entries()]
-    .map(([p, edges]) => ({ path: p, count: edges.filter(e => !e.broken).length }))
-    .filter(e => e.count > 0)
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 10);
-
-  if (blockedCounts.length > 0) {
-    process.stdout.write(bold('Most blocked') + dim(' (depends on the most docs):') + '\n');
-    for (const { path: p, count } of blockedCounts) {
-      const doc = docByPath.get(p);
-      const slug = path.basename(p, '.md').padEnd(24);
-      process.stdout.write(`  ${slug} ${dim(`(${doc?.status ?? '?'})`)}  depends on ${count}\n`);
-    }
-    process.stdout.write('\n');
-  }
-
-  // Docs with blockers
-  const withBlockers = [...docByPath.values()].filter(d => d.blockers?.length > 0);
-  if (withBlockers.length > 0) {
-    process.stdout.write(bold('With blockers:') + '\n');
-    for (const doc of withBlockers) {
-      const slug = path.basename(doc.path, '.md');
-      process.stdout.write(`  ${slug}: ${doc.blockers.join('; ')}\n`);
-    }
-    process.stdout.write('\n');
-  }
-
-  // Orphans
-  if (graph.orphans.length > 0) {
-    const orphanSlugs = graph.orphans.map(p => path.basename(p, '.md'));
-    process.stdout.write(`${dim('Orphans (no dependencies)')}: ${orphanSlugs.join(', ')}\n`);
-    process.stdout.write('\n');
-  }
+function renderFlat(graph, forward, reverse, docs) {
+  const summary = flatData(graph, forward, reverse, docs);
+  const lines = [`Deps — ${graph.stats.nodeCount} docs, ${graph.stats.edgeCount} document connections`];
+  if (!graph.stats.edgeCount) lines.push('No dependencies found. Add referenceFields to your config.');
+  lines.push('Most blocking (reference links, not execution gates):');
+  for (const row of summary.mostBlocking ?? []) lines.push(`  ${row.slug}: ${row.blocksCount}`);
+  lines.push('Most blocked (reference links, not execution gates):');
+  for (const row of summary.mostBlocked ?? []) lines.push(`  ${row.slug}: ${row.dependsOnCount}`);
+  lines.push('With blockers:');
+  for (const row of summary.withBlockers ?? []) lines.push(`  ${row.slug}: ${(row.blockers ?? []).join('; ')}`);
+  lines.push(`Orphans (no reference links): ${(summary.orphans ?? []).join(', ')}`);
+  if (summary.truncated) lines.push(`Truncated: ${summary.truncationReasons.join(', ')}`);
+  process.stdout.write(lines.join('\n') + '\n');
 }
 
-function renderFlatJson(graph, forwardMap, reverseMap, docByPath) {
+function flatData(graph, forwardMap, reverseMap, docByPath) {
   const blocking = [...reverseMap.entries()]
     .map(([p, edges]) => ({ path: p, slug: path.basename(p, '.md'), blocksCount: edges.length }))
     .sort((a, b) => b.blocksCount - a.blocksCount);
@@ -238,13 +114,17 @@ function renderFlatJson(graph, forwardMap, reverseMap, docByPath) {
     .filter(d => d.blockers?.length > 0)
     .map(d => ({ path: d.path, slug: path.basename(d.path, '.md'), blockers: d.blockers }));
 
-  process.stdout.write(JSON.stringify({
+  return boundedOutput({
     stats: graph.stats,
     mostBlocking: blocking,
     mostBlocked: blocked,
     withBlockers,
     orphans: graph.orphans,
-  }, null, 2) + '\n');
+  });
+}
+
+function renderFlatJson(...args) {
+  process.stdout.write(JSON.stringify(flatData(...args),null,2) + '\n');
 }
 
 // ── Unblocks ─────────────────────────────────────────────────────────
@@ -260,6 +140,7 @@ export function runUnblocks(argv, config) {
   const index = buildIndex(config);
   const graph = buildGraph(index, config);
   const docByPath = new Map(index.docs.map(d => [d.path, d]));
+  const readGates = createGateReader(index.docs, config);
   const doc = docByPath.get(repoPath);
   if (!doc) die(`Doc not in index: ${repoPath}`);
 
@@ -278,40 +159,45 @@ export function runUnblocks(argv, config) {
     d.blockers?.some(b => b.includes(basename) || b.includes(path.basename(repoPath)))
   );
 
-  const directDeps = (reverseMap.get(repoPath) || []).map(e => {
+  let directDeps = (reverseMap.get(repoPath) || []).map(e => {
     const d = docByPath.get(e.source);
     return { path: e.source, slug: path.basename(e.source, '.md'), status: d?.status, field: e.field };
   });
 
-  const blockerDeps = blockerRefs
+  let blockerDeps = blockerRefs
     .filter(d => d.path !== repoPath)
     .map(d => ({ path: d.path, slug: path.basename(d.path, '.md'), status: d.status, blockers: d.blockers }));
 
+  let gates = index.docs.flatMap(d => readGates(d.path).entries.filter(e=>e.target?.path===repoPath).map(e=>({...e,dependent:d.path})));
+  const result = boundedOutput({doc:repoPath,directDeps,blockerDeps,gates});
+  ({directDeps,blockerDeps,gates}=result);
   if (json) {
-    process.stdout.write(JSON.stringify({ doc: repoPath, directDeps, blockerDeps }, null, 2) + '\n');
+    process.stdout.write(JSON.stringify(result, null, 2) + '\n');
     return;
   }
 
+  if (result.truncated && !json) process.stdout.write(`Truncated: ${result.truncationReasons.join(', ')}\n`);
   const slug = path.basename(repoPath, '.md');
+  process.stdout.write(gateLines(boundedOutput({review:'inverse declarations',entries:gates,diagnostics:[]})).join('\n') + '\n');
   process.stdout.write(`${bold('Unblocks')} — what happens when ${green(slug)} completes:\n\n`);
 
-  if (directDeps.length > 0) {
+  if ((directDeps ?? []).length > 0) {
     process.stdout.write(bold('Referenced by:') + '\n');
-    for (const d of directDeps) {
+    for (const d of directDeps ?? []) {
       process.stdout.write(`  ${d.slug.padEnd(24)} ${dim(`(${d.status})`)}  via ${dim(d.field)}\n`);
     }
     process.stdout.write('\n');
   }
 
-  if (blockerDeps.length > 0) {
+  if ((blockerDeps ?? []).length > 0) {
     process.stdout.write(bold('Listed as blocker in:') + '\n');
-    for (const d of blockerDeps) {
+    for (const d of blockerDeps ?? []) {
       process.stdout.write(`  ${d.slug.padEnd(24)} ${dim(`(${d.status})`)}\n`);
     }
     process.stdout.write('\n');
   }
 
-  if (directDeps.length === 0 && blockerDeps.length === 0) {
+  if ((directDeps ?? []).length === 0 && (blockerDeps ?? []).length === 0 && (gates ?? []).length === 0) {
     process.stdout.write(dim('No docs depend on or are blocked by this file.') + '\n');
   }
 }

@@ -381,3 +381,9 @@ export const presets = {
 // AI hooks — override summarization (replaces the local model server; see `runlist model`).
 // export function summarizeDoc(body, meta) { return 'Custom summary'; }
 // export function summarizeDiff(diffOutput, filePath) { return 'Custom diff summary'; }
+
+// Explicit execution prerequisites, separate from reciprocal context links.
+export const dependencyField = 'depends_on';
+// Entries: "plan: foundation.md#phase-two", "decision: foundation.md#D7",
+// "external: arrival", "deploy: release evidence", or sole "none: reason".
+// Empty lists are unreviewed; diagnostics do not establish acceptance.

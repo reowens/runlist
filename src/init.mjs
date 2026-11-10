@@ -270,7 +270,7 @@ function generateDetectedConfig(scan, rootPath, promptTracking, setupRouting = f
   }
 
   if (scan.refFieldNames.size > 0) {
-    const names = [...scan.refFieldNames].sort();
+    const names = [...scan.refFieldNames].filter(name => name !== 'depends_on').sort();
     lines.push('export const referenceFields = {');
     lines.push(`  bidirectional: [${names.map(n => `'${n}'`).join(', ')}],`);
     lines.push('  unidirectional: [],');

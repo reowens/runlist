@@ -44,3 +44,16 @@ The `PreToolUse` hook warns on direct pending-prompt reads and denies hand-edite
 **Document model:** a hub organizes related plans and supporting docs. Older docs and filenames call hubs *runlists*; this is the same document, not another level below a hub. A hub can be a coordination map or hold ordered plans in its `runlist:` array. A roadmap is an optional hub collecting other hubs and rolling up progress, with direct plan children also supported. Hubs currently use `type: plan` with hub metadata. Stage describes when a plan should ship, while status describes progress; neither adds a document level. Existing `runlist` commands, fields and output labels remain unchanged. See the repository README's “Hubs, Ordered Plans, And Roadmaps” section for examples.
 
 **Optional filing policy:** with `export const filing = true` (or `{ categoryDepth: 3 }`), `check` warns on missing/multiple/uncategorized homes, while `coverage` lists direct/inherited homes and hub:line evidence. A home is a status-bearing table row whose first cell links the plan; mentions and order lists are references. A child without its own row can inherit a home through explicit `parent_plan:` ancestors. Categories come from headings or the containing hub's filing category. Scoping retains full evidence; incomplete scans suppress absence findings. Neither command assigns homes or repairs rows. Enable the policy or retire an older custom check only with repository authorization. Available in CLI 0.93.0.
+
+## Dependency inspection
+
+Use `runlist deps <file> --json` for explicit gate declarations and target diagnostics,
+and `runlist unblocks <file> --json` for exact inverse gates. The configured
+`dependencyField` (default `depends_on`) is distinct from context references.
+Plan fragments stay scoped; decision file/ID references retain linked register
+peers. External/deployment prose remains unevaluated. A sole `none: <reason>`
+declares no known prerequisites; blank/empty metadata is unreviewed.
+Inspect `truncated` and omission counts before drawing absence conclusions.
+Neither target resolution, archived status nor a closed decision proves accepted
+completion or grants execution permission. Ranked pickup reports gates after
+selection and does not change priority or ownership based on them.

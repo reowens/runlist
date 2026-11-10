@@ -151,3 +151,16 @@ runlist doctor --transactions --apply   # clear the ones whose files already agr
 
 - `runlist misuse` / `runlist misuse --by-rule` — what wrong-moves the guard intercepted across repos.
 - `runlist journal` — per-repo CLI invocation log (opt-in).
+
+## Dependency inspection
+
+Use `runlist deps <file> --json` for explicit gate declarations and target diagnostics,
+and `runlist unblocks <file> --json` for exact inverse gates. The configured
+`dependencyField` (default `depends_on`) is distinct from context references.
+Plan fragments stay scoped; decision file/ID references retain linked register
+peers. External/deployment prose remains unevaluated. A sole `none: <reason>`
+declares no known prerequisites; blank/empty metadata is unreviewed.
+Inspect `truncated` and omission counts before drawing absence conclusions.
+Neither target resolution, archived status nor a closed decision proves accepted
+completion or grants execution permission. Ranked pickup reports gates after
+selection and does not change priority or ownership based on them.

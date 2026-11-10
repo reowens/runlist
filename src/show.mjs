@@ -1,8 +1,10 @@
+import { gateDeclarations } from './gate-source.mjs';
+import { createGateReader, gateSummary, gateLines } from './gates.mjs';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, normalizeEol, parseSimpleFrontmatter } from './frontmatter.mjs';
 import { buildBrief, collapseFrontmatter, cut, LIMITS, readSection, SURVEY_LIMITS } from './brief.mjs';
-import { parseDocFile, resolveDocArg } from './index.mjs';
+import { buildIndex, parseDocFile, resolveDocArg } from './index.mjs';
 import { resolveBodyLinkTarget } from './body-link.mjs';
 import { stripTally } from './section.mjs';
 import { die, normalizeStringList, resolveRefPath, shellQuote, toRepoPath } from './util.mjs';
@@ -19,7 +21,7 @@ const RELATED = ['related_plans', 'related_docs', 'supports_plans', 'parent_plan
 
 function relatedFields(config) {
   const configured = [...(config.referenceFields?.bidirectional ?? []), ...(config.referenceFields?.unidirectional ?? [])];
-  return [...new Set([...RELATED, ...configured])];
+  return [...new Set([...RELATED, ...configured])].filter(f=>f!==(config.dependencyField ?? 'depends_on'));
 }
 
 function brief(abs, config) {
@@ -73,6 +75,7 @@ export function showDoc(abs, config) {
     currentState: doc.currentState === 'No current_state set' ? null : doc.currentState,
     nextStep: doc.nextStep,
     blockers: doc.blockers,
+    gates: gateSummary(createGateReader(gateDeclarations(raw, config).entries.length ? buildIndex(config, {fast:true}).docs : [doc], config)(doc.path)),
     checklist: doc.checklist,
     updated: doc.updated,
     related,
@@ -277,6 +280,8 @@ export function runShow(args, config) {
       out.push(`Linked from the body: ${shown}${c.links.length > cap ? ` (+${c.links.length - cap} more)` : ''}`);
     }
     if (c.brief) out.push(...renderBrief(c, c.brief));
+    if (c.brief || c.gates.review !== 'unreviewed') out.push(...gateLines(c.gates));
+    if (c.gates.omitted) out.push(`  +${c.gates.omitted} gates omitted; runlist deps ${c.path} --json`);
     process.stdout.write(out.join('\n') + '\n');
   });
   if (!opts.card && !(single && cards[0].brief)) {

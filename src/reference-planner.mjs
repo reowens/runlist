@@ -45,6 +45,7 @@ export function configuredReferenceFields(config) {
   return [...new Set([
     ...(config.referenceFields?.bidirectional ?? []),
     ...(config.referenceFields?.unidirectional ?? []),
+    config.dependencyField ?? 'depends_on',
   ])];
 }
 
@@ -105,8 +106,8 @@ function registerIdentity(identities, filePath) {
 // The comparison mirrors the resolver: case-folded (a case-insensitive
 // filesystem resolves `FOO.MD` to `foo.md`, and folding can only over-include),
 // and with the same backslash escapes unwound, so `my\ plan.md` still matches
-// `my plan.md`. Percent-encoding needs no handling — the resolver does not
-// decode it either, so `foo%20bar.md` never resolves in the first place.
+// `my plan.md`. Encoded gate paths bypass this prefilter and reach their
+// typed path decoder before identity resolution.
 //
 // The boundary: a symlink whose name differs from its target's. Aliases inside
 // the corpus are covered by `names`; a symlink that is NOT itself a collected
@@ -114,6 +115,8 @@ function registerIdentity(identities, filePath) {
 function mayReferenceIdentity(content, oldIdentity, oldPath, identities) {
   if (!identities?.names || identities.symlinked) return true;
   const names = identities.names.get(oldIdentity);
+  // Encoded gate paths need full identity resolution, including UTF-8 names.
+  if (content.includes('%')) return true;
   const haystack = (content.includes('\\') ? content.replace(/\\([\s()[\]<>])/g, '$1') : content).toLowerCase();
   if (haystack.includes(path.basename(oldPath).toLowerCase())) return true;
   if (names) for (const name of names) if (haystack.includes(name)) return true;
@@ -196,21 +199,45 @@ function rewritePathTokens(value, args) {
   return rewritten + comment;
 }
 
-function rewriteFrontmatter(frontmatter, fields, args) {
+function rewriteGateValue(value, args) {
+  const match = /^(\s*(?:-\s*)?)(["']?)(.*)$/.exec(value);
+  const [, prefix, quote, rest] = match;
+  const end = quote ? rest.lastIndexOf(quote) : -1;
+  if (quote && end < 0) return value;
+  const raw = quote ? rest.slice(0,end) : rest.trimEnd();
+  const tail = quote ? rest.slice(end+1) : rest.slice(raw.length);
+  const typed = /^(plan|decision):\s*(.+)$/.exec(raw);
+  if (!typed && !/^[^:]+\.md(?:[?#].*)?$/.test(raw)) return value;
+  const ref = typed ? typed[2] : raw;
+  const split = ref.search(/[?#]/);
+  const file = split < 0 ? ref : ref.slice(0,split);
+  const suffix = split < 0 ? '' : ref.slice(split);
+  let decoded;
+  try { decoded = decodeURIComponent(file); } catch { return value; }
+  const rewritten = rewriteToken(decoded, ...args);
+  if (rewritten === decoded) return value;
+  const next = file.includes('%') ? encodeURI(rewritten) : rewritten;
+  const lead = typed ? raw.slice(0,raw.length-ref.length) : '';
+  return prefix + quote + lead + next + suffix + quote + tail;
+}
+
+function rewriteFrontmatter(frontmatter, fields, args, dependencyField) {
   const allowed = new Set(fields);
   const lines = frontmatter.split('\n');
   let active = false;
+  let gate = false;
   return lines.map(line => {
     const key = /^([A-Za-z_][\w-]*):(?:\s*(.*))?$/.exec(line);
     if (key) {
       active = allowed.has(key[1]);
+      gate = active && (key[1] === (dependencyField));
       if (!active) return line;
       const colon = line.indexOf(':');
-      return line.slice(0, colon + 1) + rewritePathTokens(line.slice(colon + 1), args);
+      return line.slice(0, colon + 1) + (gate ? rewriteGateValue(line.slice(colon + 1), args) : rewritePathTokens(line.slice(colon + 1), args));
     }
     if (/^[^\s#][^:]*:/.test(line)) active = false;
     if (!active || /^\s*#/.test(line)) return line;
-    return rewritePathTokens(line, args);
+    return gate ? rewriteGateValue(line, args) : rewritePathTokens(line, args);
   }).join('\n');
 }
 
@@ -352,6 +379,7 @@ export function rewriteDocumentReferences(content, {
   oldPath,
   newPath,
   referenceFields = [],
+  dependencyField = 'depends_on',
   rebaseAll = false,
 }) {
   const { frontmatter, body } = extractFrontmatter(content);
@@ -361,12 +389,12 @@ export function rewriteDocumentReferences(content, {
   // document itself moved, so no single name can gate it.
   if (!rebaseAll && !mayReferenceIdentity(content, oldIdentity, oldPath, identities)) return content;
   const args = [sourcePath, outputPath, repoRoot, identities, oldIdentity, newPath, rebaseAll];
-  const nextFrontmatter = rewriteFrontmatter(frontmatter, referenceFields, args);
+  const nextFrontmatter = rewriteFrontmatter(frontmatter, referenceFields, args, dependencyField);
   const nextBody = rewriteMarkdown(body, args);
   return nextFrontmatter === frontmatter && nextBody === body ? content : `---\n${nextFrontmatter}\n---\n${nextBody}`;
 }
 
-export function planReferenceMove({ documents, oldPath, newPath, repoRoot, referenceFields = [] }) {
+export function planReferenceMove({ documents, oldPath, newPath, repoRoot, referenceFields = [], dependencyField = 'depends_on' }) {
   const identities = createReferenceIdentitySet(documents.map(document => document.path));
   // Register rather than bare-add: the case fold and name index have to know
   // about the moved document too, or a differently-cased link to it misses.
@@ -374,13 +402,13 @@ export function planReferenceMove({ documents, oldPath, newPath, repoRoot, refer
   const source = documents.find(document => path.resolve(document.path) === path.resolve(oldPath));
   if (!source) throw new Error(`Reference move plan is missing source content: ${oldPath}`);
   const movedContent = rewriteDocumentReferences(source.content, {
-    sourcePath: oldPath, outputPath: newPath, repoRoot, identities, oldPath, newPath, referenceFields, rebaseAll: true,
+    sourcePath: oldPath, outputPath: newPath, repoRoot, identities, oldPath, newPath, referenceFields, dependencyField, rebaseAll: true,
   });
   const updates = [];
   for (const document of documents) {
     if (path.resolve(document.path) === path.resolve(oldPath)) continue;
     const content = rewriteDocumentReferences(document.content, {
-      sourcePath: document.path, repoRoot, identities, oldPath, newPath, referenceFields,
+      sourcePath: document.path, repoRoot, identities, oldPath, newPath, referenceFields, dependencyField,
     });
     if (content !== document.content) updates.push({ path: document.path, expectedContent: document.content, content });
   }

@@ -377,17 +377,18 @@ describe('init scanning', () => {
     ok(config.includes('gallery'));
   });
 
-  it('detects reference fields from existing frontmatter', () => {
+  it('detects context fields without making gate declarations reciprocal', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-init-'));
     mkdirSync(path.join(tmpDir, '.git'));
     mkdirSync(path.join(tmpDir, 'docs'), { recursive: true });
-    writeFileSync(path.join(tmpDir, 'docs', 'a.md'), '---\nstatus: active\ndepends_on:\n  - b.md\n---\n# A');
+    writeFileSync(path.join(tmpDir, 'docs', 'a.md'), '---\nstatus: active\ndepends_on:\n  - b.md\nrelated_plans:\n  - b.md\n---\n# A');
     writeFileSync(path.join(tmpDir, 'docs', 'b.md'), '---\nstatus: active\n---\n# B');
     const result = run(['init']);
     strictEqual(result.status, 0, `stderr: ${result.stderr}`);
     const config = readFileSync(path.join(tmpDir, 'runlist.config.mjs'), 'utf8');
     ok(config.includes('referenceFields'));
-    ok(config.includes('depends_on'));
+    ok(config.includes('related_plans'));
+    ok(!config.includes('depends_on'));
   });
 
   it('preserves known status ordering', () => {

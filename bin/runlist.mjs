@@ -873,11 +873,15 @@ Filters:
 Without a file, shows a flat overview: most blocking docs, most blocked
 docs, docs with blockers, and orphans.
 
-With a file, shows a tree: what the doc depends on (recursive) and what
-depends on it.
+With a file, shows document connections plus explicit Markdown gates.
+Existing JSON relationship keys retain their meaning; gates are additive.
+Shared nodes expand once; output is capped at 1000 expanded nodes, 4000
+examined edges and 512 KiB, with truncated and truncationReasons when cut.
+A value over 4096 characters is clipped and reported as truncated.
+Gate diagnostics do not establish acceptance or permission to execute.
 
 Options:
-  --depth <n>            Max tree depth (default: 5)
+  --depth <n>            Max tree depth, 0 through 64 (default: 5)
   --json                 Machine-readable JSON output`,
 
   modules: `runlist modules — module dashboard (plans grouped by module)
@@ -1652,20 +1656,11 @@ Supports all query flags (--status, --json, --sort, etc.)`,
 Shows documents that reference or depend on the given file.
 Useful for impact analysis before archiving or changing a plan.
 
-The dependency edge is read from each plan's \`blockers:\` frontmatter
-(a YAML list of plan slugs or paths). \`blocked_by:\` is accepted as
-an alias since 0.39.3 — both populate the same index field, so use
-whichever name reads better.
-
-Frontmatter shape:
-
-    ---
-    type: plan
-    status: blocked
-    blockers:
-      - foo-plan.md
-      - docs/plans/bar-plan.md
-    ---
+Explicit inverse prerequisites appear under gates, from dependencyField
+(default depends_on). Legacy reference and blocker keys remain unchanged.
+Gates preserve plan fragments, resolve decision file#id through existing
+linked peers, and retain external/deploy prose as unevaluated requirements.
+An archived target or closed decision is not assumed satisfied.
 
 Options:
   --json                 Output as JSON`,

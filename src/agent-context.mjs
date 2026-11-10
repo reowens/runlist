@@ -1,3 +1,4 @@
+import { createGateReader, gateSummary } from './gates.mjs';
 import { die, isArchivedPath, truncate } from './util.mjs';
 import { isCoordinationHub } from './runlist.mjs';
 import { readPlanOwnership, ownershipLiveness } from './pickup.mjs';
@@ -38,7 +39,7 @@ export function boundedCollection(items, limit) {
   };
 }
 
-function compactDoc(doc, config) {
+function compactDoc(doc, config, readGates) {
   const blockers = (doc.blockers ?? []).map(item => truncate(String(item), 160));
   const ownership = doc.type === 'plan' ? readPlanOwnership(doc.path, config) : null;
   return {
@@ -48,6 +49,7 @@ function compactDoc(doc, config) {
     type: doc.type,
     nextStep: doc.nextStep ? truncate(doc.nextStep, 300) : null,
     blockers: boundedCollection(blockers, 3),
+    ...(readGates ? {gates:gateSummary(readGates(doc.path))} : {}),
     daysSinceUpdate: doc.daysSinceUpdate ?? null,
     ...(doc.owner ? { owner: doc.owner } : {}),
     ...(ownership ? { claim: ownership.corrupt ? { state: 'unverifiable', reason: ownership.reason } : {
@@ -57,8 +59,8 @@ function compactDoc(doc, config) {
   };
 }
 
-function docCollection(docs, limit, config) {
-  return { total: docs.length, shown: Math.min(docs.length, limit), truncated: docs.length > limit, items: docs.slice(0, limit).map(doc => compactDoc(doc, config)) };
+function docCollection(docs, limit, config, readGates) {
+  return { total: docs.length, shown: Math.min(docs.length, limit), truncated: docs.length > limit, items: docs.slice(0, limit).map(doc => compactDoc(doc, config, readGates)) };
 }
 
 function enforceByteBudget(context, maxBytes) {
@@ -111,6 +113,7 @@ function issueItem(issue) {
 }
 
 export function buildAgentContext(index, config, options = {}) {
+  const readGates = createGateReader(index.docs, config);
   const maxBytes = options.maxBytes ?? DEFAULT_AGENT_CONTEXT_BYTES;
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 2048) die('--max-bytes takes a whole number of bytes, at least 2048.');
   const sections = options.sections ?? AGENT_CONTEXT_SECTIONS;
@@ -194,14 +197,14 @@ export function buildAgentContext(index, config, options = {}) {
       warnings: index.warnings.length,
     },
     prompts: {
-      actionable: docCollection(prompts, LIMITS.prompts, config),
-      next: prompts[0] ? compactDoc(prompts[0], config) : null,
+      actionable: docCollection(prompts, LIMITS.prompts, config, readGates),
+      next: prompts[0] ? compactDoc(prompts[0], config, readGates) : null,
     },
     plans: {
-      focus: docCollection(focus, LIMITS.plans, config),
-      listed: docCollection(listed, LIMITS.plans, config),
-      stale: docCollection(stale, LIMITS.plans, config),
-      hubs: docCollection(hubs, LIMITS.hubs, config),
+      focus: docCollection(focus, LIMITS.plans, config, readGates),
+      listed: docCollection(listed, LIMITS.plans, config, readGates),
+      stale: docCollection(stale, LIMITS.plans, config, readGates),
+      hubs: docCollection(hubs, LIMITS.hubs, config, readGates),
     },
     issues: {
       errors: boundedCollection(errors, LIMITS.issues),

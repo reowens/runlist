@@ -1,3 +1,4 @@
+import { gateLines } from './gates.mjs';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter, normalizeEol, replaceFrontmatter } from './frontmatter.mjs';
@@ -150,7 +151,7 @@ function commitLifecycleMutation(filePath, targetPath, config, updates, historyF
       : (options.additionalUpdates ?? []).map(item => retargetPrompt({
           ...item,
           content: item.content === undefined ? undefined : rewriteDocumentReferences(item.content, {
-            sourcePath: item.path, repoRoot: config.repoRoot, identities, oldPath: filePath, newPath: targetPath, referenceFields,
+            sourcePath: item.path, repoRoot: config.repoRoot, identities, oldPath: filePath, newPath: targetPath, referenceFields, dependencyField: config.dependencyField,
           }),
         }));
     const moveResult = moveFileAtomic(filePath, targetPath, sourceContent => {
@@ -162,7 +163,7 @@ function commitLifecycleMutation(filePath, targetPath, config, updates, historyF
       updates: [...allFiles.map(docFile => ({
         path: docFile,
         render: raw => rewriteDocumentReferences(raw, {
-          sourcePath: docFile, repoRoot: config.repoRoot, identities, oldPath: filePath, newPath: targetPath, referenceFields,
+          sourcePath: docFile, repoRoot: config.repoRoot, identities, oldPath: filePath, newPath: targetPath, referenceFields, dependencyField: config.dependencyField,
         }),
       })), ...additionalUpdates],
       creations,
@@ -750,6 +751,7 @@ export async function startPlan(argv, config, opts = {}) {
       body: body?.trim() ?? '',
       card,
       adopted,
+      ...(opts.gates ? {gates:opts.gates} : {}),
     }, null, 2) + '\n');
   } else {
     // A session re-reading its own plan started nothing, and printing a status
@@ -765,6 +767,11 @@ export async function startPlan(argv, config, opts = {}) {
       const card = buildCard(filePath, raw, config);
       process.stdout.write(renderCard(card));
     }
+  }
+
+  if (!json && !opts.quiet && opts.gates) {
+    process.stdout.write(gateLines(opts.gates).join('\n') + '\n');
+    if(opts.gates.omitted) process.stdout.write(`  +${opts.gates.omitted} gates omitted; runlist deps ${repoPath} --json\n`);
   }
 
   if (showFiles && disposition.kind === 'start') {
@@ -1458,7 +1465,7 @@ function renderMovedFileRefs(raw, oldPath, newPath, config) {
     outputPath: newPath,
     repoRoot: config.repoRoot,
     identities: createReferenceIdentitySet(files),
-    referenceFields: configuredReferenceFields(config),
+    referenceFields: configuredReferenceFields(config), dependencyField: config.dependencyField,
     oldPath,
     newPath,
     rebaseAll: true,
@@ -1472,7 +1479,7 @@ function countRefsToUpdate(oldPath, newPath, config) {
     if (docFile === oldPath || docFile === newPath) return false;
     const raw = readFileSync(docFile, 'utf8');
     return rewriteDocumentReferences(raw, {
-      sourcePath: docFile, repoRoot: config.repoRoot, identities, oldPath, newPath, referenceFields: configuredReferenceFields(config),
+      sourcePath: docFile, repoRoot: config.repoRoot, identities, oldPath, newPath, referenceFields: configuredReferenceFields(config), dependencyField: config.dependencyField,
     }) !== raw;
   }).length;
 }

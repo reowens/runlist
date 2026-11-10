@@ -1,3 +1,4 @@
+import { createGateReader, gateSummary } from './gates.mjs';
 import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { extractFrontmatter, parseSimpleFrontmatter, replaceFrontmatter } from './frontmatter.mjs';
@@ -14,7 +15,7 @@ import {
   warn,
 } from './util.mjs';
 import { detectBodyRunlistRefs, isCoordinationHub, isRoadmapHub } from './hub.mjs';
-import { resolveDocArg } from './index.mjs';
+import { buildIndex, resolveDocArg } from './index.mjs';
 import { runlistChildContent, slugify, titleize } from './new.mjs';
 import { bold, cyan, dim, green, red, yellow } from './color.mjs';
 import { authorizeManagedDestination, authorizeManagedSource } from './managed-path.mjs';
@@ -940,5 +941,6 @@ export async function runRunlist(argv, config, opts = {}) {
   if (argv.includes('--no-index')) startArgs.push('--no-index');
   if (argv.includes('--show-files')) startArgs.push('--show-files');
   if (json) startArgs.push('--json');
-  await startPlan(startArgs, config, opts);
+  const gates = gateSummary(createGateReader(buildIndex(config, {fast:true}).docs, config)(target.path));
+  await startPlan(startArgs, config, {...opts, gates});
 }

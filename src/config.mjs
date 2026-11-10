@@ -19,6 +19,7 @@ const REPLACE_KEYS = new Set([
 ]);
 
 const DEFAULTS = {
+  dependencyField: 'depends_on',
   // 'plans' (the full plan/doc/prompt system) or 'handoffs': session handoffs
   // only, written by the first `runlist baton` in a repository with no config.
   // Handoffs mode pairs with a `root` that is the prompt folder itself, so the
@@ -559,6 +560,11 @@ export async function resolveConfig(cwd, explicitConfigPath, options = {}) {
     ...(config.referenceFields.unidirectional ?? []), 'yardstick_into',
   ])];
 
+  const dependencyField = config.dependencyField;
+  if (typeof dependencyField !== 'string' || !/^[A-Za-z_][\w-]*$/.test(dependencyField)) throw new Error('dependencyField must be a frontmatter key.');
+  const gateReferenceConflict = Object.values(config.referenceFields).some(fields => Array.isArray(fields) && fields.includes(dependencyField));
+  config.referenceFields = Object.fromEntries(Object.entries(config.referenceFields).map(([key,fields]) => [key, Array.isArray(fields) ? fields.filter(f=>f!==dependencyField) : fields]));
+
   // Normalize rich status definitions (object form → array + derived config)
   const derived = normalizeRichStatuses(config, userConfig);
   if (derived) applyDerivedConfig(config, userConfig, derived);
@@ -567,7 +573,7 @@ export async function resolveConfig(cwd, explicitConfigPath, options = {}) {
   const docsRoots = rootPaths.map(r => path.resolve(configDir, r));
   const docsRoot = docsRoots[0]; // primary root for backwards compat
 
-  const earlyWarnings = [];
+  const earlyWarnings = gateReferenceConflict ? ['Config: dependencyField is also a reference field; gate semantics take precedence without reciprocity.'] : [];
   for (const dr of docsRoots) {
     if (!existsSync(dr)) {
       earlyWarnings.push('Config: docs root does not exist: ' + dr);
@@ -688,6 +694,7 @@ export async function resolveConfig(cwd, explicitConfigPath, options = {}) {
 
   return {
     raw: config,
+    dependencyField: config.dependencyField,
 
     docsRoot,
     docsRoots,

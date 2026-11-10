@@ -63,7 +63,7 @@ export async function runRename(argv, config, opts = {}) {
   }
   const sourceContent = sourceDocument.content;
   const referenceFields = configuredReferenceFields(config);
-  const referencePlan = planReferenceMove({ documents, oldPath, newPath, repoRoot: config.repoRoot, referenceFields });
+  const referencePlan = planReferenceMove({ documents, oldPath, newPath, repoRoot: config.repoRoot, referenceFields, dependencyField: config.dependencyField });
   const ownership = prepareOwnershipMigration(oldRepoPath, newPath, config, { sessionId: availableSessionId() });
 
   if (dryRun) {
