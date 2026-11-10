@@ -6,6 +6,11 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ### Added
 
+- Versioned read-only `runlist/gates` package interface for consumers: the
+  shared declaration parser, gate reader, configuration loader and index,
+  with `GATE_API_VERSION = 1`. Consumers can check capabilities instead of
+  maintaining another parser or importing checkout-specific source paths.
+
 - Explicit Markdown gate diagnostics in `deps`, `unblocks`, `show`, bounded
   `agent-context`, and ranked pickup output. `dependencyField` defaults to
   `depends_on`, separate from context reference fields. Plan fragments and

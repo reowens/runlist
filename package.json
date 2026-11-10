@@ -10,7 +10,8 @@
     "dotmd": "bin/dotmd.mjs"
   },
   "exports": {
-    ".": "./src/index.mjs"
+    ".": "./src/index.mjs",
+    "./gates": "./src/gate-api.mjs"
   },
   "files": [
     "bin/",

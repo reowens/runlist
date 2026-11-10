@@ -248,3 +248,23 @@ Linux and Intel Mac GUI installation is not offered by this installer. See
 | Plugin files exist but the skill is missing | Check enablement, host trust and reload in the actual host; offline doctor cannot attest loading. |
 | Doctor cannot map a Claude wrapper to a profile | Use the listed explicit-target preview or resolve the account/profile choice; do not bypass the wrapper automatically. |
 | Your assistant only has a remote shell | Run laptop setup in a laptop terminal; remote success does not install local software. |
+
+## Reading gates from another tool
+
+The versioned, read-only `runlist/gates` interface lets a consumer use the same
+parser and target resolution as the CLI:
+
+```js
+import { GATE_API_VERSION, resolveConfig, buildIndex, createGateReader } from 'runlist/gates';
+if (GATE_API_VERSION !== 1) throw new Error('Unsupported gate interface');
+const config = await resolveConfig(process.cwd());
+const index = buildIndex(config, { fast: true });
+const readGates = createGateReader(index.docs, config);
+const gates = readGates('docs/plans/example.md');
+```
+
+`parseGate` and `gateDeclarations` are also exported for consumers that only need
+source interpretation. Read results retain raw declarations, source locations,
+resolved targets/fragments and diagnostics. A resolved target, archived plan or
+closed decision does not prove accepted completion. Consumers should check the
+interface version rather than importing files from a local development checkout.
