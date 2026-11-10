@@ -273,18 +273,20 @@ describe('parseDocFile', () => {
     strictEqual(doc.hasCloseout, false);
   });
 
-  it('extracts reference fields from config', async () => {
+  it('extracts context references without making gate fields reciprocal', async () => {
     const docsDir = setup(`
 export const referenceFields = {
-  bidirectional: ['depends_on'],
+  bidirectional: ['supports', 'depends_on'],
   unidirectional: [],
 };`);
-    writeDoc(docsDir, 'a.md', 'status: active\ndepends_on:\n  - b.md', '# A');
+    writeDoc(docsDir, 'a.md', 'status: active\nsupports:\n  - b.md\ndepends_on:\n  - b.md', '# A');
     writeDoc(docsDir, 'b.md', 'status: active', '# B');
     const config = await resolveConfig(tmpDir);
     const doc = parseDocFile(path.join(docsDir, 'a.md'), config);
-    deepStrictEqual(doc.refFields.depends_on, ['b.md']);
-    deepStrictEqual(doc.refFieldDirections.depends_on, ['two-way']);
+    deepStrictEqual(doc.refFields.supports, ['b.md']);
+    deepStrictEqual(doc.refFieldDirections.supports, ['two-way']);
+    strictEqual(doc.refFields.depends_on, undefined);
+    strictEqual(doc.refFieldDirections.depends_on, undefined);
   });
 
   it('parses `>` prefix as one-way ref and strips it from the path', async () => {
