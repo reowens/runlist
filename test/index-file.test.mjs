@@ -43,6 +43,19 @@ afterEach(() => {
 });
 
 describe('renderIndexFile', () => {
+  it('archived section prints no counts, so archiving a doc does not rewrite the line', async () => {
+    const docsDir = setup();
+    writeDoc(docsDir, 'old-a.md', 'status: archived\nupdated: 2025-01-01\ncurrent_state: Done A', '# Old A');
+    const config = await resolveConfig(tmpDir);
+    const before = renderIndexFile(buildIndex(config), config);
+    writeDoc(docsDir, 'old-b.md', 'status: archived\nupdated: 2024-01-01', '# Old B');
+    const after = renderIndexFile(buildIndex(config), config);
+    const line = text => text.split('\n').find(l => l.includes('indexed by the CLI/JSON output'));
+    ok(line(before), 'archived section rendered');
+    strictEqual(line(after), line(before));
+    ok(!/\d/.test(line(after)), `no number in: ${line(after)}`);
+  });
+
   it('keeps legacy generated markers when the config omits marker names', async () => {
     const docsDir = setup();
     writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), "export const root = 'docs'; export const index = { path: 'docs/docs.md' };\n");

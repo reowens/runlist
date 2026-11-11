@@ -77,7 +77,9 @@ function renderArchivedSection(docs, config, status) {
 
   lines.push(`## ${capitalize(status)}`);
   lines.push('');
-  lines.push(`${capitalize(status)} docs are indexed by the CLI/JSON output. Showing ${highlights.length} recent or high-signal highlights out of ${docs.length} ${status} docs:`);
+  // No counts here: the total moves on every archive and the shown count with it, so a count
+  // in a committed index turns each archive into an unrelated diff. `runlist list` has the totals.
+  lines.push(`${capitalize(status)} docs are indexed by the CLI/JSON output. Recent or high-signal highlights:`);
   lines.push('');
   lines.push('| Doc | Status Snapshot |');
   lines.push('|-----|-----------------|');

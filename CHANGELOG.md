@@ -2,6 +2,15 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Changed
+
+- The generated index's archived section no longer prints how many docs are
+  archived or how many highlights it shows. The total changed on every archive,
+  so each archive rewrote that line of a committed index as an unrelated diff.
+  `runlist list` and `runlist json` still give the totals.
+
 ## 0.107.0 — 2026-11-09
 
 ### Added
