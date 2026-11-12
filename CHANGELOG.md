@@ -2,6 +2,15 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- `runlist rename` repoints links in records under an excluded records folder
+  (`history.recordDirs`, default `assets`), in their frontmatter and first 8
+  lines only, as a lifecycle move does. Its dry run names each record it would
+  change.
+
 ## 0.108.0 — 2026-11-11
 
 ### Added

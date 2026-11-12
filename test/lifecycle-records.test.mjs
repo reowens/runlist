@@ -112,6 +112,28 @@ describe('a lifecycle move and records in an excluded folder', () => {
     strictEqual(after.split('\n').slice(8).join('\n'), body.split('\n').slice(8).join('\n'));
   });
 
+  it('rename repoints a record header link, names it in a dry run, and leaves lines below the header alone', () => {
+    setup();
+    const body = ['# Snapshot', '', 'Record of [Lamp](../../lamp.md).', '', '1', '2', '3', '4', '5', 'Copied text: [Lamp](../../lamp.md).', ''].join('\n');
+    write('docs/plans/assets/lamp/snapshot.md', body);
+    write('docs/plans/assets/lamp/other.md', '# Other\n\nNothing about it.\n');
+    commit('record');
+
+    const dry = run(['rename', 'docs/plans/lamp.md', 'lantern', '-n']);
+    strictEqual(dry.status, 0, dry.stderr);
+    match(dry.stdout, /Would repoint links in record docs\/plans\/assets\/lamp\/snapshot\.md/);
+    ok(!dry.stdout.includes('other.md'));
+    strictEqual(readFileSync(path.join(tmpDir, 'docs/plans/assets/lamp/snapshot.md'), 'utf8'), body, 'a dry run writes nothing');
+
+    const r = run(['rename', 'docs/plans/lamp.md', 'lantern']);
+    strictEqual(r.status, 0, r.stderr);
+    ok(existsSync(path.join(tmpDir, 'docs/plans/lantern.md')));
+    const after = readFileSync(path.join(tmpDir, 'docs/plans/assets/lamp/snapshot.md'), 'utf8');
+    match(after.split('\n')[2], /\[Lamp\]\(\.\.\/\.\.\/lantern\.md\)/);
+    strictEqual(after.split('\n').slice(8).join('\n'), body.split('\n').slice(8).join('\n'));
+    strictEqual(readFileSync(path.join(tmpDir, 'docs/plans/assets/lamp/other.md'), 'utf8'), '# Other\n\nNothing about it.\n');
+  });
+
   it('reads records as loosely as the reference rewriter does', async () => {
     setup();
     write('docs/plans/assets/lamp/cased.md', '# Cased\n\nSee [Lamp](../../LAMP.md).\n');

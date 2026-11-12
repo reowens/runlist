@@ -14,6 +14,7 @@ import { reportMovedCodeRefs } from './code-refs.mjs';
 import { isHandoffsMode, readsAsPrompt } from './handoffs-scope.mjs';
 import { promptDirectory } from './new.mjs';
 import { PROMPT_DIR } from './naming.mjs';
+import { excludedRecordsNaming, rewriteRecordHeader } from './record-dirs.mjs';
 
 export async function runRename(argv, config, opts = {}) {
   const { dryRun } = opts;
@@ -54,7 +55,10 @@ export async function runRename(argv, config, opts = {}) {
   const oldRepoPath = toRepoPath(oldPath, config.repoRoot);
   const newRepoPath = toRepoPath(newPath, config.repoRoot);
   const allFiles = collectDocFiles(config);
-  authorizeManagedSweep(allFiles, config, { kind: 'Rename reference rewrite source' });
+  // Records the index skips (src/record-dirs.mjs) are repointed too, in their
+  // header only, the same way a lifecycle move repoints them.
+  const records = excludedRecordsNaming(oldPath, config).filter(filePath => filePath !== oldPath);
+  authorizeManagedSweep([...allFiles, ...records], config, { kind: 'Rename reference rewrite source' });
   const documents = allFiles.map(filePath => ({ path: filePath, content: readFileSync(filePath, 'utf8') }));
   let sourceDocument = documents.find(document => document.path === oldPath);
   if (!sourceDocument) {
@@ -65,6 +69,10 @@ export async function runRename(argv, config, opts = {}) {
   const referenceFields = configuredReferenceFields(config);
   const referencePlan = planReferenceMove({ documents, oldPath, newPath, repoRoot: config.repoRoot, referenceFields, dependencyField: config.dependencyField });
   const ownership = prepareOwnershipMigration(oldRepoPath, newPath, config, { sessionId: availableSessionId() });
+  const identities = createReferenceIdentitySet([oldPath, ...allFiles, ...records]);
+  const renderRecord = filePath => current => rewriteRecordHeader(current, text => rewriteDocumentReferences(text, {
+    sourcePath: filePath, repoRoot: config.repoRoot, identities, oldPath, newPath, referenceFields, withoutFrontmatter: true,
+  }));
 
   if (dryRun) {
     const prefix = dim('[dry-run]');
@@ -73,6 +81,10 @@ export async function runRename(argv, config, opts = {}) {
       process.stdout.write(`${prefix} Would update references in ${referencePlan.updates.length} file(s):\n`);
       for (const item of referencePlan.updates) process.stdout.write(`${prefix}   ${toRepoPath(item.path, config.repoRoot)}\n`);
     }
+    for (const record of records) {
+      const raw = readFileSync(record, 'utf8');
+      if (renderRecord(record)(raw) !== raw) process.stdout.write(`${prefix} Would repoint links in record ${toRepoPath(record, config.repoRoot)}\n`);
+    }
     if (ownership) process.stdout.write(`${prefix} Would migrate this session's ownership record.\n`);
     reportMovedCodeRefs(config, oldRepoPath, newRepoPath, { dryRun: true, prefix: `${prefix} ` });
     return;
@@ -80,7 +92,6 @@ export async function runRename(argv, config, opts = {}) {
 
   const tracked = isTracked(oldPath, config.repoRoot);
   const gitIndex = tracked ? captureGitIndexGeneration(config.repoRoot) : null;
-  const identities = createReferenceIdentitySet(allFiles);
   const result = moveFileAtomic(oldPath, newPath, current => rewriteDocumentReferences(current, {
     sourcePath: oldPath,
     outputPath: newPath,
@@ -93,12 +104,12 @@ export async function runRename(argv, config, opts = {}) {
   }), {
     repoRoot: config.repoRoot,
     config,
-    updates: allFiles.filter(filePath => filePath !== oldPath).map(filePath => ({
+    updates: [...allFiles.filter(filePath => filePath !== oldPath).map(filePath => ({
       path: filePath,
       render: current => rewriteDocumentReferences(current, {
         sourcePath: filePath, repoRoot: config.repoRoot, identities, oldPath, newPath, referenceFields,
       }),
-    })),
+    })), ...records.map(filePath => ({ path: filePath, render: renderRecord(filePath) }))],
     creations: ownership ? [{ path: ownership.newRecordPath, content: ownership.newContent, label: 'ownership' }] : [],
     deletions: ownership ? [{ path: ownership.oldRecordPath, expectedContent: ownership.oldContent, label: 'ownership' }] : [],
     gitMove: tracked,
