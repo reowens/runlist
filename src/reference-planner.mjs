@@ -381,14 +381,21 @@ export function rewriteDocumentReferences(content, {
   referenceFields = [],
   dependencyField = 'depends_on',
   rebaseAll = false,
+  // A record (src/record-dirs.mjs) is plain Markdown with no frontmatter, and
+  // its links are repointed all the same.
+  withoutFrontmatter = false,
 }) {
   const { frontmatter, body } = extractFrontmatter(content);
-  if (!frontmatter) return content;
+  if (!frontmatter && !withoutFrontmatter) return content;
   const oldIdentity = canonicalExisting(oldPath, identities?.canonical ?? null);
   // `rebaseAll` rewrites every reference the document holds because the
   // document itself moved, so no single name can gate it.
   if (!rebaseAll && !mayReferenceIdentity(content, oldIdentity, oldPath, identities)) return content;
   const args = [sourcePath, outputPath, repoRoot, identities, oldIdentity, newPath, rebaseAll];
+  if (!frontmatter) {
+    const nextBody = rewriteMarkdown(body, args);
+    return nextBody === body ? content : nextBody;
+  }
   const nextFrontmatter = rewriteFrontmatter(frontmatter, referenceFields, args, dependencyField);
   const nextBody = rewriteMarkdown(body, args);
   return nextFrontmatter === frontmatter && nextBody === body ? content : `---\n${nextFrontmatter}\n---\n${nextBody}`;

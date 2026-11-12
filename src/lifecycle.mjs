@@ -16,6 +16,7 @@ import { authorizeManagedDestination, authorizeManagedSource, authorizeManagedSw
 import { withPathLocks, snapshotFile, replaceSnapshot, moveFileAtomic, mutateFile, mutateFileSet } from './atomic-mutation.mjs';
 import { configuredReferenceFields, createReferenceIdentitySet, rewriteDocumentReferences } from './reference-planner.mjs';
 import { reportMovedCodeRefs } from './code-refs.mjs';
+import { excludedRecordsNaming } from './record-dirs.mjs';
 import {
   assertPlanMutationAuthorized,
   assertHookDeliveryTakeoverSafe,
@@ -140,9 +141,12 @@ function commitLifecycleMutation(filePath, targetPath, config, updates, historyF
     const tracked = isTracked(filePath, config.repoRoot);
     const gitIndex = tracked ? captureGitIndexGeneration(config.repoRoot) : null;
     const companionPaths = new Set((options.additionalUpdates ?? []).map(item => path.resolve(item.path)));
+    const records = options.skipInboundRefs ? [] : excludedRecordsNaming(filePath, config);
+    const isRecord = new Set(records);
     const allFiles = options.skipInboundRefs
       ? []
-      : collectDocFiles(config).filter(candidate => candidate !== filePath && candidate !== targetPath && !companionPaths.has(path.resolve(candidate)));
+      : [...collectDocFiles(config), ...records]
+        .filter(candidate => candidate !== filePath && candidate !== targetPath && !companionPaths.has(path.resolve(candidate)));
     authorizeManagedSweep(allFiles, config, { kind: 'Reference rewrite source' });
     const identities = createReferenceIdentitySet([filePath, ...allFiles]);
     const referenceFields = configuredReferenceFields(config);
@@ -164,6 +168,7 @@ function commitLifecycleMutation(filePath, targetPath, config, updates, historyF
         path: docFile,
         render: raw => rewriteDocumentReferences(raw, {
           sourcePath: docFile, repoRoot: config.repoRoot, identities, oldPath: filePath, newPath: targetPath, referenceFields, dependencyField: config.dependencyField,
+          withoutFrontmatter: isRecord.has(docFile),
         }),
       })), ...additionalUpdates],
       creations,
@@ -563,6 +568,7 @@ export async function runStatus(argv, config, opts = {}) {
     if (finalPath !== filePath) {
       const refCount = countRefsToUpdate(filePath, finalPath, config);
       if (refCount > 0) process.stdout.write(`${prefix} Would update references in ${refCount} file(s)\n`);
+      for (const record of recordLinksToUpdate(filePath, finalPath, config)) process.stdout.write(`${prefix} Would repoint links in record ${record}\n`);
     }
     if ((isArchiving || isUnarchiving || isFiling || isUnfiling) && config.indexPath) {
       process.stdout.write(`${prefix} Would regenerate index\n`);
@@ -920,6 +926,7 @@ export function runArchive(argv, config, opts = {}) {
       if (refCount > 0) {
         out.write(`${prefix} Would update references in ${refCount} file(s)\n`);
       }
+      for (const record of recordLinksToUpdate(filePath, targetPath, config)) out.write(`${prefix} Would repoint links in record ${record}\n`);
     }
 
     if (!opts.skipInboundRefs) {
@@ -1492,15 +1499,27 @@ function renderMovedFileRefs(raw, oldPath, newPath, config) {
 }
 
 function countRefsToUpdate(oldPath, newPath, config) {
-  const allFiles = collectDocFiles(config);
-  const identities = createReferenceIdentitySet(allFiles);
+  return filesWithRefsToUpdate(oldPath, newPath, config, collectDocFiles(config), excludedRecordsNaming(oldPath, config)).length;
+}
+
+// Records in excluded record folders whose links a move would repoint; the
+// index never reads them, so a dry run names each one.
+function recordLinksToUpdate(oldPath, newPath, config) {
+  return filesWithRefsToUpdate(oldPath, newPath, config, [], excludedRecordsNaming(oldPath, config)).map(f => toRepoPath(f, config.repoRoot));
+}
+
+function filesWithRefsToUpdate(oldPath, newPath, config, docs, records) {
+  const allFiles = [...docs, ...records];
+  const identities = createReferenceIdentitySet([oldPath, ...allFiles]);
+  const isRecord = new Set(records);
   return allFiles.filter(docFile => {
     if (docFile === oldPath || docFile === newPath) return false;
     const raw = readFileSync(docFile, 'utf8');
     return rewriteDocumentReferences(raw, {
       sourcePath: docFile, repoRoot: config.repoRoot, identities, oldPath, newPath, referenceFields: configuredReferenceFields(config), dependencyField: config.dependencyField,
+      withoutFrontmatter: isRecord.has(docFile),
     }) !== raw;
-  }).length;
+  });
 }
 
 // Append a one-line dated bullet to the file's `## Version History` section.

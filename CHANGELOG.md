@@ -26,6 +26,13 @@ All notable changes to `runlist` are documented here. Older releases predate thi
   (default `assets`). When `excludeDirs` lists one, every other command still
   skips it.
 
+### Fixed
+
+- Archiving a plan (and any other lifecycle move) repoints its links in record
+  files under an excluded records folder, frontmatter or not. Those files were
+  never read, so a record's link to its plan pointed at the old path. The dry
+  run names each record it would change.
+
 ### Changed
 
 - The generated index's archived section no longer prints how many docs are
