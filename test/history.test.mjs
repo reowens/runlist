@@ -144,6 +144,19 @@ describe('runlist history --find', () => {
     match(text, /Came from: docs\/plans\/lamp\.md/);
   });
 
+  it('follows a rename of the plan back to the commit that wrote the text', () => {
+    setup();
+    write('docs/plans/held/stand.md', plan('Stand', '', 'The walnut stand is finished.'));
+    const first = commit('stand plan, held');
+    git('mv', 'docs/plans/held/stand.md', 'docs/plans/stand.md');
+    commit('stand plan returns');
+    const r = json(['history', '--find', 'walnut stand is finished']);
+    strictEqual(r.firstWritten.hash, first);
+    deepStrictEqual(r.firstWritten.files, ['docs/plans/held/stand.md']);
+    strictEqual(r.cameFrom.plan, 'docs/plans/stand.md');
+    ok(r.pickaxe.paths.includes('docs/plans/held/stand.md'));
+  });
+
   it('names commit messages and skips git log -S when no file holds the text', () => {
     setup();
     write('docs/plans/shelf.md', plan('Shelf'));

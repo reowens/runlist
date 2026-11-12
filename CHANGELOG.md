@@ -19,7 +19,9 @@ All notable changes to `runlist` are documented here. Older releases predate thi
   holds the exact text, record folders included; the commit that first wrote
   it, from `git log -S` scoped to those files, the plans they belong to and
   those plans' records folders, so text moved from a plan into a record still
-  finds the commit that wrote it in the plan; the plan it came from; and the
+  finds the commit that wrote it in the plan. When the oldest commit renamed a
+  file into that scope, the old path is added and the search runs again, up
+  to 3 times. Then the plan it came from, and the
   commit messages naming it. `git log -S` runs only when 25 files or fewer hold
   the text, since with no path it walks every commit's whole tree.
 - Records folders are named by `export const history = { recordDirs: [...] }`

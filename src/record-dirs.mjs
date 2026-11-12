@@ -27,9 +27,13 @@ export function filesWithRecords(config) {
 export function excludedRecordsNaming(file, config) {
   const excluded = recordDirsOf(config).filter(d => config.excludeDirs?.has(d));
   if (!excluded.length) return [];
-  const name = Buffer.from(path.basename(file), 'utf8');
+  // As loose as the reference rewriter's own prefilter: case-folded, and any
+  // file with an escape or an encoded character is passed to it whole.
+  const name = path.basename(file).toLowerCase();
   return filesWithRecords(config).filter(f => {
     if (!toRepoPath(f, config.repoRoot).split('/').some(p => excluded.includes(p))) return false;
-    try { return readFileSync(f).includes(name); } catch { return false; }
+    let text;
+    try { text = readFileSync(f, 'utf8'); } catch { return false; }
+    return text.includes('%') || text.includes('\\') || text.toLowerCase().includes(name);
   });
 }

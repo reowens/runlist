@@ -1,9 +1,11 @@
 import { describe, it, afterEach } from 'node:test';
-import { strictEqual, match, ok } from 'node:assert';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
+import { strictEqual, deepStrictEqual, match, ok } from 'node:assert';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
+import { resolveConfig } from '../src/config.mjs';
+import { excludedRecordsNaming } from '../src/record-dirs.mjs';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'runlist.mjs');
 let tmpDir;
@@ -79,6 +81,7 @@ describe('a lifecycle move and records in an excluded folder', () => {
     setup();
     write('docs/plans/assets/lamp/fittings.md', '# Fittings\n\nRecord of [Lamp](../../lamp.md).\n');
     write('docs/plans/assets/lamp/other.md', '# Other\n\nNothing about it.\n');
+    write('docs/plans/assets/lamp/cased.md', '# Cased\n\nSee [Lamp](../../LAMP.md).\n');
     commit('record');
 
     const dry = run(['archive', 'docs/plans/lamp.md', '-n']);
@@ -91,5 +94,19 @@ describe('a lifecycle move and records in an excluded folder', () => {
     strictEqual(r.status, 0, r.stderr);
     match(readFileSync(path.join(tmpDir, 'docs/plans/assets/lamp/fittings.md'), 'utf8'), /\[Lamp\]\(\.\.\/\.\.\/archived\/lamp\.md\)/);
     strictEqual(readFileSync(path.join(tmpDir, 'docs/plans/assets/lamp/other.md'), 'utf8'), '# Other\n\nNothing about it.\n');
+    if (existsSync(path.join(tmpDir, 'docs/plans/LAMP.md')) || existsSync(path.join(tmpDir, 'docs/plans/archived/LAMP.md'))) {
+      // A case-folding filesystem resolves the other spelling to the plan.
+      match(readFileSync(path.join(tmpDir, 'docs/plans/assets/lamp/cased.md'), 'utf8'), /archived\//);
+    }
+  });
+
+  it('reads records as loosely as the reference rewriter does', async () => {
+    setup();
+    write('docs/plans/assets/lamp/cased.md', '# Cased\n\nSee [Lamp](../../LAMP.md).\n');
+    write('docs/plans/assets/lamp/encoded.md', '# Encoded\n\nSee [Lamp](../../la%6Dp.md).\n');
+    write('docs/plans/assets/lamp/other.md', '# Other\n\nNothing about it.\n');
+    const config = await resolveConfig(tmpDir);
+    const found = excludedRecordsNaming(path.join(tmpDir, 'docs/plans/lamp.md'), config).map(f => path.basename(f)).sort();
+    deepStrictEqual(found, ['cased.md', 'encoded.md']);
   });
 });

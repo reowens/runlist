@@ -30,6 +30,7 @@ const HEADER_LINES = 8;
 const HEADER_BYTES = 8192;
 const SHOWN = 10;
 const PICKAXE_FILES = 25;
+const RENAME_HOPS = 3;
 const GIT_TIMEOUT_MS = 60_000;
 const SUBJECT_WIDTH = 100;
 
@@ -366,6 +367,17 @@ function renderHistory(c, { all }) {
   return `${out.join('\n')}\n`;
 }
 
+// Renames a commit made whose new path is one of `files`, as [from, to].
+function renamesInto(hash, files, config) {
+  const out = git(['diff-tree', '--root', '-r', '-M', '--diff-filter=R', '--name-status', '-z', '--no-commit-id', hash], config.repoRoot).out ?? '';
+  const fields = out.split('\0').filter(Boolean);
+  const pairs = [];
+  for (let i = 0; i + 2 < fields.length && fields[i].startsWith('R'); i += 3) {
+    if (files.has(fields[i + 2])) pairs.push([fields[i + 1], fields[i + 2]]);
+  }
+  return pairs;
+}
+
 /** Where `text` lives now, the commit that first wrote it, and its plan. */
 export function findText(text, config, { limit = SHOWN } = {}) {
   const files = filesWithRecords(config);
@@ -381,6 +393,7 @@ export function findText(text, config, { limit = SHOWN } = {}) {
   // folders and archive paths, it reaches text written in a plan and moved
   // into a record later.
   let pickaxe = { ran: false, reason: null, paths: [], commits: [] };
+  const renamedTo = new Map();
   if (!hits.length) pickaxe.reason = 'the text is in no file now, and git log -S runs only on the files that hold it';
   else if (hits.length > PICKAXE_FILES) pickaxe.reason = `the text is in ${hits.length} files; git log -S runs on ${PICKAXE_FILES} or fewer, so make the text longer`;
   else {
@@ -394,21 +407,42 @@ export function findText(text, config, { limit = SHOWN } = {}) {
       scope.add(rel(otherPlanPath(abs, config), config));
       for (const f of recordFolders(abs, config)) scope.add(rel(f, config));
     }
-    const paths = [...scope].sort();
-    const r = git(['log', `-S${text}`, COMMIT_FORMAT, '--name-only', '--', ...paths], config.repoRoot);
-    pickaxe = { ran: true, timedOut: r.timedOut, reason: r.timedOut ? `git log -S ran past ${GIT_TIMEOUT_MS / 1000} s` : null, paths, commits: parseCommits(r.out).reverse() };
+    // When the oldest commit renamed a file into the scope, the text was
+    // older than the rename: add the old path and look again.
+    let r;
+    let commits = [];
+    for (let hop = 0; hop <= RENAME_HOPS; hop++) {
+      r = git(['log', `-S${text}`, COMMIT_FORMAT, '--name-only', '--', ...[...scope].sort()], config.repoRoot);
+      commits = parseCommits(r.out).reverse();
+      if (r.timedOut || !commits.length || hop === RENAME_HOPS) break;
+      const oldest = commits[0];
+      const sources = renamesInto(oldest.hash, new Set(oldest.files), config).filter(([from]) => !scope.has(from));
+      if (!sources.length) break;
+      for (const [from, to] of sources) { scope.add(from); renamedTo.set(from, to); }
+    }
+    pickaxe = { ran: true, timedOut: r.timedOut, reason: r.timedOut ? `git log -S ran past ${GIT_TIMEOUT_MS / 1000} s` : null, paths: [...scope].sort(), commits };
   }
 
   const first = pickaxe.commits[0] ?? null;
   let cameFrom = null;
   if (first) {
-    const file = first.files[0] ?? null;
-    const abs = file ? path.join(config.repoRoot, file) : null;
+    // A file's path now, after the renames followed above and an archive move.
+    const current = file => {
+      let p = file;
+      for (const seen = new Set(); renamedTo.has(p) && !seen.has(p); p = renamedTo.get(p)) seen.add(p);
+      const abs = path.join(config.repoRoot, p);
+      return existsSync(abs) ? p : existsSync(otherPlanPath(abs, config)) ? rel(otherPlanPath(abs, config), config) : null;
+    };
+    // Of the files that commit touched, prefer the plan a holding record
+    // belongs to, then a file that holds the text now.
+    const recordPlans = new Set(hits.filter(h => h.kind === 'record').map(h => h.plan?.plan).filter(Boolean));
+    const holding = new Set(hits.map(h => h.path));
+    const file = first.files.find(f => recordPlans.has(current(f))) ?? first.files.find(f => holding.has(current(f))) ?? first.files[0] ?? null;
     if (file && inRecordDir(file, config)) {
-      const r = recordPlan(abs, config);
+      const r = recordPlan(path.join(config.repoRoot, current(file) ?? file), config);
       cameFrom = r ? { plan: r.plan, via: `the record ${file} (${r.via})` } : null;
     } else if (file) {
-      const now = existsSync(abs) ? file : existsSync(otherPlanPath(abs, config)) ? rel(otherPlanPath(abs, config), config) : null;
+      const now = current(file);
       cameFrom = { plan: now ?? file, via: now && now !== file ? `${file}, now at ${now}` : `the file it was written in${now ? '' : ' (gone now)'}` };
     }
   }

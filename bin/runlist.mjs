@@ -1789,7 +1789,8 @@ state of a live plan.`,
   runlist history --find "<text>" every Markdown file under the roots holding the exact text,
                                     record folders included; the commit that first wrote it
                                     (git log -S over those files, the plans they belong to and
-                                    those plans' records folders, oldest first); the plan it
+                                    those plans' records folders, oldest first, following up to
+                                    3 renames of a file into that scope); the plan it
                                     came from; and commit messages naming it (git log -F --grep)
   --limit N                       commits shown (default 10)
   --all                           every record, link and decision, not the first 10
