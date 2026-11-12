@@ -100,6 +100,18 @@ describe('a lifecycle move and records in an excluded folder', () => {
     }
   });
 
+  it('repoints only a record\'s header, and leaves a link further down byte for byte', () => {
+    setup();
+    const body = ['# Snapshot', '', 'Record of [Lamp](../../lamp.md).', '', '1', '2', '3', '4', '5', 'Copied text: [Lamp](../../lamp.md).', ''].join('\n');
+    write('docs/plans/assets/lamp/snapshot.md', body);
+    commit('record');
+    const r = run(['archive', 'docs/plans/lamp.md']);
+    strictEqual(r.status, 0, r.stderr);
+    const after = readFileSync(path.join(tmpDir, 'docs/plans/assets/lamp/snapshot.md'), 'utf8');
+    match(after.split('\n')[2], /\(\.\.\/\.\.\/archived\/lamp\.md\)/);
+    strictEqual(after.split('\n').slice(8).join('\n'), body.split('\n').slice(8).join('\n'));
+  });
+
   it('reads records as loosely as the reference rewriter does', async () => {
     setup();
     write('docs/plans/assets/lamp/cased.md', '# Cased\n\nSee [Lamp](../../LAMP.md).\n');

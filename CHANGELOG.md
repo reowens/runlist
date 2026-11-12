@@ -32,8 +32,10 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 - Archiving a plan (and any other lifecycle move) repoints its links in record
   files under an excluded records folder, frontmatter or not. Those files were
-  never read, so a record's link to its plan pointed at the old path. The dry
-  run names each record it would change.
+  never read, so a record's link to its plan pointed at the old path. Only a
+  record's frontmatter and first 8 lines are rewritten; the rest stays byte for
+  byte, because a record can be a verbatim copy or have its sha256 pinned. The
+  dry run names each record it would change.
 
 ### Changed
 

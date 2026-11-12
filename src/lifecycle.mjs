@@ -16,7 +16,7 @@ import { authorizeManagedDestination, authorizeManagedSource, authorizeManagedSw
 import { withPathLocks, snapshotFile, replaceSnapshot, moveFileAtomic, mutateFile, mutateFileSet } from './atomic-mutation.mjs';
 import { configuredReferenceFields, createReferenceIdentitySet, rewriteDocumentReferences } from './reference-planner.mjs';
 import { reportMovedCodeRefs } from './code-refs.mjs';
-import { excludedRecordsNaming } from './record-dirs.mjs';
+import { excludedRecordsNaming, rewriteRecordHeader } from './record-dirs.mjs';
 import {
   assertPlanMutationAuthorized,
   assertHookDeliveryTakeoverSafe,
@@ -166,10 +166,13 @@ function commitLifecycleMutation(filePath, targetPath, config, updates, historyF
       config,
       updates: [...allFiles.map(docFile => ({
         path: docFile,
-        render: raw => rewriteDocumentReferences(raw, {
-          sourcePath: docFile, repoRoot: config.repoRoot, identities, oldPath: filePath, newPath: targetPath, referenceFields, dependencyField: config.dependencyField,
-          withoutFrontmatter: isRecord.has(docFile),
-        }),
+        render: raw => {
+          const rewrite = text => rewriteDocumentReferences(text, {
+            sourcePath: docFile, repoRoot: config.repoRoot, identities, oldPath: filePath, newPath: targetPath, referenceFields, dependencyField: config.dependencyField,
+            withoutFrontmatter: isRecord.has(docFile),
+          });
+          return isRecord.has(docFile) ? rewriteRecordHeader(raw, rewrite) : rewrite(raw);
+        },
       })), ...additionalUpdates],
       creations,
       guards: options.guards ?? [],
@@ -1515,10 +1518,11 @@ function filesWithRefsToUpdate(oldPath, newPath, config, docs, records) {
   return allFiles.filter(docFile => {
     if (docFile === oldPath || docFile === newPath) return false;
     const raw = readFileSync(docFile, 'utf8');
-    return rewriteDocumentReferences(raw, {
+    const rewrite = text => rewriteDocumentReferences(text, {
       sourcePath: docFile, repoRoot: config.repoRoot, identities, oldPath, newPath, referenceFields: configuredReferenceFields(config), dependencyField: config.dependencyField,
       withoutFrontmatter: isRecord.has(docFile),
-    }) !== raw;
+    });
+    return (isRecord.has(docFile) ? rewriteRecordHeader(raw, rewrite) : rewrite(raw)) !== raw;
   });
 }
 

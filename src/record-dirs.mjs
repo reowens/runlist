@@ -11,6 +11,28 @@ import { normalizeStringList, toRepoPath } from './util.mjs';
 
 export const recordDirsOf = config => [...new Set(normalizeStringList(config.raw?.history?.recordDirs ?? ['assets']).map(String))];
 
+// A record's header is the first lines after any frontmatter, where it names
+// its plan. A lifecycle move repoints links there only: the rest of a record
+// stays byte for byte, because some records are verbatim copies or have their
+// sha256 pinned by evidence beside them.
+export const RECORD_HEADER_LINES = 8;
+
+/** Apply `rewrite` to a record's frontmatter and header lines, and keep the
+ * rest of the file as it is. */
+export function rewriteRecordHeader(raw, rewrite) {
+  const lines = raw.split('\n');
+  let from = 0;
+  if (lines[0] === '---') {
+    const end = lines.indexOf('---', 1);
+    if (end > 0) from = end + 1;
+  }
+  const cut = Math.min(lines.length, from + RECORD_HEADER_LINES);
+  const head = lines.slice(0, cut).join('\n');
+  const rest = lines.slice(cut);
+  const rewritten = rewrite(head);
+  return rest.length ? `${rewritten}\n${rest.join('\n')}` : rewritten;
+}
+
 export const inRecordDir = (repoPath, config) => repoPath.split('/').some(p => recordDirsOf(config).includes(p));
 
 /** Markdown under the roots with the record folders read too. Other
