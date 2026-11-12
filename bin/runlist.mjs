@@ -348,6 +348,7 @@ Analyze:
   decisions [doc|id] [--all|--check] Open and held decisions, read from the corpus
   show <file...> [--section <h>]    One document's card, outline and open boxes with line numbers; one section
   xref <file...> | --check [--flag] Cross-references: what names it, its decisions, its cited code
+  history <plan> | --find <text>    A plan's records, before and after, links, commits, decisions; where a text came from
 
 Validate & Fix:
   doctor [--apply]                  Auto-fix everything: refs, membership, lint, long fields, dates, index (preview by default)
@@ -1769,6 +1770,37 @@ another document the id has to sit beside a link to the decision's document.`,
 Code changing under a live plan is shown, never flagged: it is the normal
 state of a live plan.`,
 
+  history: `runlist history <plan> | --find "<text>" — where a plan's past lives, read-only
+
+  runlist history <plan>          records: the files in its records folder (<dir>/assets/<slug>/,
+                                    and beside the archive's parent once archived), and records
+                                    elsewhere whose first 8 lines link the plan
+                                  before and after: plans a frontmatter key (supersedes,
+                                    superseded_by, replaces, replaced_by, predecessor, successor)
+                                    or a cue word beside a link (superseded by, successor,
+                                    replaces, continued in, ...) places before or after it,
+                                    read both ways; then every other archived plan linked
+                                    either way, as "linked"
+                                  linked from: every document that names it, as runlist xref reads
+                                  commits: newest first, on the plan (live and archived paths)
+                                    and its records folders
+                                  decisions: as runlist decisions reads them; an archived plan,
+                                    which runlist decisions skips, is read alone
+  runlist history --find "<text>" every Markdown file under the roots holding the exact text,
+                                    record folders included; the commit that first wrote it
+                                    (git log -S over those files, the plans they belong to and
+                                    those plans' records folders, oldest first); the plan it
+                                    came from; and commit messages naming it (git log -F --grep)
+  --limit N                       commits shown (default 10)
+  --all                           every record, link and decision, not the first 10
+  --json                          the same as data
+
+A record belongs to the first plan its header links, else to the plan its folder
+is named after. git log -S runs only when the text is in 25 files or fewer: with
+no path it walks every commit's whole tree. Records folders are named by
+\`export const history = { recordDirs: ['assets'] }\` (the default). Other
+commands keep skipping them when excludeDirs lists them.`,
+
   desktop: `runlist desktop [--app /path/to/application] — open the native app
 runlist desktop install [--from /path/to/installer.dmg] — install the optional GUI
 
@@ -2653,6 +2685,7 @@ async function main() {
   if (command === 'glossary') { const { runGlossary } = await import('../src/glossary.mjs'); runGlossary(restArgs, config); return; }
   if (command === 'model') { const { runModel } = await import('../src/model.mjs'); await runModel(restArgs, config); return; }
   if (command === 'show') { const { runShow } = await import('../src/show.mjs'); runShow(restArgs, config); return; }
+  if (command === 'history') { const { runHistory } = await import('../src/history.mjs'); runHistory(restArgs, config); return; }
   if (command === 'xref') {
     const { runXref } = await import('../src/xref.mjs');
     const findings = runXref(restArgs, config);

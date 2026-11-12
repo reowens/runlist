@@ -4,6 +4,28 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 
 ## Unreleased
 
+### Added
+
+- `runlist history <plan>`: where a plan's past lives, read-only. It lists the
+  plan's records (the files in `<dir>/assets/<slug>/`, and records elsewhere
+  whose first 8 lines link the plan), the plans before and after it (a
+  `supersedes`/`superseded_by`-style frontmatter key or a cue word beside a
+  link, read both ways, then other archived plans linked either way), the
+  documents that link it, the commits on the plan and its records folders
+  (newest first, `--limit N`), and its decisions as `runlist decisions` reads
+  them; an archived plan, which `decisions` skips, is read alone. `--all` and
+  `--json` as elsewhere.
+- `runlist history --find "<text>"`: every Markdown file under the roots that
+  holds the exact text, record folders included; the commit that first wrote
+  it, from `git log -S` scoped to those files, the plans they belong to and
+  those plans' records folders, so text moved from a plan into a record still
+  finds the commit that wrote it in the plan; the plan it came from; and the
+  commit messages naming it. `git log -S` runs only when 25 files or fewer hold
+  the text, since with no path it walks every commit's whole tree.
+- Records folders are named by `export const history = { recordDirs: [...] }`
+  (default `assets`). When `excludeDirs` lists one, every other command still
+  skips it.
+
 ### Changed
 
 - The generated index's archived section no longer prints how many docs are

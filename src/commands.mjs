@@ -131,6 +131,9 @@ const definitions = [
   command('xref', mutates('the flags log under the state directory with --check --flag; otherwise read-only'), 'read', [
     form('<file...> | --check [--flag]', { args: positionals(0, Infinity), options: [flag('--json'), flag('--check'), flag('--flag')] }),
   ], VIEW),
+  command('history', none, 'read', [
+    form('<plan> | --find <text>', { args: positionals(0, 1), options: [flag('--json'), flag('--all'), value('--find'), value('--limit')] }),
+  ], VIEW),
   command('record', mutates('native flag or decision through the shared domain writer'), 'mutate', [form('<file> <action>', { args: positionals(2, 2), options: [value('--note'), value('--option'), value('--expected-revision'), flag('--json')] })], ACTION),
   command('decision', mutates('selected decision source through the source editor'), 'mutate', [form('<file> <id>', { args: positionals(2, 2), options: [value('--disposition'), value('--note'), value('--choice'), value('--expected-revision'), flag('--json')] })], ACTION),
   command('decisions', none, 'read', [form('[doc-or-id]', { args: positionals(0, 1), options: [flag('--all'), flag('--json'), flag('--check')] })], VIEW),

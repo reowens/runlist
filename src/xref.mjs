@@ -162,7 +162,8 @@ function commitsSince(docPath, files, since, repoRoot) {
   return commits;
 }
 
-function refTargets(doc, config) {
+/** Every document a document points at, by frontmatter field or body link. */
+export function refTargets(doc, config) {
   const dir = path.dirname(path.join(config.repoRoot, doc.path));
   const out = [];
   for (const [field, refs] of Object.entries(doc.refFields ?? {})) {
