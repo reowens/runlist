@@ -93,11 +93,15 @@ function commitCommand(config, message, paths) {
   if (typeof config.hooks.batonCommitCommand === 'function') {
     try {
       const custom = config.hooks.batonCommitCommand(message, [...paths]);
+      if (custom && !Array.isArray(custom) && typeof custom.notice === 'string' && custom.notice.trim()
+        && Object.keys(custom).length === 1) return { notice: custom.notice };
       if (!Array.isArray(custom) || custom.length === 0 || !custom.every(part => typeof part === 'string' && part.length > 0)) {
-        throw new Error('return a nonempty string argv array');
+        throw new Error('return a nonempty string argv array or { notice: "why no commit is suggested" }');
       }
       return custom.map(shellQuote).join(' ');
-    } catch (err) { warn(`batonCommitCommand failed (${err.message}); printing the default git command.`); }
+    } catch (err) {
+      return { notice: `Commit guidance unavailable: batonCommitCommand failed (${err.message}). Inspect the repository's commit policy before committing; the handoff is saved.` };
+    }
   }
   const files = gitCommitPaths(paths, config.repoRoot);
   if (!files.paths.length) return null;
@@ -605,7 +609,9 @@ export async function runBaton(argv, config, opts = {}) {
     process.stderr.write(dim(`${repoPath} is gitignored — no commit needed.\n`));
   } else if (statusChanged) {
     const command = commitCommand(config, `baton: ${path.basename(planPath, '.md')} ${oldStatus} → ${status}`, operationResult.repositoryFiles);
-    if (command) {
+    if (command?.notice) {
+      process.stderr.write(`${prefix}${command.notice}\n`);
+    } else if (command) {
       process.stderr.write(`${prefix}Commit the repository files (session files stay OUT of the pathspec):\n`);
       process.stderr.write(`${prefix}  ${command}\n`);
     } else {

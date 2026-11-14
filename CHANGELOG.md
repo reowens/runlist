@@ -2,6 +2,14 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- Baton commit hooks can return a notice when repository policy defers the
+  commit. Failed hooks retain the saved handoff without suggesting a Git
+  command that could bypass that policy.
+
 ## 0.108.1 — 2026-11-12
 
 ### Fixed

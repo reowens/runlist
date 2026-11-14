@@ -219,6 +219,33 @@ describe('runlist baton', () => {
     strictEqual(executeCommitHint(r), 'git -c "commit.gpgSign=false" commit -m "baton: demo in-session → active" -- docs/plans/demo.md');
   });
 
+  it('prints a repository notice instead of suggesting a forbidden commit', () => {
+    writePlan('demo');
+    appendFileSync(configPath, '\nexport function batonCommitCommand() { return { notice: "Plan state remains on disk for the next work commit." }; }\n');
+    const before = git(['rev-parse', 'HEAD']);
+    const r = run(['baton', 'docs/plans/demo.md', '--message', 'resume']);
+    strictEqual(r.status, 0, r.stderr);
+    match(r.stderr, /Plan state remains on disk for the next work commit\./);
+    ok(!/Commit the repository files|git add|git commit/.test(r.stderr), r.stderr);
+    match(r.stderr, /Saved prompt: resume-demo/);
+    match(readFileSync(path.join(plansDir, 'demo.md'), 'utf8'), /status: active/);
+    strictEqual(git(['rev-parse', 'HEAD']), before);
+    strictEqual(git(['diff', '--cached', '--name-only']), '');
+  });
+
+  for (const body of ['throw new Error("inspection failed")', 'return null', 'return { notice: "" }']) {
+    it(`keeps a saved handoff without falling back to Git when the commit hook fails: ${body}`, () => {
+      writePlan('demo');
+      appendFileSync(configPath, `\nexport function batonCommitCommand() { ${body}; }\n`);
+      const r = run(['baton', 'docs/plans/demo.md', '--message', 'resume']);
+      strictEqual(r.status, 0, r.stderr);
+      match(r.stderr, /Commit guidance unavailable/);
+      match(r.stderr, /Saved prompt: resume-demo/);
+      ok(!/Commit the repository files|git add|git commit/.test(r.stderr), r.stderr);
+      strictEqual(git(['diff', '--cached', '--name-only']), '');
+    });
+  }
+
   it('prints no commit when an ignored untracked move leaves no committable paths', () => {
     writeFileSync(path.join(tmpDir, '.gitignore'), 'docs/\n');
     writePlan('demo', { tracked: false });

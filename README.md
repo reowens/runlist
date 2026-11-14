@@ -1169,6 +1169,12 @@ from `runlist.config.mjs` and return an argv array such as
 `['just', 'commit', message, ...paths]`. Baton quotes the printed command and
 excludes session prompts from `paths`.
 
+When the repository's policy defers a commit, return
+`{ notice: 'Plan state remains on disk for the next work commit.' }` instead.
+Baton prints that notice without a commit command. A hook that throws or returns
+an invalid value also suppresses the command and explains that commit guidance
+is unavailable; it never falls back to Git against the configured policy.
+
 Saved prompts are handoff artifacts with a project-selected Git policy (see `runlist config get promptTracking`). Consume them with `runlist use`; inspect
 without consuming via `runlist prompts show`. Consuming a baton prompt also claims
 its plan; `runlist use --no-claim` reads and archives it without starting the plan.
