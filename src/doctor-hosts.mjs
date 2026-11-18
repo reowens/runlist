@@ -1,3 +1,4 @@
+import { readCodexHookTrust, formatCodexHookTrust } from './codex-hook-trust.mjs';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -8,13 +9,14 @@ import { installationReport } from './installation.mjs';
 
 const HOSTS = ['claude', 'codex', 'opencode'];
 const valueFlags = new Set(['--repair', '--claude-config', '--claude-bin']);
-const flags = new Set(['--hosts', '--json', '--apply', '--yes']);
+const flags = new Set(['--hosts', '--live', '--json', '--apply', '--yes']);
 
 export function hostDoctorOptions(argv, { dryRun = false } = {}) {
   const options = { repairs: [], claudeConfigDirs: [], claudeBin: undefined, json: false, apply: false, dryRun };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (flags.has(arg)) {
+      if (arg === '--live') options.live = true;
       if (arg === '--json') options.json = true;
       if (arg === '--apply' || arg === '--yes') options.apply = true;
       continue;
@@ -138,6 +140,7 @@ function render(report, out, json) {
     out.write(`runlist host health — CLI ${report.candidate.version ?? 'unknown'} (${report.candidate.kind})\n`);
     for (const host of HOSTS) out.write(`${host}: ${report.hosts[host].state}; live loading unknown\n`);
   }
+  if (report.hosts.codex.hookTrust) out.write(formatCodexHookTrust(report.hosts.codex.hookTrust));
   if (!report.repairs.selectedHosts.length) {
     out.write('\nRepairs are explicit: runlist doctor --hosts --repair <host> previews; add --apply to execute.\n');
     return;
@@ -186,6 +189,12 @@ export async function runDoctorHosts(argv, config = { repoRoot: process.cwd() },
     report = { ...read(config, reportOptions), readOnly: !attempted, runtime, repairs };
     if (repairs.failed.length) process.exitCode = 1;
     for (const host of options.repairs) repairs.outstanding.push(...(report.hosts[host].requirements ?? [`Restart/reload ${host}; live activation remains unknown.`]));
+  }
+  if (options.live) {
+    const codex = report.hosts.codex;
+    codex.hookTrust = await readCodexHookTrust({ binary: report.executables.codex.selected?.path,
+      home: reportOptions.home, cwd: config.repoRoot, env: { ...env, HOME: reportOptions.home, USERPROFILE: reportOptions.home } });
+    codex.requirements = codex.requirements.filter(line => !line.includes('doctor --hosts --live'));
   }
   render(report, opts.out ?? process.stdout, options.json);
   return report;

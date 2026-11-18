@@ -1,3 +1,4 @@
+import { readCodexHookTrust, formatCodexHookTrust } from './codex-hook-trust.mjs';
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -105,7 +106,7 @@ function removeCodex(dryRun, json) {
   process.stdout.write(`${prefix}To remove the plugin as well: codex plugin remove runlist-codex@${result.marketplaceName}. The personal marketplace source is left available.\n`);
 }
 
-function installCodex(argv, dryRun, json, prerequisites) {
+async function installCodex(argv, dryRun, json, prerequisites) {
   if (argv.includes('--remove')) return removeCodex(dryRun, json);
   const result = { ...installCodexPlugin({ version: pkg.version, dryRun }), ...prerequisites };
   if (result.action === 'refused') {
@@ -133,6 +134,8 @@ function installCodex(argv, dryRun, json, prerequisites) {
   const hooksAdded = result.hooksChanged && !result.hooksError;
   const codex = discoverHostExecutables().codex.selected?.path;
   if (!codex) {
+    result.hookTrust = await readCodexHookTrust({ binary: codex });
+    if (!json) process.stdout.write(formatCodexHookTrust(result.hookTrust));
     if (json) process.stdout.write(JSON.stringify({ ...result, pluginAdd: 'codex-cli-unavailable' }, null, 2) + '\n');
     else process.stdout.write(`Install in Codex with: codex plugin add ${selector}\n${hooksAdded ? trustLine : ''}`);
     return;
@@ -143,6 +146,8 @@ function installCodex(argv, dryRun, json, prerequisites) {
   });
   const installed = added.status === 0 ? installedCodexStatus({ binary: codex }) : { ok: false, reason: added.error?.message ?? `codex plugin add exited ${added.status ?? '?'}` };
   const verified = installed.ok && installed.version === pkg.version;
+  result.hookTrust = await readCodexHookTrust({ binary: codex });
+  if (!json) process.stdout.write(formatCodexHookTrust(result.hookTrust));
   if (json) process.stdout.write(JSON.stringify({ ...result, pluginAdd: verified ? 'installed' : 'failed', pluginAddExit: added.status,
     installedVersion: installed.version ?? null, ...(!verified ? { reason: installed.reason ?? `Codex has ${installed.version}, expected ${pkg.version}` } : {}) }, null, 2) + '\n');
   if (!verified) {
@@ -264,6 +269,6 @@ export function runInstall(argv, _config, opts = {}) {
   const prerequisites = persistentCliMissing ? { persistentCliMissing: true } : {};
   if (persistentCliMissing && !json) process.stderr.write(`Warning: ${PERSISTENT_CLI_WARNING}\n`);
   if (host === 'claude') { installClaude(argv, dryRun, json, opts, prerequisites); return; }
-  if (host === 'codex') { installCodex(argv, dryRun, json, prerequisites); return; }
+  if (host === 'codex') return installCodex(argv, dryRun, json, prerequisites);
   installOpencode(argv, dryRun, json, prerequisites);
 }

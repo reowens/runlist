@@ -57,6 +57,16 @@ test('offline CLI inventory never imports project JavaScript or migrates legacy 
   }
 });
 
+test('live host diagnostics report unknown with no Codex on PATH', async t => {
+  const f = fixture(t);
+  const options = { home: f.home, env: { PATH: '' }, out: { write() {} } };
+  const offline = await runDoctorHosts(['--hosts', '--json'], { repoRoot: f.repo }, options);
+  assert.equal(offline.hosts.codex.hookTrust, undefined);
+  const live = await runDoctorHosts(['--hosts', '--live', '--json'], { repoRoot: f.repo }, options);
+  assert.equal(live.hosts.codex.hookTrust.state, 'unknown');
+  assert.equal(live.hosts.codex.loaded, 'unknown');
+});
+
 test('dry-run overrides selected apply repairs and invokes no runner', async t => {
   const f = fixture(t), data = fakeInventory(f); let output = '';
   const report = await runDoctorHosts(['--hosts', '--repair', 'claude', '--apply', '--json'], { repoRoot: f.repo }, {

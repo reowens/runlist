@@ -481,6 +481,12 @@ supports `/reload-plugins`.
 
 ## Host health and selected repairs
 
+Use `runlist doctor --hosts --live` to ask Codex which Runlist hooks it trusts
+in the current directory. Add `--json` for per-hook trust and enablement. The
+report also identifies leftover Runlist plugin hooks. If Codex is unavailable,
+times out, or cannot answer, trust is reported as unknown. Review the hooks in
+Codex with `/hooks`. Plain `runlist doctor --hosts` stays offline.
+
 Inspect Claude, Codex and OpenCode together before choosing a repair:
 
 ```bash

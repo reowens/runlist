@@ -979,6 +979,7 @@ Modes:
                          profiles/shared stores, installed/expected versions,
                          source parity and unknown live-session loading.
                          Read-only, offline, no project JS import; supports --json.
+  --hosts --live          Ask Codex for Runlist hook trust in this directory
   --hosts --repair <h>    Preview repairs for named hosts only; repeat --repair
                          for more hosts. Add --apply to execute those targets.
                          --dry-run always wins. --apply alone is refused here.
@@ -2360,8 +2361,8 @@ async function main() {
     return;
   }
 
-  if (command === 'doctor' && restArgs.some(arg => ['--repair', '--claude-config', '--claude-bin'].includes(arg))) {
-    die('Host repair and Claude selectors require runlist doctor --hosts.');
+  if (command === 'doctor' && restArgs.some(arg => ['--live', '--repair', '--claude-config', '--claude-bin'].includes(arg))) {
+    die('Live diagnostics, host repair and Claude selectors require runlist doctor --hosts.');
   }
 
   if (command === 'baton' && restArgs.includes('--template')) {

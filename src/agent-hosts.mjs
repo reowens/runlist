@@ -234,7 +234,7 @@ function codexReport(home, env, root, executables) {
   } } catch {}
   const hooks = codexHooksStatus({ hooksFile: path.join(codexHome, 'hooks.json'), pluginRoot: sourcePath });
   const state = sourceState === 'current' && hooks.state !== 'current' ? 'stale' : sourceState;
-  return { state, stateBasis: 'managed marketplace source and user hooks relative to the selected candidate; installed, trusted and loaded states remain unknown', hooks, executables, configDir: codexHome, cacheRoot,
+  return { state, stateBasis: 'managed marketplace source and user hooks relative to the selected candidate; filesystem inventory does not attest installation, trust or live loading', hooks, executables, configDir: codexHome, cacheRoot,
     marketplace: { path: marketplacePath, state: marketplace.state, name: marketplace.data?.name ?? null, registered, expectedSource },
     source: { path: sourcePath, state: sourceState, foreign, version: marker.data?.version ?? null, fingerprint, sameCandidate: same(fingerprint, candidate) },
     cached, installed: { state: 'unknown', reason: 'offline cache inventory does not attest host installation' }, loaded: 'unknown',
@@ -242,7 +242,7 @@ function codexReport(home, env, root, executables) {
       reason: foreign ? 'preserve unmarked source' : hooks.state === 'unreadable' ? `fix ${hooks.path} first: ${hooks.reason}` : registered && !expectedSource ? 'preserve marketplace entry targeting another source'
         : marketplace.state === 'unreadable' ? 'marketplace data is unreadable; preserve unknown entries'
           : 'refresh managed marketplace source; host installation still requires verification' },
-    requirements: ['Start a new Codex thread after repair.', 'Trust the runlist hooks in /hooks once; this report cannot see whether they are trusted.'] };
+    requirements: ['Start a new Codex thread after repair.', 'Check Runlist hook trust with runlist doctor --hosts --live.'] };
 }
 
 function opencodeReport(home, env, root, executables) {
