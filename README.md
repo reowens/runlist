@@ -537,9 +537,10 @@ runlist update --host claude \
 
 Repeat `--claude-config` for separate profiles. Shared physical plugin stores are
 updated once, while each profile's enabled settings and each saved scope remain
-visible. A wrapper can override `CLAUDE_CONFIG_DIR`; Runlist refuses ambiguous
-targeting and asks for an explicit native binary. It does not infer an account
-from the wrapper's filename or script contents.
+visible. When `claude` on PATH is a wrapper, the updater uses the sole native
+Claude executable it discovers and sets `CLAUDE_CONFIG_DIR` for each profile.
+If it discovers zero or multiple native executables, specify the native binary
+with `--claude-bin` and its profile with `--claude-config`.
 
 `runlist update --host claude|codex|opencode` restricts the update to that installed
 host integration and conflicts with `--cli-only`. Missing integrations remain

@@ -56,6 +56,11 @@ test('a PATH wrapper in front of exactly 1 native Claude updates each profile th
   const other = { ...native, path: '/usr/local/bin/claude', resolvedPath: '/usr/local/lib/claude/8' };
   const ambiguous = planClaudeProfileUpdates([profile], { selected: wrapper, candidates: [wrapper, native, other], explicit: false });
   assert.match(ambiguous[0].reason, /cannot establish wrapper-to-profile mapping/);
+  const missing = planClaudeProfileUpdates([profile], { selected: wrapper, candidates: [wrapper], explicit: false });
+  assert.deepEqual(missing.map(step => step.kind), ['refusal']);
+  const override = planClaudeProfileUpdates([profile], { selected: other, candidates: [wrapper, native, other], explicit: true });
+  assert.ok(override.some(step => step.cmd));
+  assert.ok(override.every(step => step.cmd?.[0] === other.path && step.profile === profile.configDir));
   const explicit = planClaudeProfileUpdates([profile], { selected: wrapper, candidates: [wrapper, native], explicit: true });
   assert.match(explicit[0].reason, /cannot establish wrapper-to-profile mapping/);
 });
@@ -688,7 +693,7 @@ test('offline JSON check and dry-run never execute discovered host binaries', as
   });
 });
 
-test('selected Claude profiles use the exact executable, environment and scoped project directory', async () => {
+test('a PATH wrapper uses the sole native executable, selected profile environment and scoped project directory', async () => {
   await withHome(async home => {
     const defaultProfile = path.join(home, '.claude');
     const selectedProfile = path.join(home, '.claude-work');
@@ -697,9 +702,13 @@ test('selected Claude profiles use the exact executable, environment and scoped 
     writeProfile(selectedProfile, [{ scope: 'user', version: '0.1.0' }, { scope: 'project', projectPath: project, version: '0.1.0' }]);
     writeFileSync(path.join(selectedProfile, 'unmanaged.txt'), 'keep');
     const binary = path.join(home, 'native executable');
+    const executables = nativeInventory(binary);
+    const native = executables.claude.selected;
+    const wrapper = { path: path.join(home, 'account-wrapper'), kind: 'script' };
+    executables.claude = { selected: wrapper, candidates: [wrapper, native], explicit: false };
     const calls = [];
     const result = await capturedUpdate(['--host', 'claude', '--claude-config', selectedProfile], {
-      home, env: { PATH: '', CLAUDE_CONFIG_DIR: defaultProfile }, executables: nativeInventory(binary), expectedVersion: '1.2.3',
+      home, env: { PATH: '', CLAUDE_CONFIG_DIR: defaultProfile }, executables, expectedVersion: '1.2.3',
       run(command, args, options) { calls.push({ command, args, options }); return fakeProfileUpdate(command, args, options); },
     });
     assert.equal(result.status, 0, result.stdout);
