@@ -52,6 +52,20 @@ function parseArgs(argv) {
   return opts;
 }
 
+function applyTags(candidates) {
+  const failedPaths = [];
+  for (const candidate of candidates) {
+    try {
+      writeFrontmatter(candidate.filePath, candidate.updates);
+    } catch (err) {
+      failedPaths.push(candidate.relPath);
+      warn(`Failed to tag ${candidate.relPath}: ${err.message}`);
+    }
+  }
+  if (failedPaths.length > 0) process.exitCode = 1;
+  return failedPaths;
+}
+
 export function runBulkTag(argv, config, opts = {}) {
   const { dryRun } = opts;
   const args = parseArgs(argv);
@@ -116,6 +130,7 @@ export function runBulkTag(argv, config, opts = {}) {
   }
 
   if (args.json) {
+    const failedPaths = dryRun ? undefined : applyTags(candidates);
     process.stdout.write(JSON.stringify({
       dryRun: Boolean(dryRun),
       count: candidates.length,
@@ -128,13 +143,8 @@ export function runBulkTag(argv, config, opts = {}) {
         newStatus: c.newStatus,
         updates: c.updates,
       })),
+      failedPaths,
     }, null, 2) + '\n');
-    if (!dryRun) {
-      for (const c of candidates) {
-        try { writeFrontmatter(c.filePath, c.updates); }
-        catch (err) { warn(`Failed to tag ${c.relPath}: ${err.message}`); }
-      }
-    }
     return;
   }
 
@@ -161,14 +171,7 @@ export function runBulkTag(argv, config, opts = {}) {
   }
 
   process.stdout.write('\n');
-  let tagged = 0;
-  for (const c of candidates) {
-    try {
-      writeFrontmatter(c.filePath, c.updates);
-      tagged++;
-    } catch (err) {
-      warn(`Failed to tag ${c.relPath}: ${err.message}`);
-    }
-  }
+  const failedPaths = applyTags(candidates);
+  const tagged = candidates.length - failedPaths.length;
   process.stdout.write(green(`Tagged ${tagged} file(s).`) + '\n');
 }

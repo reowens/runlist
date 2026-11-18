@@ -1,5 +1,5 @@
 import { describe, it, afterEach } from 'node:test';
-import { deepStrictEqual, strictEqual, ok } from 'node:assert';
+import { deepStrictEqual, match, strictEqual, ok } from 'node:assert';
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -209,10 +209,42 @@ describe('runBulkTag', () => {
 
     const mutation = spawnSync('node', args, options);
     strictEqual(mutation.status, 0, mutation.stderr);
-    deepStrictEqual(JSON.parse(mutation.stdout), { ...expected, dryRun: false });
+    deepStrictEqual(JSON.parse(mutation.stdout), { ...expected, dryRun: false, failedPaths: [] });
     const content = readFileSync(filePath, 'utf8');
     strictEqual(content, before.replace('owner: alice\n', 'owner: alice\nstatus: planned\n'));
   });
+  for (const format of ['text', 'json']) {
+    it(`CLI continues after an apply failure and exits nonzero in ${format} mode`, () => {
+      const docsDir = setup();
+      const broken = path.join(docsDir, 'broken.md');
+      const good = path.join(docsDir, 'good.md');
+      const brokenSource = '---\nowner: alice\n# Unclosed frontmatter\n';
+      writeFileSync(broken, brokenSource);
+      writeFileSync(good, '# Good\n');
+
+      const args = ['bulk-tag', 'docs/broken.md', 'docs/good.md'];
+      if (format === 'json') args.push('--json');
+      const result = spawnSync(process.execPath, [BIN, ...args], {
+        cwd: tmpDir,
+        encoding: 'utf8',
+        env: { ...process.env, NO_COLOR: '1' },
+      });
+
+      strictEqual(result.status, 1, result.stderr);
+      match(result.stderr, /Failed to tag docs\/broken\.md: .*unclosed frontmatter block/);
+      strictEqual(readFileSync(broken, 'utf8'), brokenSource);
+      strictEqual(readFileSync(good, 'utf8'), '---\ntype: doc\nstatus: draft\n---\n# Good\n');
+      if (format === 'json') {
+        const { dryRun, count, candidates, failedPaths } = JSON.parse(result.stdout);
+        strictEqual(dryRun, false);
+        strictEqual(count, 2);
+        deepStrictEqual(candidates.map(candidate => candidate.path), ['docs/broken.md', 'docs/good.md']);
+        deepStrictEqual(failedPaths, ['docs/broken.md']);
+      } else {
+        match(result.stdout, /Tagged 1 file\(s\)\./);
+      }
+    });
+  }
 
   it('--json emits a structured candidate list', async () => {
     const docsDir = setup();
@@ -227,6 +259,8 @@ describe('runBulkTag', () => {
     const parsed = JSON.parse(out);
     strictEqual(parsed.dryRun, true);
     strictEqual(parsed.count, 1);
+    strictEqual(Object.hasOwn(parsed, 'failedPaths'), false);
+    strictEqual(readFileSync(filePath, 'utf8'), '# Foo\n');
     strictEqual(parsed.candidates.length, 1);
     strictEqual(parsed.candidates[0].newType, 'doc');
     strictEqual(parsed.candidates[0].newStatus, 'draft');
