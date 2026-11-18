@@ -418,7 +418,7 @@ test('update --dry-run previews global commands without executing them', () => {
       env: { ...process.env, CLAUDE_CONFIG_DIR: undefined, HOME: home, USERPROFILE: home, PATH: `${fakeBin}${path.delimiter}${hostPath}` },
     });
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /\[dry-run\] Would run: npm i -g/);
+    assert.match(result.stdout, /\[dry-run\] (?:Refused: .*Runlist|Update (?:global|pinned) CLI|Checkout )/);
     assert.match(result.stdout, /\[dry-run\] Refused: cannot establish wrapper-to-profile mapping/);
     assert.equal(existsSync(sentinel), false);
   });
@@ -481,24 +481,27 @@ function writeNodeCommand(dir, name, body) {
   chmodSync(wrapper, 0o755);
 }
 
-for (const where of ['PATH', 'nvm']) test(`self-update refreshes initially current hosts using the new CLI and assets, even with a different runlist on PATH${where === 'nvm' ? ', and Codex only under nvm' : ''}`, { skip: where === 'nvm' && process.platform === 'win32' }, () => {
+for (const where of ['PATH', 'nvm']) test(`self-update refreshes initially current hosts using the new CLI and assets, when launched from a separate checkout${where === 'nvm' ? ', and Codex only under nvm' : ''}`, { skip: where === 'nvm' && process.platform === 'win32' }, () => {
   withHome(home => {
     const root = path.resolve(import.meta.dirname, '..');
-    const fixture = path.join(home, 'cli with spaces');
+    const prefix = path.join(home, 'prefix with spaces');
+    const fixture = path.join(prefix, process.platform === 'win32' ? 'node_modules/runlist' : 'lib/node_modules/runlist');
     const fakeBin = path.join(home, 'bin');
-    mkdirSync(fixture); mkdirSync(fakeBin);
+    mkdirSync(fixture, { recursive: true }); mkdirSync(fakeBin);
     for (const dir of ['bin', 'src', 'assets', 'plugins/runlist-codex']) cpSync(path.join(root, dir), path.join(fixture, dir), { recursive: true });
     const oldVersion = JSON.parse(readFileSync(path.join(root, 'package.json'))).version;
     const newVersion = '9.8.7';
-    writeFileSync(path.join(fixture, 'package.json'), JSON.stringify({ type: 'module', version: oldVersion }));
+    writeFileSync(path.join(fixture, 'package.json'), JSON.stringify({ name: 'runlist', type: 'module', version: oldVersion }));
     const ocDir = path.join(home, 'oc');
     const oc = installOpencodePlugin({ version: oldVersion, env: { OPENCODE_CONFIG_DIR: ocDir }, homedir: home });
     installCodexPlugin({ version: oldVersion, homedir: home });
     const installed = path.join(home, 'installed-codex-version');
     writeFileSync(installed, oldVersion);
     writeNodeCommand(fakeBin, 'npm', `const fs = require('node:fs');
+if (process.argv[2] === 'prefix') { console.log(${JSON.stringify(prefix)}); return; }
+if (process.argv[2] === 'view') { console.log(JSON.stringify({version: ${JSON.stringify(newVersion)}})); return; }
 const root = ${JSON.stringify(fixture)};
-fs.writeFileSync(root + '/package.json', JSON.stringify({type: 'module', version: ${JSON.stringify(newVersion)}}));
+fs.writeFileSync(root + '/package.json', JSON.stringify({name: 'runlist', type: 'module', version: ${JSON.stringify(newVersion)}}));
 const plugin = root + '/plugins/runlist-codex/.codex-plugin/plugin.json';
 const manifest = JSON.parse(fs.readFileSync(plugin)); manifest.version = ${JSON.stringify(newVersion)};
 fs.writeFileSync(plugin, JSON.stringify(manifest));
@@ -509,17 +512,20 @@ fs.appendFileSync(root + '/assets/opencode/plugin.js', '\\n// new release asset\
 const installed = ${JSON.stringify(installed)};
 if (process.argv[3] === 'add') fs.writeFileSync(installed, JSON.parse(fs.readFileSync(${JSON.stringify(path.join(home, 'plugins/runlist-codex/.codex-plugin/plugin.json'))})).version);
 if (process.argv[3] === 'list') console.log(JSON.stringify({installed: [{pluginId: 'runlist-codex@personal', installed: true, version: fs.readFileSync(installed, 'utf8')}]}));`);
-    const sentinel = path.join(home, 'wrong-cli-used');
-    writeNodeCommand(fakeBin, 'runlist', `require('node:fs').writeFileSync(${JSON.stringify(sentinel)}, 'wrong'); process.exitCode = 1;`);
-    const result = spawnSync(process.execPath, [path.join(fixture, 'bin/runlist.mjs'), 'update'], {
+    const launcherDir = process.platform === 'win32' ? prefix : fakeBin;
+    if (process.platform === 'win32') {
+      writeFileSync(path.join(prefix, 'runlist.cmd'), `@"${process.execPath}" "%~dp0node_modules/runlist/bin/runlist.mjs" %*\r\n`);
+    } else {
+      symlinkSync(path.join(fixture, 'bin/runlist.mjs'), path.join(fakeBin, 'runlist'));
+    }
+    const result = spawnSync(process.execPath, [path.join(root, 'bin/runlist.mjs'), 'update'], {
       cwd: home, encoding: 'utf8', env: { ...process.env, CLAUDE_CONFIG_DIR: undefined, NVM_DIR: undefined, HOME: home, USERPROFILE: home, OPENCODE_CONFIG_DIR: ocDir,
-        PATH: `${fakeBin}${path.delimiter}${hostPath.split(path.delimiter).filter(dir => !existsSync(path.join(dir, 'codex'))).join(path.delimiter)}`, NO_COLOR: '1' },
+        PATH: `${launcherDir}${path.delimiter}${fakeBin}${path.delimiter}${hostPath.split(path.delimiter).filter(dir => !existsSync(path.join(dir, 'codex'))).join(path.delimiter)}`, NO_COLOR: '1' },
     });
     assert.equal(result.status, 0, result.stdout + result.stderr);
     assert.equal(installedVersion(oc.path), newVersion);
     assert.match(readFileSync(oc.path, 'utf8'), /new release asset/);
     assert.equal(readFileSync(installed, 'utf8'), newVersion);
-    assert.equal(existsSync(sentinel), false);
   });
 });
 

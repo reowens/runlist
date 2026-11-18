@@ -177,7 +177,7 @@ export function installationReport(config={}, {root=packageRoot,home=os.homedir(
     opencode:opencodeStatus({env,homedir:home,version:cli.version}),
   };
   return {cli,warnings,node:{path:node,version:process.version,prefix:nodePrefix,npm:executable('npm',env)},project,desktop,integrations,
-    updateEffect:'update installs the published CLI into the npm global scope selected by npm on PATH, replacing its local link if present. It does not edit checkout sources or a project dependency. Desktop and managed host copies are separate update steps.'};
+    updateEffect:'update follows the persistent CLI on PATH. It refreshes a pinned package or matching writable npm global installation and reports checkout links for manual pull. It does not edit checkout sources or a project dependency. Desktop and managed host copies are separate update steps.'};
 }
 
 export function formatInstallationReport(report) {

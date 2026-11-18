@@ -41,6 +41,7 @@ function releaseFixture(dir, version = '1.2.3') {
   writeFileSync(path.join(source, 'package.json'), JSON.stringify({ name: 'runlist', version, files: ['bin/'], bin: { runlist: 'bin/runlist.mjs', rl: 'bin/runlist.mjs' } }));
   writeFileSync(path.join(source, 'bin', 'runlist.mjs'), "#!/usr/bin/env node\nconsole.log('usage: runlist');\n");
   copyFileSync(path.join(repoRoot, 'scripts', 'prepare-local-cli.mjs'), path.join(source, 'scripts', 'prepare-local-cli.mjs'));
+  copyFileSync(path.join(repoRoot, 'src/local-cli.mjs'), path.join(source, 'src/local-cli.mjs'));
   copyFileSync(path.join(repoRoot, 'src', 'durable-rename.mjs'), path.join(source, 'src', 'durable-rename.mjs'));
   git(source, 'init', '-q', '-b', 'main');
   git(source, 'add', '.');

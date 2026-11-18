@@ -22,7 +22,9 @@ git fetch --quiet origin "refs/tags/$tag:refs/tags/$tag"
 test "$(git rev-parse "$tag^{commit}")" = "$commit" || { echo "$tag does not name $commit in $checkout" >&2; exit 1; }
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-git archive "$commit" scripts/prepare-local-cli.mjs src/durable-rename.mjs | tar -xf - -C "$work"
+extra=""
+if git cat-file -e "$commit:src/local-cli.mjs" 2>/dev/null; then extra=src/local-cli.mjs; fi
+git archive "$commit" scripts/prepare-local-cli.mjs src/durable-rename.mjs $extra | tar -xf - -C "$work"
 "$node" -e 'process.stdout.write(JSON.stringify({ repository: process.argv[1], commit: process.argv[2], version: process.argv[3] }))' "$PWD" "$commit" "$version" > "$work/request.json"
 "$node" "$work/scripts/prepare-local-cli.mjs" install "$work/request.json"`;
 

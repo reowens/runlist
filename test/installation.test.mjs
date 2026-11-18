@@ -30,7 +30,7 @@ test('reports active Node scope, launcher link, project dependency and equal-ver
   assert.equal(report.project.declaration,'^1.2.0');assert.equal(report.project.resolvedPath,dependency);assert.equal(report.desktop.sameEngineSource,true);
   f.write(path.join(f.app,'Contents/Resources/engine/src/index.mjs'),'export const fixture="older code";');
   report=f.report();assert.equal(report.desktop.version,report.cli.version);assert.equal(report.desktop.sameEngineSource,false);
-  assert.match(formatInstallationReport(report),/engine source differs from CLI/);assert.match(formatInstallationReport(report),/replacing its local link/);
+  assert.match(formatInstallationReport(report),/engine source differs from CLI/);assert.match(formatInstallationReport(report),/follows the persistent CLI on PATH/);
   assert.equal(existsSync(path.join(f.home,'NPM_MUST_NOT_RUN')),false);assert.equal(existsSync(path.join(f.project,'.runlist')),false);
 });
 

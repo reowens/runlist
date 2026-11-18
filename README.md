@@ -301,7 +301,7 @@ an unreleased checkout from an installed release.
 
 To leave local review and restore a released CLI, run
 `npm install -g runlist@<version>` (replace `<version>` with the release wanted).
-`rl update` also installs the published CLI, replacing the local link. Project
+`rl update` recognizes a checkout link and asks you to pull the checkout. Project
 dependencies installed with `npm install -D` are separate again: project scripts
 and `npx` can resolve those before the global CLI. Linking the CLI does not
 rebuild the desktop app or refresh an agent plugin's installed files.
@@ -453,6 +453,13 @@ runlist update --check
 runlist update --cli-only
 runlist update --plugin-only
 ```
+
+The updater follows the persistent Runlist launcher on PATH. For an npm global
+installation it checks the prefix and its permissions before installing. For a
+pinned installation it verifies the published tarball, prepares a new artifact,
+and switches the launcher while retaining the previous package. After either
+update it runs the PATH launcher to verify the installed version. Use
+`runlist update --dry-run` to preview the target.
 
 From CLI 0.93.2, Claude plugin updates cover each saved user, project and local
 installation.

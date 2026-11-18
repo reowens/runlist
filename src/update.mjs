@@ -1,8 +1,9 @@
+import { classifyCli, updatePathCli, warnOtherVersions } from './cli-update.mjs';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { green, dim, yellow } from './color.mjs';
 import { executableName } from './util.mjs';
 import { CLAUDE_MARKETPLACE, claudeMarketplaceRefusalHint, opencodeStatus } from './host-integration.mjs';
@@ -151,9 +152,9 @@ export function planMarketplaceRepair(plugin, { hasClaude, verb }) {
 export function planUpdate(opts, ctx) {
   const steps = [];
   if (!opts.pluginOnly) {
-    steps.push(ctx.hasNpm
+    steps.push(ctx.cliStep ?? (ctx.hasNpm
       ? { kind: 'cli', cmd: ['npm', 'i', '-g', `${NPM_PKG}@latest`] }
-      : { kind: 'skip', reason: 'npm not found on PATH — skipping CLI update' });
+      : { kind: 'skip', reason: 'npm not found on PATH — skipping CLI update' }));
   }
   if (!opts.cliOnly) {
     if (!ctx.plugin) {
@@ -228,8 +229,8 @@ export function verifyManagedHostUpdates(before, after, expectedVersion) {
   return failures;
 }
 
-function currentCodexStatus(version, { home = os.homedir(), env = process.env, run = spawnSync, binary, searched = ['PATH'] } = {}) {
-  const source = codexStatus({ version, homedir: home, env });
+function currentCodexStatus(version, { home = os.homedir(), env = process.env, run = spawnSync, binary, searched = ['PATH'], inspectSource = codexStatus } = {}) {
+  const source = inspectSource({ version, homedir: home, env });
   if (!source.exists || source.foreign) return source;
   const installed = binary ? installedCodexStatus({ homedir: home, env, run, binary })
     : { ok: false, reason: `codex CLI not found (looked in ${searched.join(', ')}); installed plugin is unverified` };
@@ -422,7 +423,20 @@ export async function runUpdate(argv, _config, opts = {}) {
   const desktop = !host && !pluginOnly && process.platform === 'darwin' && process.arch === 'arm64' ? desktopLaunch([], { home, env }).app : null;
   // Keep the existing all-host planner; replace only its single-default-profile
   // Claude plan with the discovered stores and their explicit environments.
-  const steps = planUpdate({ cliOnly, pluginOnly }, { opencode, codex, desktop, refreshHosts: Boolean(host || dryRun), hasNpm: inventoryNpm(env) })
+  let cliStep;
+  if (!pluginOnly) {
+    try {
+      const target = classifyCli(env);
+      if (target.kind !== 'checkout' && !inventoryNpm(env)) throw new Error(`npm not found on PATH; cannot update ${target.launcher}`);
+      const reason = target.kind === 'checkout'
+        ? `Checkout ${target.root} (${target.version}): pull the checkout to update it.`
+        : `Update ${target.kind} CLI at ${target.launcher} and verify its version on PATH`;
+      cliStep = { kind: 'cli', target, reason };
+    } catch (error) {
+      cliStep = { kind: 'refusal', reason: error.message };
+    }
+  }
+  const steps = planUpdate({ cliOnly, pluginOnly }, { opencode, codex, desktop, cliStep, refreshHosts: Boolean(host || dryRun), hasNpm: inventoryNpm(env) })
     .filter(step => !step.reason?.startsWith('runlist plugin not installed'));
   if (!cliOnly) for (const name of ['codex', 'opencode']) {
     if (selected(name) && !(name === 'codex' ? codex : opencode)?.exists) steps.push({ kind: 'skip', reason: `runlist ${name} integration not installed — skipping ${name} update` });
@@ -440,7 +454,8 @@ export async function runUpdate(argv, _config, opts = {}) {
     const skipped = host && steps.every(step => step.kind === 'skip');
     if (skipped) process.stdout.write(`[dry-run] Requested ${host} integration is absent or not writable; no update is planned. Use an explicit install/repair if desired.\n`);
     for (const step of steps) {
-      if (step.kind === 'skip') process.stdout.write(dim(`[dry-run] skip: ${step.reason}\n`));
+      if (step.kind === 'cli') process.stdout.write(dim(`[dry-run] ${step.reason}\n`));
+      else if (step.kind === 'skip') process.stdout.write(dim(`[dry-run] skip: ${step.reason}\n`));
       else if (step.kind === 'manual') for (const line of step.lines) process.stdout.write(dim(`[dry-run] Run from a session: ${line}\n`));
       else if (step.kind === 'refusal') process.stdout.write(yellow(`[dry-run] Refused: ${step.reason}\n`));
       else process.stdout.write(dim(`[dry-run] Would run: ${step.cmd.join(' ')}${step.cwd ? ` (in ${step.cwd})` : ''}${step.profile ? ` [CLAUDE_CONFIG_DIR=${step.profile}]` : ''}\n`));
@@ -456,7 +471,28 @@ export async function runUpdate(argv, _config, opts = {}) {
   const failures = [];
   const failedKinds = new Set();
   const refreshedStores = new Set();
+  let hostEntry = path.join(__dirname, '..', 'bin', 'runlist.mjs');
+  let hostVersion = pkg.version;
+  let verifiedPathCli = false;
   for (const s of steps) {
+    if (s.kind === 'cli') {
+      process.stdout.write(s.reason + '\n');
+      try {
+        const selected = s.target.kind === 'checkout' ? s.target : updatePathCli(s.target, env, run);
+        if (s.target.kind !== 'checkout') {
+          ran = true;
+          hostEntry = selected.entry;
+          hostVersion = selected.version;
+          verifiedPathCli = true;
+          process.stdout.write(`Verified ${selected.launcher} at ${hostVersion}\n`);
+        }
+        warnOtherVersions(selected, env, run);
+      } catch (error) {
+        failures.push({ reason: error.message });
+        process.stdout.write(yellow(error.message + '\n'));
+      }
+      continue;
+    }
     if (s.kind === 'refusal') {
       failures.push(s);
       failedKinds.add(`${s.dependencyKey ?? ''}:plugin`);
@@ -480,10 +516,10 @@ export async function runUpdate(argv, _config, opts = {}) {
     process.stdout.write(dim(`$ ${s.cmd.join(' ')}${s.cwd ? ` (in ${s.cwd})` : ''}\n`));
     // npm can replace this package during the CLI step. A new Node process
     // reads the new installers/assets; this process still holds the old modules.
-    // Use this installation's entry point, not another runlist earlier on PATH.
+    // Use the verified entry after a switch, or the running installation on failure.
     const ownCli = s.cmd[0] === 'runlist';
     const r = run(ownCli ? process.execPath : path.isAbsolute(s.cmd[0]) ? s.cmd[0] : executableName(s.cmd[0]),
-      ownCli ? [path.join(__dirname, '..', 'bin', 'runlist.mjs'), ...s.cmd.slice(1)] : s.cmd.slice(1), {
+      ownCli ? [hostEntry, ...s.cmd.slice(1)] : s.cmd.slice(1), {
       stdio: 'inherit',
       env: { ...env, HOME: home, USERPROFILE: home, ...(s.profile ? { CLAUDE_CONFIG_DIR: s.profile } : {}) },
       ...(s.cwd ? { cwd: s.cwd } : {}),
@@ -497,10 +533,13 @@ export async function runUpdate(argv, _config, opts = {}) {
       if (s.kind === 'marketplace') for (const line of claudeMarketplaceRefusalHint('runlist')) process.stdout.write(yellow(`${line}\n`));
     } else if (s.kind === 'marketplace' && s.dependencyKey) refreshedStores.add(s.dependencyKey);
   }
-  const currentVersion = opts.expectedVersion ?? JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')).version;
+  const currentVersion = opts.expectedVersion ?? hostVersion;
   if (!cliOnly) {
-    const after = { opencode: opencode && opencodeStatus({ version: currentVersion, homedir: home, env }),
-      codex: codex && currentCodexStatus(currentVersion, { home, env, run, binary: inventory.codex.selected?.path, searched: inventory.codex.searched }) };
+    const sourceModule = name => pathToFileURL(path.resolve(path.dirname(hostEntry), '../src', name)).href;
+    const inspectOpenCode = opencode && (await import(sourceModule('host-integration.mjs'))).opencodeStatus;
+    const inspectCodex = codex && (await import(sourceModule('codex-integration.mjs'))).codexStatus;
+    const after = { opencode: opencode && inspectOpenCode({ version: currentVersion, homedir: home, env }),
+      codex: codex && currentCodexStatus(currentVersion, { home, env, run, inspectSource: inspectCodex, binary: inventory.codex.selected?.path, searched: inventory.codex.searched }) };
     for (const reason of verifyManagedHostUpdates({ opencode, codex }, after, currentVersion)) {
       failures.push({ reason });
       process.stdout.write(yellow(`${reason}\n`));
@@ -532,6 +571,9 @@ export async function runUpdate(argv, _config, opts = {}) {
       failures.push({ reason: 'The matching desktop installer is not published yet; retry `runlist update` after the product release completes.' });
     }
   }
+  if (!cliOnly && !pluginOnly && !verifiedPathCli) {
+    process.stdout.write(`Host results use running CLI ${hostVersion}; the latest published CLI was not verified.\n`);
+  }
   if (failures.length) {
     process.stdout.write(yellow(`\n${failures.length === 1 ? '1 step' : `${failures.length} steps`} failed: ${failures.map(s => s.cmd ? `${s.cmd.join(' ')}${s.cwd ? ` (in ${s.cwd})` : ''}` : s.reason).join('; ')}\n`));
     if (ran && failures.length < steps.filter(s => s.kind !== 'skip' && s.kind !== 'manual').length) {
@@ -540,7 +582,7 @@ export async function runUpdate(argv, _config, opts = {}) {
     process.exitCode = 1;
     return { ok: false, failures, steps };
   }
-  if (ran) {
+  if (ran && !cliOnly) {
     process.stdout.write(green('\n✓ restart the affected host sessions to load the updated integrations.\n'));
   }
   return { ok: true, steps };

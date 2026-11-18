@@ -254,10 +254,10 @@ reports a missing integration but never installs one.`,
 
   update: `runlist update — update the CLI and already installed host integrations
 
-  runlist update                 npm i -g runlist  +  claude plugin update runlist@runlist
+  runlist update                 update the CLI on PATH and installed integrations
   runlist update --check         report CLI vs plugin versions, do nothing (network-free)
   runlist update --check --json  offline executable/profile/source report; no host programs run
-  runlist update --cli-only      only the npm CLI
+  runlist update --cli-only      only the PATH CLI (npm global or pinned; pull checkout links manually)
   runlist update --plugin-only   only installed host integrations
   runlist update --host codex    only this installed host integration (no npm CLI/GUI update)
   runlist update --host claude --claude-config /absolute/profile --claude-bin /absolute/native/claude
