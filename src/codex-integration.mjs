@@ -330,7 +330,6 @@ export function installCodexPlugin({ version, homedir = os.homedir(), env, dryRu
     renameSync(stage, status.plugin);
     published = true;
     renameSync(marketStage, status.marketplace);
-    if (movedOld) { ownerWritable(backup); rmSync(backup, { recursive: true, force: true }); }
   } catch (err) {
     if (published) { ownerWritable(status.plugin); rmSync(status.plugin, { recursive: true, force: true }); }
     if (movedOld) renameSync(backup, status.plugin);
@@ -339,6 +338,15 @@ export function installCodexPlugin({ version, homedir = os.homedir(), env, dryRu
     rmSync(marketStage, { force: true });
     throw err;
   }
+  let cleanupWarning;
+  if (movedOld) {
+    try {
+      ownerWritable(backup);
+      rmSync(backup, { recursive: true, force: true });
+    } catch (error) {
+      cleanupWarning = `Could not remove previous Codex plugin backup at ${backup}: ${error.message}`;
+    }
+  }
   const hooksResult = addCodexHooks(status.hooksFile, status.plugin);
-  return { ...codexStatus({ version, homedir, env }), ...hooksResult, action: status.exists ? 'updated' : 'installed', marketplaceName: market.name, hooksChanged };
+  return { ...codexStatus({ version, homedir, env }), ...hooksResult, ...(cleanupWarning && { cleanupWarning }), action: status.exists ? 'updated' : 'installed', marketplaceName: market.name, hooksChanged };
 }

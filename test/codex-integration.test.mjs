@@ -1,6 +1,7 @@
 import { afterEach, describe, it } from 'node:test';
-import { deepStrictEqual, strictEqual, match, ok } from 'node:assert';
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { deepStrictEqual, strictEqual, match, ok, throws } from 'node:assert';
+import { syncBuiltinESMExports } from 'node:module';
+import fs, { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -45,6 +46,46 @@ describe('Codex plugin distribution', () => {
     deepStrictEqual(readdirSync(path.dirname(first.plugin)).filter((n) => n.startsWith('.runlist-codex-stage-')), []);
     ok((statSync(path.join(first.plugin, 'skills')).mode & 0o200) !== 0);
   });
+
+  for (const failure of ['publish marketplace', 'remove backup']) {
+    it(`keeps the correct plugin after a failure to ${failure}`, t => {
+      const h = fresh();
+      const first = installCodexPlugin({ version, homedir: h });
+      const marker = '.runlist-generated.json';
+      writeFileSync(path.join(first.plugin, marker), JSON.stringify({ version: '0.0.0' }));
+      const method = failure === 'remove backup' ? 'rmSync' : 'renameSync';
+      const original = fs[method];
+      let backup;
+      t.mock.method(fs, method, (file, ...args) => {
+        if (method === 'renameSync' && args[0] === first.marketplace) throw new Error('publication failed');
+        if (method === 'rmSync' && file.endsWith('-previous')) {
+          backup = file;
+          original(path.join(file, marker));
+          throw new Error('cleanup failed');
+        }
+        return original(file, ...args);
+      });
+      syncBuiltinESMExports();
+      try {
+        const update = () => installCodexPlugin({ version, homedir: h });
+        if (failure === 'publish marketplace') {
+          strictEqual(JSON.parse(readFileSync(path.join(first.plugin, marker))).version, '0.0.0');
+          throws(update, /publication failed/);
+          strictEqual(JSON.parse(readFileSync(path.join(first.plugin, marker))).version, '0.0.0');
+        } else {
+          const result = update();
+          strictEqual(result.action, 'updated');
+          ok(result.cleanupWarning.includes(backup));
+          ok(existsSync(backup));
+          strictEqual(result.marketplaceRegistered, true);
+          strictEqual(codexStatus({ version, homedir: h }).stale, false);
+        }
+      } finally {
+        t.mock.restoreAll();
+        syncBuiltinESMExports();
+      }
+    });
+  }
 
   it('adds its hooks after the user\'s, without moving or changing them', () => {
     const h = fresh();

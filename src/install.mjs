@@ -119,6 +119,7 @@ function installCodex(argv, dryRun, json, prerequisites) {
     process.stdout.write(`${dryRun ? '[dry-run] ' : ''}${action} codex integration (${pkg.version}) at ${result.plugin}\n`);
     if (dryRun && result.hooksChanged) process.stdout.write(`[dry-run] Would add hooks to ${result.hooksFile}\n`);
   }
+  if (result.cleanupWarning && !json) process.stderr.write(result.cleanupWarning + '\n');
   if (result.hooksError) {
     process.stderr.write(`The plugin was updated, but its primer and guard are not set up: ${result.hooksError}. Fix that and run \`runlist install codex\` again.\n`);
     process.exitCode = 1;
