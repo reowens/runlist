@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { evaluateGuard } from '../src/guard.mjs';
 
 const config = { configFound: true, repoRoot: '/repo', docsRoots: ['docs'] };
@@ -377,6 +381,123 @@ test('sed -i on a managed doc NOT touching status is not guarded', () => {
     config, notIncluded,
   );
   assert.equal(r, null);
+});
+
+const statusDoc = '---\nstatus: active\n---\n[Service](service.md#operating-status-2026-11-16)\n';
+const linkEdit = 's/service.md#operating-status-2026-11-16/service.md#operating-status-and-gaps-2026-10-29/';
+
+for (const prefix of ['sed -i', "sed -i ''", 'command sed -i.bak -e', 'sed --in-place', 'sed --in-place=.bak']) {
+  test(`link correction containing status preserves the lifecycle: ${prefix}`, () => {
+    const filesRead = [];
+    const r = evaluateGuard(
+      { tool_name: 'Bash', tool_input: { command: `${prefix} '${linkEdit}' docs/plans/x.md` } },
+      config, { ...notIncluded, gitCwd: '/repo', readFile: file => { filesRead.push(file); return statusDoc; } },
+    );
+    assert.equal(r, null);
+    assert.deepEqual(filesRead, ['/repo/docs/plans/x.md']);
+  });
+}
+
+test('supported substitutions cannot change a lifecycle value without naming status', () => {
+  const r = evaluateGuard(
+    { tool_name: 'Bash', tool_input: { command: "sed -i 's/active/archived/' docs/plans/x.md" } },
+    config, { ...notIncluded, readFile: () => statusDoc },
+  );
+  assert.equal(r?.decision, 'deny');
+});
+
+test('status in a link cannot exempt an edit that changes a status line', () => {
+  const r = evaluateGuard(
+    { tool_name: 'Bash', tool_input: { command: `sed -i '${linkEdit}' docs/plans/x.md` } },
+    config, { ...notIncluded, readFile: () => '---\nstatus: service.md#operating-status-2026-11-16\n---\n' },
+  );
+  assert.equal(r?.decision, 'deny');
+});
+
+test('every managed target must preserve its status', () => {
+  const r = evaluateGuard(
+    { tool_name: 'Bash', tool_input: { command: "sed -i 's/active/archived/g' docs/plans/a.md docs/plans/b.md" } },
+    config, { ...notIncluded, readFile: file => file.endsWith('a.md') ? 'status: paused\n' : statusDoc },
+  );
+  assert.equal(r?.decision, 'deny');
+});
+
+test('an unreadable target cannot hide a known lifecycle change in another target', () => {
+  for (const readable of ['a.md', 'b.md']) {
+    const r = evaluateGuard(
+      { tool_name: 'Bash', tool_input: { command: "sed -i 's/active/archived/' docs/plans/a.md docs/plans/b.md" } },
+      config, { ...notIncluded, readFile: file => {
+        if (file.endsWith(readable)) return statusDoc;
+        throw new Error('unreadable');
+      } },
+    );
+    assert.equal(r?.decision, 'deny', readable);
+  }
+});
+
+test('long in-place flags still refuse actual status changes', () => {
+  const r = evaluateGuard(
+    { tool_name: 'Bash', tool_input: { command: "sed --in-place=.bak 's/status/other/' docs/plans/x.md" } },
+    config, { ...notIncluded, readFile: () => statusDoc },
+  );
+  assert.equal(r?.decision, 'deny');
+});
+
+test('unknown or unreadable status-related sed programs remain denied', () => {
+  for (const command of [
+    "sed -i 's/status/other/;e echo ignored' docs/plans/x.md",
+    "sed -i -e 's/operating-status/other/' -e 's/active/archived/' docs/plans/x.md",
+    "sed -i 's/status/other/' docs/plans/$TARGET.md",
+    `sed -i '${linkEdit}' docs/plans/x.md`,
+  ]) {
+    const r = evaluateGuard(
+      { tool_name: 'Bash', tool_input: { command } },
+      config, { ...notIncluded, readFile: () => { throw new Error('unreadable'); } },
+    );
+    assert.equal(r?.decision, 'deny', command);
+  }
+});
+
+test('sed previews preserve per-line dot and CRLF behavior', () => {
+  const r = evaluateGuard(
+    { tool_name: 'Bash', tool_input: { command: "sed -i 's/operating.status/working-status/g' docs/plans/x.md" } },
+    config, { ...notIncluded, readFile: () => '---\r\nstatus: operating-status\r\n---\r\noperating.status\r\n' },
+  );
+  assert.equal(r?.decision, 'deny');
+});
+
+test('oversized status-related targets keep the conservative refusal', () => {
+  const r = evaluateGuard(
+    { tool_name: 'Bash', tool_input: { command: `sed -i '${linkEdit}' docs/plans/x.md` } },
+    config, { ...notIncluded, readFile: () => statusDoc + 'x'.repeat(256 * 1024) },
+  );
+  assert.equal(r?.decision, 'deny');
+});
+
+test('guard CLI previews real files without running the proposed sed commands', t => {
+  const root = mkdtempSync(path.join(tmpdir(), 'runlist-sed-guard-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(path.join(root, 'docs/plans'), { recursive: true });
+  writeFileSync(path.join(root, 'runlist.config.mjs'), "export const root = 'docs';\n");
+  const target = path.join(root, 'docs/plans/work.md');
+  writeFileSync(target, statusDoc);
+  const cli = fileURLToPath(new URL('../bin/runlist.mjs', import.meta.url));
+  for (const [command, expected] of [
+    [`sed -i '${linkEdit}' docs/plans/work.md`, 'allow'],
+    [`sed --in-place '${linkEdit}' docs/plans/work.md`, 'allow'],
+    ["sed -i 's/active/archived/' docs/plans/work.md", 'deny'],
+    ["sed --in-place 's/status/other/' docs/plans/work.md", 'deny'],
+    ["sed -i 's/operating-status/other/;e echo ignored' docs/plans/work.md", 'deny'],
+    [`sed -i '${linkEdit}' docs/plans/missing.md`, 'deny'],
+  ]) {
+    const result = spawnSync(process.execPath, [cli, 'guard'], {
+      cwd: root, input: JSON.stringify({ tool_name: 'Bash', tool_input: { command } }),
+      encoding: 'utf8', timeout: 5000,
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).hookSpecificOutput?.permissionDecision ?? 'allow', expected, command);
+    assert.equal(readFileSync(target, 'utf8'), statusDoc);
+  }
 });
 
 test('sed -i on a non-managed file is not guarded', () => {

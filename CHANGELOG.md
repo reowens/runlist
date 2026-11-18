@@ -2,6 +2,15 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+### Fixed
+
+- The status-edit guard previews supported simple `sed -i` substitutions before
+  refusing them. Link corrections containing `status` pass when lifecycle lines
+  stay unchanged; actual status changes, including long `--in-place` forms,
+  remain refused. Unsupported status-related programs retain their refusal.
+
 ## 0.108.2 — 2026-11-14
 
 ### Fixed

@@ -1,4 +1,4 @@
-import { readFileSync, realpathSync } from 'node:fs';
+import { readFileSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { inspectGitCommandPaths } from './git.mjs';
@@ -264,10 +264,44 @@ function editStatusResult(target, config, detail) {
 // before any heredoc marker is scanned — heredoc bodies are document content
 // (often prose *describing* these rules), not commands.
 const STREAM_EDITOR_INPLACE = [
-  /\bsed\b[^|;&<>]*\s-i/,
+  /\bsed\b[^|;&<>]*\s(?:-i|--in-place(?:[=\s]|$))/,
   /\bperl\b[^|;&<>]*\s-[a-zA-Z]*i/,
   /\bg?awk\b[^|;&<>]*\binplace\b/,
 ];
+
+// Preview a small sed subset without executing an editor or shell program.
+// Unknown syntax keeps the existing conservative status-word check.
+function sedStatusChange(args, managed, cwd, deps) {
+  let i = 0;
+  if (!args[i]?.startsWith('-i') && args[i] !== '--in-place' && !args[i]?.startsWith('--in-place=')) return null;
+  i += 1;
+  if (args[i] === '-e') i += 1;
+  const script = args[i++];
+  const files = args.slice(i);
+  if (!script || !files.length || files.some(file => file.startsWith('-') || /[$`*?\[~]/.test(file))) return null;
+  if (!managed.every(file => files.includes(file))) return null;
+  const delimiter = script[1];
+  if (!delimiter || !'/|#@'.includes(delimiter)) return null;
+  const parts = script.split(delimiter);
+  if (parts.length !== 4 || parts[0] !== 's' || !['', 'g'].includes(parts[3])) return null;
+  const [, search, replacement, flags] = parts;
+  if (!/^[A-Za-z0-9_.:#/-]+$/.test(search) || !/^[A-Za-z0-9_.:#/-]*$/.test(replacement)) return null;
+  const pattern = new RegExp(search.replaceAll('.', '[^\\n]'), `${flags}u`);
+  const readFile = deps.readFile ?? (file => {
+    const stat = statSync(file);
+    if (!stat.isFile() || stat.size > 256 * 1024) throw new Error('unsupported sed target');
+    return readFileSync(file, 'utf8');
+  });
+  let unknown = false;
+  for (const file of managed) {
+    let before;
+    try { before = readFile(path.resolve(cwd, file)); } catch { unknown = true; continue; }
+    if (typeof before !== 'string' || Buffer.byteLength(before) > 256 * 1024) { unknown = true; continue; }
+    const after = before.split('\n').map(line => line.replace(pattern, () => replacement)).join('\n');
+    if (statusLines(before).join('\n') !== statusLines(after).join('\n')) return true;
+  }
+  return unknown ? null : false;
+}
 
 function promptReadDecision(filePath, config, deps = {}) {
   if (config?.guard?.promptReads !== 'deny') return 'warn';
@@ -355,10 +389,15 @@ function evalBash(command, config, inspectGitPaths, baseCwd, deps = {}) {
 
     // Rule C — only an actual in-place stream-editor invocation can be a
     // status edit. Quoted prose printed by echo/printf is not executable code.
-    if (/^(?:sed|perl|g?awk)$/.test(cmd0) && /status/.test(seg)
+    if (/^(?:sed|perl|g?awk)$/.test(cmd0)
       && STREAM_EDITOR_INPLACE.some(re => re.test(seg))) {
       const managed = segTokens.filter(token => isManagedDoc(token, config));
-      if (managed.length > 0) return editStatusResult(managed[0], config, `status-edit ${managed[0]}`);
+      if (managed.length > 0) {
+        const changed = cmd0 === 'sed' ? sedStatusChange(segTokens.slice(commandIndex + 1), managed, cwd, deps) : null;
+        if (changed === true || (changed === null && /status/.test(seg))) {
+          return editStatusResult(managed[0], config, `status-edit ${managed[0]}`);
+        }
+      }
     }
   }
 
