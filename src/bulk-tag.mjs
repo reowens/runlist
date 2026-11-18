@@ -93,13 +93,13 @@ export function runBulkTag(argv, config, opts = {}) {
     if (hasType && hasStatus) continue;
 
     const root = findLexicalDocsRoot(filePath, config) ?? config.docsRoot;
-    const inferredType = args.typeOverride ?? (hasType ? parsed.type : inferTypeFromPath(filePath, root));
-    const defaultStatus = DEFAULT_STATUS_BY_TYPE[inferredType] ?? 'draft';
-    const inferredStatus = args.statusOverride ?? (hasStatus ? parsed.status : defaultStatus);
+    const newType = hasType ? parsed.type : (args.typeOverride ?? inferTypeFromPath(filePath, root));
+    const defaultStatus = DEFAULT_STATUS_BY_TYPE[newType] ?? 'draft';
+    const newStatus = hasStatus ? parsed.status : (args.statusOverride ?? defaultStatus);
 
     const updates = {};
-    if (!hasType) updates.type = inferredType;
-    if (!hasStatus) updates.status = inferredStatus;
+    if (!hasType) updates.type = newType;
+    if (!hasStatus) updates.status = newStatus;
 
     candidates.push({
       filePath,
@@ -109,8 +109,8 @@ export function runBulkTag(argv, config, opts = {}) {
       hadStatus: hasStatus,
       currentType: hasType ? parsed.type : null,
       currentStatus: hasStatus ? parsed.status : null,
-      newType: inferredType,
-      newStatus: inferredStatus,
+      newType,
+      newStatus,
       updates,
     });
   }

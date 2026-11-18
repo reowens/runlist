@@ -1,5 +1,5 @@
 import { describe, it, afterEach } from 'node:test';
-import { strictEqual, ok } from 'node:assert';
+import { deepStrictEqual, strictEqual, ok } from 'node:assert';
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -87,7 +87,7 @@ describe('runBulkTag', () => {
     ok(content.includes('status: draft'), 'status added with doc default');
   });
 
-  it('fills in only missing fields when frontmatter has status but no type', async () => {
+  it('retains the existing status in JSON and on disk when --status conflicts', async () => {
     const docsDir = setup();
     mkdirSync(path.join(docsDir, 'prompts'));
     const filePath = path.join(docsDir, 'prompts', 'orphan.md');
@@ -95,8 +95,13 @@ describe('runBulkTag', () => {
 
     const config = await resolveConfig(tmpDir);
     captureStdout();
-    runBulkTag([], config, {});
-    releaseStdout();
+    runBulkTag(['--status', 'active', '--json'], config, {});
+    const { candidates } = JSON.parse(releaseStdout());
+
+    strictEqual(candidates.length, 1);
+    strictEqual(candidates[0].newType, 'prompt');
+    strictEqual(candidates[0].newStatus, 'pending');
+    deepStrictEqual(candidates[0].updates, { type: 'prompt' });
 
     const content = readFileSync(filePath, 'utf8');
     ok(content.includes('status: pending'), 'existing status preserved');
@@ -174,6 +179,39 @@ describe('runBulkTag', () => {
     const content = readFileSync(filePath, 'utf8');
     ok(content.includes('type: doc'), 'post-command --type reaches bulk-tag');
     ok(content.includes('status: active'), 'post-command --status reaches bulk-tag');
+  });
+
+  it('previews and applies the default status for the retained type when --type conflicts', () => {
+    const docsDir = setup();
+    const filePath = path.join(docsDir, 'partial-plan.md');
+    const before = '---\ntype: plan\nowner: alice\n---\n# Partial plan\n';
+    writeFileSync(filePath, before);
+
+    const args = [BIN, 'bulk-tag', '--type', 'doc', '--json', 'docs/partial-plan.md'];
+    const options = { cwd: tmpDir, encoding: 'utf8' };
+    const preview = spawnSync('node', [...args, '--dry-run'], options);
+    strictEqual(preview.status, 0, preview.stderr);
+    const expected = {
+      dryRun: true,
+      count: 1,
+      candidates: [{
+        path: 'docs/partial-plan.md',
+        hadFrontmatter: true,
+        currentType: 'plan',
+        currentStatus: null,
+        newType: 'plan',
+        newStatus: 'planned',
+        updates: { status: 'planned' },
+      }],
+    };
+    deepStrictEqual(JSON.parse(preview.stdout), expected);
+    strictEqual(readFileSync(filePath, 'utf8'), before);
+
+    const mutation = spawnSync('node', args, options);
+    strictEqual(mutation.status, 0, mutation.stderr);
+    deepStrictEqual(JSON.parse(mutation.stdout), { ...expected, dryRun: false });
+    const content = readFileSync(filePath, 'utf8');
+    strictEqual(content, before.replace('owner: alice\n', 'owner: alice\nstatus: planned\n'));
   });
 
   it('--json emits a structured candidate list', async () => {
