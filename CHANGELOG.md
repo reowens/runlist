@@ -2,6 +2,13 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+- `runlist update` follows the persistent CLI on PATH, verifies the version after an npm-global or pinned update, and reports checkout links and conflicting aliases.
+- `runlist doctor --hosts --live` and Codex plugin updates report trust and enablement for Runlist hooks. A failed backup cleanup now leaves the newly published Codex plugin in place.
+- `bulk-tag` preserves existing fields, derives missing status from the retained type, and reports failed writes with a nonzero exit. Explicit paths skip the docs-tree scan and are checked before writing.
+- `watch` refreshes after the final save in a burst, including edits during startup.
+
 ## 0.108.3 — 2026-11-17
 
 ### Fixed

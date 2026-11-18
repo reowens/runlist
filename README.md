@@ -454,6 +454,9 @@ runlist update --cli-only
 runlist update --plugin-only
 ```
 
+The following PATH-aware update behavior is in the unreleased checkout. To preview it
+from the repository, run `node bin/runlist.mjs update --dry-run`.
+
 The updater follows the persistent Runlist launcher on PATH. For an npm global
 installation it checks the prefix and its permissions before installing. For a
 pinned installation it verifies the published tarball, prepares a new artifact,
@@ -481,7 +484,8 @@ supports `/reload-plugins`.
 
 ## Host health and selected repairs
 
-Use `runlist doctor --hosts --live` to ask Codex which Runlist hooks it trusts
+From the unreleased checkout, use `node bin/runlist.mjs doctor --hosts --live`
+to ask Codex which Runlist hooks it trusts
 in the current directory. Add `--json` for per-hook trust and enablement. The
 report also identifies leftover Runlist plugin hooks. If Codex is unavailable,
 times out, or cannot answer, trust is reported as unknown. Review the hooks in
