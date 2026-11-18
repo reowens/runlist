@@ -70,17 +70,16 @@ export function runBulkTag(argv, config, opts = {}) {
   const { dryRun } = opts;
   const args = parseArgs(argv);
 
-  // Determine candidate set: explicit positional args take precedence; otherwise
-  // scan all collected doc files (which already excludes config.indexPath).
-  const allFiles = collectDocFiles(config);
   let pool;
-  if (args.positional.length > 0) {
-    pool = args.positional
-      .map(p => resolveDocPath(p, config))
-      .filter(Boolean);
-    if (pool.length === 0) die('No matching files found for the given paths.');
+  if (args.positional.length) {
+    const paths = args.positional.map(input => {
+      const file = resolveDocPath(input, config);
+      if (!file) die(`Bulk tag source does not exist: ${input}`);
+      return path.resolve(file);
+    });
+    pool = [...new Set(paths)];
   } else {
-    pool = allFiles;
+    pool = collectDocFiles(config);
   }
   authorizeManagedSweep(pool, config, { kind: 'Bulk tag source' });
 

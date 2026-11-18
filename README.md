@@ -1188,6 +1188,28 @@ nothing.
 New plans are created `planned`; `runlist use` starts one, and
 `runlist new plan <name> --status <status>` sets a different starting status.
 
+### Tag existing Markdown
+
+In a planning project, preview missing frontmatter fields for specific files with
+`runlist bulk-tag --dry-run --json docs/plans/example.md`. Remove `--dry-run`
+to apply the changes. Omit the paths to scan the configured docs roots.
+
+Existing types and statuses are preserved. For example, a file with
+`type: plan` and no status receives `status: planned` by default. Use
+`--type` and `--status` to supply values for missing fields.
+
+An unresolved explicit path stops the command before it writes any files.
+If an individual write fails during application, Runlist continues with the
+remaining files and exits with status 1. Applied JSON includes `failedPaths`
+with the repo-relative paths of failed writes.
+
+### Watch a listing
+
+Run `runlist watch list` to display the current list and refresh it as you edit
+Markdown under the configured docs roots. The first listing appears immediately.
+After a burst of edits, the listing refreshes once 300 ms have passed since the
+last Markdown file event. Press Ctrl+C to stop watching.
+
 ## Document Format
 
 ```markdown

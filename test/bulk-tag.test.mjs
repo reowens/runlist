@@ -53,6 +53,28 @@ describe('inferTypeFromPath', () => {
 });
 
 describe('runBulkTag', () => {
+  it('rejects a missing explicit path before writing other files', () => {
+    const docsDir = setup();
+    const file = path.join(docsDir, 'valid.md');
+    writeFileSync(file, '# Valid\n');
+    const result = spawnSync('node', [BIN, 'bulk-tag', 'docs/valid.md', 'docs/missing.md'], {
+      cwd: tmpDir, encoding: 'utf8',
+    });
+    strictEqual(result.status, 1);
+    match(result.stderr, /missing\.md/);
+    strictEqual(readFileSync(file, 'utf8'), '# Valid\n');
+  });
+
+  it('counts repeated spellings of an explicit path once', () => {
+    const docsDir = setup();
+    writeFileSync(path.join(docsDir, 'valid.md'), '# Valid\n');
+    const result = spawnSync('node', [BIN, 'bulk-tag', '--json', 'valid.md', 'docs/valid.md'], {
+      cwd: tmpDir, encoding: 'utf8',
+    });
+    strictEqual(result.status, 0, result.stderr);
+    strictEqual(JSON.parse(result.stdout).count, 1);
+  });
+
   it('tags a file with no frontmatter under plans/ as type: plan, status: planned', async () => {
     const docsDir = setup();
     mkdirSync(path.join(docsDir, 'plans'));
