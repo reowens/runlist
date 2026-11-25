@@ -142,7 +142,7 @@ async function runDoctorClaims(argv, config, opts = {}) {
 
   const dead = claims.filter(claim => !claim.corrupt && claim.liveness === 'dead');
   const aged = olderThanMs === null ? [] : claims.filter(claim =>
-    !claim.corrupt && claim.liveness !== 'dead' && claim.ageMs !== null && claim.ageMs >= olderThanMs);
+    !claim.corrupt && claim.liveness === 'unverifiable' && claim.ageMs !== null && claim.ageMs >= olderThanMs);
   const targets = [...dead, ...aged];
 
   const released = [];
@@ -216,7 +216,7 @@ async function runDoctorClaims(argv, config, opts = {}) {
     process.stdout.write(dim('Run `runlist doctor --claims --apply` to release them.\n'));
   }
   const unjudgeable = claims.filter(claim =>
-    !claim.corrupt && claim.liveness !== 'dead' && !releasedSet.has(claim.plan));
+    !claim.corrupt && claim.liveness === 'unverifiable' && !releasedSet.has(claim.plan));
   if (unjudgeable.length && olderThanMs === null) {
     process.stdout.write(dim(`\n${unjudgeable.length} cannot be judged from here — no owning process was recorded, or it is on another machine.\n`));
     process.stdout.write(dim('If you know those sessions are over: `runlist doctor --claims --apply --older-than 24h`.\n'));

@@ -8,6 +8,7 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 - `runlist doctor --hosts --live` and Codex plugin updates report trust and enablement for Runlist hooks. A failed backup cleanup now leaves the newly published Codex plugin in place.
 - `bulk-tag` preserves existing fields, derives missing status from the retained type, and reports failed writes with a nonzero exit. Explicit paths skip the docs-tree scan and are checked before writing.
 - `watch` refreshes after the final save in a burst, including edits during startup.
+- `doctor --claims` counts only claims with no recorded owner as ones it cannot judge. A claim held by a running session is no longer listed there, and `--apply --older-than` no longer releases it.
 
 ## 0.108.3 — 2026-11-17
 

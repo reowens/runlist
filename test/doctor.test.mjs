@@ -623,6 +623,10 @@ describe('doctor --frontmatter-fix', () => {
     const alive = run(['doctor', '--claims', '--apply']);
     ok(alive.stdout.includes('owner live'), alive.stdout);
     ok(readFileSync(planPath, 'utf8').includes('status: in-session'));
+    ok(!alive.stdout.includes('cannot be judged'), alive.stdout);
+    const aged = run(['doctor', '--claims', '--apply', '--older-than', '0h']);
+    ok(!aged.stdout.includes('Released'), aged.stdout);
+    ok(readFileSync(planPath, 'utf8').includes('status: in-session'), 'a live owner keeps its claim at any age');
 
     await new Promise(resolve => { victim.on('exit', resolve); victim.kill('SIGKILL'); });
 
