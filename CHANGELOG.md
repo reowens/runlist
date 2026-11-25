@@ -2,6 +2,10 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
+## Unreleased
+
+- The release script watches the publish run again when its own status request fails while the run is still going, so 1 failed request no longer stops a release for a resume.
+
 ## 0.108.4 — 2026-11-24
 
 - `runlist update` follows the persistent CLI on PATH, verifies the version after an npm-global or pinned update, and reports checkout links and conflicting aliases.

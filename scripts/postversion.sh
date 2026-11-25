@@ -105,8 +105,23 @@ if [ -z "${RID}" ]; then
   exit 1
 fi
 
+# `gh run watch` also exits non-zero when one of its own status requests fails
+# (0.108.4: a single HTTP 404 from the jobs endpoint, 16 seconds into a run that
+# went on to pass). Only a run GitHub reports as completed has a result, so a
+# watch that ends on a run still in progress is watched again.
+watch_publish_run() {
+  local attempt
+  for attempt in 1 2 3 4 5; do
+    gh run watch "${RID}" --exit-status && return 0
+    [ "$(gh run view "${RID}" --json status --jq .status 2>/dev/null)" = "completed" ] && return 1
+    echo "⚠ lost the watch on publish run ${RID} while it is still running; watching again" >&2
+    sleep 5
+  done
+  return 1
+}
+
 echo "→ watching publish run ${RID}"
-if ! gh run watch "${RID}" --exit-status; then
+if ! watch_publish_run; then
   echo "⚠ publish run ${RID} failed; rerunning failed jobs once" >&2
   gh run rerun "${RID}" --failed
   # The rerun registers a few seconds later; watching at once sees the failed attempt.
