@@ -1,6 +1,6 @@
 import { describe, it, afterEach } from 'node:test';
 import { strictEqual, ok, deepStrictEqual } from 'node:assert';
-import { existsSync, mkdtempSync, writeFileSync, readFileSync, readdirSync, mkdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, writeFileSync, readFileSync, readdirSync, mkdirSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
@@ -670,6 +670,50 @@ describe('doctor --frontmatter-fix', () => {
     const policy = run(['doctor', '--claims', '--apply', '--older-than', '24h']);
     ok(policy.stdout.includes('Released 1 claim'), policy.stdout);
     ok(readFileSync(planPath, 'utf8').includes('status: active'));
+  });
+
+  it('judges a Codex claim dead only once its conversation is archived', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'dotmd-doctor-claims-codex-'));
+    spawnSync('git', ['init', '-q'], { cwd: tmpDir });
+    mkdirSync(path.join(tmpDir, 'docs', 'plans'), { recursive: true });
+    writeFileSync(path.join(tmpDir, 'dotmd.config.mjs'), "export const root = 'docs';\n");
+    const planPath = path.join(tmpDir, 'docs', 'plans', 'codex.md');
+    writeFileSync(planPath, '---\ntype: plan\nstatus: active\ntitle: codex\nupdated: 2025-01-01T00:00:00Z\ncurrent_state: testing\n---\n# codex\n\n## Version History\n\n- **2025-01-01T00:00:00Z** Created.\n');
+    const created = new Date(2026, 10, 24, 7, 21, 34);
+    const thread = `${created.getTime().toString(16).padStart(12, '0').replace(/^(.{8})(.{4})$/, '$1-$2')}-77b3-bc51-fdbf1b8c71af`;
+    const codexHome = path.join(tmpDir, 'codex-home');
+    const rollout = `rollout-2026-11-24T07-21-34-${thread}.jsonl`;
+    const sessions = path.join(codexHome, 'sessions', '2026', '11', '24');
+    mkdirSync(sessions, { recursive: true });
+    writeFileSync(path.join(sessions, rollout), '{}\n');
+    spawnSync('node', [path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs'),
+      'use', 'docs/plans/codex.md', '--config', path.join(tmpDir, 'dotmd.config.mjs')], {
+      cwd: tmpDir, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', CLAUDE_CODE_SESSION_ID: thread, DOTMD_SESSION_PID: '' },
+    });
+    const recordDir = path.join(tmpDir, '.runlist', 'ownership');
+    const recordPath = path.join(recordDir, readdirSync(recordDir)[0]);
+    const record = JSON.parse(readFileSync(recordPath, 'utf8'));
+    strictEqual(record.sessionId, thread);
+    delete record.sessionOwner;
+    writeFileSync(recordPath, JSON.stringify(record, null, 2));
+
+    const before = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = codexHome;
+    try {
+      const idle = run(['doctor', '--claims', '--apply']);
+      ok(idle.stdout.includes('owner unverifiable (its Codex conversation last wrote'), idle.stdout);
+      ok(!idle.stdout.includes('Released'), 'an idle conversation is not a finished one');
+
+      mkdirSync(path.join(codexHome, 'archived_sessions'));
+      renameSync(path.join(sessions, rollout), path.join(codexHome, 'archived_sessions', rollout));
+      const preview = run(['doctor', '--claims']);
+      ok(preview.stdout.includes('owner dead (its Codex conversation is archived)'), preview.stdout);
+      const applied = run(['doctor', '--claims', '--apply']);
+      ok(applied.stdout.includes('Released 1 claim'), applied.stdout);
+      ok(readFileSync(planPath, 'utf8').includes('status: active'));
+    } finally {
+      if (before === undefined) delete process.env.CODEX_HOME; else process.env.CODEX_HOME = before;
+    }
   });
 
   // Found in the field: two of fourteen platform claims pinned plans that had

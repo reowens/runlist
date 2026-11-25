@@ -134,6 +134,12 @@ function parseOlderThan(argv) {
 // by a plain --apply, because "I can't see the owner" is not evidence the owner
 // left. Releasing those needs --older-than, which is the user supplying the
 // judgement runlist doesn't have, as a policy rather than a guess.
+function codexNote(claim) {
+  if (!claim.codexLastWriteMs) return '';
+  const wrote = relTime(new Date(claim.codexLastWriteMs).toISOString());
+  return claim.liveness === 'dead' ? ` (its Codex conversation is archived)` : ` (its Codex conversation last wrote ${wrote})`;
+}
+
 async function runDoctorClaims(argv, config, opts = {}) {
   const json = argv.includes('--json');
   const apply = !opts.dryRun;
@@ -196,7 +202,7 @@ async function runDoctorClaims(argv, config, opts = {}) {
     const age = claim.since ? relTime(claim.since) : 'age unknown';
     const note = releasedSet.has(claim.plan)
       ? (claim.vanished ? 'released (plan no longer exists)' : 'released')
-      : claim.error ?? `owner ${claim.liveness}`;
+      : claim.error ?? `owner ${claim.liveness}${codexNote(claim)}`;
     process.stdout.write(`  ${mark} ${claim.plan} — ${age}, session ${claim.sessionId}, ${note}\n`);
   }
 

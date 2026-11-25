@@ -54,9 +54,42 @@ export function sessionProcessOwner(env = process.env) {
 // Everything else — a record written before sessionOwner existed, a claim from a
 // plain terminal, another machine's claim on a shared filesystem — is
 // 'unverifiable' and is treated as live, so a takeover stays an explicit --force.
-export function ownershipLiveness(ownership) {
-  if (!ownership || ownership.corrupt || !ownership.sessionOwner) return 'unverifiable';
+export function ownershipLiveness(ownership, env = process.env) {
+  if (!ownership || ownership.corrupt) return 'unverifiable';
+  if (!ownership.sessionOwner) return codexConversation(ownership.sessionId, env)?.archived ? 'dead' : 'unverifiable';
   return processOwnerLiveness(ownership.sessionOwner);
+}
+
+// A Codex claim records no owning process: one app-server hosts many
+// conversations and is restarted under them, so its pid says nothing about any
+// one of them. What Codex does leave on disk is the conversation's rollout,
+// named by the thread id the claim already carries as its session id. Archiving
+// a conversation moves that file to `archived_sessions/`, which is the only
+// thing Codex records about a conversation being over (verified on codex-cli
+// 0.170.0: 163 archived rows in its state store, 163 files there). An idle
+// conversation is not over, so its last write is reported and never judged.
+const CODEX_THREAD = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+export function codexConversation(sessionId, env = process.env) {
+  if (typeof sessionId !== 'string' || !CODEX_THREAD.test(sessionId)) return null;
+  const home = env.CODEX_HOME?.trim() || path.join(os.homedir(), '.codex');
+  const suffix = `-${sessionId}.jsonl`;
+  const find = (dir) => {
+    try { return readdirSync(dir).filter(name => name.startsWith('rollout-') && name.endsWith(suffix)).map(name => path.join(dir, name))[0] ?? null; }
+    catch { return null; }
+  };
+  const lastWrite = (file) => { try { return statSync(file).mtimeMs; } catch { return null; } };
+  const archived = find(path.join(home, 'archived_sessions'));
+  if (archived) return { archived: true, lastWriteMs: lastWrite(archived) };
+  // A UUIDv7 opens with its creation time in milliseconds; rollouts are filed
+  // by local date, so the day before and after are read too.
+  const created = Number.parseInt(sessionId.replace(/-/g, '').slice(0, 12), 16);
+  for (const offset of [0, -1, 1]) {
+    const day = new Date(created + offset * 86_400_000);
+    const dir = path.join(home, 'sessions', String(day.getFullYear()), String(day.getMonth() + 1).padStart(2, '0'), String(day.getDate()).padStart(2, '0'));
+    const live = find(dir);
+    if (live) return { archived: false, lastWriteMs: lastWrite(live) };
+  }
+  return null;
 }
 
 function sameIdentity(left, right, fs = { statSync }) {
@@ -491,6 +524,7 @@ export function surveyOwnershipClaims(config, now = Date.now()) {
       since,
       ageMs: Number.isFinite(parsed) ? Math.max(0, now - parsed) : null,
       liveness: ownershipLiveness(record),
+      codexLastWriteMs: record.sessionOwner ? null : codexConversation(record.sessionId)?.lastWriteMs ?? null,
     });
   }
   claims.sort((a, b) => (b.ageMs ?? 0) - (a.ageMs ?? 0));
