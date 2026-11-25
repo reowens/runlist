@@ -2,7 +2,7 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
-## Unreleased
+## 0.108.4 — 2026-11-24
 
 - `runlist update` follows the persistent CLI on PATH, verifies the version after an npm-global or pinned update, and reports checkout links and conflicting aliases.
 - `runlist doctor --hosts --live` and Codex plugin updates report trust and enablement for Runlist hooks. A failed backup cleanup now leaves the newly published Codex plugin in place.
