@@ -152,6 +152,8 @@ const DEFAULTS = {
   glossary: null,
   // `runlist new decision`: { section, prefix, register: { file, statusLine } }.
   decisions: null,
+  // `runlist questions` / `runlist question`: { types, paths, heading, fallbackHeading, answered, codeField } (src/questions.mjs).
+  questions: null,
   // `runlist flag` / `runlist flags`: { file } moves the log from .runlist/flags.jsonl.
   flags: null,
 
@@ -470,6 +472,22 @@ function validateConfig(userConfig, config, validStatuses, indexPath) {
     if (typeof d !== 'object' || Array.isArray(d)) warnings.push('Config: decisions must be an object.');
     else if (d.register != null && (typeof d.register?.file !== 'string' || typeof d.register?.statusLine !== 'string')) {
       warnings.push('Config: decisions.register needs a file and a statusLine.');
+    }
+  }
+
+  if (userConfig.questions != null) {
+    const q = userConfig.questions;
+    if (typeof q !== 'object' || Array.isArray(q)) warnings.push('Config: questions must be an object.');
+    else {
+      for (const key of ['heading', 'fallbackHeading']) {
+        if (q[key] == null) continue;
+        try { new RegExp(q[key] instanceof RegExp ? q[key].source : String(q[key])); }
+        catch (error) { warnings.push(`Config: questions.${key} is not a regular expression: ${error.message}`); }
+      }
+      if (q.answered != null) {
+        try { new RegExp([].concat(q.answered).map(v => (v instanceof RegExp ? v.source : String(v))).join('|')); }
+        catch (error) { warnings.push(`Config: questions.answered is not a list of regular expressions: ${error.message}`); }
+      }
     }
   }
 

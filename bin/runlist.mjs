@@ -1751,6 +1751,43 @@ checklist item (kind "item") or frontmatter blocker (kind "blocker") that
 names its id, alone or inside a written range such as \`A2 to A12\`. In
 another document the id has to sit beside a link to the decision's document.`,
 
+  questions: `runlist questions — the questions plans put to a person, and the ones raised for an answer
+
+  runlist questions                 every open question in the live plans, its ID first
+  runlist questions <plan>...       every question of each plan, answered ones included
+  runlist questions <ID>            one question, whole, as it is written (ABC-Q3, abc q3, ABC-3)
+  runlist questions --raised        the open questions raised on this machine, oldest first
+  runlist questions --session <id>  the open questions one session raised
+  runlist questions --all           also the open and held decision records (runlist decisions)
+  runlist questions --json          the same rows as data: id, plan, path, line, title,
+                                    answered, nextStep, boxes, raisedAt and raisedBy
+
+A question is a numbered item under a Questions heading (\`## Questions\`,
+\`### Open Questions\`), up to the next heading of the same or a higher level,
+written \`1. **Title** body\`, \`- **Q1. Title** body\`, \`- Q1: title. body\` or as a
+table row with a \`Q1. Title\` cell. A plan's code is \`question_code:\` in its
+frontmatter; a question's ID, \`ABC-Q3\` (or the older \`ABC-3\`), sits on its
+line after the list marker and fixes its number. A question is answered when
+its title, or the 40 characters after a bold title, carries a ruling word, or
+when it is struck through. A box holds a question when it names its ID, alone
+or in a written range, \`question 3\` or \`Q3\`; \`ABC-3.2\` never names \`ABC-3\`.
+Configure it with \`export const questions = { ... }\` (see src/questions.mjs).`,
+
+  question: `runlist question — raise a question for an answer, or give a plan its code
+
+  runlist question raise <plan> <n>   raise question n of the plan for this session; the
+                                      plan is given its code and the question its ID first
+    --session <id>                    the session to raise it for (default: this session)
+  runlist question code <plan> [CODE] give the plan its code (CODE when named) and write
+                                      the ID beside each open question
+  runlist question code <plan>...     the same for several plans
+
+A raised question is 1 file per session and question under the state directory
+(.runlist/questions/). Each raise removes the files whose question is no longer
+open. A code is 2 to 4 capital letters and digits, starting with a letter; it is
+never one another plan holds or numbers its own items with, archived plans
+included, and never changes once given.`,
+
   xref: `runlist xref <file...> — one document's cross-references, read before it is edited
 
   runlist xref <file>           named by: every document pointing at it, and whether it points back
@@ -2164,7 +2201,7 @@ function positionalTypeSelector(command, args) {
 
 // The verbs that can change a document, for the carry that runs before them
 // in a repository with no config (src/handoffs-mode.mjs carryBeforeChange).
-const DOCUMENT_CHANGES = new Set(['use', 'next', 'archive', 'set', 'tick', 'status', 'bulk', 'bulk-tag', 'touch', 'rename', 'migrate', 'fix-refs', 'sync-status', 'fix-membership', 'record', 'decision']);
+const DOCUMENT_CHANGES = new Set(['use', 'next', 'archive', 'set', 'tick', 'status', 'bulk', 'bulk-tag', 'touch', 'rename', 'migrate', 'fix-refs', 'sync-status', 'fix-membership', 'record', 'decision', 'question']);
 function changesDocuments(command, args) {
   if (DOCUMENT_CHANGES.has(command)) return true;
   if (command === 'prompts') return ['use', 'resume', 'next', 'archive', 'link', 'hold', 'shelve', 'unhold', 'unshelve'].includes(args[0]);
@@ -2708,6 +2745,8 @@ async function main() {
     }
     return;
   }
+  if (command === 'questions') { const { runQuestions } = await import('../src/questions.mjs'); await runQuestions(restArgs, config); return; }
+  if (command === 'question') { const { runQuestion } = await import('../src/questions.mjs'); await runQuestion(restArgs, config, { dryRun }); return; }
   if (command === 'export') { const { runExport } = await import('../src/export.mjs'); runExport(restArgs, config, { dryRun, root: rootArg, type: typeArg }); return; }
 
   // Lifecycle commands

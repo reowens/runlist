@@ -335,6 +335,24 @@ describe('what a decision blocks', () => {
     ok(!namesId('B1 to B4 wait', 'A2'));
   });
 
+  it('reads codes of 2 to 4 characters in a range, and never a dotted part as its id', () => {
+    ok(namesId('MLAS-2 to MLAS-5 wait on the owner', 'MLAS-3'));
+    ok(!namesId('MLAS-2 to MLAS-5 wait on the owner', 'MLAS-6'));
+    ok(namesId('PTR-2 to PTR-5 wait', 'PTR-3'));
+    ok(namesId('R10-2 to R10-5 wait', 'R10-4'));
+    ok(namesId('LRA2-1 through LRA2-3 wait', 'LRA2-2'));
+    ok(namesId('WXY-Q2 to WXY-Q5 wait', 'WXY-Q4'));
+    ok(namesId('A2 to A12 wait', 'A7'));
+    ok(!namesId('- [ ] PTR-2.3 Build the part', 'PTR-2'));
+    ok(!namesId('PTR-2.3 to PTR-2.5 are parts', 'PTR-2'));
+    ok(namesId('- [ ] Waits on PTR-2.', 'PTR-2'));
+  });
+
+  it('reads a decision whose id has a 4-character code', () => {
+    const text = '## Decisions\n\n- MLAS-2 Open: which folder?\n- R10-3 Ruled: the left one.\n';
+    deepStrictEqual(parseDecisionItems(text).map(i => i.id), ['MLAS-2', 'R10-3']);
+  });
+
   it('reads a table row indexing a range of ids as one item, named by any id in it', () => {
     const text = '## Decisions\n\n| ID | Question | Disposition |\n|---|---|---|\n| A1 | Which folder? | **OPEN.** |\n| A2 to A12 | The other questions. | **OPEN, recorded.** |\n';
     deepStrictEqual(parseDecisionItems(text).map(i => i.id), ['A1', 'A2 to A12']);

@@ -2,6 +2,9 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { buildIndex, resolveDocArg } from './index.mjs';
 import { die } from './util.mjs';
+import { idPattern, namesId, writtenRanges } from './id-names.mjs';
+
+export { namesId };
 
 // `runlist decisions` — the open decisions, read from the corpus, never typed.
 //
@@ -15,7 +18,7 @@ import { die } from './util.mjs';
 //     section: 'Decisions',          // the word a decisions heading names
 //     types: ['plan'],               // which document types carry decisions
 //     paths: ['docs/plans'],         // only documents under these, when set
-//     id: '[A-Z]{1,3}-?[A-Z]?\\d{1,3}[a-z]?(?:[-.][A-Z0-9]{1,3}\\b)?',
+//     id: '(?:[A-Z][A-Z0-9]{1,3}-|[A-Z]{1,4}-?)[A-Z]?\\d{1,3}[a-z]?(?:[-.][A-Z0-9]{1,3}\\b)?',
 //     prose: false,                  // also read a disposition out of prose
 //     vocabulary: { open: [...], held: [...], ruled: [...], closed: [...] },
 //     patterns: { ruled: ['regex source', ...] }, // extra prose markers per disposition
@@ -31,7 +34,9 @@ export const DEFAULTS = Object.freeze({
   paths: null,
   // A compound id (`P4-D2`, `D1-R`, `D1.2`) is read whole; `D1.` at a
   // sentence end is still `D1`.
-  id: '[A-Z]{1,3}-?[A-Z]?\\d{1,3}[a-z]?(?:[-.][A-Z0-9]{1,3}\\b)?',
+  // A code of 1 to 4 letters, or of 2 to 4 letters and digits when a hyphen
+  // follows it (`R10-3`), so `A12` stays code `A` and number 12.
+  id: '(?:[A-Z][A-Z0-9]{1,3}-|[A-Z]{1,4}-?)[A-Z]?\\d{1,3}[a-z]?(?:[-.][A-Z0-9]{1,3}\\b)?',
   prose: false,
   vocabulary: {
     ruled: ['ruled', 'ratified', 'resolved', 'approved', 'decided', 'answered', 'settled', 'locked'],
@@ -371,7 +376,6 @@ export function idPointedDocs(text, id, kind) {
   return out;
 }
 
-const idPattern = id => new RegExp(`(?<![\\w.-])${escapeRe(id)}(?![\\w]|[-.][A-Z0-9])`, 'g');
 
 /** The documents, by basename, linked within a few characters of `id` on one line. */
 export function linksBesideId(line, id) {
@@ -390,30 +394,6 @@ export function linksBesideId(line, id) {
 
 // ── What each decision blocks ────────────────────────────────────────────────
 
-// A range written out (`A2 to A12`, `A2-A12`, `A2 through 12`) names every id in it.
-const RANGE = /(?<![\w.-])([A-Z]{1,3}-?)(\d{1,3})\s*(?:to|through|thru|–|—|-)\s*(?:\1)?(\d{1,3})(?![\w])/g;
-
-/** Whether a line names `id`, on its own or inside a written range. An id
- * that is itself a range (`A2 to A12`) is named when any id in it is. */
-export function namesId(line, id, ranges = writtenRanges(line)) {
-  const span = id.match(/^([A-Z]{1,3}-?)(\d{1,3})\s+(?:to|through)\s+\1?(\d{1,3})$/);
-  if (span) {
-    if (line.includes(id)) return true;
-    const [lo, hi] = [Number(span[2]), Number(span[3])];
-    for (let n = lo; n <= hi && n - lo < 100; n++) if (namesId(line, `${span[1]}${n}`, ranges)) return true;
-    return false;
-  }
-  if (line.includes(id) && idPattern(id).test(line)) return true;
-  if (!ranges.length) return false;
-  const m = id.match(/^([A-Z]{1,3}-?)(\d{1,3})$/);
-  if (!m) return false;
-  const n = Number(m[2]);
-  return ranges.some(([prefix, lo, hi]) => prefix === m[1] && lo <= n && n <= hi);
-}
-
-function writtenRanges(line) {
-  return [...line.matchAll(RANGE)].map(r => [r[1], Number(r[2]), Number(r[3])]);
-}
 
 // What the record says it holds up: `blocks Phase 5`, `gates the sizing`,
 // `which switch sizing waits on`.

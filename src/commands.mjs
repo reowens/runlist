@@ -137,6 +137,11 @@ const definitions = [
   command('record', mutates('native flag or decision through the shared domain writer'), 'mutate', [form('<file> <action>', { args: positionals(2, 2), options: [value('--note'), value('--option'), value('--expected-revision'), flag('--json')] })], ACTION),
   command('decision', mutates('selected decision source through the source editor'), 'mutate', [form('<file> <id>', { args: positionals(2, 2), options: [value('--disposition'), value('--note'), value('--choice'), value('--expected-revision'), flag('--json')] })], ACTION),
   command('decisions', none, 'read', [form('[doc-or-id]', { args: positionals(0, 1), options: [flag('--all'), flag('--json'), flag('--check')] })], VIEW),
+  command('questions', none, 'read', [form('[plan-or-id...]', { args: positionals(0, Infinity), options: [flag('--raised'), value('--session'), flag('--all'), flag('--json')] })], VIEW),
+  command('question', mutates('managed source and the raised questions under the state directory'), 'mutate', [
+    form('raise <plan> <number>', { subcommands: ['raise'], args: positionals(2, 2), options: [value('--session'), flag('--json')] }),
+    form('code <plan> [CODE]', { subcommands: ['code'], args: positionals(1, Infinity), options: [flag('--json')] }),
+  ], ACTION),
   command('modules', none, 'read', [form('', { options: [value('--sort'), value('--limit'), flag('--all'), flag('--json')] })], VIEW),
   command('module', none, 'read', [form('<name>', { args: positionals(1, 1), options: [value('--sort'), flag('--json')] })], VIEW),
   command('surfaces', none, 'read', [form('', { options: [flag('--json')] })], VIEW),
