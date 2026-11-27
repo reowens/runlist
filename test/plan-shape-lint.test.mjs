@@ -175,4 +175,21 @@ describe('plan-shape lint', () => {
     const w = idx.warnings.find(x => x.path.includes('archived/plan.md') && x.message.includes('next_step'));
     ok(!w, 'archived plans should not trigger plan-shape lint');
   });
+  it('warns when every open box of an active plan names an open question, naming awaiting', () => {
+    const docsDir = setupProject();
+    const questions = '## Questions\n\n1. LOFT-Q1 **Which ladder?** Wood or steel.\n2. LOFT-Q2 **Where?** Ruled 2026-01-02: the hall.\n3. LOFT-Q3 **How high?**\n';
+    const fm = status => `type: plan\nstatus: ${status}\nupdated: 2026-05-13\nquestion_code: LOFT`;
+    writeDoc(docsDir, 'held.md', fm('active'), `# Held\n\n- [x] Measure.\n- [ ] Fit the ladder, LOFT-Q1.\n- [ ] Rail, after LOFT-Q1 and LOFT-Q3.\n\n${questions}`);
+    writeDoc(docsDir, 'free.md', fm('active'), `# Free\n\n- [ ] Fit the ladder, LOFT-Q1.\n- [ ] Sweep the loft.\n\n${questions}`);
+    writeDoc(docsDir, 'answered.md', fm('active'), `# Answered\n\n- [ ] Paint the hall, LOFT-Q2.\n\n${questions}`);
+    writeDoc(docsDir, 'empty.md', fm('active'), `# Empty\n\n- [x] Done, LOFT-Q1.\n\n${questions}`);
+    writeDoc(docsDir, 'fenced.md', fm('active'), `# Fenced\n\n- [ ] Fit, LOFT-Q1.\n\n\`\`\`\n- [ ] Not a box\n\`\`\`\n\n${questions}`);
+    writeDoc(docsDir, 'planned.md', fm('planned'), `# Planned\n\n- [ ] Fit the ladder, LOFT-Q1.\n\n${questions}`);
+
+    const hits = checkJson().warnings.filter(x => x.meta?.kind === 'awaiting-questions');
+    strictEqual(hits.map(x => x.path).sort().join(' '), 'docs/fenced.md docs/held.md');
+    const held = hits.find(x => x.path === 'docs/held.md');
+    ok(held.message.includes('Every open box (2) waits on an open question (LOFT-Q1, LOFT-Q3)'), held.message);
+    ok(held.message.includes('`runlist set awaiting docs/held.md`'), held.message);
+  });
 });

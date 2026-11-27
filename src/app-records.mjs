@@ -6,8 +6,9 @@ import { authorizeRepoGeneratedPath } from './managed-path.mjs';
 import { parseNativeRecord } from './native-record.mjs';
 import { readPlanOwnership } from './pickup.mjs';
 import { SourceEditError } from './source-editor.mjs';
+import { inQuestionScope, openQuestionRows, planQuestions, questionSettings, questionText } from './questions.mjs';
 
-const nativeKey=doc=>`${doc}#native`,decisionKey=row=>`${row.doc}#${row.line}:${row.id??''}`;
+const nativeKey=doc=>`${doc}#native`,decisionKey=row=>`${row.doc}#${row.line}:${row.id??''}`,questionKey=row=>`${row.path}#question:${row.number}`;
 const detached=value=>JSON.parse(JSON.stringify(value));
 const escapePattern=value=>value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
 // Match all known flag IDs in one pass per document, rather than one regex
@@ -34,7 +35,7 @@ function flagIndexer(rows){
   }};
 }
 export function createRecordLibrary({config,library,readSource,evidence}) {
-  const settings=decisionSettings(config.raw?.decisions??{});
+  const settings=decisionSettings(config.raw?.decisions??{}),questionRules=questionSettings(config.raw?.questions);
   let documents=[],sourcePaths=[],decisions=[],flagLinks=new Map(),lastScan=0,pending,unavailable=0;
   const flagKey=row=>JSON.stringify([row.id,row.path]);
   const flagPattern=row=>new RegExp(`(?<![A-Za-z0-9])${String(row.id).replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}(?![A-Za-z0-9])`);
@@ -45,18 +46,23 @@ export function createRecordLibrary({config,library,readSource,evidence}) {
     if(!force&&lastScan&&Date.now()-lastScan<15_000)return;
     const observedInvalidation=invalidation;
     pending=(async()=>{
-      await library.refresh(force);const nextDocuments=await library.all(),sources=[],records=[],native=[];let nextUnavailable=0,indexer;
+      await library.refresh(force);const nextDocuments=await library.all(),sources=[],records=[],native=[],questions=[];let nextUnavailable=0,indexer;
       // Native summaries first, so their IDs are available to the flag index.
       const ordered=[...nextDocuments.filter(doc=>['decision','flag'].includes(doc.type)),...nextDocuments.filter(doc=>!['decision','flag'].includes(doc.type))];
       for(const [index,doc] of ordered.entries()){
         const legacy=(settings.types.includes(doc.type)||doc.type==='untyped')&&!doc.archived&&(!settings.paths||[].concat(settings.paths).some(p=>doc.path===p||doc.path.startsWith(p.replace(/\/$/,'')+'/')));
-        if(!legacy&&!['decision','flag'].includes(doc.type))continue;
+        const asks=!doc.archived&&!['decision','flag'].includes(doc.type)&&inQuestionScope(doc.path,doc.type==='untyped'?null:doc.type,questionRules);
+        if(!legacy&&!asks&&!['decision','flag'].includes(doc.type))continue;
         try{
           const opened=readSource(context,doc.path);
           if(['decision','flag'].includes(doc.type)){
             const parsed=parseNativeRecord(opened.source),relations=parsed.record?.record_data?.relations;
             native.push({key:parsed.record?.id??nativeKey(doc.path),native:true,kind:doc.type,id:parsed.record?.id??doc.path,title:parsed.record?.question??parsed.record?.finding??doc.title,question:parsed.record?.question??doc.title,status:parsed.record?.status==='rejected'?'closed':parsed.record?.status??doc.status,severity:parsed.record?.record_data?.severity,triage:parsed.record?.record_data?.triage?.disposition,hints:(Array.isArray(relations)?relations:[]).map(r=>r?.target?.path).filter(allowed),path:doc.path,line:1,editable:false,diagnostics:parsed.diagnostics});
           }else{
+            // Open questions sit beside the decision records, each with the
+            // open boxes that wait on it, read as `runlist questions` reads them.
+            if(asks)questions.push(...detached(openQuestionRows(doc.path,opened.source,questionRules).map(q=>({key:questionKey(q),kind:'question',id:q.id,number:q.number,title:q.title,question:q.title,status:'open',path:q.path,line:q.line,boxes:q.boxes,nextStep:q.nextStep,blocks:q.held.map(b=>({doc:q.path,line:b.line,text:b.text})),searchText:questionText(opened.source,q)}))));
+            if(!legacy)continue;
             indexer??=flagIndexer([...flags().filter(row=>!row.native),...native.filter(row=>row.kind==='flag')]);
             indexer.add(doc.path,opened.source);
             // Parse and detach this file's useful fragments before moving on.
@@ -73,6 +79,9 @@ export function createRecordLibrary({config,library,readSource,evidence}) {
       const nextDecisions=pendingRows(items,{all:true,blocks}).map(row=>({...row,key:decisionKey(row),kind:'decision',path:row.doc,searchText:byLocation.get(`${row.doc}:${row.line}`)?.text,peers:(byLocation.get(`${row.doc}:${row.line}`)?.peers??[]).map(p=>({doc:p.doc,line:p.line,id:p.id,status:p.effective})),title:row.question||row.id,status:row.disposition??'unknown'}));
       for(const item of items.filter(i=>!i.id))nextDecisions.push({key:decisionKey(item),kind:'decision',path:item.doc,line:item.line,id:null,title:'Unnamed decision',question:'Unnamed decision',status:item.effective??'unknown',missing:item.missing});
       nextDecisions.push(...native.filter(row=>row.kind==='decision'));
+      // A numbered item the decisions reader also takes for a record is listed once, as that record.
+      const recorded=new Set(nextDecisions.map(row=>`${row.path}:${row.line}`));
+      nextDecisions.push(...questions.filter(q=>!recorded.has(`${q.path}:${q.line}`)));
       const nextNativeFlags=native.filter(row=>row.kind==='flag');
       indexer??=flagIndexer([...flags().filter(row=>!row.native),...nextNativeFlags]);
       // Detach substring-backed record text too. Peer bodies are read on demand;
@@ -108,7 +117,7 @@ export function createRecordLibrary({config,library,readSource,evidence}) {
     rows.sort(kind==='flags'?(a,b)=>['problem','warn','info'].indexOf(a.severity)-['problem','warn','info'].indexOf(b.severity)||String(b.at??'').localeCompare(String(a.at??'')):(a,b)=>String(a.id??'').localeCompare(String(b.id??''),'en',{numeric:true})||a.path.localeCompare(b.path));
     const sourcePaths=new Set(all.flatMap(row=>[row.path,...(row.peers??[]).map(p=>p.doc),...(row.blocks??[]).map(b=>b.doc),...(row.hints??[])]));
     const offset=Math.max(0,Math.min(Number(params.get('offset'))||0,Math.max(0,Math.floor((rows.length-1)/50)*50))),limit=50;
-    return {records:rows.slice(offset,offset+limit).map(row=>({key:row.key,id:row.id,title:row.title,status:row.status,severity:row.severity,triage:row.triage,path:row.path,line:row.line,native:row.native,missing:row.missing})),total:rows.length,offset,hasMore:offset+limit<rows.length,counts:{flags:flagRows.filter(f=>f.status==='open').length,decisions:decisions.filter(d=>['open','held'].includes(d.status)).length},scopes:documents.filter(d=>sourcePaths.has(d.path)||d.kind==='hub').map(d=>({path:d.path,title:d.title})),unavailable};
+    return {records:rows.slice(offset,offset+limit).map(row=>({key:row.key,kind:row.kind,id:row.id,title:row.title,status:row.status,severity:row.severity,triage:row.triage,path:row.path,line:row.line,native:row.native,missing:row.missing,boxes:row.boxes})),total:rows.length,offset,hasMore:offset+limit<rows.length,counts:{flags:flagRows.filter(f=>f.status==='open').length,decisions:decisions.filter(d=>['open','held'].includes(d.status)).length},scopes:documents.filter(d=>sourcePaths.has(d.path)||d.kind==='hub').map(d=>({path:d.path,title:d.title})),unavailable};
   }
   async function detail(context,kind,key){
     await refresh(context);const row=(kind==='flags'?flags():decisions).find(row=>row.key===key);
@@ -117,6 +126,11 @@ export function createRecordLibrary({config,library,readSource,evidence}) {
     const links=connections(row,context);
     if(row.native){const opened=readSource(context,row.path),parsed=parseNativeRecord(opened.source),claim=readPlanOwnership(row.path,config);return {...row,status:parsed.record?.status==='rejected'?'closed':parsed.record?.status??row.status,revision:opened.revision,body:parsed.body??'',data:parsed.record?.record_data,diagnostics:row.duplicate?[...parsed.diagnostics,{code:'duplicate-record-id',message:'This ID is declared in multiple documents. Reconcile their identities before recording an action.'}]:parsed.diagnostics,connections:links,editable:parsed.ok&&!row.duplicate&&!claim?.corrupt&&claim?.state!=='owned',readOnlyReason:row.duplicate?'This record ID is declared in multiple documents. Reconcile their identities first.':claim?.corrupt?'Ownership needs repair through the CLI.':claim?.state==='owned'?'This record is claimed by another session. Coordinate through the CLI first.':null};}
     if(kind==='flags')return {...row,...evidence(row),connections:links,editable:row.state==='open'};
+    if(row.kind==='question'){
+      const opened=readSource(context,row.path),q=planQuestions(opened.source,questionRules).find(q=>q.number===row.number&&!q.answered);
+      if(!q)throw new SourceEditError('decision-revision-conflict','This question moved or was answered. Refresh the list.');
+      return {...row,line:q.line,title:q.title,revision:opened.revision,body:questionText(opened.source,q),connections:links,editable:false,readOnlyReason:'A question is answered in its plan: write the ruling on its line there.'};
+    }
     const opened=readSource(context,row.path),item=parseDecisionItems(opened.source,settings).find(i=>i.id===row.id&&i.line===row.line);
     if(!item)throw new SourceEditError('decision-revision-conflict','This decision moved. Refresh the list to find its current record.');
     const peerSources=new Map([[row.path,parseDecisionItems(opened.source,settings)]]);

@@ -9,6 +9,7 @@ import { getStageDefinitions, readPlanStage } from './stages.mjs';
 import { assessmentIssues } from './yardstick.mjs';
 import { RETIRED_PROMPT_STATUSES } from './naming.mjs';
 import { sectionSizes } from './brief.mjs';
+import { namesQuestion, openBoxes, openQuestionRows, questionSettings } from './questions.mjs';
 
 const NOW = new Date();
 
@@ -749,6 +750,31 @@ export function validatePlanShape(doc, body, frontmatter, config, bodyLineOffset
       message: `Phase marker contradicts its own checklist (line ${bodyLineOffset + phase.lineStart}): \`${phase.heading.trim()}\` is marked ${conflict.declared}, but ${conflict.checked}/${conflict.total} boxes are checked — that reads as ${conflict.implied}. Update whichever half is stale.`,
     });
   }
+}
+
+// An `active` plan whose every open box names an open question has no work
+// that can move until a question is answered, which is what `awaiting` says.
+// Boxes and questions are read as `runlist questions` reads them. Reported
+// only, and only where `awaiting` is a status a plan can take.
+export function validateAwaitingQuestions(doc, raw, config) {
+  if (doc.type !== 'plan' || doc.status !== 'active' || raw == null) return;
+  if (config.lifecycle.skipsWarnings(doc.status, doc.type)) return;
+  const statuses = config.typeStatuses?.get('plan');
+  if (!(statuses?.size ? statuses : config.validStatuses).has('awaiting')) return;
+  const boxes = openBoxes(raw);
+  if (!boxes.length) return;
+  const settings = questionSettings(config.raw?.questions);
+  const open = openQuestionRows(doc.path, raw, settings);
+  if (!open.length) return;
+  const named = box => open.filter(q => namesQuestion(box.text, q.number, q.code));
+  if (!boxes.every(b => named(b).length)) return;
+  const ids = open.filter(q => q.boxes).map(q => q.id);
+  doc.warnings.push({
+    path: doc.path,
+    level: 'warning',
+    message: `Every open box (${boxes.length}) waits on an open question (${ids.join(', ')}), so nothing in this plan can move until one is answered. Set it \`awaiting\` (\`runlist set awaiting ${doc.path}\`), or add the work that can move now.`,
+    meta: { kind: 'awaiting-questions', boxes: boxes.length, questions: ids },
+  });
 }
 
 const KB = 1024;

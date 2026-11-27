@@ -66,3 +66,16 @@ it('includes native alternatives and relationship hints while keeping legacy out
  const record=`---\nrecord_schema: runlist.record/v1\nid: ${id('decision',3)}\ntype: decision\nstatus: open\ncreated: ${at}\nupdated: ${at}\nquestion: Which native bin?\nrecord_data: |-\n${JSON.stringify(data,null,2).split('\n').map(l=>'  '+l).join('\n')}\n---\n# Native fixture\n\nContext.\n`;mkdirSync(path.join(f.repo,'docs/decisions'));writeFileSync(path.join(f.repo,'docs/decisions/native.md'),record);
  const rows=(await f.call('records?kind=decisions&refresh=1')).value.records,native=rows.find(r=>r.native);ok(native);strictEqual(native.title,'Which native bin?');const detail=(await f.call('records?'+new URLSearchParams({kind:'decisions',key:native.key}))).value;strictEqual(detail.editable,true);strictEqual(detail.data.options.length,2);strictEqual(detail.diagnostics.length,0,JSON.stringify(detail.diagnostics));ok(detail.connections.some(c=>c.path==='docs/plans/fixture.md'));strictEqual((await f.call('decisions/preview',{key:native.key,expectedRevision:detail.revision,disposition:'ruled',choice:'Blue bin',note:'Reason'})).value.code,'record-read-only');const cli=spawnSync(process.execPath,[bin,'decision','docs/decisions/native.md','D1','--disposition','held','--note','Reason'],{cwd:f.repo,encoding:'utf8'});ok(cli.status!==0);match(cli.stderr,/domain writer/);strictEqual(readFileSync(path.join(f.repo,'docs/decisions/native.md'),'utf8'),record);
 });
+it('lists open questions beside the decision records, with the boxes each holds, read only',async()=>{
+ const f=await fixture(),file=path.join(f.repo,'docs/plans/stair.md');
+ writeFileSync(file,'---\ntype: plan\nstatus: active\nquestion_code: STR\n---\n# Stair\n\n- [ ] Cut the treads, STR-Q1.\n- [ ] Fit the rail after STR-Q1.\n\n## Questions\n\n1. STR-Q1 **Which timber?** Oak or ash.\n2. STR-Q2 **Who fits it?** Ruled 2026-01-02: the joiner.\n');
+ const list=(await f.call('records?kind=decisions&refresh=1')).value,question=list.records.find(row=>row.id==='STR-Q1');
+ strictEqual(list.total,2);strictEqual(list.counts.decisions,2);ok(!list.records.some(row=>row.id==='STR-Q2'));
+ strictEqual(question.kind,'question');strictEqual(question.title,'Which timber?');strictEqual(question.boxes,2);strictEqual(question.line,13);
+ strictEqual((await f.call('records?'+new URLSearchParams({kind:'decisions',q:'oak or ash'}))).value.total,1);
+ const detail=(await f.call('records?'+new URLSearchParams({kind:'decisions',key:question.key}))).value;
+ strictEqual(detail.editable,false);match(detail.body,/Which timber\?\*\* Oak or ash\./);match(detail.readOnlyReason,/answered in its plan/);
+ strictEqual(detail.blocks.map(b=>b.line).join(),'8,9');ok(detail.connections.some(c=>c.path==='docs/plans/stair.md'));
+ writeFileSync(file,readFileSync(file,'utf8').replace('**Which timber?** Oak','**Which timber?** Ruled 2026-01-03: oak'));
+ strictEqual((await f.call('records?kind=decisions&refresh=1')).value.records.some(row=>row.id==='STR-Q1'),false);
+});

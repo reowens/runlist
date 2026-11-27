@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import {
-  codeCandidates, codeFor, labelsWith, namesQuestion, numberClash, ownPrefix, parseQuestionId,
+  codeCandidates, codeFor, inQuestionScope, labelsWith, namesQuestion, numberClash, openBoxes, openQuestionRows, ownPrefix, parseQuestionId,
   planCode, planQuestions, questionId, questionReach, questionSettings, withIdOnLine,
 } from '../src/questions.mjs';
 import { SESSION_ID_VARIABLES } from '../src/util.mjs';
@@ -140,6 +140,16 @@ describe('question IDs and codes', () => {
     deepStrictEqual(questionReach(text, 2, 'WXY'), { nextStep: true, boxes: 4 });
     ok(!namesQuestion('- [ ] WXY-2.3 Build', 2, 'WXY'));
     ok(namesQuestion('waits on question 2.', 2, 'WXY'));
+  });
+
+  it('reads open boxes outside code fences, and the open questions of a document in scope with the boxes each holds', () => {
+    const text = '---\ntype: plan\nquestion_code: WXY\n---\n- [ ] Fit WXY-Q1\n```\n- [ ] WXY-Q1 in a fence\n```\n~~~md\n- [ ] Also fenced, WXY-Q1\n~~~\n- [ ] Free\n\n## Questions\n\n1. WXY-Q1 **Which?** A or B.\n2. WXY-Q2 **Done?** Ruled 2026-01-01: yes.\n';
+    deepStrictEqual(openBoxes(text), [{ line: 5, text: 'Fit WXY-Q1' }, { line: 12, text: 'Free' }]);
+    const settings = questionSettings({ paths: ['docs/plans'] });
+    deepStrictEqual(openQuestionRows('docs/plans/a.md', text, settings).map(r => [r.id, r.boxes, r.held.map(b => b.line)]), [['WXY-Q1', 1, [5]]]);
+    deepStrictEqual(openQuestionRows('docs/notes/a.md', text, settings), []);
+    deepStrictEqual(openQuestionRows('docs/plans/a.md', text.replace('type: plan', 'type: doc'), settings), []);
+    ok(inQuestionScope('docs/plans/b.md', null, settings));
   });
 
   it('gives a code that is free, not labelled in the plan and not another plan\'s own prefix', () => {
@@ -282,5 +292,7 @@ next_step: answer question 2
     const all = JSON.parse(cli(['questions', '--all', '--json']).stdout);
     deepStrictEqual(all.questions.map(r => r.number), [2, 4]);
     deepStrictEqual(all.decisions.map(d => d.id), ['D1']);
+    const text = cli(['questions', '--all']).stdout;
+    match(text, /^2 open questions in 1 plan\.\n[\s\S]*\n\n1 open or held decision record:\nD1 {2}Which vendor\?/);
   });
 });

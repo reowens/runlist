@@ -7,6 +7,7 @@ import { buildBrief, collapseFrontmatter, cut, LIMITS, readSection, SURVEY_LIMIT
 import { buildIndex, parseDocFile, resolveDocArg } from './index.mjs';
 import { resolveBodyLinkTarget } from './body-link.mjs';
 import { stripTally } from './section.mjs';
+import { holds, openQuestionRows, questionSettings } from './questions.mjs';
 import { die, normalizeStringList, resolveRefPath, shellQuote, toRepoPath } from './util.mjs';
 
 // `runlist show <file...>` — one document's card as data: its title, status,
@@ -77,6 +78,8 @@ export function showDoc(abs, config) {
     blockers: doc.blockers,
     gates: gateSummary(createGateReader(gateDeclarations(raw, config).entries.length ? buildIndex(config, {fast:true}).docs : [doc], config)(doc.path)),
     checklist: doc.checklist,
+    questions: openQuestionRows(doc.path, raw, questionSettings(config.raw?.questions))
+      .map(({ id, number, title, line, nextStep, boxes, held }) => ({ id, number, title, line, nextStep, boxes, held })),
     updated: doc.updated,
     related,
     links,
@@ -184,6 +187,18 @@ function phaseNote(phase, heading = '') {
   return note;
 }
 
+// The open questions, each with the boxes it holds, as `runlist questions` reads them.
+function questionLines(questions, cap) {
+  const width = Math.max(...questions.map(q => String(q.line).length));
+  const out = [`Open questions: ${questions.length} (line, ID, title)`];
+  for (const q of questions.slice(0, cap)) {
+    const note = holds(q);
+    out.push(`  ${pad(q.line, width)}  ${q.id}  ${cut(q.title, 100)}${note.length ? `  (${note.join('; ')})` : ''}`);
+  }
+  if (questions.length > cap) out.push(`  (+${questions.length - cap} more: add --all)`);
+  return out;
+}
+
 // A heading as a --section query: trailing markers and box tallies dropped,
 // which the matcher ignores anyway, so the suggested command reads cleanly.
 const sectionQuery = heading => stripTally(heading).replace(/[^\w\s]+$/u, '').trim() || heading;
@@ -279,6 +294,7 @@ export function runShow(args, config) {
       const shown = c.links.slice(0, cap).map(l => l.path).join(', ');
       out.push(`Linked from the body: ${shown}${c.links.length > cap ? ` (+${c.links.length - cap} more)` : ''}`);
     }
+    if (c.questions?.length) out.push(...questionLines(c.questions, c.brief && !opts.all ? limits.listItems : Infinity));
     if (c.brief) out.push(...renderBrief(c, c.brief));
     if (c.brief || c.gates.review !== 'unreviewed') out.push(...gateLines(c.gates));
     if (c.gates.omitted) out.push(`  +${c.gates.omitted} gates omitted; runlist deps ${c.path} --json`);

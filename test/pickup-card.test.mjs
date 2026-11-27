@@ -178,9 +178,13 @@ just a pointer to its line range.
 
 ## Open Questions
 
-- Question one?
-- Question two?
-- Question three?
+1. **Question one?** It holds the first box.
+2. **Question two?** Ruled 2025-01-02: yes.
+3. **Question three?**
+4. **Question four?**
+
+- [ ] Build what question 1 answers.
+- [ ] Build what Q1 and Q3 answer.
 `);
 
     const r = runCli(['use', planPath]);
@@ -191,9 +195,13 @@ just a pointer to its line range.
     ok(r.stdout.includes('(lines '), 'line range present');
     ok(!r.stdout.includes('this is the active phase body'), 'active phase BODY should NOT be in card');
 
-    // Open Questions shows count
+    // Open Questions counts by the questions rule: the ruled one is not open,
+    // and each listed question says how many open boxes it holds.
     ok(/Open Questions: 3\b/.test(r.stdout), `expected 'Open Questions: 3' count, got: ${r.stdout}`);
-    ok(!r.stdout.includes('Question one?'), 'individual questions should NOT be in card');
+    match(r.stdout, /plan Q1 {2}Question one\? {2}\(holds 2 boxes\)/);
+    match(r.stdout, /plan Q3 {2}Question three\? {2}\(holds 1 box\)/);
+    match(r.stdout, /plan Q4 {2}Question four\?\n/);
+    ok(!r.stdout.includes('Question two?'), 'an answered question is not listed');
 
     // Next step from frontmatter
     ok(r.stdout.includes('validate then commit'));
@@ -234,7 +242,7 @@ just a pointer to its line range.
 
   it('falls back gracefully on old plans without ## Phases', () => {
     const docsDir = setupProject();
-    const planPath = writeDoc(docsDir, 'oldplan.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', `# Old Plan\n\n## Overview\n\noverview content\n\n## Implementation Plan\n\nimpl content\n\n## Open Questions\n\n- q1\n- q2\n`);
+    const planPath = writeDoc(docsDir, 'oldplan.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', `# Old Plan\n\n## Overview\n\noverview content\n\n## Implementation Plan\n\nimpl content\n\n## Open Questions\n\n1. **q1?**\n2. **q2?**\n`);
 
     const r = runCli(['use', planPath]);
     strictEqual(r.status, 0, `pickup failed: ${r.stderr}`);
@@ -249,13 +257,14 @@ just a pointer to its line range.
 
   it('card output stays well under full body byte size', () => {
     const docsDir = setupProject();
-    const bigBody = '# Plan\n\n## Phases\n\n### Phase 1 — active 🟡\n\n' + 'x'.repeat(50000) + '\n\n## Open Questions\n\n' + '- q\n'.repeat(40);
+    const bigBody = '# Plan\n\n## Phases\n\n### Phase 1 — active 🟡\n\n' + 'x'.repeat(50000) + '\n\n## Open Questions\n\n' + Array.from({ length: 40 }, (_, i) => `${i + 1}. **q${i + 1}?**\n`).join('');
     const planPath = writeDoc(docsDir, 'plan.md', 'type: plan\nstatus: active\nupdated: 2025-01-01', bigBody);
 
     const r = runCli(['use', planPath]);
     strictEqual(r.status, 0);
     ok(r.stdout.length < 2000, `card should be tiny vs 50KB body, got ${r.stdout.length} bytes`);
     ok(r.stdout.includes('Open Questions: 40'));
+    ok(r.stdout.includes('+35 more: runlist questions'), r.stdout);
   });
 
   it('resolves same-dir related_plans basename refs', () => {

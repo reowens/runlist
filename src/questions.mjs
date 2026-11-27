@@ -200,20 +200,65 @@ export function namesQuestion(line, number, code) {
   return new RegExp(`\\b[Qq]uestions?\\s+${number}\\b(?![.-]\\d)|\\bQ${number}\\b(?![.-]\\d)`).test(line);
 }
 
-/** What an answer unlocks in the question's own plan: whether `next_step` names it, and how many open boxes do. */
-export function questionReach(markdown, number, code) {
+const OPEN_BOX = /^\s*[-*]\s+\[ \]/;
+
+/** The open boxes of a document, outside its frontmatter and code fences, as `{line, text}` with `line` 1-based in the file. */
+export function openBoxes(markdown) {
+  const lines = markdown.split('\n');
+  const end = lines[0] === '---' ? lines.indexOf('---', 1) : -1;
+  const out = [];
+  let fence = null;
+  for (let i = end + 1; i < lines.length; i++) {
+    const l = lines[i];
+    const f = /^\s*(`{3,}|~{3,})/.exec(l);
+    if (f) { if (!fence) fence = f[1][0]; else if (f[1][0] === fence) fence = null; continue; }
+    if (!fence && OPEN_BOX.test(l)) out.push({ line: i + 1, text: l.replace(OPEN_BOX, '').trim() });
+  }
+  return out;
+}
+
+function nextStepText(markdown) {
   const lines = markdown.split('\n');
   const end = lines[0] === '---' ? lines.indexOf('---', 1) : -1;
   const at = end < 0 ? -1 : lines.slice(0, end).findIndex(l => /^next_step:/.test(l));
-  let nextStep = false;
-  if (at >= 0) {
-    let k = at;
-    const step = [lines[k]];
-    while (++k < end && !/^[A-Za-z_]+:/.test(lines[k] ?? '')) step.push(lines[k] ?? '');
-    nextStep = namesQuestion(step.join(' '), number, code);
-  }
-  const boxes = lines.slice(end + 1).filter(l => /^\s*[-*]\s+\[ \]/.test(l) && namesQuestion(l, number, code)).length;
-  return { nextStep, boxes };
+  if (at < 0) return '';
+  let k = at;
+  const step = [lines[k]];
+  while (++k < end && !/^[A-Za-z_]+:/.test(lines[k] ?? '')) step.push(lines[k] ?? '');
+  return step.join(' ');
+}
+
+/** What an answer unlocks in the question's own plan: whether `next_step` names it, and how many open boxes do. */
+export function questionReach(markdown, number, code, boxes = openBoxes(markdown)) {
+  return {
+    nextStep: namesQuestion(nextStepText(markdown), number, code),
+    boxes: boxes.filter(b => namesQuestion(b.text, number, code)).length,
+  };
+}
+
+/**
+ * Whether a document is one whose questions are read: its type (from its
+ * frontmatter, null when it has none) is a configured one and it sits under a
+ * configured path.
+ */
+export function inQuestionScope(rel, type, settings) {
+  if (type && !settings.types.includes(type)) return false;
+  return !settings.paths || settings.paths.some(p => rel === p || rel.startsWith(`${p}/`));
+}
+
+/**
+ * The open questions of 1 document as rows, each with the open boxes that name
+ * it (`held`, `{line, text}`) and their count, by the rule `runlist questions`
+ * reads. An empty list for a document outside the questions scope. Pure.
+ */
+export function openQuestionRows(rel, markdown, settings) {
+  if (!inQuestionScope(rel, typeOf(markdown), settings)) return [];
+  const code = planCode(markdown, settings);
+  const boxes = openBoxes(markdown);
+  return planQuestions(markdown, settings).filter(q => !q.answered).map(q => {
+    const held = boxes.filter(b => namesQuestion(b.text, q.number, code));
+    return { ...row(rel, markdown, q, code, settings, boxes), held };
+  });
 }
 
 // ── Codes ────────────────────────────────────────────────────────────────────
@@ -433,11 +478,11 @@ export function pruneRaised(config) {
   return removed;
 }
 
-function row(rel, markdown, q, code, settings) {
+function row(rel, markdown, q, code, settings, boxes = openBoxes(markdown)) {
   const slug = slugOf(rel);
   return {
     id: questionId(code, q.number, slug), plan: slug, path: rel, code, number: q.number, title: q.title,
-    answered: q.answered, line: q.line, ...questionReach(markdown, q.number, code),
+    answered: q.answered, line: q.line, ...questionReach(markdown, q.number, code, boxes),
   };
 }
 
@@ -481,15 +526,10 @@ function withRaised(rows, raised) {
 /** Every open question in the live plans in scope, in file order. */
 export function listOpen(config) {
   const settings = questionSettings(config.raw?.questions);
-  const types = new Set(settings.types);
   const rows = [];
   for (const d of questionScope(config, settings).filter(x => !x.archived)) {
     const markdown = read(d.file);
-    if (!markdown) continue;
-    const type = typeOf(markdown);
-    if (type && !types.has(type)) continue;
-    const code = planCode(markdown, settings);
-    for (const q of planQuestions(markdown, settings)) if (!q.answered) rows.push(row(d.rel, markdown, q, code, settings));
+    if (markdown) rows.push(...openQuestionRows(d.rel, markdown, settings).map(({ held, ...r }) => r));
   }
   return withRaised(rows, listRaised(config));
 }
@@ -525,7 +565,8 @@ function plansFor(keys, live, raised, settings) {
   return [];
 }
 
-function questionText(markdown, q) {
+/** The question's own lines: its item and the lines that continue it. */
+export function questionText(markdown, q) {
   const lines = markdown.split('\n');
   const out = [lines[q.line - 1] ?? ''];
   for (const line of lines.slice(q.line)) {
@@ -562,7 +603,7 @@ const age = (from, now) => {
   return s < 60 ? `${s} s` : s < 7200 ? `${Math.floor(s / 60)} min` : s < 172_800 ? `${Math.floor(s / 3600)} h` : `${Math.floor(s / 86_400)} d`;
 };
 const who = (r, self) => (r.sessionId === self ? 'this session' : `session ${String(r.sessionId).slice(0, 8)}`) + (r.machine ? ` on ${r.machine}` : '');
-const holds = r => [r.boxes ? `holds ${r.boxes} box${r.boxes === 1 ? '' : 'es'}` : null, r.nextStep ? 'named by next_step' : null].filter(Boolean);
+export const holds = r => [r.boxes ? `holds ${r.boxes} box${r.boxes === 1 ? '' : 'es'}` : null, r.nextStep ? 'named by next_step' : null].filter(Boolean);
 
 function formatRaised(rows, { self, now = Date.now(), session } = {}) {
   if (!rows.length) return session ? `No question is raised for session ${session} on this machine.\n` : 'No question is raised on this machine.\n';

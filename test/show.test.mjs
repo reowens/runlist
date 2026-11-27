@@ -168,4 +168,31 @@ describe('runlist show', () => {
     const card = run(['show', 'house', '--card']).stdout;
     strictEqual((card.match(/^related_plans: docs/gm) ?? []).length, 11);
   });
+  it('lists the open questions with the boxes each holds, by the questions rule', () => {
+    setup();
+    write('docs/plans/porch.md', [
+      '---', 'type: plan', 'status: active', 'question_code: POR', 'next_step: Build the steps once POR-Q2 is answered.', '---',
+      '# Porch', '', '## Work', '',
+      '- [ ] Lay the boards (POR-Q1).', '- [ ] Paint them, after POR-Q1 and POR-Q2.', '- [x] Measure, POR-Q1.', '',
+      '```', '- [ ] A box in a fence, POR-Q1.', '```', '',
+      '## Questions', '',
+      '1. POR-Q1 **Which wood?** Oak or pine.',
+      '2. POR-Q2 **How many steps?** 2 or 3.',
+      '3. POR-Q3 **Which colour?** Ruled 2025-01-02: grey.',
+      ...Array.from({ length: 9 }, (_, i) => `${i + 4}. POR-Q${i + 4} **Spare ${i + 4}?**`), '',
+    ].join('\n'));
+    const [card] = JSON.parse(run(['show', 'porch', '--json']).stdout);
+    deepStrictEqual(card.questions.slice(0, 3).map(q => [q.id, q.title, q.boxes, q.nextStep, q.held.map(b => b.line)]), [
+      ['POR-Q1', 'Which wood?', 2, false, [11, 12]],
+      ['POR-Q2', 'How many steps?', 1, true, [12]],
+      ['POR-Q4', 'Spare 4?', 0, false, []],
+    ]);
+    strictEqual(card.questions.length, 11);
+    const text = run(['show', 'porch']).stdout;
+    match(text, /^Open questions: 11 \(line, ID, title\)$/m);
+    match(text, /^ {2}21 {2}POR-Q1 {2}Which wood\? {2}\(holds 2 boxes\)$/m);
+    match(text, /^ {2}22 {2}POR-Q2 {2}How many steps\? {2}\(holds 1 box; named by next_step\)$/m);
+    match(text, /^ {2}\(\+3 more: add --all\)$/m);
+    strictEqual((run(['show', 'porch', '--all']).stdout.match(/^ {2}\d+ {2}POR-Q/gm) ?? []).length, 11);
+  });
 });

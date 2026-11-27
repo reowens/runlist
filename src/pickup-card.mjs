@@ -6,6 +6,7 @@ import { asString, toRepoPath, resolveDocPath, resolveRefPath, isArchivedPath } 
 import { compareYardstick, readYardstick, renderYardstick } from './yardstick.mjs';
 import { walkSections, findSection, findActivePhase, summarizePhases, isPhaseHeading, detectMarker } from './section.mjs';
 import { dim, green } from './color.mjs';
+import { holds, openQuestionRows, planQuestions, questionSettings } from './questions.mjs';
 
 const CAPS = {
   blurb: 200,
@@ -14,10 +15,8 @@ const CAPS = {
   versionHistoryEntry: 200,
 };
 
-function countBullets(body) {
-  if (!body) return 0;
-  return body.split('\n').filter(l => /^[-*]\s+\S/.test(l)).length;
-}
+// Open questions listed on the card; the rest are counted.
+const CARD_QUESTIONS = 5;
 
 function truncate(s, cap) {
   if (!s) return '';
@@ -158,15 +157,22 @@ export function buildCard(filePath, raw, config) {
     }
   }
 
-  // Open Questions — count + pointer only, no body
-  const oqSection = findSection(sections, 'Open Questions') ?? findSection(sections, 'Open questions');
+  // Open questions by the rule `runlist questions` reads: the count, the
+  // Questions section's lines, and the first few with the boxes each holds.
+  const questionRules = questionSettings(config.raw?.questions);
+  const rel = toRepoPath(filePath, config.repoRoot);
+  const open = openQuestionRows(rel, raw, questionRules);
   let openQuestions = null;
-  if (oqSection && oqSection.body.trim()) {
+  if (open.length) {
+    const first = planQuestions(raw, questionRules)[0]?.line ?? open[0].line;
+    const oqSection = sections.filter(s => questionRules.headingRe.test(`${'#'.repeat(s.level)} ${s.heading}`) || questionRules.fallbackRe?.test(`${'#'.repeat(s.level)} ${s.heading}`))
+      .find(s => toFileLine(s.lineStart) < first && first <= toFileLine(s.lineEnd)) ?? null;
     openQuestions = {
-      heading: oqSection.heading,
-      lineStart: toFileLine(oqSection.lineStart),
-      lineEnd: toFileLine(oqSection.lineEnd),
-      count: countBullets(oqSection.body),
+      heading: oqSection?.heading ?? null,
+      lineStart: oqSection ? toFileLine(oqSection.lineStart) : first,
+      lineEnd: oqSection ? toFileLine(oqSection.lineEnd) : open.at(-1).line,
+      count: open.length,
+      items: open.map(({ id, number, title, line, nextStep, boxes }) => ({ id, number, title, line, nextStep, boxes })),
     };
   }
 
@@ -265,7 +271,13 @@ export function renderCard(card) {
   }
 
   if (card.openQuestions) {
-    lines.push(`${green('Open Questions:')} ${card.openQuestions.count}  ${dim(`(lines ${card.openQuestions.lineStart}-${card.openQuestions.lineEnd})`)}`);
+    const { count, items, lineStart, lineEnd } = card.openQuestions;
+    lines.push(`${green('Open Questions:')} ${count}  ${dim(`(lines ${lineStart}-${lineEnd})`)}`);
+    for (const q of items.slice(0, CARD_QUESTIONS)) {
+      const note = holds(q);
+      lines.push(`  ${q.id}  ${truncate(q.title, 100)}${note.length ? `  ${dim(`(${note.join('; ')})`)}` : ''}`);
+    }
+    if (count > CARD_QUESTIONS) lines.push(dim(`  +${count - CARD_QUESTIONS} more: runlist questions ${card.path}`));
   }
 
   if (card.lastVersion) {
