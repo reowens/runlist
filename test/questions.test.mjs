@@ -142,6 +142,18 @@ describe('question IDs and codes', () => {
     ok(namesQuestion('waits on question 2.', 2, 'WXY'));
   });
 
+  it('reads a written list or range of questions as naming each one in it', () => {
+    for (const n of [1, 3, 5]) ok(namesQuestion('his answers, Questions 1 to 5', n, null), String(n));
+    ok(!namesQuestion('his answers, Questions 1 to 5', 6, null));
+    ok(namesQuestion('follows the answers to § Questions 1 and 2, and the rest', 2, null));
+    ok(namesQuestion('Questions 1, 3 and 5', 3, null));
+    ok(!namesQuestion('Questions 1, 3 and 5', 4, null));
+    ok(namesQuestion('Questions 2 to 4 and 7', 7, null));
+    ok(namesQuestion('Questions 3–5', 4, null));
+    ok(!namesQuestion('Questions 1 and 2.3', 2, null), 'a dotted number is a phase item');
+    deepStrictEqual(questionReach('---\nnext_step: his answers to Questions 1 to 3\n---\n- [ ] Ship after Questions 2 and 3\n', 3, null), { nextStep: true, boxes: 1 });
+  });
+
   it('reads open boxes outside code fences, and the open questions of a document in scope with the boxes each holds', () => {
     const text = '---\ntype: plan\nquestion_code: WXY\n---\n- [ ] Fit WXY-Q1\n```\n- [ ] WXY-Q1 in a fence\n```\n~~~md\n- [ ] Also fenced, WXY-Q1\n~~~\n- [ ] Free\n\n## Questions\n\n1. WXY-Q1 **Which?** A or B.\n2. WXY-Q2 **Done?** Ruled 2026-01-01: yes.\n';
     deepStrictEqual(openBoxes(text), [{ line: 5, text: 'Fit WXY-Q1' }, { line: 12, text: 'Free' }]);

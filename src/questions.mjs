@@ -194,10 +194,28 @@ export function parseQuestionId(text) {
   return out;
 }
 
-/** Whether a line names question `number`: by its ID in either form (alone or in a written range), `question 3` or `Q3`, never `ABC-3.2`. */
+// `Questions 1 to 5`, `Questions 1 and 2`, `Questions 1, 3 and 5`: the numbers a written list or range names.
+const QUESTION_LIST = /\b[Qq]uestions\s+(\d+(?:(?:\s*,\s*|\s+(?:and|or|to|through)\s+|\s*–\s*)\d+)+)\b(?![.-]\d)/g;
+const inList = (list, number) => {
+  const parts = list.split(/(\s*,\s*|\s+(?:and|or)\s+|\s+(?:to|through)\s+|\s*–\s*)/);
+  for (let i = 0; i < parts.length; i += 2) {
+    const n = Number(parts[i]);
+    const join = parts[i + 1]?.trim();
+    if (join && /^(?:to|through|–)$/.test(join)) {
+      const to = Number(parts[i + 2]);
+      if (number >= n && number <= to) return true;
+      i += 2;
+    } else if (n === number) return true;
+  }
+  return false;
+};
+
+/** Whether a line names question `number`: by its ID in either form (alone or in a written range), `question 3`, `Q3` or a written list or range (`Questions 1 to 5`), never `ABC-3.2`. */
 export function namesQuestion(line, number, code) {
   if (code && (namesId(line, `${code}-${number}`) || namesId(line, `${code}-Q${number}`))) return true;
-  return new RegExp(`\\b[Qq]uestions?\\s+${number}\\b(?![.-]\\d)|\\bQ${number}\\b(?![.-]\\d)`).test(line);
+  if (new RegExp(`\\b[Qq]uestions?\\s+${number}\\b(?![.-]\\d)|\\bQ${number}\\b(?![.-]\\d)`).test(line)) return true;
+  for (const m of line.matchAll(QUESTION_LIST)) if (inList(m[1], number)) return true;
+  return false;
 }
 
 const OPEN_BOX = /^\s*[-*]\s+\[ \]/;

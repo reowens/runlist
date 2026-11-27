@@ -11,6 +11,7 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 - The desktop app's Decisions list carries each open question beside the decision records, with the boxes it holds; its detail is read only, since a question is answered in its plan.
 - `runlist check` warns when every open box of an `active` plan names an open question, and names `awaiting` as the status that says so.
 - A question's held boxes are counted outside code fences, as the brief counts open boxes.
+- A box or `next_step` that writes a list or range of questions, `Questions 1 to 5`, `Questions 8 and 9` or `Questions 1, 3 and 5`, names each question in it, so the boxes a question holds and whether `next_step` names it count it.
 - Decision IDs and written ranges take codes of up to 4 letters, or 2 to 4 letters and digits before a hyphen: `MLAS-2 to MLAS-5` names `MLAS-3`, and `PTR-2.3` does not name `PTR-2`.
 
 ## 0.108.4 — 2026-11-24
