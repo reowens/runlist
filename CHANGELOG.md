@@ -2,7 +2,7 @@
 
 All notable changes to `runlist` are documented here. Older releases predate this file — see git tags and the GitHub Releases page for their notes.
 
-## Unreleased
+## 0.109.0 — 2026-11-27
 
 - The release script watches the publish run again when its own status request fails while the run is still going, so 1 failed request no longer stops a release for a resume.
 - `runlist questions` lists the questions plans put to a person, read from each plan's Questions section: every open one, every question of a named plan, or 1 question by its ID (`ABC-Q3`, `abc q3`, or the older `ABC-3`). Each row says whether `next_step` names it and how many open boxes it holds; `ABC-3.2` never names `ABC-3`. `--raised` and `--session <id>` list the questions raised on this machine, `--all` adds the open and held decision records, and `--json` prints the rows as data. The heading, the fallback heading, the ruling words and the code field come from `export const questions = { ... }`.
