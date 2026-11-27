@@ -57,7 +57,7 @@ export const DEFAULTS = Object.freeze({
   answered: [
     '~~',
     '✅',
-    '\\b(?:RULED|Ruled|ANSWERED|Answered|RESOLVED|Resolved|CLOSED|Closed|DEFERRED|Deferred|WITHDRAWN|Withdrawn)\\b',
+    '\\b(?:RULED|Ruled|RATIFIED|Ratified|ANSWERED|Answered|RESOLVED|Resolved|CLOSED|Closed|DEFERRED|Deferred|WITHDRAWN|Withdrawn)\\b',
     '(?<!\\bnot\\s)\\b(?:ruled|answered|resolved|decided)(?=:|,?\\s+(?:\\d{4}-\\d\\d-\\d\\d|by\\b))',
   ],
   codeField: 'question_code',
