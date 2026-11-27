@@ -1230,15 +1230,15 @@ Hubs and decisions:
   runlist new hub <slug> --runlist a,b,c     # sprint hub plus child plans
   runlist new hub <slug> --roadmap           # roadmap hub
   runlist new decision <plan> --question "<question>" [--answers "<…>"] @record.md
-                       Adds the next numbered entry to the plan's top-level
-                       decisions section with a \`Disposition: OPEN.\` line (or
-                       \`--disposition held\`) and the record, which is required;
-                       a plan with no such section gets \`## Decisions\`. With a
-                       register in config, the id is numbered across the corpus
-                       and the register gets its row, question plus --answers
-                       (required then), in the same locked write. Config:
-                       \`export const decisions = { section, prefix,
-                       register: { file, statusLine } }\`.
+                       Adds a numbered question at the end of the plan's
+                       Questions section, \`5. ABC-Q5 **<question>?** <record>\`,
+                       with the plan's \`question_code:\` (given first when the
+                       plan has none) and the next number no question of the
+                       plan has used; a plan with no such section gets
+                       \`## Questions\`. The record (the situation, what exists
+                       today, what each answer leaves in place) is required, and
+                       --answers is added to its end. Decision records a plan
+                       already holds stay as written; none is written.
 
 Scaffolding runlists (plans only):
   --runlist <a,b,c>    Create a sprint runlist hub plus one child plan per slug.

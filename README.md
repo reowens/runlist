@@ -1455,34 +1455,35 @@ that repository enables it and retires its custom check.
 
 ## Decisions
 
-A decision is an entry in its plan, not a document of its own. Write the record
-(the situation, what exists today, what each answer leaves in place) to a file
-and add it:
+Everything new that waits on a person is a question in its plan. Write the
+record (the situation, what exists today with its file and line, what each
+answer leaves in place) to a file and add it:
 
 ```bash
 runlist new decision auth-revamp --question "Which token store?" @record.md
 ```
 
-It takes the next id (`D1`, `D2`, …) that no decision item in that plan uses,
-lands at the end of the plan's top-level decisions section (created before
-`## Version History` when there is none) with a `Disposition: OPEN.` line, and
-refuses an empty record. `--disposition held` parks it instead.
+It lands at the end of the plan's Questions section (a `## Questions` is
+created before `## Version History` when there is none) as one numbered item,
+`3. AR-Q3 **Which token store?** <the record>`. The ID is the plan's
+`question_code:`, given first as `runlist question code` gives one when the plan
+has none, and the next number no question of the plan has used. `--answers`
+is added to the record's end. It refuses an empty record, and a title or
+record start that would read as answered. Raise the question with
+`runlist question raise <plan> <n>`.
 
-A corpus that indexes its decisions in one register numbers them in one
-sequence. Name the register, and the id follows the highest the register or the
-plan uses, and the register gets the entry's row in the same locked write:
+Decision records a plan already holds stay as written, and `runlist decisions`
+still reads them; `new decision` no longer writes a `D` record or a register
+row. A corpus that indexes its decisions in one register names it so their
+dispositions are read from it:
 
 ```js
 export const decisions = {
-  section: 'Decisions',
-  prefix: 'D',
   register: { file: 'docs/plans/register.md', statusLine: 'waiting on you:' },
 };
 ```
 
 The register block is the fenced block whose first line carries `statusLine`.
-The row is the question plus `--answers` (what each answer leaves in place),
-which is required when a register is configured.
 
 `runlist decisions --json` gives each open or held decision its `question`,
 its document's `docTitle`, and `blocks`: what its record says it blocks or

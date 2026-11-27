@@ -1,10 +1,11 @@
 import { describe, it, afterEach } from 'node:test';
-import { strictEqual, ok, match } from 'node:assert';
+import { deepStrictEqual, strictEqual, ok, match } from 'node:assert';
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { insertDecision, nextDecisionId, findRegister } from '../src/decision.mjs';
+import { insertQuestion, nextQuestionNumber, questionItem } from '../src/decision.mjs';
+import { planQuestions } from '../src/questions.mjs';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
 let tmpDir;
@@ -36,67 +37,99 @@ afterEach(() => {
   if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
 });
 
-describe('nextDecisionId', () => {
-  it('follows the highest id where an item starts, never one named in prose', () => {
-    strictEqual(nextDecisionId('### D2 a\n\nsee D9 in another plan, job D256\n- **D4 b**\n| D3 | c |', 'D'), 'D5');
+describe('nextQuestionNumber', () => {
+  it('follows the highest question number, answered ones included', () => {
+    const text = '## Questions\n\n1. **A?** x\n2. **B?** Ruled 2025-01-02: yes.\n7. **C?** y\n';
+    strictEqual(nextQuestionNumber(text, null), 8);
   });
-  it('starts at 1 and ignores ids inside fences and other prefixes', () => {
-    strictEqual(nextDecisionId('```\n### D40\n```\n### P7\n### DD3\n### D12x', 'D'), 'D1');
+  it('follows an ID used at an item start, never a phase item or one named in prose', () => {
+    const text = '## Questions\n\n1. AB-Q1 **A?** x\n\n## Work\n\n- [ ] AB-9.2 a box\n- AB-Q5 moved here\nsee AB-Q40 in prose\n';
+    strictEqual(nextQuestionNumber(text, 'AB'), 6);
   });
-  it('with a register, follows the higher of the register and the plan', () => {
-    const register = findRegister('```\nOpen, waiting on you:\n\nD7 OPEN x\nC-D40 y\nD12 RULED z\n```\n', 'waiting on you:');
-    strictEqual(nextDecisionId('### D3 a', 'D', register), 'D13');
-    strictEqual(nextDecisionId('### D30 a', 'D', register), 'D31');
+  it('starts at 1', () => {
+    strictEqual(nextQuestionNumber('## Problem\n\nText.\n', 'AB'), 1);
   });
 });
 
-describe('insertDecision', () => {
-  const entry = { id: 'D3', question: 'Which way?', disposition: 'open', record: 'Record.' };
+describe('questionItem', () => {
+  it('writes the ID and bold title first and indents the record under the marker', () => {
+    const item = questionItem({ number: 12, id: 'AB-Q12', title: 'Which way?', record: 'The situation.\n\n1. a list line\n# not a heading' });
+    deepStrictEqual(item, ['12. AB-Q12 **Which way?** The situation.', '', '    1. a list line', '    # not a heading']);
+  });
+});
 
-  it('appends after the last line of the top-level decisions section, subsections included', () => {
-    const body = '## Decisions\n\n### D1 x\n\nOne.\n\n### D2 y\n\nTwo.\n\n## Next\n\nMore.\n';
-    const out = insertDecision(body, entry);
-    strictEqual(out.body, '## Decisions\n\n### D1 x\n\nOne.\n\n### D2 y\n\nTwo.\n\n### D3  Which way?\n\nDisposition: OPEN.\n\nRecord.\n\n## Next\n\nMore.\n');
+describe('insertQuestion', () => {
+  const item = ['3. AB-Q3 **Which way?** Record.'];
+
+  it('appends after the last line of the Questions section, before a closing rule', () => {
+    const text = '---\ntype: plan\n---\n## Questions\n\n<!-- how to write one -->\n\n1. **A?** x\n\n---\n\n## Phase 1\n';
+    strictEqual(insertQuestion(text, item).markdown, '---\ntype: plan\n---\n## Questions\n\n<!-- how to write one -->\n\n1. **A?** x\n\n3. AB-Q3 **Which way?** Record.\n\n---\n\n## Phase 1\n');
   });
 
-  it('leaves a decisions heading nested in a workstream alone and adds a section before Version History', () => {
-    const body = '## A\n\n### Decisions ruled\n\n- D1 done\n\n## Version History\n\n- x\n';
-    const out = insertDecision(body, entry);
-    match(out.body, /## A\n\n### Decisions ruled\n\n- D1 done\n\n## Decisions\n\n### D3  Which way\?\n\nDisposition: OPEN\.\n\nRecord\.\n\n## Version History/);
+  it('adds a Questions section before Version History, leaving Decisions alone', () => {
+    const text = '## Decisions\n\n### D1  Old?\n\nDisposition: OPEN.\n\n## Version History\n\n- x\n';
+    const out = insertQuestion(text, item);
+    strictEqual(out.markdown, '## Decisions\n\n### D1  Old?\n\nDisposition: OPEN.\n\n## Questions\n\n3. AB-Q3 **Which way?** Record.\n\n## Version History\n\n- x\n');
+    match(out.placement, /new `## Questions` before `Version History`/);
   });
 
-  it('adds the section at the end when there is nowhere better', () => {
-    const out = insertDecision('## Problem\n\nText.\n', entry);
-    strictEqual(out.body, '## Problem\n\nText.\n\n## Decisions\n\n### D3  Which way?\n\nDisposition: OPEN.\n\nRecord.\n');
+  it('adds the section at the end when there is nowhere better, and ignores a heading inside a fence', () => {
+    const out = insertQuestion('## Problem\n\n```\n## Questions\n```\n', item);
+    strictEqual(out.markdown, '## Problem\n\n```\n## Questions\n```\n\n## Questions\n\n3. AB-Q3 **Which way?** Record.\n');
   });
 });
 
 describe('runlist new decision', () => {
-  it('writes the next entry into the plan and bumps updated', () => {
+  it('writes a question with the plan\'s new code, leaves the D records alone and bumps updated', () => {
     setup();
     const file = plan('widgets', '## Decisions\n\n### D1  First? RULED 2025-01-02.\n\nDone.\n');
-    const r = run(['new', 'decision', 'widgets', '--question', 'Does the shelf fill?', record()]);
+    const r = run(['new', 'decision', 'widgets', '--question', 'Does the shelf fill', record()]);
     strictEqual(r.status, 0, r.stderr);
-    match(r.stdout, /Added D2 to docs\/plans\/widgets\.md/);
+    match(r.stdout, /Added WIDG-Q1 to docs\/plans\/widgets\.md/);
+    match(r.stdout, /runlist question raise widgets 1/);
     const text = readFileSync(file, 'utf8');
-    match(text, /### D2  Does the shelf fill\?\n\nDisposition: OPEN\.\n\nThe widget shelf is empty today\./);
+    match(text, /^question_code: WIDG$/m);
+    match(text, /## Decisions\n\n### D1  First\? RULED 2025-01-02\.\n\nDone\.\n\n## Questions\n\n1\. WIDG-Q1 \*\*Does the shelf fill\?\*\* The widget shelf is empty today\./);
+    ok(!/### D2|Disposition: OPEN/.test(text));
     ok(!text.includes('updated: 2025-01-01T00:00:00Z'));
+    const rows = JSON.parse(run(['questions', 'widgets', '--json']).stdout);
+    deepStrictEqual(rows.map(q => [q.id, q.title, q.answered]), [['WIDG-Q1', 'Does the shelf fill?', false]]);
+    const decisions = run(['decisions', 'docs/plans/widgets.md', '--all', '--json']);
+    strictEqual(decisions.status, 0, decisions.stderr);
+    match(decisions.stdout, /"D1"/);
   });
 
-  it('takes --disposition held and refuses anything else', () => {
+  it('numbers after every question the plan has, under its existing heading, with --answers at the record\'s end', () => {
     setup();
-    const file = plan('widgets', '');
-    strictEqual(run(['new', 'decision', 'widgets', '--question', 'Q?', '--disposition', 'held', record()]).status, 0);
-    match(readFileSync(file, 'utf8'), /### D1  Q\?\n\nDisposition: HELD\./);
-    const bad = run(['new', 'decision', 'widgets', '--question', 'Q?', '--disposition', 'ruled', record()]);
-    ok(bad.status !== 0);
-    match(bad.stderr, /open or held/);
+    const file = path.join(tmpDir, 'docs', 'plans', 'widgets.md');
+    writeFileSync(file, '---\ntype: plan\nstatus: active\nquestion_code: WG\n---\n# widgets\n\n## Questions\n\n1. WG-Q1 **Old?** Ruled 2025-01-02: yes.\n2. WG-Q4 **Open one?** Still open.\n\n## Phase 1\n\n- [ ] Task\n');
+    const r = run(['new', 'decision', 'widgets', '--question', 'Which bin?', '--answers', 'Blue: it fits. Red: it does not.', record('The bin is unset in `src/bin.ts:3`.')]);
+    strictEqual(r.status, 0, r.stderr);
+    const text = readFileSync(file, 'utf8');
+    match(text, /2\. WG-Q4 \*\*Open one\?\*\* Still open\.\n\n5\. WG-Q5 \*\*Which bin\?\*\* The bin is unset in `src\/bin\.ts:3`\. Blue: it fits\. Red: it does not\.\n\n## Phase 1/);
+    deepStrictEqual(planQuestions(text).map(q => [q.number, q.answered]), [[1, true], [4, false], [5, false]]);
   });
 
-  it('refuses without a question or a record, and writes nothing', () => {
+  it('writes no register row when the config names a register', () => {
+    setup(`export const decisions = { register: { file: 'docs/plans/arc.md', statusLine: 'waiting on you:' } };`);
+    const arcFile = plan('arc', 'Register.\n\n```\nOpen, waiting on you:\n\nD7 RULED 2025-01-02: done.\n```\n');
+    const before = readFileSync(arcFile, 'utf8');
+    plan('widgets', '');
+    const r = run(['new', 'decision', 'widgets', '--question', 'Q?', record()]);
+    strictEqual(r.status, 0, r.stderr);
+    strictEqual(readFileSync(arcFile, 'utf8'), before);
+  });
+
+  it('refuses --disposition held, a question that would read as answered, and a missing question or record, writing nothing', () => {
     setup();
-    const file = plan('widgets', '## Decisions\n');
+    const file = plan('widgets', '## Questions\n');
     const before = readFileSync(file, 'utf8');
+    const held = run(['new', 'decision', 'widgets', '--question', 'Q?', '--disposition', 'held', record()]);
+    ok(held.status !== 0);
+    match(held.stderr, /--disposition is no longer taken/);
+    const answered = run(['new', 'decision', 'widgets', '--question', 'Closed or open?', record()]);
+    ok(answered.status !== 0);
+    match(answered.stderr, /would read as answered/);
     const noQuestion = run(['new', 'decision', 'widgets', record()]);
     ok(noQuestion.status !== 0);
     match(noQuestion.stderr, /--question is required/);
@@ -106,21 +139,14 @@ describe('runlist new decision', () => {
     strictEqual(readFileSync(file, 'utf8'), before);
   });
 
-  it('dry-run names the id and place and writes nothing', () => {
+  it('dry-run names the ID, the place and the new code, and writes nothing', () => {
     setup();
-    const file = plan('widgets', '## Decisions\n');
+    const file = plan('widgets', '## Questions\n');
     const before = readFileSync(file, 'utf8');
     const r = run(['new', 'decision', 'widgets', '--question', 'Q?', record(), '-n']);
     strictEqual(r.status, 0, r.stderr);
-    match(r.stdout, /Would add D1 to docs\/plans\/widgets\.md under `Decisions`/);
+    match(r.stdout, /Would add WIDG-Q1 to docs\/plans\/widgets\.md under `Questions`, giving the plan the code WIDG/);
     strictEqual(readFileSync(file, 'utf8'), before);
-  });
-
-  it('uses the prefix and heading from config', () => {
-    setup(`export const decisions = { prefix: 'Q', section: 'Open questions' };`);
-    const file = plan('widgets', '## Problem\n\nText.\n');
-    strictEqual(run(['new', 'decision', 'widgets', '--question', 'Q?', record()]).status, 0);
-    match(readFileSync(file, 'utf8'), /## Open questions\n\n### Q1  Q\?\n\nDisposition: OPEN\./);
   });
 
   it('refuses a plan that does not exist', () => {
@@ -161,64 +187,5 @@ describe('runlist new hub and unknown types', () => {
     const r = run(['new', 'notes', 'some inline body']);
     strictEqual(r.status, 0, r.stderr);
     ok(existsSync(path.join(tmpDir, 'docs', 'plans', 'notes.md')) || existsSync(path.join(tmpDir, 'docs', 'notes.md')));
-  });
-});
-
-describe('runlist new decision with a register', () => {
-  const config = `export const decisions = { register: { file: 'docs/plans/arc.md', statusLine: 'waiting on you:' } };`;
-  const arc = () => plan('arc', 'Register.\n\n```\nOpen, waiting on you:\n\nD7 RULED 2025-01-02: done. Record: [x.md](x.md).\n```\n\nAfter.\n');
-
-  it('numbers from the register and writes the row with the record', () => {
-    setup(config);
-    const arcFile = arc();
-    const file = plan('widgets', '## Decisions\n\n### D1  Old? RULED 2025-01-02.\n\nDone.\n');
-    const r = run(['new', 'decision', 'widgets', '--question', 'Does the shelf fill?', '--answers', 'Yes: it fills. No: it stays empty.', record()]);
-    strictEqual(r.status, 0, r.stderr);
-    match(readFileSync(file, 'utf8'), /### D8  Does the shelf fill\?\n\nDisposition: OPEN\./);
-    match(readFileSync(arcFile, 'utf8'), /D7 RULED 2025-01-02: done\. Record: \[x\.md\]\(x\.md\)\.\nD8 OPEN \d{4}-\d{2}-\d{2}: Does the shelf fill\? Yes: it fills\. No: it stays empty\. Record: \[widgets\.md § Decisions D8\]\(widgets\.md\)\.\n```/);
-  });
-
-  it('requires --answers and writes nothing without it', () => {
-    setup(config);
-    const arcFile = arc();
-    const file = plan('widgets', '');
-    const before = [readFileSync(arcFile, 'utf8'), readFileSync(file, 'utf8')];
-    const r = run(['new', 'decision', 'widgets', '--question', 'Q?', record()]);
-    ok(r.status !== 0);
-    match(r.stderr, /--answers is required/);
-    strictEqual(readFileSync(arcFile, 'utf8'), before[0]);
-    strictEqual(readFileSync(file, 'utf8'), before[1]);
-  });
-
-  it('a decision owned by the register plan itself lands in both places in one file', () => {
-    setup(config);
-    const arcFile = arc();
-    const r = run(['new', 'decision', 'arc', '--question', 'Own one?', '--answers', 'Yes: a. No: b.', record()]);
-    strictEqual(r.status, 0, r.stderr);
-    const text = readFileSync(arcFile, 'utf8');
-    match(text, /\nD8 OPEN [^\n]*Own one\? Yes: a\. No: b\. Record: \[arc\.md § Decisions D8\]\(arc\.md\)\.\n```/);
-    match(text, /## Decisions\n\n### D8  Own one\?\n\nDisposition: OPEN\./);
-  });
-
-  it('refuses a register file with no register block', () => {
-    setup(config);
-    plan('arc', 'No block here.\n');
-    plan('widgets', '');
-    const r = run(['new', 'decision', 'widgets', '--question', 'Q?', '--answers', 'Yes: a. No: b.', record()]);
-    ok(r.status !== 0);
-    match(r.stderr, /has no block whose first line carries "waiting on you:"/);
-  });
-
-  it('dry-run shows the id and the row and writes nothing', () => {
-    setup(config);
-    const arcFile = arc();
-    const file = plan('widgets', '');
-    const before = [readFileSync(arcFile, 'utf8'), readFileSync(file, 'utf8')];
-    const r = run(['new', 'decision', 'widgets', '--question', 'Q?', '--answers', 'Yes: a. No: b.', record(), '-n']);
-    strictEqual(r.status, 0, r.stderr);
-    match(r.stdout, /Would add D8 to docs\/plans\/widgets\.md/);
-    match(r.stdout, /Would add its row to the register in docs\/plans\/arc\.md:\n  D8 OPEN/);
-    strictEqual(readFileSync(arcFile, 'utf8'), before[0]);
-    strictEqual(readFileSync(file, 'utf8'), before[1]);
   });
 });

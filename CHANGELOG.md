@@ -12,6 +12,7 @@ All notable changes to `runlist` are documented here. Older releases predate thi
 - `runlist check` warns when every open box of an `active` plan names an open question, and names `awaiting` as the status that says so.
 - A question's held boxes are counted outside code fences, as the brief counts open boxes.
 - A box or `next_step` that writes a list or range of questions, `Questions 1 to 5`, `Questions 8 and 9` or `Questions 1, 3 and 5`, names each question in it, so the boxes a question holds and whether `next_step` names it count it.
+- `runlist new decision <plan> --question "…" @record.md` writes a question: a numbered item `<CODE>-Q<n> **<question>?** <record>` at the end of the plan's Questions section (a `## Questions` is created when there is none), with the plan's `question_code:`, given first when it has none, and the next number no question of the plan has used. It no longer writes a `D` record, a `Disposition:` line or a register row, `decisions.prefix`, `section` and `register` no longer shape what it writes, `--answers` is added to the record's end and is never required, and `--disposition held` is refused. Decision records a plan already holds stay as written and `runlist decisions` still reads them.
 - Decision IDs and written ranges take codes of up to 4 letters, or 2 to 4 letters and digits before a hyphen: `MLAS-2 to MLAS-5` names `MLAS-3`, and `PTR-2.3` does not name `PTR-2`.
 
 ## 0.108.4 — 2026-11-24

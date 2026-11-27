@@ -36,7 +36,7 @@ These apply where `runlist plans` shows a dashboard (a `runlist.config.mjs` or `
 - Write `next_step` and `current_state` with `runlist set <file> --next-step "…" [--current-state "…"]`; the status is optional, and a plan another session holds is refused.
 - Close a shipped plan with `runlist archive <file>`; use `partial`, `active`, `awaiting`, or `blocked` when those match the actual state. Valid statuses are repository and type specific: `runlist statuses list --type plan`.
 - For a plan handoff, `runlist baton @<draft-file>` releases the plan this session owns, and `runlist baton <plan-file> @<draft-file>` hands off a named one. If baton says `Handoff not done yet`, update the plan body, then run `runlist baton --done --next-step "<next move>"`. Baton prints a commit hint for the plan/source files only.
-- Record a decision with `runlist new decision <plan> --question "…" @<record-file>`; configured registers may also require `--answers`.
+- Put a question to the person with `runlist new decision <plan> --question "…" @<record-file>`: it adds `<CODE>-Q<n>` to the plan's `## Questions` with the record, and `--answers` is added to its end.
 - If a lifecycle mutation reports an abandoned transaction, inspect `runlist doctor --transactions` before retrying. Use `--apply` only for cases the doctor identifies as recoverable.
 
 The `PreToolUse` hook warns on direct pending-prompt reads and denies hand-edited status transitions or Git operations that would include a live prompt. A repo can opt into blocking direct reads of existing pending prompts with `guard: { promptReads: 'deny' }`. Archived prompts and `runlist prompts show` remain readable. These hooks live in your Codex `hooks.json`, and Codex runs them once you trust them in `/hooks`.

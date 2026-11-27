@@ -1295,7 +1295,7 @@ export function newHelpForRepo(config) {
   const roots = (config.docsRoots ?? [config.docsRoot]).map(r => path.basename(r));
   if (promptsOnly) return `This repo:\n${rows.join('\n')}\n  Plans and docs come with planning; \`runlist setup\` turns it on.`;
   rows.push(`  ${'hub'.padEnd(width)} → a plan with a hub body (coordination unless --runlist or --roadmap)`);
-  rows.push(`  ${'decision'.padEnd(width)} → an entry in an existing plan's decisions section`);
+  rows.push(`  ${'decision'.padEnd(width)} → a question at the end of an existing plan's Questions section`);
   return `This repo:
 ${rows.join('\n')}
   roots (for --root): ${roots.join(', ')}`;
@@ -1373,7 +1373,7 @@ function listTemplates(config) {
     return;
   }
   process.stdout.write(`  hub\n  ${dim('A plan with a hub body: coordination by default, --runlist or --roadmap for the others.')}\n\n`);
-  process.stdout.write(`  decision\n  ${dim('An entry in an existing plan\'s decisions section: runlist new decision <plan> --question "…" @record.md')}\n\n`);
+  process.stdout.write(`  decision\n  ${dim('A question in an existing plan\'s Questions section, as <CODE>-Q<n>: runlist new decision <plan> --question "…" @record.md')}\n\n`);
 }
 
 function runNewDecisionArgs(argv, config, opts) {

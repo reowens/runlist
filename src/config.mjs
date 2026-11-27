@@ -150,7 +150,7 @@ const DEFAULTS = {
   templates: {},
 
   glossary: null,
-  // `runlist new decision`: { section, prefix, register: { file, statusLine } }.
+  // `runlist decisions`: how existing decision records are read, register: { file, statusLine } included (src/decisions.mjs). `runlist new decision` writes a question and reads none of it.
   decisions: null,
   // `runlist questions` / `runlist question`: { types, paths, heading, fallbackHeading, answered, codeField } (src/questions.mjs).
   questions: null,
