@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { insertQuestion, nextQuestionNumber, questionItem } from '../src/decision.mjs';
-import { planQuestions } from '../src/questions.mjs';
+import { planQuestions, questionSettings } from '../src/questions.mjs';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'dotmd.mjs');
 let tmpDir;
@@ -71,6 +71,27 @@ describe('insertQuestion', () => {
     const out = insertQuestion(text, item);
     strictEqual(out.markdown, '## Decisions\n\n### D1  Old?\n\nDisposition: OPEN.\n\n## Questions\n\n3. AB-Q3 **Which way?** Record.\n\n## Version History\n\n- x\n');
     match(out.placement, /new `## Questions` before `Version History`/);
+  });
+
+  it('writes under the top-level Questions heading, never one nested in a workstream', () => {
+    const text = '## Work\n\n### Open questions\n\n1. **A?** x\n\n## Questions\n\n2. **B?** y\n';
+    const out = insertQuestion(text, item).markdown;
+    strictEqual(out, '## Work\n\n### Open questions\n\n1. **A?** x\n\n## Questions\n\n2. **B?** y\n\n3. AB-Q3 **Which way?** Record.\n');
+  });
+
+  it('adds a top-level Questions section beside nested ones, which are still read', () => {
+    const text = '---\ntype: plan\n---\n## Work\n\n### Open questions\n\n1. **A?** x\n';
+    const out = insertQuestion(text, item).markdown;
+    match(out, /### Open questions\n\n1\. \*\*A\?\*\* x\n\n## Questions\n\n3\. AB-Q3/);
+    deepStrictEqual(planQuestions(out).map(q => q.number), [1, 3]);
+  });
+
+  it('writes under the fallback heading of a plan read through it, so its questions stay read', () => {
+    const settings = questionSettings({ fallbackHeading: '^#{2,4}\\s+Waiting on you\\b' });
+    const text = '---\ntype: plan\n---\n## Waiting on you\n\n1. **A?** x\n\n## Phase 1\n';
+    const out = insertQuestion(text, item, settings).markdown;
+    strictEqual(out, '---\ntype: plan\n---\n## Waiting on you\n\n1. **A?** x\n\n3. AB-Q3 **Which way?** Record.\n\n## Phase 1\n');
+    deepStrictEqual(planQuestions(out, settings).map(q => q.number), [1, 3]);
   });
 
   it('adds the section at the end when there is nowhere better, and ignores a heading inside a fence', () => {

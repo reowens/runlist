@@ -61,15 +61,21 @@ export function questionItem({ number, id, title, record }) {
 }
 
 /**
- * The markdown with `item` (its lines) at the end of the first Questions
- * section, after its last line of text and before a closing rule, or in a new
- * `## Questions` before Version History or Closeout, else at the end. Pure.
+ * The markdown with `item` (its lines) at the end of the plan's top-level
+ * Questions section, after its last line of text and before a closing rule. A
+ * Questions heading nested in a workstream is that workstream's and is left
+ * alone. A plan read under its fallback heading, having no Questions heading
+ * at all, gets the item there, since a new `## Questions` would stop that
+ * section being read. Otherwise a new `## Questions` goes before Version
+ * History or Closeout, else at the end. Pure.
  */
 export function insertQuestion(markdown, item, settings = questionSettings({})) {
   const lines = markdown.split('\n');
   const bodyStart = lines[0] === '---' ? lines.indexOf('---', 1) + 1 : 0;
   const all = headings(lines, bodyStart);
-  const own = all.find(h => settings.headingRe.test(lines[h.index]));
+  const named = all.filter(h => settings.headingRe.test(lines[h.index]));
+  const own = named.find(h => h.level === 2)
+    ?? (!named.length && settings.fallbackRe ? all.find(h => settings.fallbackRe.test(lines[h.index])) : null);
   if (own) {
     const next = all.find(h => h.index > own.index && h.level <= own.level);
     let at = next ? next.index : lines.length;
